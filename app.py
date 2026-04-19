@@ -1,14 +1,17 @@
+
 from flask import Flask, request, jsonify, session, redirect, url_for, render_template
 import psycopg2, os, hashlib
 from datetime import timedelta
 
 app = Flask(__name__)
-app.secret_key = "yuanxing-secret-key"
+app.secret_key = os.environ.get("SECRET_KEY","yuanxing-secret-key")
 app.permanent_session_lifetime = timedelta(days=3650)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_conn():
+    if not DATABASE_URL:
+        raise Exception("DATABASE_URL not set")
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
@@ -31,7 +34,28 @@ def init_db():
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
+
     conn.commit()
+    conn.close()
+
+def one_time_reset_users():
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("SELECT value FROM meta WHERE key='users_reset_done'")
+    flag = c.fetchone()
+
+    if not flag:
+        c.execute("DELETE FROM users")
+        c.execute("INSERT INTO meta (key, value) VALUES ('users_reset_done','1')")
+        conn.commit()
+
     conn.close()
 
 def hash_pw(pw):
@@ -99,11 +123,7 @@ def get_inventory():
     rows = c.fetchall()
     conn.close()
 
-    items = [
-        {"id": r[0], "name": r[1], "qty": r[2]}
-        for r in rows
-    ]
-
+    items = [{"id": r[0], "name": r[1], "qty": r[2]} for r in rows]
     return jsonify(success=True, items=items)
 
 @app.route("/api/inventory/add", methods=["POST"])
@@ -120,15 +140,14 @@ def add_inventory():
 
     conn = get_conn()
     c = conn.cursor()
-
-    c.execute(
-        "INSERT INTO inventory (name, qty) VALUES (%s, %s)",
-        (name, qty)
-    )
-
+    c.execute("INSERT INTO inventory (name, qty) VALUES (%s, %s)", (name, qty))
     conn.commit()
     conn.close()
 
     return jsonify(success=True)
 
 init_db()
+one_time_reset_users()
+
+if __name__ == "__main__":
+    app.run()

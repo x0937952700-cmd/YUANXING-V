@@ -1,15 +1,9 @@
 <!DOCTYPE html>
 <html>
-<head>
-<meta charset="utf-8">
-<title>首頁</title>
-</head>
-<body>
-
+<head><meta charset="utf-8"><title>首頁</title></head>
+<body style="font-family:sans-serif;text-align:center">
 <h2>沅興木業系統</h2>
-
 <button onclick="load()">讀取庫存</button>
-
 <ul id="list"></ul>
 
 <h3>新增庫存</h3>
@@ -18,31 +12,20 @@
 <button onclick="add()">新增</button>
 
 <script>
-
 function load(){
- fetch("/api/inventory")
- .then(r=>r.json())
- .then(d=>{
-   let html=""
-   d.items.forEach(i=>{
-     html += `<li>${i.name} - ${i.qty}</li>`
-   })
-   document.getElementById("list").innerHTML = html
- })
+fetch("/api/inventory").then(r=>r.json()).then(d=>{
+let html=""
+d.items.forEach(i=> html += `<li>${i.name} - ${i.qty}</li>`)
+list.innerHTML = html
+})
 }
-
 function add(){
- fetch("/api/inventory/add",{
-   method:"POST",
-   headers:{ "Content-Type":"application/json"},
-   body:JSON.stringify({
-     name:document.getElementById("name").value,
-     qty:document.getElementById("qty").value
-   })
- }).then(()=>load())
+fetch("/api/inventory/add",{
+method:"POST",
+headers:{ "Content-Type":"application/json"},
+body:JSON.stringify({name:name.value,qty:qty.value})
+}).then(()=>load())
 }
-
 </script>
-
 </body>
 </html>
