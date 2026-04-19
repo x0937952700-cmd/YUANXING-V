@@ -1,62 +1,14 @@
 
 from flask import Flask, request, jsonify, session, redirect, url_for, render_template
-import psycopg2, os, hashlib
-from datetime import timedelta
+import psycopg2, os, hashlib, datetime
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY","yuanxing-secret-key")
-app.permanent_session_lifetime = timedelta(days=3650)
+app.secret_key = "yuanxing-final"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_conn():
-    if not DATABASE_URL:
-        raise Exception("DATABASE_URL not set")
     return psycopg2.connect(DATABASE_URL)
-
-def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE,
-        password TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS inventory (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        qty INTEGER
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )
-    """)
-
-    conn.commit()
-    conn.close()
-
-def one_time_reset_users():
-    conn = get_conn()
-    c = conn.cursor()
-
-    c.execute("SELECT value FROM meta WHERE key='users_reset_done'")
-    flag = c.fetchone()
-
-    if not flag:
-        c.execute("DELETE FROM users")
-        c.execute("INSERT INTO meta (key, value) VALUES ('users_reset_done','1')")
-        conn.commit()
-
-    conn.close()
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
@@ -64,10 +16,24 @@ def hash_pw(pw):
 def require_login():
     return "user" in session
 
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS inventory (name TEXT, qty INT)")
+    c.execute("CREATE TABLE IF NOT EXISTS orders (customer TEXT, product TEXT, qty INT, time TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS logs (user_name TEXT, action TEXT, time TEXT)")
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
 @app.route("/")
 def home():
     if not require_login():
-        return redirect(url_for("login_page"))
+        return redirect("/login")
     return render_template("home.html")
 
 @app.route("/login")
@@ -77,77 +43,86 @@ def login_page():
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.json
-    username = data.get("username")
-    password = data.get("password")
+    u = data["username"]
+    p = hash_pw(data["password"])
 
     conn = get_conn()
     c = conn.cursor()
 
     c.execute("SELECT * FROM users")
-    users = c.fetchall()
-
-    if len(users) == 0:
-        c.execute(
-            "INSERT INTO users (username, password) VALUES (%s, %s)",
-            (username, hash_pw(password))
-        )
+    if not c.fetchall():
+        c.execute("INSERT INTO users VALUES (%s,%s)", (u,p))
         conn.commit()
 
-    c.execute(
-        "SELECT * FROM users WHERE username=%s AND password=%s",
-        (username, hash_pw(password))
-    )
+    c.execute("SELECT * FROM users WHERE username=%s AND password=%s",(u,p))
     user = c.fetchone()
     conn.close()
 
     if user:
-        session["user"] = username
-        session.permanent = True
+        session["user"] = u
         return jsonify(success=True)
 
-    return jsonify(success=False, error="帳密錯誤")
+    return jsonify(success=False)
 
-@app.route("/api/logout")
-def logout():
-    session.clear()
-    return redirect("/login")
-
-@app.route("/api/inventory", methods=["GET"])
-def get_inventory():
+@app.route("/api/add_order", methods=["POST"])
+def add_order():
     if not require_login():
-        return jsonify(success=False), 401
+        return jsonify(success=False)
+
+    d = request.json
+    customer = d["customer"]
+    product = d["product"]
+    qty = int(d["qty"])
 
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT * FROM inventory")
-    rows = c.fetchall()
-    conn.close()
 
-    items = [{"id": r[0], "name": r[1], "qty": r[2]} for r in rows]
-    return jsonify(success=True, items=items)
+    # 扣庫存
+    c.execute("SELECT qty FROM inventory WHERE name=%s",(product,))
+    row = c.fetchone()
 
-@app.route("/api/inventory/add", methods=["POST"])
-def add_inventory():
-    if not require_login():
-        return jsonify(success=False), 401
+    if not row or row[0] < qty:
+        conn.close()
+        return jsonify(success=False, error="庫存不足")
 
-    data = request.json
-    name = data.get("name")
-    qty = int(data.get("qty", 0))
+    c.execute("UPDATE inventory SET qty=qty-%s WHERE name=%s",(qty,product))
 
-    if qty <= 0:
-        return jsonify(success=False, error="數量錯誤")
+    # 建立訂單
+    c.execute("INSERT INTO orders VALUES (%s,%s,%s,%s)",
+        (customer,product,qty,str(datetime.datetime.now())))
 
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("INSERT INTO inventory (name, qty) VALUES (%s, %s)", (name, qty))
+    # 紀錄
+    c.execute("INSERT INTO logs VALUES (%s,%s,%s)",
+        (session["user"],"建立訂單",str(datetime.datetime.now())))
+
     conn.commit()
     conn.close()
 
     return jsonify(success=True)
 
-init_db()
-one_time_reset_users()
+@app.route("/api/inventory", methods=["GET"])
+def inv():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT * FROM inventory")
+    data = c.fetchall()
+    conn.close()
+    return jsonify(data=data)
 
-if __name__ == "__main__":
-    app.run()
+@app.route("/api/add_inventory", methods=["POST"])
+def add_inv():
+    d = request.json
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("SELECT qty FROM inventory WHERE name=%s",(d["name"],))
+    row = c.fetchone()
+
+    if row:
+        c.execute("UPDATE inventory SET qty=qty+%s WHERE name=%s",(d["qty"],d["name"]))
+    else:
+        c.execute("INSERT INTO inventory VALUES (%s,%s)",(d["name"],d["qty"]))
+
+    conn.commit()
+    conn.close()
+    return jsonify(success=True)
