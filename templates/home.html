@@ -2,13 +2,32 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>系統主畫面</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>沅興木業</title>
 <style>
-body{font-family:sans-serif;background:#f5f5f5;text-align:center;padding-top:80px;}
+body{margin:0;font-family:system-ui;background:#f5f3ef;}
+.header{padding:20px;font-size:24px;font-weight:bold;text-align:center;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:20px;}
+.card{
+    background:#fff;
+    border-radius:20px;
+    padding:30px;
+    text-align:center;
+    font-size:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.08);
+}
 </style>
 </head>
 <body>
-<h1>沅興木業系統</h1>
-<p>系統已正常運行（主畫面可再接回原UI）</p>
+
+<div class="header">沅興木業系統</div>
+
+<div class="grid">
+    <div class="card">庫存（待接）</div>
+    <div class="card">訂單（待接）</div>
+    <div class="card">總單（待接）</div>
+    <div class="card">倉庫圖（待接）</div>
+</div>
+
 </body>
 </html>

@@ -235,7 +235,7 @@
     const customer = $(`#${mode}Customer`);
     if(customer) form.append("customer_keyword", customer.value.trim());
 
-    const res = await fetch("/api/upload_ocr", {method:"POST", body:form});
+    const res = await fetch(window.location.origin + "/api/upload_ocr", {method:"POST", body:form});
     const data = await res.json();
     if(!res.ok || data.success === false) throw new Error(data.error || "OCR失敗");
     state.currentOcrText = data.text || "";

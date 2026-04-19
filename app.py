@@ -12,5 +12,10 @@ def login_page():
 def home_page():
     return render_template("home.html")
 
+# fallback routes to avoid crash
+@app.errorhandler(500)
+def err(e):
+    return "系統錯誤，請重新整理", 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
