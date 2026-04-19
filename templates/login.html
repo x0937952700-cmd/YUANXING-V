@@ -1,0 +1,12 @@
+
+<input id=u><input id=p>
+<button onclick="l()">登入</button>
+<script>
+function l(){
+fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({username:u.value,password:p.value})})
+.then(r=>r.json()).then(d=>{
+if(d.success){localStorage.setItem("u",u.value);location="/"}
+})
+}
+</script>

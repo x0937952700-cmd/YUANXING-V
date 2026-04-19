@@ -1,0 +1,31 @@
+
+<link rel="stylesheet" href="/static/style.css">
+<div class="container">
+
+<div class="card">
+<input type="file" id="f">
+<button class="btn" onclick="ocr()">OCR辨識</button>
+</div>
+
+<div class="card">
+<textarea id="t"></textarea>
+<button class="btn">確認送出</button>
+</div>
+
+</div>
+
+<script>
+function ocr(){
+ let fd=new FormData()
+ fd.append("file",f.files[0])
+ fetch("/api/ocr",{method:"POST",body:fd})
+ .then(r=>r.json())
+ .then(d=>{
+  if(d.error){alert(d.error);return}
+  t.value=d.text
+  if(d.confidence<80){
+    alert("請確認辨識內容")
+  }
+ })
+}
+</script>
