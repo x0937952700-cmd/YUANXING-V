@@ -20,3 +20,25 @@
   </form>
 </div>
 {% endblock %}
+
+<script>
+async function login(){
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+    try{
+        const res = await fetch(window.location.origin + "/login", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({username, password})
+        });
+        const data = await res.json();
+        if(!res.ok){
+            document.getElementById("msg").innerText = data.msg || "登入失敗";
+            return;
+        }
+        window.location.href = "/home";
+    }catch(e){
+        document.getElementById("msg").innerText = "系統連線失敗";
+    }
+}
+</script>
