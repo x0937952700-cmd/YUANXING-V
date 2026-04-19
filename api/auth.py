@@ -1,32 +1,79 @@
-from flask import Blueprint, jsonify, request, session
 
-from models import User
-from utils import current_user
+from flask import Blueprint, request, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+import psycopg2, os
 
-auth_api = Blueprint("auth_api", __name__, url_prefix="/api/auth")
+auth_api = Blueprint("auth_api", __name__)
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
-@auth_api.get("/me")
-def me():
-    user = current_user()
-    return jsonify({"ok": True, "user": user.to_dict() if user else None})
+def init_users():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        password TEXT,
+        role TEXT DEFAULT 'user'
+    )
+    """)
+    conn.commit()
+    conn.close()
 
+init_users()
 
-@auth_api.post("/login")
+@auth_api.route("/register", methods=["POST"])
+def register():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+
+    conn = get_conn()
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM users WHERE username=%s",(username,))
+    if c.fetchone():
+        return jsonify({"msg":"帳號已存在"}),400
+
+    hashed = generate_password_hash(password)
+    role = "admin" if username=="陳韋廷" else "user"
+
+    c.execute("INSERT INTO users (username,password,role) VALUES (%s,%s,%s)",
+              (username,hashed,role))
+    conn.commit()
+    conn.close()
+    return jsonify({"msg":"註冊成功","role":role})
+
+@auth_api.route("/login", methods=["POST"])
 def login():
-    data = request.get_json(silent=True) or {}
-    username = (data.get("username") or "").strip()
-    password = data.get("password") or ""
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
 
-    user = User.query.filter_by(username=username).first()
-    if not user or not user.verify_password(password):
-        return jsonify({"ok": False, "error": "帳號或密碼錯誤"}), 400
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT password,role FROM users WHERE username=%s",(username,))
+    user = c.fetchone()
+    conn.close()
 
-    session["user_id"] = user.id
-    return jsonify({"ok": True, "user": user.to_dict()})
+    if not user:
+        return jsonify({"msg":"帳號不存在"}),400
 
+    stored, role = user
+    if not check_password_hash(stored,password):
+        return jsonify({"msg":"密碼錯誤"}),400
 
-@auth_api.post("/logout")
-def logout():
-    session.clear()
-    return jsonify({"ok": True})
+    return jsonify({"msg":"登入成功","username":username,"role":role})
+
+@auth_api.route("/reset_password")
+def reset():
+    conn = get_conn()
+    c = conn.cursor()
+    pw = generate_password_hash("123456")
+    c.execute("UPDATE users SET password=%s WHERE username='陳韋廷'",(pw,))
+    conn.commit()
+    conn.close()
+    return "reset ok"
