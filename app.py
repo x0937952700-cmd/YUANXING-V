@@ -1,9 +1,10 @@
 
 from flask import Flask, request, jsonify, session, redirect, render_template
-import os, psycopg2, hashlib
+import os, psycopg2, hashlib, base64
+from google.cloud import vision
 
 app = Flask(__name__)
-app.secret_key = "final-auth"
+app.secret_key = "final-pro"
 
 def conn():
     return psycopg2.connect(os.environ.get("DATABASE_URL"))
@@ -12,61 +13,58 @@ def hash_pw(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def init_db():
-    db = conn()
-    c = db.cursor()
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users(
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE,
-        password TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-
+    db=conn();c=db.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY,password TEXT)")
     db.commit()
 
 init_db()
 
+# ---------- LOGIN ----------
 @app.route("/")
 def home():
     if "user" not in session:
         return redirect("/login")
-    return render_template("home.html", user=session["user"])
+    return render_template("home.html")
 
 @app.route("/login")
-def login_page():
+def login():
     return render_template("login.html")
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/login")
-
-@app.route("/api/login", methods=["POST"])
+@app.route("/api/login",methods=["POST"])
 def api_login():
-    data = request.json
-    username = data.get("username")
-    password = hash_pw(data.get("password"))
+    d=request.json
+    u=d["username"]
+    p=hash_pw(d["password"])
 
-    db = conn()
-    c = db.cursor()
+    db=conn();c=db.cursor()
+    c.execute("SELECT password FROM users WHERE username=%s",(u,))
+    r=c.fetchone()
 
-    # 查帳號
-    c.execute("SELECT password FROM users WHERE username=%s", (username,))
-    user = c.fetchone()
-
-    # 不存在 → 註冊
-    if not user:
-        c.execute("INSERT INTO users(username, password) VALUES(%s,%s)", (username, password))
+    if not r:
+        c.execute("INSERT INTO users VALUES(%s,%s)",(u,p))
         db.commit()
-        session["user"] = username
-        return jsonify(success=True, mode="register")
+        session["user"]=u
+        return jsonify(success=True)
 
-    # 存在 → 登入
-    if user[0] == password:
-        session["user"] = username
-        return jsonify(success=True, mode="login")
+    if r[0]==p:
+        session["user"]=u
+        return jsonify(success=True)
 
     return jsonify(success=False)
 
+# ---------- GOOGLE OCR ----------
+@app.route("/api/ocr", methods=["POST"])
+def ocr():
+    file = request.files["file"]
+    content = file.read()
+
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=content)
+
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+
+    if not texts:
+        return jsonify(text="", confidence=0)
+
+    return jsonify(text=texts[0].description, confidence=90)
