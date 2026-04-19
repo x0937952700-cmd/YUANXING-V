@@ -1,29 +1,56 @@
 
-<html><body>
-<h3>拖拉倉庫</h3>
-<div id="grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px"></div>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<h3>倉庫（點商品→高亮 / 指派格位）</h3>
+<div class="grid" id="grid"></div>
+<ul id="items"></ul>
 
 <script>
-let sel=null
-for(let i=1;i<=20;i++){
- let d=document.createElement("div")
- d.innerText=i
- d.draggable=true
- d.style.border="1px solid"
- d.style.padding="20px"
- d.ondragstart=()=>sel=d
- d.ondragover=e=>e.preventDefault()
- d.ondrop=()=>{
-   if(sel){
-     let t=d.innerText
-     d.innerText=sel.innerText
-     sel.innerText=t
-   }
- }
- grid.appendChild(d)
+let selected=null;
+const params=new URLSearchParams(location.search);
+const focus=params.get('focus');
+
+function build(){
+grid.innerHTML='';
+for(let i=1;i<=30;i++){
+ let d=document.createElement('div');
+ d.className='cell';
+ d.dataset.loc='A-'+i;
+ d.innerText='A-'+i;
+ d.onclick=()=>{
+  if(selected){
+    fetch('/api/inventory/set_loc',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:selected,loc:d.dataset.loc})}).then(()=>highlight(selected));
+  }
+ };
+ grid.appendChild(d);
+}
 }
 
-// polling sync
-setInterval(()=>{console.log("sync")},2000)
+function load(){
+fetch('/api/inventory/list').then(r=>r.json()).then(d=>{
+ items.innerHTML='';
+ d.items.forEach(i=>{
+  let li=document.createElement('li');
+  li.innerText=i.name+'('+i.qty+')';
+  li.onclick=()=>{selected=i.name; highlight(i.name);}
+  if(focus && i.name===focus){selected=i.name; setTimeout(()=>highlight(i.name),300);}
+  items.appendChild(li);
+ });
+});
+}
+
+function highlight(name){
+fetch('/api/inventory/list').then(r=>r.json()).then(d=>{
+ document.querySelectorAll('.cell').forEach(c=>c.classList.remove('active'));
+ let it=d.items.find(x=>x.name===name);
+ if(it && it.loc){
+  let el=[...document.querySelectorAll('.cell')].find(c=>c.dataset.loc===it.loc);
+  if(el){ el.classList.add('active'); el.scrollIntoView({behavior:'smooth',block:'center'}); }
+ }
+});
+}
+
+build(); load();
 </script>
 </body></html>

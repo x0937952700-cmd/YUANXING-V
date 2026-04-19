@@ -1,12 +1,15 @@
 
-<html><body>
-<input id="u"><input id="p" type="password">
-<button onclick="go()">登入</button>
+<html><head><link rel="stylesheet" href="/static/style.css"></head>
+<body><div class="card">
+<h2>ERP PRO</h2>
+<input id=u placeholder=帳號><br>
+<input id=p type=password placeholder=密碼><br>
+<button class=btn onclick=go()>登入</button>
+</div>
 <script>
 function go(){
 fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
-body:JSON.stringify({username:u.value,password:p.value})})
-.then(r=>r.json()).then(d=>{if(d.success)location='/'})
+body:JSON.stringify({u:u.value,p:p.value})})
+.then(r=>r.json()).then(d=>{if(d.ok)location='/'})
 }
-</script>
-</body></html>
+</script></body></html>

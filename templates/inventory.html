@@ -1,49 +1,38 @@
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css"></head>
-<body>
-<h3>OCR辨識</h3>
-<input type="file" id="file">
-<div id="loading"></div>
-<textarea id="text" style="width:90%;height:120px"></textarea><br>
-<button onclick="upload()">辨識</button>
-<button onclick="createOrder()">建立訂單(扣庫存)</button>
 
-<h3>庫存列表</h3>
-<ul id="list"></ul>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="card">
+<h3>OCR / 新增庫存</h3>
+<input type="file" id="f"><br><br>
+<textarea id="t" style="width:100%;height:100px"></textarea><br>
+<button class="btn" onclick="ocr()">辨識</button>
+<button class="btn" onclick="add()">入庫</button>
+</div>
+
+<div class="card"><h3>庫存列表（點擊→定位倉庫）</h3><ul id="list"></ul></div>
 
 <script>
-function upload(){
- let f=document.getElementById('file').files[0];
- if(!f){alert('請選擇圖片');return}
- let fd=new FormData(); fd.append('file',f);
- loading.innerText='辨識中...';
- fetch('/api/ocr',{method:'POST',body:fd})
- .then(r=>r.json()).then(d=>{
-  loading.innerText='';
-  text.value=d.text;
-  if(d.confidence<80) alert('⚠️ 信心值低');
- }).catch(()=>{loading.innerText=''; alert('OCR失敗')});
+function ocr(){
+let fd=new FormData(); fd.append('file', f.files[0]);
+fetch('/api/ocr',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+ t.value=d.text; if(d.confidence<80) alert('信心低');
+});
 }
-
-function createOrder(){
- fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},
- body:JSON.stringify({customer:'測試', product:text.value, qty:1})})
- .then(r=>r.json()).then(d=>{ if(!d.success) alert(d.error||'失敗'); load();});
+function add(){
+fetch('/api/inventory/add',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({name:t.value,qty:1})}).then(()=>load());
 }
-
 function load(){
- fetch('/api/inventory/list').then(r=>r.json()).then(d=>{
-  list.innerHTML='';
-  d.items.forEach(i=>{
-    let li=document.createElement('li');
-    li.innerText = `${i.name} - ${i.qty} [${i.loc||''}]`;
-    li.onclick=()=>{ location.href='/warehouse?focus='+encodeURIComponent(i.name); }
-    list.appendChild(li);
-  })
- })
+fetch('/api/inventory/list').then(r=>r.json()).then(d=>{
+ list.innerHTML='';
+ d.items.forEach(i=>{
+  let li=document.createElement('li');
+  li.innerText = i.name + ' ('+i.qty+') ['+(i.loc||'')+']';
+  li.onclick=()=>location='/warehouse?focus='+encodeURIComponent(i.name);
+  list.appendChild(li);
+ });
+});
 }
 load();
 </script>
-</body>
-</html>
+</body></html>

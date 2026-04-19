@@ -1,11 +1,29 @@
 
-<html><body>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="card">
 <h3>出貨</h3>
-<input id="p"><input id="q"><button onclick="send()">出貨</button>
+<input id="p" placeholder="商品"><br>
+<input id="q" placeholder="數量"><br>
+<button class="btn" onclick="ship()">出貨</button>
+</div>
+<div class="card"><h3>出貨查詢</h3><ul id="list"></ul></div>
 <script>
-function send(){
-fetch("/api/shipping",{method:"POST",headers:{"Content-Type":"application/json"},
-body:JSON.stringify({customer:"測試",product:p.value,qty:q.value})})
+function ship(){
+fetch('/api/shipping',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({customer:'測試',product:p.value,qty:parseInt(q.value||'0')})})
+.then(()=>load());
 }
+function load(){
+fetch('/api/shipping/list').then(r=>r.json()).then(d=>{
+ list.innerHTML='';
+ d.items.forEach(i=>{
+  let li=document.createElement('li');
+  li.innerText=i.customer+' - '+i.product+' x '+i.qty+' @ '+i.time;
+  list.appendChild(li);
+ });
+});
+}
+load();
 </script>
 </body></html>

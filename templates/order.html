@@ -1,0 +1,10 @@
+
+<h2>訂單</h2>
+<input id="c"><input id="p"><input id="q"><button onclick="send()">送出</button>
+<script>
+function send(){
+fetch("/api/order/create",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({customer:c.value,product:p.value,qty:parseInt(q.value)})})
+.then(r=>r.json()).then(d=>alert(d.success?"成功":d.error))
+}
+</script>
