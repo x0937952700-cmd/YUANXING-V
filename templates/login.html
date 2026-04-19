@@ -1,0 +1,17 @@
+<html>
+<head><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="card">
+<h2>沅興木業</h2>
+<input id="u" placeholder="姓名"><br>
+<input id="p" type="password" placeholder="密碼"><br>
+<button class="btn" onclick="login()">登入</button>
+</div>
+<script>
+function login(){
+fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({username:u.value,password:p.value})})
+.then(r=>r.json()).then(d=>{if(d.success)location="/"})
+}
+</script>
+</body></html>

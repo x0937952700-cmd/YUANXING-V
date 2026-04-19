@@ -1,0 +1,12 @@
+<html><body>
+<input id=name placeholder="商品">
+<input id=qty placeholder="數量">
+<button onclick="send()">建立訂單</button>
+
+<script>
+function send(){
+fetch("/api/order",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({name:name.value,qty:parseInt(qty.value)})})
+.then(r=>r.json()).then(d=>alert(d.success?"成功":d.error))
+}
+</script></body></html>

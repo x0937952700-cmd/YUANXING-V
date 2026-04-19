@@ -1,0 +1,16 @@
+<html>
+<body>
+<input type="file" id="f">
+<button onclick="ocr()">辨識</button>
+<textarea id="t"></textarea>
+<script>
+function ocr(){
+let fd=new FormData()
+fd.append("file",f.files[0])
+fetch("/api/ocr",{method:"POST",body:fd})
+.then(r=>r.json()).then(d=>{
+t.value = d.text + " (信心:"+d.confidence+")"
+})
+}
+</script>
+</body></html>

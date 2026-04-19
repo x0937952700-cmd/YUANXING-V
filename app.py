@@ -1,70 +1,55 @@
 
-from flask import Flask, request, jsonify, session, redirect, render_template
-import os, psycopg2, hashlib, base64
-from google.cloud import vision
+from flask import Flask, render_template, request, jsonify
+import json, os
 
 app = Flask(__name__)
-app.secret_key = "final-pro"
+DATA="data.json"
 
-def conn():
-    return psycopg2.connect(os.environ.get("DATABASE_URL"))
+def load():
+    if not os.path.exists(DATA):
+        return {"warehouse":{}, "inventory":{}}
+    return json.load(open(DATA))
 
-def hash_pw(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+def save(d):
+    json.dump(d, open(DATA,"w"))
 
-def init_db():
-    db=conn();c=db.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS users(username TEXT PRIMARY KEY,password TEXT)")
-    db.commit()
-
-init_db()
-
-# ---------- LOGIN ----------
 @app.route("/")
 def home():
-    if "user" not in session:
-        return redirect("/login")
     return render_template("home.html")
 
-@app.route("/login")
-def login():
-    return render_template("login.html")
+@app.route("/warehouse")
+def wh():
+    return render_template("warehouse.html")
 
-@app.route("/api/login",methods=["POST"])
-def api_login():
+@app.route("/api/load")
+def api_load():
+    return jsonify(load())
+
+@app.route("/api/save",methods=["POST"])
+def api_save():
     d=request.json
-    u=d["username"]
-    p=hash_pw(d["password"])
+    save(d)
+    return jsonify(success=True)
 
-    db=conn();c=db.cursor()
-    c.execute("SELECT password FROM users WHERE username=%s",(u,))
-    r=c.fetchone()
+@app.route("/api/add_inventory",methods=["POST"])
+def add_inv():
+    d=request.json
+    data=load()
+    name=d["name"]
+    data["inventory"][name]=data["inventory"].get(name,0)+1
+    save(data)
+    return jsonify(success=True)
 
-    if not r:
-        c.execute("INSERT INTO users VALUES(%s,%s)",(u,p))
-        db.commit()
-        session["user"]=u
-        return jsonify(success=True)
+@app.route("/api/find")
+def find():
+    name=request.args.get("name")
+    data=load()
+    result=[]
+    for k,v in data["warehouse"].items():
+        if any(name in x for x in v):
+            result.append(k)
+    return jsonify(cells=result)
 
-    if r[0]==p:
-        session["user"]=u
-        return jsonify(success=True)
-
-    return jsonify(success=False)
-
-# ---------- GOOGLE OCR ----------
-@app.route("/api/ocr", methods=["POST"])
+@app.route("/api/ocr",methods=["POST"])
 def ocr():
-    file = request.files["file"]
-    content = file.read()
-
-    client = vision.ImageAnnotatorClient()
-    image = vision.Image(content=content)
-
-    response = client.text_detection(image=image)
-    texts = response.text_annotations
-
-    if not texts:
-        return jsonify(text="", confidence=0)
-
-    return jsonify(text=texts[0].description, confidence=90)
+    return jsonify(text="測試商品")

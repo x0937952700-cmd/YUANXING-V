@@ -1,4 +1,2 @@
 flask
-psycopg2-binary
 gunicorn
-google-cloud-vision

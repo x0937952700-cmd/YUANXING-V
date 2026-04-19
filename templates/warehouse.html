@@ -1,0 +1,78 @@
+
+<html><head><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+
+<h2>最終整合倉庫</h2>
+
+<input id="search" placeholder="搜尋商品" oninput="searchItem()">
+
+<div class="grid" id="grid"></div>
+
+<input id="item" placeholder="商品">
+<button onclick="add()">加入</button>
+
+<script>
+let data={}
+let selected=null
+
+function init(){
+fetch("/api/load").then(r=>r.json()).then(d=>{
+data=d
+if(!data.warehouse)data.warehouse={}
+render()
+})
+}
+
+function render(){
+let g=document.getElementById("grid")
+g.innerHTML=""
+for(let i=1;i<=60;i++){
+ let c=document.createElement("div")
+ c.className="cell"
+ c.dataset.id=i
+ c.onclick=()=>selected=i
+
+ if(data.warehouse[i]){
+   data.warehouse[i].forEach(x=>{
+     let el=document.createElement("div")
+     el.className="item"
+     el.innerText=x
+     c.appendChild(el)
+   })
+ }
+
+ g.appendChild(c)
+}
+}
+
+function add(){
+if(!selected)return alert("選格子")
+let name=document.getElementById("item").value
+if(!data.warehouse[selected])data.warehouse[selected]=[]
+data.warehouse[selected].push(name)
+
+fetch("/api/add_inventory",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({name:name})})
+
+save()
+}
+
+function save(){
+fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify(data)}).then(render)
+}
+
+function searchItem(){
+let s=document.getElementById("search").value
+document.querySelectorAll(".cell").forEach(c=>c.classList.remove("active"))
+fetch("/api/find?name="+s).then(r=>r.json()).then(d=>{
+d.cells.forEach(id=>{
+document.querySelector(`[data-id='${id}']`).classList.add("active")
+})
+})
+}
+
+init()
+</script>
+
+</body></html>
