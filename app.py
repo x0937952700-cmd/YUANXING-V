@@ -1,3 +1,4 @@
+from api.auth import auth_api
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from datetime import timedelta
 import os
@@ -20,6 +21,7 @@ from ocr import process_ocr_text
 from backup import run_daily_backup, list_backups
 
 app = Flask(__name__)
+app.register_blueprint(auth_api)
 app.secret_key = os.getenv("SECRET_KEY", "yuanxing-secret")
 app.permanent_session_lifetime = timedelta(days=30)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
