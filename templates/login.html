@@ -6,7 +6,9 @@ function l(){
 fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
 body:JSON.stringify({username:u.value,password:p.value})})
 .then(r=>r.json()).then(d=>{
-if(d.success){localStorage.setItem("u",u.value);location="/"}
-})
+if(d.success){
+localStorage.setItem("user",u.value)
+location="/"
+}})
 }
 </script>

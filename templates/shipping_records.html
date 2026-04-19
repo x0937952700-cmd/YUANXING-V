@@ -1,24 +1,16 @@
 
 <link rel="stylesheet" href="/static/style.css">
 <div class="container">
-
-<div class="title">出貨查詢</div>
-
 <div class="card">
-<table width="100%">
-<tr><th>客戶</th><th>商品</th><th>數量</th></tr>
-<tbody id="list"></tbody>
-</table>
+<table width="100%" id="t"></table>
 </div>
-
 </div>
-
 <script>
 fetch("/api/logs").then(r=>r.json()).then(d=>{
- let html=""
- d.items.forEach(i=>{
-  html+=`<tr><td>${i.user}</td><td>${i.action}</td><td>${i.time}</td></tr>`
- })
- list.innerHTML=html
+let html=""
+d.items.forEach(i=>{
+html+=`<tr><td>${i.user}</td><td>${i.action}</td><td>${i.time}</td></tr>`
+})
+t.innerHTML=html
 })
 </script>

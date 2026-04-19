@@ -1,0 +1,10 @@
+<link rel="stylesheet" href="/static/style.css"><div class="container"><div class="card">
+<input id="n"><input id="q">
+<button onclick="add()">入庫</button>
+<script>
+function add(){
+fetch("/api/inventory/add",{method:"POST",headers:{"Content-Type":"application/json"},
+body:JSON.stringify({name:n.value,qty:parseInt(q.value),user:"admin"})})
+}
+</script>
+</div></div>

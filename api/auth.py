@@ -1,16 +1,15 @@
 
-from flask import Blueprint,request,jsonify,session
-from services.db import load,save
-auth_api=Blueprint("auth_api",__name__)
+from flask import Blueprint, request, jsonify, session
 
-@auth_api.route("/api/login",methods=["POST"])
+auth_api = Blueprint("auth_api", __name__)
+users={}
+
+@auth_api.route("/api/login", methods=["POST"])
 def login():
     d=request.json
-    db=load()
-    if d["username"] not in db["users"]:
-        db["users"][d["username"]]=d["password"]
-    if db["users"][d["username"]]==d["password"]:
+    if d["username"] not in users:
+        users[d["username"]]=d["password"]
+    if users[d["username"]]==d["password"]:
         session["user"]=d["username"]
-        save(db)
         return jsonify(success=True)
     return jsonify(success=False)
