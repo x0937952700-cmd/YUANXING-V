@@ -1,8 +1,0 @@
-<link rel="stylesheet" href="/static/style.css"><div class="container"><div class="card">
-<div id="l"></div>
-<script>
-fetch("/api/logs").then(r=>r.json()).then(d=>{
-l.innerText=JSON.stringify(d.items,null,2)
-})
-</script>
-</div></div>
