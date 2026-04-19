@@ -1,96 +1,22 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>沅興木業</title>
+{% extends "base.html" %}
+{% block body %}
+<div class="login-wrap">
+  <div class="brand-card">
+    <div class="brand-mark">沅</div>
+    <div>
+      <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
+      <h1>沅興木業</h1>
+    </div>
+  </div>
 
-<style>
-body{
-    margin:0;
-    background:#f5f3ef;
-    font-family:system-ui;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-}
-
-.card{
-    width:360px;
-    background:#fff;
-    border-radius:24px;
-    padding:30px;
-    box-shadow:0 10px 40px rgba(0,0,0,0.1);
-}
-
-.title{
-    font-size:28px;
-    font-weight:bold;
-    margin-bottom:20px;
-}
-
-input{
-    width:100%;
-    padding:14px;
-    margin:10px 0;
-    border-radius:12px;
-    border:1px solid #ddd;
-    font-size:16px;
-}
-
-button{
-    width:100%;
-    padding:14px;
-    border:none;
-    border-radius:20px;
-    background:#2b2b2b;
-    color:#fff;
-    font-size:18px;
-    margin-top:10px;
-}
-
-.msg{
-    margin-top:10px;
-    color:red;
-}
-</style>
-</head>
-
-<body>
-
-<div class="card">
-    <div class="title">沅興木業</div>
-
-    <input id="username" placeholder="輸入姓名">
-    <input id="password" type="password" placeholder="設定/輸入密碼">
-
-    <button onclick="login()">登入</button>
-
-    <div id="msg" class="msg"></div>
+  <form id="loginForm" class="panel login-panel">
+    <label>帳號</label>
+    <input id="username" name="username" autocomplete="username" placeholder="員工姓名" required>
+    <label>密碼</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="第一次登入輸入密碼" required>
+    <button class="btn primary full" type="submit">登入</button>
+    <p class="muted small">首次登入會自動建立帳號。</p>
+    <div id="loginError" class="error-box"></div>
+  </form>
 </div>
-
-<script>
-async function login(){
-    let res = await fetch("/login",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            username:username.value,
-            password:password.value
-        })
-    })
-
-    let data = await res.json()
-
-    if(!res.ok){
-        msg.innerText = data.msg
-        return
-    }
-
-    alert(data.msg)
-}
-</script>
-
-</body>
-</html>
+{% endblock %}

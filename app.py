@@ -85,7 +85,6 @@ def redirect_login():
 # ---------- pages ----------
 @app.route("/")
 def home():
-    return render_template("login.html")
     if not require_login():
         return redirect_login()
     summary = dashboard_summary()
@@ -659,3 +658,8 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+
+@app.route("/home")
+def go_home():
+    return render_template("home.html")

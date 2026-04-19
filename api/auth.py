@@ -37,7 +37,6 @@ def login():
     c.execute("SELECT password, role FROM users WHERE username=?", (username,))
     user = c.fetchone()
 
-    # 👉 沒帳號 = 自動註冊
     if not user:
         role = "admin" if username == "陳韋廷" else "user"
         hashed = generate_password_hash(password)
@@ -45,7 +44,7 @@ def login():
                   (username, hashed, role))
         conn.commit()
         conn.close()
-        return jsonify({"msg":"首次登入，已自動建立帳號","username":username,"role":role})
+        return jsonify({"msg":"首次登入成功","username":username,"role":role})
 
     stored, role = user
 
