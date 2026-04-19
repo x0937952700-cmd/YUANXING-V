@@ -85,6 +85,7 @@ def redirect_login():
 # ---------- pages ----------
 @app.route("/")
 def home():
+    return render_template("login.html")
     if not require_login():
         return redirect_login()
     summary = dashboard_summary()

@@ -1,22 +1,37 @@
-{% extends "base.html" %}
-{% block body %}
-<div class="login-wrap">
-  <div class="brand-card">
-    <div class="brand-mark">沅</div>
-    <div>
-      <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
-      <h1>沅興木業</h1>
-    </div>
-  </div>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>登入</title>
+</head>
+<body>
+<h2>登入系統</h2>
+<input id="username" placeholder="帳號"><br>
+<input id="password" type="password" placeholder="密碼"><br>
+<button onclick="login()">登入</button>
+<p id="msg" style="color:red"></p>
 
-  <form id="loginForm" class="panel login-panel">
-    <label>帳號</label>
-    <input id="username" name="username" autocomplete="username" placeholder="員工姓名" required>
-    <label>密碼</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" placeholder="第一次登入輸入密碼" required>
-    <button class="btn primary full" type="submit">登入</button>
-    <p class="muted small">首次登入會自動建立帳號。</p>
-    <div id="loginError" class="error-box"></div>
-  </form>
-</div>
-{% endblock %}
+<script>
+async function login(){
+    try{
+        let res = await fetch("/login",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+                username:document.getElementById("username").value,
+                password:document.getElementById("password").value
+            })
+        })
+        let data = await res.json()
+        if(!res.ok){
+            msg.innerText = data.msg
+            return
+        }
+        alert("登入成功")
+    }catch(e){
+        msg.innerText = "請求失敗"
+    }
+}
+</script>
+</body>
+</html>
