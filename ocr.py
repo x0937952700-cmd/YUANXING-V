@@ -1,158 +1,92 @@
 
-import re
-from difflib import get_close_matches
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+import cv2, pytesseract, requests, os
+from google.cloud import vision
+from datetime import datetime
 
-from db import get_db, log_error, get_corrections, list_inventory
+def preprocess(img_path):
+    img = cv2.imread(img_path)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    lower_blue = (90,50,50)
+    upper_blue = (140,255,255)
+    mask = cv2.inRange(hsv, lower_blue, upper_blue)
+    res = cv2.bitwise_and(img,img,mask=mask)
+    gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
+    return gray
 
-try:
-    import pytesseract
-except Exception:
-    pytesseract = None
+def ocr_tesseract(path):
+    img = preprocess(path)
+    text = pytesseract.image_to_string(img)
+    return text, 65
 
-NOISE_WORDS = [
-    "全部筆記", "昨天", "今天", "備忘錄", "新增", "完成", "搜尋",
-    "筆記", "ocr", "key", "掃描文件", "編輯", "返回", "分享"
-]
+def ocr_ocrspace(path):
+    url = 'https://api.ocr.space/parse/image'
+    payload = {'apikey': os.environ.get("OCR_SPACE_API_KEY")}
+    with open(path,'rb') as f:
+        r = requests.post(url, files={'file':f}, data=payload)
+    try:
+        text = r.json()['ParsedResults'][0]['ParsedText']
+        return text, 75
+    except:
+        return "",0
 
-def preprocess_image(image_path):
-    img = Image.open(image_path)
-    img = ImageOps.exif_transpose(img)
-    img = img.convert("L")
-    width, height = img.size
-    if width < 1200:
-        img = img.resize((width * 2, height * 2))
-    img = img.filter(ImageFilter.MedianFilter())
-    img = ImageEnhance.Contrast(img).enhance(2.2)
-    img = ImageEnhance.Sharpness(img).enhance(1.8)
-    return img
+def ocr_google(path):
+    client = vision.ImageAnnotatorClient()
+    with open(path,'rb') as f:
+        content=f.read()
+    image=vision.Image(content=content)
+    res = client.text_detection(image=image)
+    if res.text_annotations:
+        return res.text_annotations[0].description, 95
+    return "",0
 
-def normalize_text(text):
-    text = (text or "").strip()
-    replace_map = {
-        " ": "",
-        "×": "x",
-        "X": "x",
-        "：": ":",
-        "O": "0",
-        "o": "0",
-        "I": "1",
-        "l": "1",
-        "|": "1",
-        "（": "(",
-        "）": ")",
-        "＊": "*",
-        "﹡": "*",
-    }
-    for old, new in replace_map.items():
-        text = text.replace(old, new)
+def get_month():
+    return datetime.now().strftime("%Y-%m")
+
+def get_google_count(conn):
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS ocr_usage(month TEXT PRIMARY KEY, google_count INT)")
+    m = get_month()
+    c.execute("SELECT google_count FROM ocr_usage WHERE month=%s",(m,))
+    r = c.fetchone()
+    if not r:
+        c.execute("INSERT INTO ocr_usage VALUES(%s,0)",(m,))
+        conn.commit()
+        return 0
+    return r[0]
+
+def add_google_count(conn):
+    c = conn.cursor()
+    m = get_month()
+    c.execute("UPDATE ocr_usage SET google_count=google_count+1 WHERE month=%s",(m,))
+    conn.commit()
+
+def can_use_google(conn):
+    return get_google_count(conn) < 980
+
+def apply_ai_fix(text, conn):
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS ai_fix(wrong TEXT, correct TEXT)")
+    c.execute("SELECT wrong, correct FROM ai_fix")
+    for w,corr in c.fetchall():
+        text = text.replace(w, corr)
     return text
 
-def is_noise_line(text):
-    low = text.lower()
-    if not text.strip():
-        return True
-    for noise in NOISE_WORDS:
-        if noise.lower() in low:
-            return True
-    if re.match(r"^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$", text):
-        return True
-    if re.match(r"^\d{1,2}:\d{2}$", text):
-        return True
-    if re.match(r"^\d{1,3}$", text):
-        return True
-    return False
+def is_valid(text):
+    return "x" in text and "=" in text
 
-def get_known_products():
-    rows = list_inventory()
-    return [r["product_text"] for r in rows if r.get("product_text")]
+def run_ocr(path, conn):
+    text, conf = ocr_tesseract(path)
 
-def apply_ai_correction(product_name):
-    product_name = normalize_text(product_name)
-    corrections = get_corrections()
-    if product_name in corrections:
-        return corrections[product_name]
-    known_products = get_known_products()
-    if known_products:
-        matches = get_close_matches(product_name, known_products, n=1, cutoff=0.72)
-        if matches:
-            return matches[0]
-    return product_name
+    if conf < 70 or not is_valid(text):
+        t2,c2 = ocr_ocrspace(path)
+        if c2 > conf:
+            text, conf = t2, c2
 
-def parse_line(line):
-    line = normalize_text(line)
-    # split on = or : then quantity
-    patterns = [
-        r"(.+?)[=:](\d+)$",
-        r"(.+?)[x](\d+)$",
-        r"(.+?)\*(\d+)$",
-        r"(.+?)\s+(\d+)$",
-    ]
-    for p in patterns:
-        m = re.match(p, line)
-        if m:
-            return m.group(1).strip(), int(m.group(2))
-    return line, 1
+    if (conf < 80 or not is_valid(text)) and can_use_google(conn):
+        t3,c3 = ocr_google(path)
+        if c3 > conf:
+            text, conf = t3, c3
+        add_google_count(conn)
 
-def parse_ocr_text(text):
-    lines = []
-    items = []
-    for raw in (text or "").splitlines():
-        raw = raw.strip()
-        if not raw or is_noise_line(raw):
-            continue
-        product_raw, qty = parse_line(raw)
-        if is_noise_line(product_raw):
-            continue
-        product_fixed = apply_ai_correction(product_raw)
-        items.append({
-            "raw_text": product_raw,
-            "product_text": product_fixed,
-            "product_code": product_fixed.split("=")[0],
-            "qty": qty
-        })
-        lines.append(f"{product_fixed}={qty}")
-    return {
-        "text": "\n".join(lines),
-        "lines": lines,
-        "items": items
-    }
-
-def process_ocr_text(image_path):
-    try:
-        if pytesseract is None:
-            return {"success": False, "duplicate": False, "text": "", "lines": [], "items": [], "confidence": 0}
-        img = preprocess_image(image_path)
-        raw_data = pytesseract.image_to_data(
-            img,
-            lang="chi_tra+eng",
-            config="--psm 6",
-            output_type=pytesseract.Output.DICT
-        )
-        confidence_values = []
-        for conf in raw_data.get("conf", []):
-            try:
-                val = float(conf)
-                if val > 0:
-                    confidence_values.append(val)
-            except Exception:
-                pass
-        avg_confidence = int(sum(confidence_values) / len(confidence_values)) if confidence_values else 0
-
-        text = pytesseract.image_to_string(
-            img,
-            lang="chi_tra+eng",
-            config="--psm 6"
-        )
-        parsed = parse_ocr_text(text)
-        return {
-            "success": True,
-            "duplicate": False,
-            "text": parsed["text"],
-            "lines": parsed["lines"],
-            "items": parsed["items"],
-            "confidence": avg_confidence
-        }
-    except Exception as e:
-        log_error("process_ocr_text", e)
-        return {"success": False, "duplicate": False, "text": "", "lines": [], "items": [], "confidence": 0}
+    text = apply_ai_fix(text, conn)
+    return text, conf

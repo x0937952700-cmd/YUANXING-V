@@ -1,0 +1,12 @@
+
+<html><body>
+<input id="u"><input id="p" type="password">
+<button onclick="go()">登入</button>
+<script>
+function go(){
+fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({username:u.value,password:p.value})})
+.then(r=>r.json()).then(d=>{if(d.success)location='/'})
+}
+</script>
+</body></html>

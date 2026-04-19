@@ -1,0 +1,8 @@
+
+body{font-family:sans-serif;text-align:center;background:#fff}
+.btn{width:80%;margin:10px auto;padding:18px;border-radius:14px;background:linear-gradient(#ddd,#bbb);box-shadow:0 4px 10px #ccc}
+.grid{display:grid;grid-template-columns:repeat(10,1fr);gap:6px;max-width:700px;margin:auto}
+.cell{border:1px solid #999;padding:10px;border-radius:8px}
+.cell.active{background:#ffeb3b}
+ul{list-style:none;padding:0}
+li{padding:8px;border-bottom:1px solid #eee}

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<h3>訂單列表（點商品→定位倉庫）</h3>
+<ul id="list"></ul>
+<script>
+function load(){
+ fetch('/api/orders/list').then(r=>r.json()).then(d=>{
+  list.innerHTML='';
+  d.items.forEach(i=>{
+    let li=document.createElement('li');
+    li.innerText = `${i.customer} - ${i.product} x ${i.qty}`;
+    li.onclick=()=>{ location.href='/warehouse?focus='+encodeURIComponent(i.product); }
+    list.appendChild(li);
+  })
+ })
+}
+load();
+</script>
+</body>
+</html>

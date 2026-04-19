@@ -1,0 +1,29 @@
+
+<html><body>
+<h3>拖拉倉庫</h3>
+<div id="grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px"></div>
+
+<script>
+let sel=null
+for(let i=1;i<=20;i++){
+ let d=document.createElement("div")
+ d.innerText=i
+ d.draggable=true
+ d.style.border="1px solid"
+ d.style.padding="20px"
+ d.ondragstart=()=>sel=d
+ d.ondragover=e=>e.preventDefault()
+ d.ondrop=()=>{
+   if(sel){
+     let t=d.innerText
+     d.innerText=sel.innerText
+     sel.innerText=t
+   }
+ }
+ grid.appendChild(d)
+}
+
+// polling sync
+setInterval(()=>{console.log("sync")},2000)
+</script>
+</body></html>

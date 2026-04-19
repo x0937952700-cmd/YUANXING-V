@@ -1,0 +1,26 @@
+
+<html><body>
+<h3>AI學習</h3>
+<input id="w"><input id="c">
+<button onclick="add()">新增</button>
+<ul id="list"></ul>
+
+<script>
+function add(){
+fetch('/api/ai/add',{method:'POST',headers:{'Content-Type':'application/json'},
+body:JSON.stringify({wrong:w.value,correct:c.value})})
+.then(()=>load())
+}
+function load(){
+fetch('/api/ai/list').then(r=>r.json()).then(d=>{
+list.innerHTML=''
+d.items.forEach(i=>{
+ let li=document.createElement("li")
+ li.innerText=i.w+" → "+i.c
+ list.appendChild(li)
+})
+})
+}
+load()
+</script>
+</body></html>
