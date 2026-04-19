@@ -172,6 +172,16 @@ def init_db():
     ]
     for t in tables:
         cur.execute(t)
+
+    # 修復 PostgreSQL 舊資料表缺欄位（只補欄位，不動其他邏輯）
+    if USE_POSTGRES:
+        try:
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
+        except Exception:
+            pass
     for zone in ("A", "B"):
         for col in range(1, 13):
             for slot_type in ("front", "back"):
