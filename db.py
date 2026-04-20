@@ -180,6 +180,9 @@ def init_db():
             cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
             cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
             cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT")
         except Exception:
             pass
     for zone in ("A", "B"):
@@ -189,9 +192,12 @@ def init_db():
                     if USE_POSTGRES:
                         cur.execute("""
                             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (zone, column_index, slot_type, slot_number) DO NOTHING
-                        """, (zone, col, slot_type, num, "[]", "", now()))
+                            SELECT %s, %s, %s, %s, %s, %s, %s
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM warehouse_cells
+                                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+                            )
+                        """, (zone, col, slot_type, num, "[]", "", now(), zone, col, slot_type, num))
                     else:
                         cur.execute("""
                             INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)

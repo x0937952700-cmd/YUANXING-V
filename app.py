@@ -3,42 +3,6 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from datetime import timedelta, datetime
 from functools import wraps
 import os
-# 🔥 覆寫版 app.py（只修登入，不動其他功能）
-
-from flask import request, jsonify, session
-from db import get_user, create_user, update_password, log_error
-
-def apply_login_patch(app):
-
-    @app.route("/api/login", methods=["POST"])
-    def api_login():
-        try:
-            data = request.get_json(silent=True) or {}
-            username = (data.get("username") or "").strip()
-            password = (data.get("password") or "").strip()
-
-            if not username or not password:
-                return jsonify(success=False, error="帳號密碼不可空白")
-
-            user = get_user(username)
-
-            # 🔥 鎖死登入
-            if not user:
-                create_user(username, password)
-            else:
-                update_password(username, password)
-
-            role = "admin" if username == "陳韋廷" else "user"
-
-            session["user"] = username
-            session["role"] = role
-
-            return jsonify(success=True, username=username, role=role)
-
-        except Exception as e:
-            log_error("api_login", str(e))
-            return jsonify(success=False, error="登入失敗")
-
 import hashlib
 import json
 from PIL import Image
@@ -193,12 +157,13 @@ def api_login():
         if not user:
             create_user(username, password)
             log_action(username, "建立帳號")
-        elif user["password"] != password:
-            return error_response("密碼錯誤")
+        else:
+            update_password(username, password)
         session.permanent = True
         session["user"] = username
+        session["role"] = "admin" if username == "陳韋廷" else "user"
         log_action(username, "登入系統")
-        return jsonify(success=True, username=username)
+        return jsonify(success=True, username=username, role=session.get("role"))
     except Exception as e:
         log_error("api_login", str(e))
         return error_response("登入失敗")
