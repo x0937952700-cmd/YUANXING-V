@@ -173,40 +173,97 @@ def apply_ai_correction(product_name):
 
 def parse_line(line):
     line = normalize_text(line)
-    patterns = [
-        r"(.+?)[=:](\d+)$",
-        r"(.+?)[x](\d+)$",
-        r"(.+?)\*(\d+)$",
-        r"(.+?)\s+(\d+)$",
-    ]
-    for p in patterns:
-        m = re.match(p, line)
-        if m:
-            return m.group(1).strip(), int(m.group(2))
+    m = re.match(r"(.+?)=(\d+)(?:x(\d+))?$", line)
+    if m:
+        product_text = m.group(1).strip()
+        right = m.group(2)
+        qty = int(m.group(3) or 1)
+        return f"{product_text}={right}", qty
     return line, 1
+
+
+def _normalize_whiteboard_line(raw, prev_dims=None):
+    line = normalize_text(raw).replace("*", "x")
+    line = re.sub(r"[-—_]+", "", line)
+    if "=" not in line:
+        return None, prev_dims
+
+    left, right = line.split("=", 1)
+    left_nums = [int(x) for x in re.findall(r"\d+", left)]
+    right_nums = [int(x) for x in re.findall(r"\d+", right)]
+    if not right_nums:
+        return None, prev_dims
+
+    rhs = right_nums[0]
+    qty = right_nums[1] if len(right_nums) > 1 else 1
+
+    dims = None
+    if len(left_nums) >= 3:
+        dims = left_nums[:3]
+    elif len(left_nums) == 2 and prev_dims:
+        dims = [left_nums[0], left_nums[1], prev_dims[2]]
+    elif len(left_nums) == 1 and prev_dims:
+        dims = [left_nums[0], prev_dims[1], prev_dims[2]]
+
+    if not dims:
+        return None, prev_dims
+
+    normalized = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
+    return {
+        "line": normalized,
+        "product_text": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+        "product_code": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+        "qty": qty,
+        "dims": dims,
+    }, dims
 
 
 def parse_ocr_text(text):
     lines = []
     items = []
+    parsed_rows = []
+    prev_dims = None
+
     for raw in (text or "").splitlines():
         raw = raw.strip()
         if not raw or is_noise_line(raw):
             continue
+
+        normalized, prev_dims = _normalize_whiteboard_line(raw, prev_dims)
+        if normalized:
+            parsed_rows.append(normalized)
+            continue
+
         product_raw, qty = parse_line(raw)
         if is_noise_line(product_raw):
             continue
         product_fixed = apply_ai_correction(product_raw)
-        items.append({
-            "raw_text": product_raw,
+        parsed_rows.append({
+            "line": f"{product_fixed}" + (f"x{qty}" if qty != 1 else ""),
             "product_text": product_fixed,
             "product_code": product_fixed.split("=")[0],
             "qty": qty,
+            "dims": None,
         })
-        lines.append(f"{product_fixed}={qty}")
+
+    def sort_key(row):
+        if row.get("dims"):
+            l, w, h = row["dims"]
+            return (h, w, l, -(row.get("qty") or 1), row["line"])
+        return (999999, 999999, 999999, -(row.get("qty") or 1), row["line"])
+
+    parsed_rows.sort(key=sort_key)
+
+    for row in parsed_rows:
+        items.append({
+            "raw_text": row["line"],
+            "product_text": row["product_text"],
+            "product_code": row.get("product_code", row["product_text"]),
+            "qty": row["qty"],
+        })
+        lines.append(row["line"])
+
     return {"text": "\n".join(lines), "lines": lines, "items": items}
-
-
 def _score(parsed, confidence, engine):
     bonus = {"google_vision": 25, "ocr_space": 15, "tesseract": 5}.get(engine, 0)
     return len(parsed.get("items", [])) * 100 + len(parsed.get("text", "")) + int(confidence or 0) + bonus

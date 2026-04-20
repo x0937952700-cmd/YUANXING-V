@@ -243,3 +243,26 @@ button,input,textarea,select{font:inherit}
 .to-master-btn{white-space:nowrap}
 .hidden-home-copy{display:none}
 @media (max-width: 900px){.today-columns{grid-template-columns:1fr}}
+
+
+/* v5 apple gray refinement */
+:root{--bg:#f2f2f5;--card:rgba(255,255,255,.82);--card2:rgba(255,255,255,.96);--ink:#111827;--muted:#6b7280;--line:rgba(17,24,39,.08);--shadow:0 18px 40px rgba(15,23,42,.08);--shadow-soft:0 8px 24px rgba(15,23,42,.06);}
+html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
+.glass{backdrop-filter: blur(18px); border:1px solid rgba(255,255,255,.85);}
+.menu-btn{background:linear-gradient(180deg,#8a8a8f,#66686d);}
+.primary-btn{background:linear-gradient(180deg,#2f3135,#5b5f66);}
+.home-top-actions.centered-actions{grid-template-columns:repeat(3,minmax(120px,1fr));max-width:520px;}
+.settings-actions .primary-btn{width:100%;}
+.home-status-row{display:none !important;}
+.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(6,minmax(150px,1fr));gap:14px;}
+.vertical-column-card{padding:14px;border-radius:22px;background:#fff;border:1px solid rgba(17,24,39,.08);box-shadow:var(--shadow-soft);}
+.vertical-column-card .column-head{font-size:1.12rem;margin-bottom:12px;}
+.vertical-slot-list{display:flex;flex-direction:column;gap:8px;}
+.vertical-slot{min-height:54px;border:1px solid rgba(17,24,39,.08);background:#fafafa;border-radius:14px;padding:8px 10px;display:flex;flex-direction:column;justify-content:flex-start;gap:4px;cursor:pointer;transition:.18s ease;}
+.vertical-slot:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.08);}
+.vertical-slot .slot-title{font-size:.82rem;font-weight:800;color:#4b5563;}
+.vertical-slot .slot-count{font-size:.8rem;line-height:1.25;color:#111827;word-break:break-word;}
+.vertical-slot.filled{background:linear-gradient(180deg,#ffffff,#f4f7fb);}
+.vertical-slot.highlight{box-shadow:0 0 0 3px rgba(59,130,246,.18);border-color:#60a5fa;background:#f8fbff;}
+@media (max-width:1200px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(3,minmax(160px,1fr));}}
+@media (max-width:720px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(2,minmax(150px,1fr));}}

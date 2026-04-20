@@ -43,7 +43,7 @@
     {% endif %}
 
     <label class="field-label">倉庫格位 / 預設位置</label>
-    <input class="text-input" id="location-input" placeholder="例如：A後排01">
+    <input class="text-input" id="location-input" placeholder="例如：A-1-01">
     <label class="field-label">OCR 文字框（可直接修改）</label>
     <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡，可人工修改"></textarea>
     <div class="btn-row">
@@ -106,7 +106,7 @@
   <section class="subsection" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>倉庫圖</h3>
-      <span class="muted">可切換單區整頁查看，前後排可增加 / 刪除格子，空欄可刪除。</span>
+      <span class="muted">直立卡片式排列，六欄縱向顯示，每欄 20 格。</span>
     </div>
     <div class="search-row warehouse-search-toolbar">
       <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113">

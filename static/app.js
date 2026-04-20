@@ -664,6 +664,22 @@ function buildCellKey(zone, column_index, slot_type, slot_number){
   return [zone, column_index, slot_type, slot_number];
 }
 
+function visualSlotToCell(n){
+  const num = parseInt(n, 10);
+  if (num <= 10) return { side: 'front', slot: num };
+  return { side: 'back', slot: num - 10 };
+}
+
+function cellToVisualSlot(side, slot){
+  const n = parseInt(slot, 10);
+  return side === 'back' ? n + 10 : n;
+}
+
+function getUnifiedSlotItems(zone, column_index, visualNumber){
+  const mapped = visualSlotToCell(visualNumber);
+  return getCellItems(zone, column_index, mapped.side, mapped.slot);
+}
+
 function getCellItems(zone, column_index, slot_type, slot_number){
   const cell = state.warehouse.cells.find(c => c.zone === zone && parseInt(c.column_index) === parseInt(column_index) && c.slot_type === slot_type && parseInt(c.slot_number) === parseInt(slot_number));
   if (!cell) return [];
@@ -677,87 +693,52 @@ function getMaxSlot(zone, column, side){
 }
 
 function getVisibleZoneColumns(zone){
-  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone);
-  const byCol = new Map();
-  zoneCells.forEach(cell => {
-    const col = parseInt(cell.column_index, 10);
-    if (!byCol.has(col)) byCol.set(col, []);
-    byCol.get(col).push(cell);
-  });
-  const visible = [1, 2, 3, 4, 5, 6];
-  Array.from(byCol.keys()).sort((a,b)=>a-b).forEach(col => {
-    const cells = byCol.get(col) || [];
-    const hasContent = cells.some(cell => {
-      try {
-        const items = JSON.parse(cell.items_json || '[]');
-        return items.length > 0 || (cell.note && cell.note !== '__USER_ADDED__');
-      } catch(e) {
-        return !!cell.note;
-      }
-    });
-    const added = cells.some(cell => cell.note === '__USER_ADDED__');
-    if (col > 6 && (hasContent || added)) visible.push(col);
-  });
-  return Array.from(new Set(visible)).sort((a,b)=>a-b);
+  return [1, 2, 3, 4, 5, 6];
 }
 
 function renderWarehouseZones(){
   const renderZone = (zone) => {
     const wrap = $(`zone-${zone}-grid`);
     if (!wrap) return;
+    wrap.classList.add('vertical-card-grid');
     wrap.innerHTML = '';
     const columns = getVisibleZoneColumns(zone);
     columns.forEach(c => {
       const col = document.createElement('div');
-      col.className = 'column-card intuitive-column';
-      col.innerHTML = `
-        <div class="column-head-row">
-          <div class="column-head">${zone} 第 ${c} 欄</div>
-          <button class="ghost-btn tiny-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除欄</button>
-        </div>`;
-      ['front', 'back'].forEach(side => {
-        const label = document.createElement('div');
-        label.className = 'slot-label slot-label-row';
-        label.innerHTML = `<span>${side === 'front' ? '前排' : '後排'}</span>
-          <span class="row-slot-actions">
-            <button class="ghost-btn tiny-btn" onclick="addWarehouseSlot('${zone}', ${c}, '${side}')">＋格</button>
-            <button class="ghost-btn tiny-btn" onclick="removeWarehouseSlot('${zone}', ${c}, '${side}')">－格</button>
-          </span>`;
-        col.appendChild(label);
-        const row = document.createElement('div');
-        row.className = 'slot-row dynamic-slot-row';
-        const maxSlot = getMaxSlot(zone, c, side);
-        for (let n = 1; n <= maxSlot; n++) {
-          const slot = document.createElement('div');
-          slot.className = 'slot';
-          slot.dataset.zone = zone;
-          slot.dataset.column = c;
-          slot.dataset.side = side;
-          slot.dataset.num = n;
-          const items = getCellItems(zone, c, side, n);
-          const title = `${side === 'front' ? '前' : '後'}${String(n).padStart(2, '0')}`;
-          const names = items.slice(0, 2).map(it => `${escapeHTML(it.product_text || '')}×${it.qty || 0}`).join('<br>');
-          slot.innerHTML = `<div class="slot-title">${title}</div><div class="slot-count">${items.length ? names : '空格'}</div>`;
-          const key = `${zone}|${c}|${side}|${n}`;
-          if (items.length) slot.classList.add('filled');
-          if (state.searchHighlightKeys.has(key)) slot.classList.add('highlight');
-          slot.addEventListener('click', () => { showWarehouseDetail(zone, c, side, n, items); openWarehouseModal(zone, c, side, n); });
-          slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
-          slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
-          slot.addEventListener('drop', async ev => {
-            ev.preventDefault();
-            slot.classList.remove('drag-over');
-            const raw = ev.dataTransfer.getData('text/plain');
-            if (!raw) return;
-            const parsed = JSON.parse(raw);
-            if (parsed.kind === 'warehouse-item') {
-              await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, side, n), parsed.product_text, parsed.qty);
-            }
-          });
-          row.appendChild(slot);
-        }
-        col.appendChild(row);
-      });
+      col.className = 'vertical-column-card';
+      col.innerHTML = `<div class="column-head">${zone} 第 ${c} 欄</div>`;
+      const list = document.createElement('div');
+      list.className = 'vertical-slot-list';
+      for (let n = 1; n <= 20; n++) {
+        const mapped = visualSlotToCell(n);
+        const items = getUnifiedSlotItems(zone, c, n);
+        const slot = document.createElement('div');
+        slot.className = 'vertical-slot';
+        slot.dataset.zone = zone;
+        slot.dataset.column = c;
+        slot.dataset.side = mapped.side;
+        slot.dataset.num = mapped.slot;
+        const names = items.slice(0, 2).map(it => `${escapeHTML(it.product_text || '')}×${it.qty || 0}`).join('<br>');
+        slot.innerHTML = `<div class="slot-title">${String(n).padStart(2, '0')}</div><div class="slot-count">${items.length ? names : '空格'}</div>`;
+        const key = `${zone}|${c}|${mapped.side}|${mapped.slot}`;
+        if (items.length) slot.classList.add('filled');
+        if (state.searchHighlightKeys.has(key)) slot.classList.add('highlight');
+        slot.addEventListener('click', () => { showWarehouseDetail(zone, c, mapped.side, mapped.slot, items); openWarehouseModal(zone, c, mapped.side, mapped.slot); });
+        slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
+        slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+        slot.addEventListener('drop', async ev => {
+          ev.preventDefault();
+          slot.classList.remove('drag-over');
+          const raw = ev.dataTransfer.getData('text/plain');
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (parsed.kind === 'warehouse-item') {
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, mapped.side, mapped.slot), parsed.product_text, parsed.qty);
+          }
+        });
+        list.appendChild(slot);
+      }
+      col.appendChild(list);
       wrap.appendChild(col);
     });
   };
@@ -795,7 +776,8 @@ async function openWarehouseModal(zone, column, side, num){
   state.currentCell = { zone, column, slot_type: side, slot_number: num };
   state.currentCellItems = getCellItems(zone, column, side, num);
   $('warehouse-modal').classList.remove('hidden');
-  $('warehouse-modal-meta').textContent = `${zone} 區 / 第 ${column} 欄 / ${side === 'front' ? '前' : '後'} / ${num}`;
+  const visualNum = cellToVisualSlot(side, num);
+  $('warehouse-modal-meta').textContent = `${zone} 區 / 第 ${column} 欄 / 第 ${String(visualNum).padStart(2, '0')} 格`;
   $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && c.slot_type===side && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
   renderWarehouseCellItems();
   refreshWarehouseSelect();
@@ -926,7 +908,8 @@ async function searchWarehouse(){
       const item = r.item;
       const div = document.createElement('div');
       div.className = 'search-card';
-      div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 ${cell.column_index} / ${cell.slot_type} / ${cell.slot_number}</strong><br>${escapeHTML(item.product_text || '')} × ${item.qty || 0}`;
+      const visualNum = cellToVisualSlot(cell.slot_type, cell.slot_number);
+      div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 第 ${cell.column_index} 欄 第 ${String(visualNum).padStart(2,'0')} 格</strong><br>${escapeHTML(item.product_text || '')} × ${item.qty || 0}`;
       div.addEventListener('click', () => { setWarehouseZone(cell.zone); openWarehouseModal(cell.zone, cell.column_index, cell.slot_type, cell.slot_number); });
       box.appendChild(div);
     });
@@ -939,7 +922,8 @@ function showWarehouseDetail(zone, column, side, num, items){
   const box = $('warehouse-detail-panel');
   if (!box) return;
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 ${side === 'front' ? '前排' : '後排'} 第 ${num} 格</div>` + (items.length ? items.map(it => `<div class="chip-item">${escapeHTML(it.product_text || '')} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
+  const visualNum = cellToVisualSlot(side, num);
+  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(visualNum).padStart(2,'0')} 格</div>` + (items.length ? items.map(it => `<div class="chip-item">${escapeHTML(it.product_text || '')} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
 }
 
 async function reverseLookup(){

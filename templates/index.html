@@ -8,13 +8,7 @@
       <div class="home-mini-btn user-cell">{{ username }}</div>
       <a class="home-mini-btn" href="{{ url_for('settings_page') }}">設定</a>
       <button class="home-mini-btn" id="today-changes-btn" onclick="toggleTodayChanges()">今日異動</button>
-      <button class="home-mini-btn" onclick="logout()">登出</button>
-    </div>
-    <div class="home-status-row">
-      <span class="pill">日期：{{ today }}</span>
-      <span class="pill" id="home-sync-pill">同步：正常</span>
-      <span class="pill warn" id="home-unplaced-pill">未錄入倉庫圖：0</span>
-    </div>
+          </div>
   </div>
 
   <div class="home-menu vertical">
