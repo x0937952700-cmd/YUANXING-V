@@ -12,7 +12,7 @@ from db import (
     save_inventory_item, list_inventory, save_order, save_master_order,
     ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
-    get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item,
+    get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
 )
@@ -226,7 +226,7 @@ def api_upload_ocr():
         save_image_hash(image_hash)
         confidence = int(result.get("confidence", 0))
         log_action(current_username(), "OCR辨識")
-        return jsonify(success=True, text=result.get("text", ""), items=result.get("items", []), confidence=confidence,
+        return jsonify(success=True, text=result.get("text", ""), items=result.get("items", []), confidence=confidence, engines=result.get("engines", []),
                        warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""), sync_time=int(os.path.getmtime(path)))
     except Exception as e:
         log_error("upload_ocr", str(e))
@@ -416,6 +416,21 @@ def api_warehouse_move():
     except Exception as e:
         log_error("warehouse_move", str(e))
         return error_response("拖曳失敗")
+
+@app.route("/api/warehouse/add-column", methods=["POST"])
+@login_required_json
+def api_warehouse_add_column():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        if zone not in ("A", "B"):
+            return error_response("區域錯誤")
+        column_index = warehouse_add_column(zone)
+        log_action(current_username(), f"新增格子欄 {zone}{column_index}")
+        return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_add_column", str(e))
+        return error_response("新增格子失敗")
 
 @app.route("/api/warehouse/search")
 @login_required_json

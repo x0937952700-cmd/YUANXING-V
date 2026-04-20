@@ -3,7 +3,7 @@ const state = {
   module: null,
   rememberLogin: true,
   lastOcrItems: [],
-  warehouse: { cells: [], zones: null, availableItems: [] },
+  warehouse: { cells: [], zones: null, availableItems: [], activeZone: 'A' },
   currentCell: null,
   currentCellItems: [],
   currentCustomer: null,
@@ -176,7 +176,7 @@ async function handleFiles(fileList){
     if (!res.ok || data.success === false) throw new Error(data.error || 'OCR失敗');
     if ($('ocr-text')) $('ocr-text').value = data.text || '';
     if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || '辨識完成';
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || ('辨識完成｜' + ((data.engines||[]).join(' / ') || '單引擎'));
     state.lastOcrItems = data.items || [];
     if (data.warning) toast(data.warning, 'warn');
     else toast('OCR辨識完成', 'ok');
@@ -441,8 +441,42 @@ async function renderWarehouse(){
     state.warehouse.zones = data.zones || {};
     state.warehouse.availableItems = avail.items || [];
     renderWarehouseZones();
+    setWarehouseZone(state.warehouse.activeZone || 'A', false);
   } catch (e) {
     console.error(e);
+    toast(e.message || '倉庫圖載入失敗', 'error');
+  }
+}
+
+function setWarehouseZone(zone, doScroll=true){
+  state.warehouse.activeZone = zone;
+  ['A','B','ALL'].forEach(z => {
+    const btn = $('zone-switch-' + z);
+    if (btn) btn.classList.toggle('active', z === zone);
+  });
+  const zoneA = $('zone-A');
+  const zoneB = $('zone-B');
+  if (zoneA) zoneA.classList.toggle('hidden-zone', zone === 'B');
+  if (zoneB) zoneB.classList.toggle('hidden-zone', zone === 'A');
+  if (doScroll) jumpToZone(zone === 'ALL' ? 'A' : zone);
+}
+
+function jumpToZone(zone){
+  const el = $('zone-' + zone);
+  if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function addWarehouseColumn(zone){
+  try {
+    await requestJSON('/api/warehouse/add-column', {
+      method:'POST',
+      body: JSON.stringify({ zone })
+    });
+    state.warehouse.activeZone = zone;
+    toast(zone + ' 區已新增格子欄', 'ok');
+    await renderWarehouse();
+  } catch (e) {
+    toast(e.message || '新增格子失敗', 'error');
   }
 }
 
@@ -456,16 +490,46 @@ function getCellItems(zone, column_index, slot_type, slot_number){
   try { return JSON.parse(cell.items_json || '[]'); } catch(e){ return []; }
 }
 
+function getVisibleZoneColumns(zone){
+  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone);
+  const byCol = new Map();
+  zoneCells.forEach(cell => {
+    const col = parseInt(cell.column_index, 10);
+    if (!byCol.has(col)) byCol.set(col, []);
+    byCol.get(col).push(cell);
+  });
+  const visible = [1, 2, 3, 4, 5, 6];
+  Array.from(byCol.keys()).sort((a,b)=>a-b).forEach(col => {
+    const cells = byCol.get(col) || [];
+    const hasContent = cells.some(cell => {
+      try {
+        const items = JSON.parse(cell.items_json || '[]');
+        return items.length > 0 || (cell.note && cell.note !== '__USER_ADDED__');
+      } catch(e) {
+        return !!cell.note;
+      }
+    });
+    const added = cells.some(cell => cell.note === '__USER_ADDED__');
+    if (col > 6 && (hasContent || added)) visible.push(col);
+  });
+  return Array.from(new Set(visible)).sort((a,b)=>a-b);
+}
+
 function renderWarehouseZones(){
   const renderZone = (zone) => {
     const wrap = $(`zone-${zone}-grid`);
     if (!wrap) return;
     wrap.innerHTML = '';
-    for (let c = 1; c <= 12; c++) {
+    const columns = getVisibleZoneColumns(zone);
+    columns.forEach(c => {
       const col = document.createElement('div');
       col.className = 'column-card';
       col.innerHTML = `<div class="column-head">${zone} ${c}</div>`;
       ['front', 'back'].forEach(side => {
+        const label = document.createElement('div');
+        label.className = 'slot-label';
+        label.textContent = side === 'front' ? '前排' : '後排';
+        col.appendChild(label);
         const row = document.createElement('div');
         row.className = 'slot-row';
         for (let n=1; n<=10; n++) {
@@ -476,7 +540,7 @@ function renderWarehouseZones(){
           slot.dataset.side = side;
           slot.dataset.num = n;
           const items = getCellItems(zone, c, side, n);
-          slot.innerHTML = `<div class="slot-title">${side === 'front' ? '前' : '後'} ${n}</div><div class="slot-count">${items.length ? `${items.length} 筆` : '空'}</div>`;
+          slot.innerHTML = `<div class="slot-title">${n}</div><div class="slot-count">${items.length ? `${items.length} 筆` : '空'}</div>`;
           if (items.length) {
             const first = items[0];
             slot.innerHTML += `<div class="slot-chip" draggable="true">${escapeHTML(first.product_text || first.product || '')} × ${first.qty || 0}</div>`;
@@ -499,7 +563,7 @@ function renderWarehouseZones(){
         col.appendChild(row);
       });
       wrap.appendChild(col);
-    }
+    });
   };
   renderZone('A');
   renderZone('B');
@@ -637,6 +701,7 @@ async function searchWarehouse(){
       const div = document.createElement('div');
       div.className = 'search-card';
       div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 ${cell.column_index} / ${cell.slot_type} / ${cell.slot_number}</strong><br>${escapeHTML(item.product_text || '')} × ${item.qty || 0}`;
+      div.addEventListener('click', () => { setWarehouseZone(cell.zone); openWarehouseModal(cell.zone, cell.column_index, cell.slot_type, cell.slot_number); });
       box.appendChild(div);
     });
   } catch (e) {
@@ -684,3 +749,7 @@ window.addSelectedItemToCell = addSelectedItemToCell;
 window.saveWarehouseCell = saveWarehouseCell;
 window.renderWarehouse = renderWarehouse;
 window.renderCustomers = renderCustomers;
+
+window.setWarehouseZone = setWarehouseZone;
+window.jumpToZone = jumpToZone;
+window.addWarehouseColumn = addWarehouseColumn;

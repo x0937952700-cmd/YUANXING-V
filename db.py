@@ -256,7 +256,7 @@ def init_db():
             """)
 
         for zone in ('A', 'B'):
-            for col in range(1, 13):
+            for col in range(1, 7):
                 for slot_type in ('front', 'back'):
                     for num in range(1, 11):
                         cur.execute("""
@@ -280,7 +280,7 @@ def init_db():
             UNIQUE(zone, column_index, slot_type, slot_number)
         )""")
         for zone in ('A', 'B'):
-            for col in range(1, 13):
+            for col in range(1, 7):
                 for slot_type in ('front', 'back'):
                     for num in range(1, 11):
                         cur.execute("""
@@ -639,13 +639,56 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
     conn = get_db()
     cur = conn.cursor()
     items_json = json.dumps(items, ensure_ascii=False)
-    cur.execute(sql("""
-        UPDATE warehouse_cells
-        SET items_json = ?, note = ?, updated_at = ?
-        WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
-    """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
+    if USE_POSTGRES:
+        cur.execute("""
+            UPDATE warehouse_cells
+            SET items_json = %s, note = %s, updated_at = %s
+            WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+        """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
+        if cur.rowcount == 0:
+            cur.execute("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (zone, column_index, slot_type, slot_number, items_json, note, now()))
+    else:
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET items_json = ?, note = ?, updated_at = ?
+            WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
+        """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
+        if cur.rowcount == 0:
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """), (zone, column_index, slot_type, slot_number, items_json, note, now()))
     conn.commit()
     conn.close()
+
+def warehouse_add_column(zone):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT COALESCE(MAX(column_index), 0) AS max_col FROM warehouse_cells WHERE zone = ?"), (zone,))
+    row = fetchone_dict(cur) or {}
+    next_col = int(row.get('max_col') or 0) + 1
+    for slot_type in ('front', 'back'):
+        for num in range(1, 11):
+            if USE_POSTGRES:
+                cur.execute("""
+                    INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                    SELECT %s, %s, %s, %s, %s, %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM warehouse_cells
+                        WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+                    )
+                """, (zone, next_col, slot_type, num, '[]', '__USER_ADDED__', now(), zone, next_col, slot_type, num))
+            else:
+                cur.execute("""
+                    INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (zone, next_col, slot_type, num, '[]', '__USER_ADDED__', now()))
+    conn.commit()
+    conn.close()
+    return next_col
 
 def warehouse_move_item(from_key, to_key, product_text, qty):
     conn = get_db()

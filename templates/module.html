@@ -8,7 +8,8 @@
     <div class="spacer"></div>
   </div>
 
-  <div class="glass panel upload-panel">
+  {% if module_key not in ['shipping_query','warehouse'] %}
+  <div class="glass panel upload-panel engine-upgraded">
     <div class="upload-row">
       <button class="primary-btn" onclick="openAlbumPicker()">上傳檔案（相簿 / 拍照）</button>
       <button class="ghost-btn" onclick="openCameraPicker()">右下角拍照上傳</button>
@@ -33,6 +34,7 @@
     </div>
     <div id="module-result" class="result-card hidden"></div>
   </div>
+  {% endif %}
 
   <section class="subsection" id="customer-block" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
@@ -85,22 +87,39 @@
   <section class="subsection" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>倉庫圖</h3>
-      <span class="muted">A 區 / B 區、12 欄、前後格位、拖曳移動、手動編輯</span>
+      <span class="muted">A / B 區切換，全頁顯示，預設 1-6 欄，每欄前後各 10 格，可新增格子欄並拖曳商品</span>
     </div>
-    <div class="search-row">
+    <div class="search-row warehouse-search-toolbar">
       <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113">
       <button class="primary-btn" onclick="searchWarehouse()">搜尋</button>
       <button class="ghost-btn" onclick="renderWarehouse()">清除搜尋</button>
     </div>
+    <div class="warehouse-zone-nav">
+      <button id="zone-switch-A" class="chip zone-switch active" onclick="setWarehouseZone('A')">A 區</button>
+      <button id="zone-switch-B" class="chip zone-switch" onclick="setWarehouseZone('B')">B 區</button>
+      <button id="zone-switch-ALL" class="chip zone-switch" onclick="setWarehouseZone('ALL')">全部</button>
+    </div>
     <div id="warehouse-search-results" class="search-results hidden"></div>
-    <div class="warehouse-zone-wrap">
-      <div class="zone-card" id="zone-A">
-        <div class="zone-title">A 區</div>
-        <div class="zone-grid" id="zone-A-grid"></div>
+    <div class="warehouse-zone-wrap single-zone-mode">
+      <div class="zone-card full-zone" id="zone-A">
+        <div class="zone-titlebar">
+          <div class="zone-title">A 區</div>
+          <div class="btn-row compact">
+            <button class="ghost-btn" onclick="jumpToZone('A')">跳到 A 區</button>
+            <button class="primary-btn" onclick="addWarehouseColumn('A')">添加格子</button>
+          </div>
+        </div>
+        <div class="zone-grid six-grid" id="zone-A-grid"></div>
       </div>
-      <div class="zone-card" id="zone-B">
-        <div class="zone-title">B 區</div>
-        <div class="zone-grid" id="zone-B-grid"></div>
+      <div class="zone-card full-zone" id="zone-B">
+        <div class="zone-titlebar">
+          <div class="zone-title">B 區</div>
+          <div class="btn-row compact">
+            <button class="ghost-btn" onclick="jumpToZone('B')">跳到 B 區</button>
+            <button class="primary-btn" onclick="addWarehouseColumn('B')">添加格子</button>
+          </div>
+        </div>
+        <div class="zone-grid six-grid" id="zone-B-grid"></div>
       </div>
     </div>
   </section>
