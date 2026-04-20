@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
+from werkzeug.security import generate_password_hash, check_password_hash
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///warehouse.db")
 USE_POSTGRES = DATABASE_URL.startswith("postgres")
@@ -346,22 +347,34 @@ def create_user(username, password):
     conn = get_db()
     cur = conn.cursor()
     role = 'admin' if username == '陳韋廷' else 'user'
+    hashed = generate_password_hash(password)
     cur.execute(sql("""
         INSERT INTO users(username, password, role, is_blocked, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
-    """), (username, password, role, 0, now(), now()))
+    """), (username, hashed, role, 0, now(), now()))
     conn.commit()
     conn.close()
 
 def update_password(username, new_password):
     conn = get_db()
     cur = conn.cursor()
+    hashed = generate_password_hash(new_password)
     cur.execute(sql("""
         UPDATE users SET password = ?, updated_at = ?
         WHERE username = ?
-    """), (new_password, now(), username))
+    """), (hashed, now(), username))
     conn.commit()
     conn.close()
+
+def verify_password(stored_password, provided_password):
+    if not stored_password:
+        return False
+    try:
+        if stored_password.startswith('pbkdf2:') or stored_password.startswith('scrypt:'):
+            return check_password_hash(stored_password, provided_password)
+    except Exception:
+        pass
+    return stored_password == provided_password
 
 def list_users():
     conn = get_db()
