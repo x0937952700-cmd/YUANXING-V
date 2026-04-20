@@ -2,11 +2,12 @@ import os
 import re
 import base64
 from difflib import get_close_matches
+import tempfile
 
 import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-from db import log_error, get_corrections, list_inventory, get_ocr_usage, increment_ocr_usage
+from db import log_error, get_corrections, list_inventory, get_customers, get_ocr_usage, increment_ocr_usage
 
 try:
     import pytesseract
@@ -27,17 +28,62 @@ def datetime_now_month():
     return datetime.now().strftime("%Y-%m")
 
 
-def preprocess_image(image_path):
+def _coerce_roi(roi):
+    if not roi:
+        return None
+    try:
+        x = float(roi.get("x", 0))
+        y = float(roi.get("y", 0))
+        w = float(roi.get("w", 0))
+        h = float(roi.get("h", 0))
+        if w <= 0 or h <= 0:
+            return None
+        return {"x": x, "y": y, "w": w, "h": h}
+    except Exception:
+        return None
+
+
+def preprocess_image(image_path, roi=None, handwriting_mode=False):
     img = Image.open(image_path)
     img = ImageOps.exif_transpose(img)
-    img = img.convert("L")
+    if roi:
+        roi = _coerce_roi(roi)
+        if roi:
+            w0, h0 = img.size
+            left = int(max(0, min(w0 - 1, roi["x"] * w0 if roi["x"] <= 1 else roi["x"])))
+            top = int(max(0, min(h0 - 1, roi["y"] * h0 if roi["y"] <= 1 else roi["y"])))
+            width = int(roi["w"] * w0 if roi["w"] <= 1 else roi["w"])
+            height = int(roi["h"] * h0 if roi["h"] <= 1 else roi["h"])
+            right = max(left + 1, min(w0, left + width))
+            bottom = max(top + 1, min(h0, top + height))
+            img = img.crop((left, top, right, bottom))
+    rgb = img.convert("RGB")
+    if handwriting_mode:
+        bands = []
+        for r, g, b in rgb.getdata():
+            v = max(0, min(255, int(b * 1.6 - r * 0.5 - g * 0.5 + 80)))
+            bands.append(v)
+        blue = Image.new("L", rgb.size)
+        blue.putdata(bands)
+        img = ImageOps.autocontrast(blue)
+    else:
+        img = rgb.convert("L")
     width, height = img.size
     if width < 1200:
-        img = img.resize((width * 2, height * 2))
+        img = img.resize((max(width * 2, 1), max(height * 2, 1)))
     img = img.filter(ImageFilter.MedianFilter())
-    img = ImageEnhance.Contrast(img).enhance(2.2)
-    img = ImageEnhance.Sharpness(img).enhance(1.8)
+    img = ImageEnhance.Contrast(img).enhance(2.6)
+    img = ImageEnhance.Sharpness(img).enhance(2.0)
+    img = ImageOps.autocontrast(img)
+    img = img.point(lambda p: 255 if p > 150 else 0)
     return img
+
+
+def _prepare_temp_image(image_path, roi=None, handwriting_mode=False):
+    img = preprocess_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+    img.save(tmp.name, "JPEG", quality=92)
+    return tmp.name
 
 
 def normalize_text(text):
@@ -81,6 +127,35 @@ def is_noise_line(text):
 def get_known_products():
     rows = list_inventory()
     return [r["product_text"] for r in rows if r.get("product_text")]
+
+
+def get_known_customers():
+    try:
+        rows = get_customers()
+        return [r["name"] for r in rows if r.get("name")]
+    except Exception:
+        return []
+
+
+def guess_customer_name(text):
+    names = get_known_customers()
+    if not names:
+        return ""
+    candidates = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or len(line) > 20:
+            continue
+        if any(ch.isdigit() for ch in line):
+            continue
+        candidates.append(line)
+    for candidate in candidates:
+        m = get_close_matches(candidate, names, n=1, cutoff=0.6)
+        if m:
+            return m[0]
+    merged = " ".join(candidates)
+    m = get_close_matches(merged, names, n=1, cutoff=0.6)
+    return m[0] if m else ""
 
 
 def apply_ai_correction(product_name):
@@ -137,11 +212,11 @@ def _score(parsed, confidence, engine):
     return len(parsed.get("items", [])) * 100 + len(parsed.get("text", "")) + int(confidence or 0) + bonus
 
 
-def _run_tesseract(image_path):
+def _run_tesseract(image_path, roi=None, handwriting_mode=False):
     if pytesseract is None:
         return None
     try:
-        img = preprocess_image(image_path)
+        img = preprocess_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
         raw_data = pytesseract.image_to_data(
             img,
             lang="chi_tra+eng",
@@ -172,9 +247,10 @@ def _run_tesseract(image_path):
         return None
 
 
-def _run_ocr_space(image_path):
+def _run_ocr_space(image_path, roi=None, handwriting_mode=False):
     try:
-        with open(image_path, "rb") as f:
+        prepared_path = _prepare_temp_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
+        with open(prepared_path, "rb") as f:
             payload = {
                 "apikey": OCR_SPACE_API_KEY,
                 "language": "cht",
@@ -218,11 +294,12 @@ def _run_ocr_space(image_path):
         return None
 
 
-def _run_google_vision(image_path):
+def _run_google_vision(image_path, roi=None, handwriting_mode=False):
     if not GOOGLE_VISION_API_KEY:
         return None
     try:
-        with open(image_path, "rb") as f:
+        prepared_path = _prepare_temp_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
+        with open(prepared_path, "rb") as f:
             content = base64.b64encode(f.read()).decode("utf-8")
         payload = {
             "requests": [{
@@ -261,11 +338,11 @@ def _run_google_vision(image_path):
         return None
 
 
-def process_ocr_text(image_path):
+def process_ocr_text(image_path, roi=None, handwriting_mode=False):
     try:
         period = datetime_now_month()
         candidates = []
-        free_candidates = [r for r in (_run_ocr_space(image_path), _run_tesseract(image_path)) if r]
+        free_candidates = [r for r in (_run_ocr_space(image_path, roi=roi, handwriting_mode=handwriting_mode), _run_tesseract(image_path, roi=roi, handwriting_mode=handwriting_mode)) if r]
         candidates.extend(free_candidates)
         best_free = sorted(free_candidates, key=lambda x: x.get("score", 0), reverse=True)[0] if free_candidates else None
 
@@ -276,7 +353,7 @@ def process_ocr_text(image_path):
             len(best_free.get("items", [])) == 0
         )
         if should_try_google:
-            google_result = _run_google_vision(image_path)
+            google_result = _run_google_vision(image_path, roi=roi, handwriting_mode=handwriting_mode)
             if google_result:
                 candidates.append(google_result)
                 increment_ocr_usage("google_vision", period)
@@ -295,14 +372,17 @@ def process_ocr_text(image_path):
         engines = [c.get("engine") for c in candidates]
         if GOOGLE_VISION_API_KEY and not should_try_google and get_ocr_usage("google_vision", period) >= 980:
             engines.append("google_vision_monthly_limit_reached")
+        best_text = best.get("text", "")
         return {
             "success": True,
             "duplicate": False,
-            "text": best.get("text", ""),
+            "raw_text": best_text,
+            "text": best_text,
             "lines": best.get("lines", []),
             "items": best.get("items", []),
             "confidence": int(best.get("confidence", 0)),
             "engines": engines,
+            "customer_guess": guess_customer_name(best_text),
         }
     except Exception as e:
         log_error("process_ocr_text", e)

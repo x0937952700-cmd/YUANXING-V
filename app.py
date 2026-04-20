@@ -106,7 +106,7 @@ def customer_groups():
 def home():
     if not require_login():
         return redirect(url_for("login_page"))
-    return render_template("index.html", username=current_username(), title="沅興木業")
+    return render_template("index.html", username=current_username(), title="沅興木業", today=datetime.now().strftime('%Y-%m-%d'))
 
 @app.route("/login")
 def login_page():
@@ -116,8 +116,7 @@ def login_page():
 
 @app.route("/settings")
 def settings_page():
-    user = get_user(current_username()) or {}
-    is_admin = (user.get('role') == 'admin') or (current_username() == '陳韋廷')
+    is_admin = current_username() == '陳韋廷'
     return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin)
 
 @app.route("/inventory")
@@ -229,11 +228,19 @@ def api_upload_ocr():
         with open(path, "wb") as f:
             f.write(content)
         compress_image(path)
-        result = process_ocr_text(path)
+        roi_raw = request.form.get("roi") or ""
+        roi = None
+        if roi_raw:
+            try:
+                roi = json.loads(roi_raw)
+            except Exception:
+                roi = None
+        handwriting_mode = str(request.form.get("handwriting_mode") or "0").lower() in ("1", "true", "yes", "on")
+        result = process_ocr_text(path, roi=roi, handwriting_mode=handwriting_mode)
         save_image_hash(image_hash)
         confidence = int(result.get("confidence", 0))
-        log_action(current_username(), "OCR辨識")
-        return jsonify(success=True, text=result.get("text", ""), items=result.get("items", []), confidence=confidence, engines=result.get("engines", []),
+        log_action(current_username(), f"OCR辨識[{','.join(result.get('engines', []))}]")
+        return jsonify(success=True, text=result.get("text", ""), raw_text=result.get("raw_text", result.get("text", "")), items=result.get("items", []), confidence=confidence, engines=result.get("engines", []), customer_guess=result.get("customer_guess", ""),
                        warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""), sync_time=int(os.path.getmtime(path)))
     except Exception as e:
         log_error("upload_ocr", str(e))
@@ -302,6 +309,7 @@ def api_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name)
         save_order(customer_name, items, current_username())
         log_action(current_username(), "建立訂單")
         return jsonify(success=True, items=get_orders())
@@ -320,6 +328,7 @@ def api_master_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name)
         save_master_order(customer_name, items, current_username())
         log_action(current_username(), "更新總單")
         return jsonify(success=True, items=get_master_orders())
@@ -336,6 +345,7 @@ def api_ship():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name)
         # confirm ship button required from frontend
         result = ship_order(customer_name, items, current_username())
         if result.get("success"):
@@ -350,7 +360,8 @@ def api_ship():
 def api_shipping_records():
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
-    rows = get_shipping_records(start_date=start_date, end_date=end_date)
+    q = (request.args.get("q") or '').strip()
+    rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
     return jsonify(success=True, records=rows)
 
 @app.route("/api/customers", methods=["GET", "POST"])
@@ -501,16 +512,14 @@ def api_backups():
 @app.route("/api/admin/users", methods=["GET"])
 @login_required_json
 def api_admin_users():
-    user = get_user(current_username()) or {}
-    if (user.get('role') != 'admin') and current_username() != '陳韋廷':
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     return jsonify(success=True, items=list_users())
 
 @app.route("/api/admin/block", methods=["POST"])
 @login_required_json
 def api_admin_block():
-    user = get_user(current_username()) or {}
-    if (user.get('role') != 'admin') and current_username() != '陳韋廷':
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
@@ -569,6 +578,81 @@ def api_warehouse_delete_column():
     except Exception as e:
         log_error("warehouse_delete_column", str(e))
         return error_response("刪除欄位失敗")
+
+
+
+@app.route("/api/orders/to-master", methods=["POST"])
+@login_required_json
+def api_orders_to_master():
+    try:
+        data = request.get_json(silent=True) or {}
+        customer_name = (data.get("customer_name") or "").strip()
+        product_text = (data.get("product_text") or "").strip()
+        product_code = (data.get("product_code") or "").strip()
+        qty = int(data.get("qty") or 0)
+        if not customer_name or not product_text or qty <= 0:
+            return error_response("參數不足")
+        upsert_customer(customer_name)
+        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
+        log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
+        return jsonify(success=True, items=get_master_orders())
+    except Exception as e:
+        log_error("orders_to_master", str(e))
+        return error_response("加入總單失敗")
+
+
+def _today_key():
+    return datetime.now().strftime('%Y-%m-%d')
+
+def _today_changes_payload():
+    conn = get_db()
+    cur = conn.cursor()
+    today = _today_key()
+    cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 80"), (today,))
+    logs = rows_to_dict(cur)
+    conn.close()
+    inbound = []
+    outbound = []
+    others = []
+    for r in logs:
+        action = r.get('action') or ''
+        if '出貨' in action:
+            outbound.append(r)
+        elif any(k in action for k in ['庫存', '進貨', 'OCR', '總單', '訂單', '儲存客戶']):
+            inbound.append(r)
+        else:
+            others.append(r)
+    inv = inventory_summary()
+    unplaced = [r for r in inv if int(r.get('unplaced_qty') or 0) > 0]
+    anomalies = []
+    for r in inv:
+        if int(r.get('qty') or 0) < 0:
+            anomalies.append({'type':'negative_inventory','product_text':r.get('product_text'),'message':'庫存出現負數'})
+    return {
+        'summary': {
+            'inbound_count': len(inbound),
+            'outbound_count': len(outbound),
+            'unplaced_count': len(unplaced),
+            'anomaly_count': len(anomalies),
+        },
+        'feed': {
+            'inbound': inbound[:30],
+            'outbound': outbound[:30],
+            'others': others[:20],
+        },
+        'unplaced_items': unplaced[:50],
+        'anomalies': anomalies[:50],
+    }
+
+@app.route('/api/today-changes', methods=['GET'])
+@login_required_json
+def api_today_changes():
+    return jsonify(success=True, **_today_changes_payload())
+
+@app.route('/api/anomalies', methods=['GET'])
+@login_required_json
+def api_anomalies():
+    return jsonify(success=True, **{'items': _today_changes_payload().get('anomalies', [])})
 
 @app.route("/health")
 def health():

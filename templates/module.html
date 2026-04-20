@@ -21,6 +21,21 @@
     </div>
     <input id="album-input" class="hidden" type="file" accept="image/*" multiple>
     <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
+    <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
+      <div class="section-head">
+        <h3>區域辨識</h3><span class="muted">拖曳框選辨識範圍，可切換手寫優先模式後重新辨識</span>
+      </div>
+      <div id="ocr-preview-wrap" class="ocr-preview-wrap">
+        <img id="ocr-preview-img" class="ocr-preview-img" alt="OCR預覽">
+        <div id="ocr-roi-box" class="ocr-roi-box hidden"></div>
+      </div>
+      <div class="btn-row compact">
+        <label class="chip"><input id="handwriting-mode" type="checkbox"> 手寫優先</label>
+        <button class="ghost-btn small-btn" onclick="runRoiOcr()">重新辨識選取區域</button>
+        <button class="ghost-btn small-btn" onclick="clearRoiSelection()">清除框選</button>
+        <button class="ghost-btn small-btn" onclick="learnOcrCorrection()">人工修正學習</button>
+      </div>
+    </div>
 
     {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
@@ -73,6 +88,7 @@
       <h3>出貨查詢</h3>
     </div>
     <div class="query-bar">
+      <input id="ship-keyword" class="text-input small" placeholder="搜尋客戶 / 商品 / 操作人">
       <select id="ship-range" class="text-input small">
         <option value="3">3 天內</option>
         <option value="7" selected>7 天內</option>
@@ -97,12 +113,17 @@
       <button class="primary-btn" onclick="searchWarehouse()">搜尋</button>
       <button class="ghost-btn" onclick="renderWarehouse()">清除搜尋</button>
     </div>
+    <div class="query-bar warehouse-meta-bar">
+      <span class="pill warn" id="warehouse-unplaced-pill">未錄入倉庫圖：0</span>
+      <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
+    </div>
     <div class="warehouse-zone-nav">
       <button id="zone-switch-A" class="chip zone-switch active" onclick="setWarehouseZone('A')">A 區</button>
       <button id="zone-switch-B" class="chip zone-switch" onclick="setWarehouseZone('B')">B 區</button>
       <button id="zone-switch-ALL" class="chip zone-switch" onclick="setWarehouseZone('ALL')">全部</button>
     </div>
     <div id="warehouse-search-results" class="search-results hidden"></div>
+    <div id="warehouse-detail-panel" class="glass panel hidden"></div>
     <div class="warehouse-zone-wrap single-zone-mode">
       <div class="zone-card full-zone" id="zone-A">
         <div class="zone-titlebar">
@@ -162,6 +183,22 @@
         </div>
       </div>
     </div>
+  </section>
+
+  
+  <section class="subsection" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>訂單清單</h3>
+      <span class="muted">可直接加入總單</span>
+    </div>
+    <div id="orders-list" class="card-list"></div>
+  </section>
+
+  <section class="subsection" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>總單清單</h3>
+    </div>
+    <div id="master-list" class="card-list"></div>
   </section>
 
   <section class="subsection" id="default-module-info" {% if module_key in ['warehouse','customers','inventory','shipping_query'] %}style="display:none"{% endif %}>

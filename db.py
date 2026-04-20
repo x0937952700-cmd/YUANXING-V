@@ -667,19 +667,23 @@ def ship_order(customer_name, items, operator):
     finally:
         conn.close()
 
-def get_shipping_records(start_date=None, end_date=None):
+def get_shipping_records(start_date=None, end_date=None, q=""):
     conn = get_db()
     cur = conn.cursor()
-    q = "SELECT * FROM shipping_records WHERE 1=1"
+    query = "SELECT * FROM shipping_records WHERE 1=1"
     params = []
     if start_date:
-        q += " AND date(shipped_at) >= date(?)"
+        query += " AND date(shipped_at) >= date(?)"
         params.append(start_date)
     if end_date:
-        q += " AND date(shipped_at) <= date(?)"
+        query += " AND date(shipped_at) <= date(?)"
         params.append(end_date)
-    q += " ORDER BY id DESC"
-    cur.execute(sql(q), tuple(params))
+    if q:
+        query += " AND (customer_name LIKE ? OR product_text LIKE ? OR operator LIKE ?)"
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    query += " ORDER BY id DESC"
+    cur.execute(sql(query), tuple(params))
     rows = rows_to_dict(cur)
     conn.close()
     return rows
