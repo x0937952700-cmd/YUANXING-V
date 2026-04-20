@@ -13,7 +13,9 @@ const state = {
   lastSelectedFile: null,
   lastOcrOriginalText: '',
   roi: null,
-  todayChangesOpen: false
+  todayChangesOpen: false,
+  lastOcrTemplate: '',
+  __confirmResolver: null
 };
 
 function $(id){ return document.getElementById(id); }
@@ -46,6 +48,33 @@ function toast(msg, kind=''){
   window.__toastTimer = setTimeout(()=>{ t.className='toast'; }, 2400);
 }
 
+
+function askConfirm(message, title='請確認', okText='確認', cancelText='取消'){
+  const modal = $('confirm-modal');
+  const msg = $('confirm-message');
+  const ttl = $('confirm-title');
+  const ok = $('confirm-ok-btn');
+  const cancel = $('confirm-cancel-btn');
+  if (!modal || !msg || !ttl || !ok || !cancel) return Promise.resolve(window.confirm(message));
+  ttl.textContent = title;
+  msg.textContent = message;
+  ok.textContent = okText;
+  cancel.textContent = cancelText;
+  modal.classList.remove('hidden');
+  return new Promise(resolve => {
+    const cleanup = (v) => {
+      modal.classList.add('hidden');
+      ok.onclick = null;
+      cancel.onclick = null;
+      state.__confirmResolver = null;
+      resolve(v);
+    };
+    state.__confirmResolver = cleanup;
+    ok.onclick = () => cleanup(true);
+    cancel.onclick = () => cleanup(false);
+  });
+}
+
 function currentModule(){
   const el = qs('.module-screen');
   return el ? el.dataset.module : null;
@@ -69,6 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (state.module) {
     initModulePage();
   }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.__confirmResolver) state.__confirmResolver(false); });
 });
 
 function initLoginPage(){
@@ -241,45 +271,63 @@ async function handleFiles(fileList){
   toast('請框選要辨識的區域後放開手指', 'ok');
 }
 
-async function uploadOcrFile(file, useRoi=false){
+async function uploadOcrFile(file, useRoi=false, force=false){
   const form = new FormData();
   form.append('file', file);
   if (useRoi && state.roi) form.append('roi', JSON.stringify(state.roi));
+  if (force) form.append('force', '1');
   try {
     const res = await fetch('/api/upload_ocr', { method:'POST', body: form });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({ success:false, error:'OCR失敗' }));
+    if (data.duplicate || res.status === 409) {
+      const ok = await askConfirm(data.error || '相同照片上傳過，是否重新識別？', '相同照片', '重新識別', '取消');
+      if (ok) return uploadOcrFile(file, useRoi, true);
+      toast('已取消重新識別', 'warn');
+      return;
+    }
     if (!res.ok || data.success === false) throw new Error(data.error || 'OCR失敗');
     if ($('ocr-text')) $('ocr-text').value = data.text || '';
     state.lastOcrOriginalText = data.raw_text || data.text || '';
     if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
     if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || ('辨識完成｜' + ((data.engines||[]).join(' / ') || '單引擎'));
-    state.lastOcrItems = data.items || [];
+    state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
+    state.lastOcrTemplate = data.template || '';
     if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
+    const tplName = data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式');
     if (data.warning) toast(data.warning, 'warn');
-    else toast(useRoi ? '區域辨識完成' : 'OCR辨識完成', 'ok');
+    else toast((useRoi ? '區域辨識完成' : 'OCR辨識完成') + '｜' + tplName, 'ok');
   } catch (e) {
     if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = e.message;
     toast(e.message || 'OCR辨識失敗', 'error');
   }
 }
 
+function normalizeOcrLine(line){
+  return String(line || '').replace(/[×X＊*]/g, 'x').replace(/＝/g, '=').replace(/\s+/g, '');
+}
+
 function parseTextareaItems(){
   const text = ($('ocr-text')?.value || '').trim();
   if (!text) return [];
-  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
-  return lines.map(line => {
-    const parts = line.split(/[:=]/);
-    let product_text = line, qty = 1, product_code = '';
-    if (parts.length >= 2) {
-      product_text = parts[0].trim();
-      qty = parseInt(parts[1], 10) || 1;
-    } else {
-      const m = line.match(/^(.+?)[x\*](\d+)$/i);
-      if (m) { product_text = m[1].trim(); qty = parseInt(m[2], 10) || 1; }
-    }
-    product_code = product_text.split('=')[0];
-    return { product_text, product_code, qty };
+  const lines = text.split(/\n+/).map(s => normalizeOcrLine(s)).filter(Boolean);
+  const items = [];
+  lines.forEach(line => {
+    if (!line.includes('=')) return;
+    const [left, rightRaw] = line.split('=');
+    const segments = String(rightRaw || '').split(/[+＋]/).map(s => s.trim()).filter(Boolean);
+    segments.forEach(seg => {
+      const nums = seg.match(/\d+/g) || [];
+      if (!nums.length) return;
+      const rhs = nums[0];
+      const qty = parseInt(nums[1] || '1', 10) || 1;
+      items.push({
+        product_text: `${left}=${rhs}`,
+        product_code: `${left}=${rhs}`,
+        qty
+      });
+    });
   });
+  return items;
 }
 
 async function toggleTodayChanges(){
@@ -409,25 +457,60 @@ async function loadMasterList(){
   } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
 }
 
+function itemSignature(it){
+  return `${it.product_text || ''}@@${Number(it.qty || 0)}`;
+}
+
+async function filterExistingCustomerItems(customerName, items){
+  if (!customerName || !['orders','master_order','ship'].includes(state.module)) {
+    return { items, ignored: [] };
+  }
+  const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(customerName)}`, { method:'GET' });
+  const sigs = new Set((data.items || []).map(itemSignature));
+  const ignored = [];
+  const fresh = [];
+  items.forEach(it => {
+    if (sigs.has(itemSignature(it))) ignored.push(it);
+    else fresh.push(it);
+  });
+  return { items: fresh, ignored };
+}
+
 async function confirmSubmit(){
   const module = state.module;
   const customer_name = ($('customer-name')?.value || '').trim();
   const location = ($('location-input')?.value || '').trim();
   const ocr_text = ($('ocr-text')?.value || '').trim();
-  const items = state.lastOcrItems && state.lastOcrItems.length ? state.lastOcrItems : parseTextareaItems();
+  let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
+  if (!items.length) return toast('沒有可送出的辨識內容', 'warn');
   try {
     let endpoint = '/api/inventory';
     if (module === 'orders') endpoint = '/api/orders';
     if (module === 'master_order') endpoint = '/api/master_orders';
     if (module === 'ship') endpoint = '/api/ship';
+
+    const dedupe = await filterExistingCustomerItems(customer_name, items);
+    if (dedupe.ignored.length && dedupe.items.length) {
+      const ok = confirm(`偵測到重複商品：\n${dedupe.ignored.map(it => `${it.product_text}x${it.qty}`).join('\n')}\n\n是否忽略以上重複，只新增其他商品？`);
+      if (!ok) return;
+      items = dedupe.items;
+    } else if (dedupe.ignored.length && !dedupe.items.length) {
+      const ok = confirm(`這次辨識的商品都已存在：\n${dedupe.ignored.map(it => `${it.product_text}x${it.qty}`).join('\n')}\n\n是否略過送出？`);
+      if (ok) toast('已略過重複商品', 'ok');
+      return;
+    }
+
     const payload = { customer_name, location, ocr_text, items };
     const data = await requestJSON(endpoint, {
       method: 'POST',
       body: JSON.stringify(payload)
     });
     renderSubmitResult(module, data, customer_name);
+    state.lastOcrItems = items;
     if (module === 'inventory') await loadInventory();
-    if (module === 'orders' || module === 'master_order' || module === 'ship') await loadCustomerBlocks();
+    if (module === 'orders') await loadOrdersList();
+    if (module === 'master_order') await loadMasterList();
+    if (module === 'ship') await loadShippingRecords();
     if (module === 'warehouse') await renderWarehouse();
     toast('送出完成', 'ok');
   } catch (e) {

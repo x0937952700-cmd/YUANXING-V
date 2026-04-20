@@ -15,7 +15,7 @@ from db import (
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
+    list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
 )
 from ocr import process_ocr_text, parse_ocr_text
 from backup import run_daily_backup
@@ -163,8 +163,12 @@ def api_login():
             log_action(username, "建立帳號")
             user = get_user(username) or {}
         else:
-            update_password(username, password)
-            user = get_user(username) or user
+            if not verify_password(user.get('password'), password):
+                return error_response("密碼錯誤", 403)
+            # 舊明碼資料第一次成功登入後自動升級為 hash
+            if user.get('password') == password:
+                update_password(username, password)
+                user = get_user(username) or user
         session.permanent = True
         session["user"] = username
         session["role"] = user.get('role') or ("admin" if username == "陳韋廷" else "user")
@@ -194,7 +198,7 @@ def api_change_password():
         new_password = (data.get("new_password") or "").strip()
         confirm_password = (data.get("confirm_password") or "").strip()
         user = get_user(current_username())
-        if not user or user["password"] != old_password:
+        if not user or not verify_password(user.get('password'), old_password):
             return error_response("舊密碼錯誤")
         if not new_password or len(new_password) < 4:
             return error_response("新密碼至少 4 碼")
@@ -254,6 +258,7 @@ def api_upload_ocr():
             confidence=confidence,
             engines=result.get("engines", []),
             customer_guess=result.get("customer_guess", ""),
+            template=result.get("template", "auto"),
             warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""),
             sync_time=int(os.path.getmtime(path))
         )

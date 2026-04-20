@@ -1,5 +1,6 @@
 import os
 import re
+import io
 import base64
 from difflib import get_close_matches
 
@@ -31,63 +32,102 @@ def _coerce_roi(roi):
         return None
 
 
-def preprocess_image(image_path, roi=None):
+def _open_and_crop(image_path, roi=None):
     img = Image.open(image_path)
-    img = ImageOps.exif_transpose(img).convert('RGB')
+    img = ImageOps.exif_transpose(img).convert("RGB")
     roi = _coerce_roi(roi)
     if roi:
         w0, h0 = img.size
-        left = int(max(0, min(w0 - 1, roi['x'] * w0 if roi['x'] <= 1 else roi['x'])))
-        top = int(max(0, min(h0 - 1, roi['y'] * h0 if roi['y'] <= 1 else roi['y'])))
-        width = int(roi['w'] * w0 if roi['w'] <= 1 else roi['w'])
-        height = int(roi['h'] * h0 if roi['h'] <= 1 else roi['h'])
+        left = int(max(0, min(w0 - 1, roi["x"] * w0 if roi["x"] <= 1 else roi["x"])))
+        top = int(max(0, min(h0 - 1, roi["y"] * h0 if roi["y"] <= 1 else roi["y"])))
+        width = int(roi["w"] * w0 if roi["w"] <= 1 else roi["w"])
+        height = int(roi["h"] * h0 if roi["h"] <= 1 else roi["h"])
         right = max(left + 1, min(w0, left + width))
         bottom = max(top + 1, min(h0, top + height))
         img = img.crop((left, top, right, bottom))
+    return img
 
-    # keep only blue-ish handwriting
-    pixels = []
+
+def _resize_for_ocr(img):
+    if img.size[0] < 1600:
+        scale = max(1, int(1600 / max(1, img.size[0])))
+        img = img.resize((img.size[0] * scale, img.size[1] * scale))
+    return img
+
+
+def _mask_color(img, mode="blue"):
+    out = []
     for r, g, b in img.getdata():
-        score = int(b * 1.7 - r * 0.7 - g * 0.5)
-        val = 255 if score > 60 and b > r + 15 and b > g + 10 else 0
-        pixels.append(val)
-    mask = Image.new('L', img.size)
-    mask.putdata(pixels)
+        if mode == "blue":
+            score = int(b * 1.9 - r * 0.8 - g * 0.65)
+            val = 255 if score > 55 and b > r + 15 and b > g + 15 else 0
+        elif mode == "green":
+            score = int(g * 1.9 - r * 0.75 - b * 0.8)
+            val = 255 if score > 45 and g > r + 10 and g > b + 10 else 0
+        else:
+            # handwriting-like dark strokes
+            v = (r + g + b) // 3
+            val = 255 if v < 185 else 0
+        out.append(val)
+    mask = Image.new("L", img.size)
+    mask.putdata(out)
     mask = ImageOps.autocontrast(mask)
     mask = mask.filter(ImageFilter.MedianFilter(3))
-    mask = ImageEnhance.Contrast(mask).enhance(2.5)
-    if mask.size[0] < 1400:
-        mask = mask.resize((mask.size[0] * 2, mask.size[1] * 2))
-    return mask
+    mask = ImageEnhance.Contrast(mask).enhance(3.0)
+    return _resize_for_ocr(mask)
+
+
+def preprocess_image(image_path, roi=None, mode="blue"):
+    img = _open_and_crop(image_path, roi=roi)
+    return _mask_color(img, mode=mode)
 
 
 def _normalize_x(text):
-    return (text or '').replace('×', 'x').replace('X', 'x').replace('*', 'x').replace('＝', '=').replace(' ', '')
+    return (text or "").replace("×", "x").replace("X", "x").replace("＊", "x").replace("*", "x").replace("＝", "=")
+
+
+def _normalize_no_space(text):
+    return re.sub(r"\s+", "", _normalize_x(text or ""))
+
+
+def _extract_chinese_candidates(text):
+    candidates = []
+    for raw in (text or "").splitlines():
+        clean = re.sub(r"[^一-鿿]", "", raw or "")
+        if len(clean) >= 2:
+            candidates.append(clean)
+    return candidates
 
 
 def _guess_customer(raw_text):
-    names = [r.get('name') for r in get_customers() if r.get('name')]
-    if '東昇' in raw_text or '东昇' in raw_text or '東升' in raw_text or '东升' in raw_text:
-        return '東昇'
-    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip() and not any(ch.isdigit() for ch in ln)]
-    for line in lines:
-        m = get_close_matches(line, names, n=1, cutoff=0.6)
+    names = [r.get("name") for r in get_customers() if r.get("name")]
+    normalized_text = _normalize_no_space(raw_text)
+    alias_map = {"東升": "東昇", "东升": "東昇", "东昇": "東昇"}
+    for base in names:
+        if base and _normalize_no_space(base) in normalized_text:
+            return base
+    for alias, target in alias_map.items():
+        if alias in normalized_text:
+            return target
+
+    candidates = _extract_chinese_candidates(raw_text)
+    for cand in candidates:
+        m = get_close_matches(cand, names, n=1, cutoff=0.5)
         if m:
             return m[0]
-    return ''
+    return candidates[0] if candidates else ""
 
 
 def _extract_item_rows(raw_text):
     rows = []
     prev_dims = None
-    for raw in raw_text.splitlines():
-        line = _normalize_x(raw)
-        if not line or '=' not in line:
+    for raw in (raw_text or "").splitlines():
+        line = re.sub(r"\s+", "", _normalize_x(raw))
+        if not line or "=" not in line:
             continue
-        left, right = line.split('=', 1)
-        left_nums = [int(x) for x in re.findall(r'\d+', left)]
-        right_nums = [int(x) for x in re.findall(r'\d+', right)]
-        if not right_nums or not left_nums:
+        left, right = line.split("=", 1)
+        left_nums = [int(x) for x in re.findall(r"\d+", left)]
+        if not left_nums:
             continue
 
         dims = None
@@ -101,95 +141,165 @@ def _extract_item_rows(raw_text):
         if not dims:
             continue
         prev_dims = dims
-        rhs = right_nums[0]
-        qty = right_nums[1] if len(right_nums) > 1 else 1
-        line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else '')
-        rows.append({
-            'line': line_out,
-            'product_text': f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
-            'product_code': f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
-            'qty': qty,
-            'dims': dims,
-        })
 
-    rows.sort(key=lambda r: (r['dims'][2], r['dims'][1], r['dims'][0], -(r['qty'] or 1), r['line']))
+        segments = [seg for seg in re.split(r"[+＋]", right) if seg]
+        if not segments:
+            segments = [right]
+        for seg in segments:
+            nums = [int(x) for x in re.findall(r"\d+", seg)]
+            if not nums:
+                continue
+            rhs = nums[0]
+            qty = nums[1] if len(nums) > 1 else 1
+            line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
+            rows.append({
+                "line": line_out,
+                "product_text": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+                "product_code": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+                "qty": qty,
+                "dims": dims,
+            })
+
+    rows.sort(key=lambda r: (r["dims"][2], r["dims"][1], r["dims"][0], -(r["qty"] or 1), r["line"]))
     return rows
 
 
 def parse_ocr_text(text):
-    rows = _extract_item_rows(text or '')
+    rows = _extract_item_rows(text or "")
     items = [{
-        'raw_text': r['line'],
-        'product_text': r['product_text'],
-        'product_code': r['product_code'],
-        'qty': r['qty'],
+        "raw_text": r["line"],
+        "product_text": r["product_text"],
+        "product_code": r["product_code"],
+        "qty": r["qty"],
     } for r in rows]
-    return {'text': '\n'.join(r['line'] for r in rows), 'lines': [r['line'] for r in rows], 'items': items}
+    return {"text": "\n".join(r["line"] for r in rows), "lines": [r["line"] for r in rows], "items": items}
 
 
-def _run_google_vision(image_path, roi=None):
+def _google_annotate_from_image(img):
     if not GOOGLE_VISION_API_KEY:
-        return None
-    prepared = preprocess_image(image_path, roi=roi)
-    import io
+        return {"raw_text": "", "confidence": 0}
     buf = io.BytesIO()
-    prepared.save(buf, format='PNG')
-    content = base64.b64encode(buf.getvalue()).decode('utf-8')
+    img.save(buf, format="PNG")
+    content = base64.b64encode(buf.getvalue()).decode("utf-8")
     payload = {
-        'requests': [{
-            'image': {'content': content},
-            'features': [{'type': 'DOCUMENT_TEXT_DETECTION'}],
-            'imageContext': {'languageHints': ['zh-TW', 'en']},
+        "requests": [{
+            "image": {"content": content},
+            "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
+            "imageContext": {"languageHints": ["zh-TW", "en"]},
         }]
     }
-    resp = requests.post(f'https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}', json=payload, timeout=30)
+    resp = requests.post(
+        f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}",
+        json=payload,
+        timeout=30
+    )
     data = resp.json()
-    response = (data.get('responses') or [{}])[0]
-    annotation = response.get('fullTextAnnotation') or {}
-    raw_text = annotation.get('text', '')
+    response = (data.get("responses") or [{}])[0]
+    annotation = response.get("fullTextAnnotation") or {}
+    raw_text = annotation.get("text", "")
     confs = []
-    for page in annotation.get('pages') or []:
-        for block in page.get('blocks') or []:
-            conf = block.get('confidence')
+    for page in annotation.get("pages") or []:
+        for block in page.get("blocks") or []:
+            conf = block.get("confidence")
             if conf is not None:
                 confs.append(float(conf) * 100)
     confidence = int(sum(confs) / len(confs)) if confs else 0
-    parsed = parse_ocr_text(raw_text)
-    return {
-        'engine': 'google_vision',
-        'raw_text': raw_text,
-        'text': parsed['text'],
-        'lines': parsed['lines'],
-        'items': parsed['items'],
-        'confidence': confidence,
-        'customer_guess': _guess_customer(raw_text),
-    }
+    return {"raw_text": raw_text, "confidence": confidence}
+
+
+def _detect_template(image_path):
+    try:
+        img = _open_and_crop(image_path)
+        small = img.resize((min(800, img.size[0]), int(img.size[1] * min(800, img.size[0]) / img.size[0])))
+        gray = ImageOps.grayscale(small)
+        bw = gray.point(lambda p: 255 if p < 130 else 0)
+        # estimate form/table via horizontal/vertical dark line density
+        w, h = bw.size
+        rows = [sum(1 for x in range(w) if bw.getpixel((x, y)) > 0) / w for y in range(h)]
+        cols = [sum(1 for y in range(h) if bw.getpixel((x, y)) > 0) / h for x in range(w)]
+        strong_rows = sum(1 for r in rows if r > 0.45)
+        strong_cols = sum(1 for c in cols if c > 0.28)
+        if strong_rows >= 4 and strong_cols >= 4:
+            return "shipping_note"
+        return "whiteboard"
+    except Exception:
+        return "auto"
+
+
+def _crop_relative(image_path, rect):
+    img = _open_and_crop(image_path)
+    w, h = img.size
+    left = int(rect[0] * w)
+    top = int(rect[1] * h)
+    right = int(rect[2] * w)
+    bottom = int(rect[3] * h)
+    return img.crop((left, top, right, bottom))
+
+
+def _extract_customer_by_template(image_path, template):
+    try:
+        if template == "whiteboard":
+            img = _crop_relative(image_path, (0.02, 0.04, 0.55, 0.26))
+            mask = _mask_color(img, mode="green")
+        elif template == "shipping_note":
+            img = _crop_relative(image_path, (0.0, 0.03, 0.28, 0.2))
+            mask = _mask_color(img, mode="blue")
+        else:
+            mask = _mask_color(_open_and_crop(image_path), mode="blue")
+        result = _google_annotate_from_image(mask)
+        return _guess_customer(result.get("raw_text", ""))
+    except Exception:
+        return ""
+
+
+def _extract_products_by_template(image_path, template, roi=None):
+    try:
+        if roi:
+            mask = preprocess_image(image_path, roi=roi, mode="blue")
+        elif template == "shipping_note":
+            img = _crop_relative(image_path, (0.03, 0.12, 0.5, 0.68))
+            mask = _mask_color(img, mode="blue")
+        else:
+            mask = preprocess_image(image_path, mode="blue")
+        result = _google_annotate_from_image(mask)
+        parsed = parse_ocr_text(result.get("raw_text", ""))
+        return {
+            "raw_text": result.get("raw_text", ""),
+            "confidence": result.get("confidence", 0),
+            "text": parsed["text"],
+            "lines": parsed["lines"],
+            "items": parsed["items"],
+        }
+    except Exception:
+        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": []}
 
 
 def process_ocr_text(image_path, roi=None, handwriting_mode=False):
     try:
         period = datetime_now_month()
-        enabled = str(get_setting('google_ocr_enabled', '1')) == '1'
+        enabled = str(get_setting("google_ocr_enabled", "1")) == "1"
+        empty = {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto"}
         if not GOOGLE_VISION_API_KEY or not enabled:
-            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
-        if get_ocr_usage('google_vision', period) >= 980:
-            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': ['google_vision_monthly_limit_reached'], 'customer_guess': ''}
+            return empty
+        if get_ocr_usage("google_vision", period) >= 980:
+            return {**empty, "engines": ["google_vision_monthly_limit_reached"]}
 
-        result = _run_google_vision(image_path, roi=roi)
-        if not result:
-            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
-        increment_ocr_usage('google_vision', period)
+        template = _detect_template(image_path)
+        customer_guess = _extract_customer_by_template(image_path, template)
+        products = _extract_products_by_template(image_path, template, roi=roi)
+        increment_ocr_usage("google_vision", period)
         return {
-            'success': True,
-            'duplicate': False,
-            'raw_text': result.get('raw_text', ''),
-            'text': result.get('text', ''),
-            'lines': result.get('lines', []),
-            'items': result.get('items', []),
-            'confidence': int(result.get('confidence', 0)),
-            'engines': ['google_vision'],
-            'customer_guess': result.get('customer_guess', ''),
+            "success": True,
+            "duplicate": False,
+            "raw_text": products.get("raw_text", ""),
+            "text": products.get("text", ""),
+            "lines": products.get("lines", []),
+            "items": products.get("items", []),
+            "confidence": int(products.get("confidence", 0)),
+            "engines": ["google_vision"],
+            "customer_guess": customer_guess,
+            "template": template,
         }
     except Exception as e:
-        log_error('process_ocr_text_google_only', e)
-        return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
+        log_error("process_ocr_text_google_template", e)
+        return {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto"}

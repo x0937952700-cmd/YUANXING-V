@@ -12,5 +12,18 @@
   <div class="page-shell">
     {% block body %}{% endblock %}
   </div>
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-card glass confirm-card">
+      <div class="modal-head">
+        <div class="section-title" id="confirm-title">請確認</div>
+      </div>
+      <div id="confirm-message" class="muted confirm-message"></div>
+      <div class="btn-row">
+        <button class="ghost-btn" id="confirm-cancel-btn">取消</button>
+        <button class="primary-btn" id="confirm-ok-btn">確認</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
