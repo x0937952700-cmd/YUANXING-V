@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initLoginPage();
   }
   if ($('old-password')) {
-    // settings page
+    loadGoogleOcrStatus();
   }
   if ($('today-changes-btn')) {
     loadTodayChanges();
@@ -157,6 +157,29 @@ async function toggleUserBlocked(encodedUsername, blocked){
   }
 }
 
+
+
+async function loadGoogleOcrStatus(){
+  const box = $('google-ocr-panel');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/admin/google-ocr', { method:'GET' });
+    box.innerHTML = `<div class="card-list"><div class="card"><div class="title">本月使用次數</div><div class="sub">${data.count} / ${data.limit}</div></div><div class="card"><div class="title">目前狀態</div><div class="sub">${data.enabled ? '啟用' : '停用'}</div></div><div class="btn-row"><button class="primary-btn" onclick="setGoogleOcrEnabled(${data.enabled ? 'false' : 'true'})">${data.enabled ? '手動關閉' : '手動開啟'}</button></div></div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+  }
+}
+
+async function setGoogleOcrEnabled(enabled){
+  try {
+    await requestJSON('/api/admin/google-ocr', { method:'POST', body: JSON.stringify({ enabled }) });
+    toast(enabled ? '已開啟 Google OCR' : '已關閉 Google OCR', 'ok');
+    loadGoogleOcrStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 async function changePassword(){
   const old_password = ($('old-password')?.value || '').trim();
   const new_password = ($('new-password')?.value || '').trim();
@@ -214,14 +237,14 @@ async function handleFiles(fileList){
   state.lastSelectedFile = file;
   state.roi = null;
   renderOcrPreview(file);
-  await uploadOcrFile(file);
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '請框選要辨識的區域';
+  toast('請框選要辨識的區域後放開手指', 'ok');
 }
 
 async function uploadOcrFile(file, useRoi=false){
   const form = new FormData();
   form.append('file', file);
   if (useRoi && state.roi) form.append('roi', JSON.stringify(state.roi));
-  form.append('handwriting_mode', $('handwriting-mode')?.checked ? '1' : '0');
   try {
     const res = await fetch('/api/upload_ocr', { method:'POST', body: form });
     const data = await res.json();
@@ -231,7 +254,7 @@ async function uploadOcrFile(file, useRoi=false){
     if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
     if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || ('辨識完成｜' + ((data.engines||[]).join(' / ') || '單引擎'));
     state.lastOcrItems = data.items || [];
-    if ($('customer-name') && !$('customer-name').value && data.customer_guess) $('customer-name').value = data.customer_guess;
+    if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
     if (data.warning) toast(data.warning, 'warn');
     else toast(useRoi ? '區域辨識完成' : 'OCR辨識完成', 'ok');
   } catch (e) {
@@ -259,9 +282,10 @@ function parseTextareaItems(){
   });
 }
 
-function toggleTodayChanges(){
+async function toggleTodayChanges(){
   state.todayChangesOpen = !state.todayChangesOpen;
   $('today-changes-panel')?.classList.toggle('hidden', !state.todayChangesOpen);
+  if (state.todayChangesOpen) await loadTodayChanges();
 }
 
 async function loadTodayChanges(){
@@ -303,17 +327,20 @@ function renderOcrPreview(file){
     box.classList.remove('hidden');
     state.roi = { x: left / rect.width, y: top / rect.height, w: width / rect.width, h: height / rect.height };
   };
-  wrap.onmousedown = (e) => {
+  const point = (e) => {
     const rect = wrap.getBoundingClientRect();
-    start = {x:e.clientX - rect.left, y:e.clientY - rect.top};
-    update(start.x, start.y, start.x, start.y);
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
   };
-  wrap.onmousemove = (e) => {
-    if (!start) return;
-    const rect = wrap.getBoundingClientRect();
-    update(start.x, start.y, e.clientX - rect.left, e.clientY - rect.top);
-  };
-  window.onmouseup = () => { start = null; };
+  const startSelect = (e) => { const p = point(e); start = p; update(p.x,p.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
+  const moveSelect = (e) => { if (!start) return; const p = point(e); update(start.x,start.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
+  const endSelect = async () => { if (start && state.roi && state.lastSelectedFile) { start = null; await uploadOcrFile(state.lastSelectedFile, true); } };
+  wrap.onmousedown = startSelect;
+  wrap.onmousemove = moveSelect;
+  wrap.ontouchstart = startSelect;
+  wrap.ontouchmove = moveSelect;
+  window.onmouseup = endSelect;
+  window.ontouchend = endSelect;
 }
 
 async function runRoiOcr(){
@@ -696,6 +723,38 @@ function getVisibleZoneColumns(zone){
   return [1, 2, 3, 4, 5, 6];
 }
 
+function getColumnVisibleSlots(zone, column){
+  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone && parseInt(c.column_index) === parseInt(column));
+  if (!zoneCells.length) return 20;
+  let maxVisual = 20;
+  zoneCells.forEach(c => {
+    const visual = cellToVisualSlot(c.slot_type, c.slot_number);
+    if (visual > maxVisual) maxVisual = visual;
+  });
+  return maxVisual;
+}
+
+async function addWarehouseVisualSlot(zone, column){
+  const next = getColumnVisibleSlots(zone, column) + 1;
+  const mapped = visualSlotToCell(next);
+  try {
+    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: mapped.side }) });
+    toast('已新增格子', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeWarehouseVisualSlot(zone, column){
+  const current = getColumnVisibleSlots(zone, column);
+  if (current <= 1) return;
+  const mapped = visualSlotToCell(current);
+  try {
+    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: mapped.side, slot_number: mapped.slot }) });
+    toast('已刪除格子', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 function renderWarehouseZones(){
   const renderZone = (zone) => {
     const wrap = $(`zone-${zone}-grid`);
@@ -706,10 +765,11 @@ function renderWarehouseZones(){
     columns.forEach(c => {
       const col = document.createElement('div');
       col.className = 'vertical-column-card';
-      col.innerHTML = `<div class="column-head">${zone} 第 ${c} 欄</div>`;
+      col.innerHTML = `<div class="column-head">${zone} 第 ${c} 欄</div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－格子</button></div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
-      for (let n = 1; n <= 20; n++) {
+      const visibleSlots = getColumnVisibleSlots(zone, c);
+      for (let n = 1; n <= visibleSlots; n++) {
         const mapped = visualSlotToCell(n);
         const items = getUnifiedSlotItems(zone, c, n);
         const slot = document.createElement('div');
@@ -978,4 +1038,8 @@ window.addWarehouseSlot = addWarehouseSlot;
 window.removeWarehouseSlot = removeWarehouseSlot;
 window.deleteWarehouseColumn = deleteWarehouseColumn;
 window.loadAdminUsers = loadAdminUsers;
+window.loadGoogleOcrStatus = loadGoogleOcrStatus;
+window.setGoogleOcrEnabled = setGoogleOcrEnabled;
+window.addWarehouseVisualSlot = addWarehouseVisualSlot;
+window.removeWarehouseVisualSlot = removeWarehouseVisualSlot;
 window.toggleUserBlocked = toggleUserBlocked;

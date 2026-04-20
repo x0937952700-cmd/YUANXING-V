@@ -167,6 +167,12 @@ def init_db():
             count INTEGER DEFAULT 0,
             updated_at {text}
         )""",
+        f"""CREATE TABLE IF NOT EXISTS app_settings (
+            id {pk},
+            key {text} UNIQUE NOT NULL,
+            value {text},
+            updated_at {text}
+        )""",
     ]
     for t in tables:
         cur.execute(t)
@@ -185,6 +191,19 @@ def init_db():
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
 
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
+
+    # default settings
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO NOTHING
+        """, ('google_ocr_enabled', '1', now()))
+    else:
+        cur.execute("""
+            INSERT OR IGNORE INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+        """, ('google_ocr_enabled', '1', now()))
 
     if USE_POSTGRES:
         cur.execute("SELECT to_regclass('public.warehouse_cells')")
@@ -451,6 +470,36 @@ def get_corrections():
     rows = rows_to_dict(cur)
     conn.close()
     return {r["wrong_text"]: r["correct_text"] for r in rows}
+
+def get_setting(key, default=None):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT value FROM app_settings WHERE key = ?"), (key,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return default
+    return row[0] if USE_POSTGRES else row['value']
+
+
+def set_setting(key, value):
+    conn = get_db()
+    cur = conn.cursor()
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+        """, (key, str(value), now()))
+    else:
+        cur.execute("""
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (key, str(value), now()))
+    conn.commit()
+    conn.close()
+
 
 def upsert_customer(name, phone="", address="", notes="", region="北區"):
     conn = get_db()

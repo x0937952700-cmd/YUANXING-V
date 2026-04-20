@@ -10,30 +10,23 @@
   {% if module_key not in ['shipping_query','warehouse','customers'] %}
   <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
     <div class="upload-row tight-row">
-      <button class="primary-btn" onclick="openAlbumPicker()">上傳檔案（相簿 / 拍照）</button>
+      <button class="primary-btn" onclick="openAlbumPicker()">上傳檔案（相簿 OCR）</button>
       <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
       <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
-      {% if module_key not in ['inventory','orders','master_order','ship'] %}
-      <button class="ghost-btn" onclick="openCameraPicker()">右下角拍照上傳</button>
-      <button class="ghost-btn" onclick="resetModuleForm()">重新整理</button>
-      <span class="pill" id="ocr-mode-pill">模式：{{ title }}</span>
-      {% endif %}
+      <button class="ghost-btn" onclick="openCameraPicker()">手機拍照（相機 OCR）</button>
     </div>
     <input id="album-input" class="hidden" type="file" accept="image/*" multiple>
     <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
     <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
       <div class="section-head">
-        <h3>區域辨識</h3><span class="muted">拖曳框選辨識範圍，可切換手寫優先模式後重新辨識</span>
+        <h3>區域辨識</h3><span class="muted">拖曳框選辨識範圍，放開後自動重新辨識，只抓藍筆手寫內容</span>
       </div>
       <div id="ocr-preview-wrap" class="ocr-preview-wrap">
         <img id="ocr-preview-img" class="ocr-preview-img" alt="OCR預覽">
         <div id="ocr-roi-box" class="ocr-roi-box hidden"></div>
       </div>
       <div class="btn-row compact">
-        <label class="chip"><input id="handwriting-mode" type="checkbox"> 手寫優先</label>
-        <button class="ghost-btn small-btn" onclick="runRoiOcr()">重新辨識選取區域</button>
         <button class="ghost-btn small-btn" onclick="clearRoiSelection()">清除框選</button>
-        <button class="ghost-btn small-btn" onclick="learnOcrCorrection()">人工修正學習</button>
       </div>
     </div>
 
@@ -176,10 +169,6 @@
           <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="customers-north"></div></div>
           <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="customers-center"></div></div>
           <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="customers-south"></div></div>
-        </div>
-        <div class="glass panel" id="customer-products-panel">
-          <div class="section-title">客戶商品</div>
-          <div id="customer-products" class="card-list"></div>
         </div>
       </div>
     </div>

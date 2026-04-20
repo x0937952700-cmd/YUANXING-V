@@ -266,3 +266,9 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .vertical-slot.highlight{box-shadow:0 0 0 3px rgba(59,130,246,.18);border-color:#60a5fa;background:#f8fbff;}
 @media (max-width:1200px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(3,minmax(160px,1fr));}}
 @media (max-width:720px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(2,minmax(150px,1fr));}}
+
+
+.hidden-zone{display:none !important;}
+.warehouse-col-tools{justify-content:center;margin-bottom:8px;}
+#google-ocr-panel .card-list{display:grid;gap:12px;}
+.ocr-preview-wrap{touch-action:none;}

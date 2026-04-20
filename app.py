@@ -15,7 +15,7 @@ from db import (
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
+    list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
 )
 from ocr import process_ocr_text, parse_ocr_text
 from backup import run_daily_backup
@@ -117,7 +117,7 @@ def login_page():
 @app.route("/settings")
 def settings_page():
     is_admin = current_username() == '陳韋廷'
-    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin)
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, google_ocr_enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), google_ocr_usage=get_ocr_usage('google_vision', datetime.now().strftime('%Y-%m')))
 
 @app.route("/inventory")
 def inventory_page():
@@ -653,6 +653,28 @@ def api_today_changes():
 @login_required_json
 def api_anomalies():
     return jsonify(success=True, **{'items': _today_changes_payload().get('anomalies', [])})
+
+
+
+@app.route('/api/admin/google-ocr', methods=['GET'])
+@login_required_json
+def api_admin_google_ocr_get():
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    period = datetime.now().strftime('%Y-%m')
+    return jsonify(success=True, enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), count=get_ocr_usage('google_vision', period), period=period, limit=980)
+
+@app.route('/api/admin/google-ocr', methods=['POST'])
+@login_required_json
+def api_admin_google_ocr_set():
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    data = request.get_json(silent=True) or {}
+    enabled = '1' if bool(data.get('enabled')) else '0'
+    set_setting('google_ocr_enabled', enabled)
+    log_action(current_username(), f"Google OCR{'開啟' if enabled == '1' else '關閉'}")
+    period = datetime.now().strftime('%Y-%m')
+    return jsonify(success=True, enabled=(enabled=='1'), count=get_ocr_usage('google_vision', period), period=period, limit=980)
 
 @app.route("/health")
 def health():

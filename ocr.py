@@ -2,24 +2,12 @@ import os
 import re
 import base64
 from difflib import get_close_matches
-import tempfile
 
 import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-from db import log_error, get_corrections, list_inventory, get_customers, get_ocr_usage, increment_ocr_usage
+from db import log_error, get_customers, get_setting, get_ocr_usage, increment_ocr_usage
 
-try:
-    import pytesseract
-except Exception:
-    pytesseract = None
-
-NOISE_WORDS = [
-    "全部筆記", "昨天", "今天", "備忘錄", "新增", "完成", "搜尋",
-    "筆記", "ocr", "key", "掃描文件", "編輯", "返回", "分享"
-]
-
-OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
 GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
@@ -43,412 +31,165 @@ def _coerce_roi(roi):
         return None
 
 
-def preprocess_image(image_path, roi=None, handwriting_mode=False):
+def preprocess_image(image_path, roi=None):
     img = Image.open(image_path)
-    img = ImageOps.exif_transpose(img)
+    img = ImageOps.exif_transpose(img).convert('RGB')
+    roi = _coerce_roi(roi)
     if roi:
-        roi = _coerce_roi(roi)
-        if roi:
-            w0, h0 = img.size
-            left = int(max(0, min(w0 - 1, roi["x"] * w0 if roi["x"] <= 1 else roi["x"])))
-            top = int(max(0, min(h0 - 1, roi["y"] * h0 if roi["y"] <= 1 else roi["y"])))
-            width = int(roi["w"] * w0 if roi["w"] <= 1 else roi["w"])
-            height = int(roi["h"] * h0 if roi["h"] <= 1 else roi["h"])
-            right = max(left + 1, min(w0, left + width))
-            bottom = max(top + 1, min(h0, top + height))
-            img = img.crop((left, top, right, bottom))
-    rgb = img.convert("RGB")
-    if handwriting_mode:
-        bands = []
-        for r, g, b in rgb.getdata():
-            v = max(0, min(255, int(b * 1.6 - r * 0.5 - g * 0.5 + 80)))
-            bands.append(v)
-        blue = Image.new("L", rgb.size)
-        blue.putdata(bands)
-        img = ImageOps.autocontrast(blue)
-    else:
-        img = rgb.convert("L")
-    width, height = img.size
-    if width < 1200:
-        img = img.resize((max(width * 2, 1), max(height * 2, 1)))
-    img = img.filter(ImageFilter.MedianFilter())
-    img = ImageEnhance.Contrast(img).enhance(2.6)
-    img = ImageEnhance.Sharpness(img).enhance(2.0)
-    img = ImageOps.autocontrast(img)
-    img = img.point(lambda p: 255 if p > 150 else 0)
-    return img
+        w0, h0 = img.size
+        left = int(max(0, min(w0 - 1, roi['x'] * w0 if roi['x'] <= 1 else roi['x'])))
+        top = int(max(0, min(h0 - 1, roi['y'] * h0 if roi['y'] <= 1 else roi['y'])))
+        width = int(roi['w'] * w0 if roi['w'] <= 1 else roi['w'])
+        height = int(roi['h'] * h0 if roi['h'] <= 1 else roi['h'])
+        right = max(left + 1, min(w0, left + width))
+        bottom = max(top + 1, min(h0, top + height))
+        img = img.crop((left, top, right, bottom))
+
+    # keep only blue-ish handwriting
+    pixels = []
+    for r, g, b in img.getdata():
+        score = int(b * 1.7 - r * 0.7 - g * 0.5)
+        val = 255 if score > 60 and b > r + 15 and b > g + 10 else 0
+        pixels.append(val)
+    mask = Image.new('L', img.size)
+    mask.putdata(pixels)
+    mask = ImageOps.autocontrast(mask)
+    mask = mask.filter(ImageFilter.MedianFilter(3))
+    mask = ImageEnhance.Contrast(mask).enhance(2.5)
+    if mask.size[0] < 1400:
+        mask = mask.resize((mask.size[0] * 2, mask.size[1] * 2))
+    return mask
 
 
-def _prepare_temp_image(image_path, roi=None, handwriting_mode=False):
-    img = preprocess_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-    img.save(tmp.name, "JPEG", quality=92)
-    return tmp.name
+def _normalize_x(text):
+    return (text or '').replace('×', 'x').replace('X', 'x').replace('*', 'x').replace('＝', '=').replace(' ', '')
 
 
-def normalize_text(text):
-    text = (text or "").strip()
-    replace_map = {
-        " ": "",
-        "×": "x",
-        "X": "x",
-        "：": ":",
-        "O": "0",
-        "o": "0",
-        "I": "1",
-        "l": "1",
-        "|": "1",
-        "（": "(",
-        "）": ")",
-        "＊": "*",
-        "﹡": "*",
-    }
-    for old, new in replace_map.items():
-        text = text.replace(old, new)
-    return text
-
-
-def is_noise_line(text):
-    low = text.lower()
-    if not text.strip():
-        return True
-    for noise in NOISE_WORDS:
-        if noise.lower() in low:
-            return True
-    if re.match(r"^\d{1,4}[/-]\d{1,2}[/-]\d{1,4}$", text):
-        return True
-    if re.match(r"^\d{1,2}:\d{2}$", text):
-        return True
-    if re.match(r"^\d{1,3}$", text):
-        return True
-    return False
-
-
-def get_known_products():
-    rows = list_inventory()
-    return [r["product_text"] for r in rows if r.get("product_text")]
-
-
-def get_known_customers():
-    try:
-        rows = get_customers()
-        return [r["name"] for r in rows if r.get("name")]
-    except Exception:
-        return []
-
-
-def guess_customer_name(text):
-    names = get_known_customers()
-    if not names:
-        return ""
-    candidates = []
-    for raw in (text or "").splitlines():
-        line = raw.strip()
-        if not line or len(line) > 20:
-            continue
-        if any(ch.isdigit() for ch in line):
-            continue
-        candidates.append(line)
-    for candidate in candidates:
-        m = get_close_matches(candidate, names, n=1, cutoff=0.6)
+def _guess_customer(raw_text):
+    names = [r.get('name') for r in get_customers() if r.get('name')]
+    if '東昇' in raw_text or '东昇' in raw_text or '東升' in raw_text or '东升' in raw_text:
+        return '東昇'
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip() and not any(ch.isdigit() for ch in ln)]
+    for line in lines:
+        m = get_close_matches(line, names, n=1, cutoff=0.6)
         if m:
             return m[0]
-    merged = " ".join(candidates)
-    m = get_close_matches(merged, names, n=1, cutoff=0.6)
-    return m[0] if m else ""
+    return ''
 
 
-def apply_ai_correction(product_name):
-    product_name = normalize_text(product_name)
-    corrections = get_corrections()
-    if product_name in corrections:
-        return corrections[product_name]
-    known_products = get_known_products()
-    if known_products:
-        matches = get_close_matches(product_name, known_products, n=1, cutoff=0.72)
-        if matches:
-            return matches[0]
-    return product_name
+def _extract_item_rows(raw_text):
+    rows = []
+    prev_dims = None
+    for raw in raw_text.splitlines():
+        line = _normalize_x(raw)
+        if not line or '=' not in line:
+            continue
+        left, right = line.split('=', 1)
+        left_nums = [int(x) for x in re.findall(r'\d+', left)]
+        right_nums = [int(x) for x in re.findall(r'\d+', right)]
+        if not right_nums or not left_nums:
+            continue
 
+        dims = None
+        if len(left_nums) >= 3:
+            dims = left_nums[:3]
+        elif len(left_nums) == 2 and prev_dims:
+            dims = [left_nums[0], left_nums[1], prev_dims[2]]
+        elif len(left_nums) == 1 and prev_dims:
+            dims = [left_nums[0], prev_dims[1], prev_dims[2]]
 
-def parse_line(line):
-    line = normalize_text(line)
-    m = re.match(r"(.+?)=(\d+)(?:x(\d+))?$", line)
-    if m:
-        product_text = m.group(1).strip()
-        right = m.group(2)
-        qty = int(m.group(3) or 1)
-        return f"{product_text}={right}", qty
-    return line, 1
+        if not dims:
+            continue
+        prev_dims = dims
+        rhs = right_nums[0]
+        qty = right_nums[1] if len(right_nums) > 1 else 1
+        line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else '')
+        rows.append({
+            'line': line_out,
+            'product_text': f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+            'product_code': f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+            'qty': qty,
+            'dims': dims,
+        })
 
-
-def _normalize_whiteboard_line(raw, prev_dims=None):
-    line = normalize_text(raw).replace("*", "x")
-    line = re.sub(r"[-—_]+", "", line)
-    if "=" not in line:
-        return None, prev_dims
-
-    left, right = line.split("=", 1)
-    left_nums = [int(x) for x in re.findall(r"\d+", left)]
-    right_nums = [int(x) for x in re.findall(r"\d+", right)]
-    if not right_nums:
-        return None, prev_dims
-
-    rhs = right_nums[0]
-    qty = right_nums[1] if len(right_nums) > 1 else 1
-
-    dims = None
-    if len(left_nums) >= 3:
-        dims = left_nums[:3]
-    elif len(left_nums) == 2 and prev_dims:
-        dims = [left_nums[0], left_nums[1], prev_dims[2]]
-    elif len(left_nums) == 1 and prev_dims:
-        dims = [left_nums[0], prev_dims[1], prev_dims[2]]
-
-    if not dims:
-        return None, prev_dims
-
-    normalized = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
-    return {
-        "line": normalized,
-        "product_text": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
-        "product_code": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
-        "qty": qty,
-        "dims": dims,
-    }, dims
+    rows.sort(key=lambda r: (r['dims'][2], r['dims'][1], r['dims'][0], -(r['qty'] or 1), r['line']))
+    return rows
 
 
 def parse_ocr_text(text):
-    lines = []
-    items = []
-    parsed_rows = []
-    prev_dims = None
-
-    for raw in (text or "").splitlines():
-        raw = raw.strip()
-        if not raw or is_noise_line(raw):
-            continue
-
-        normalized, prev_dims = _normalize_whiteboard_line(raw, prev_dims)
-        if normalized:
-            parsed_rows.append(normalized)
-            continue
-
-        product_raw, qty = parse_line(raw)
-        if is_noise_line(product_raw):
-            continue
-        product_fixed = apply_ai_correction(product_raw)
-        parsed_rows.append({
-            "line": f"{product_fixed}" + (f"x{qty}" if qty != 1 else ""),
-            "product_text": product_fixed,
-            "product_code": product_fixed.split("=")[0],
-            "qty": qty,
-            "dims": None,
-        })
-
-    def sort_key(row):
-        if row.get("dims"):
-            l, w, h = row["dims"]
-            return (h, w, l, -(row.get("qty") or 1), row["line"])
-        return (999999, 999999, 999999, -(row.get("qty") or 1), row["line"])
-
-    parsed_rows.sort(key=sort_key)
-
-    for row in parsed_rows:
-        items.append({
-            "raw_text": row["line"],
-            "product_text": row["product_text"],
-            "product_code": row.get("product_code", row["product_text"]),
-            "qty": row["qty"],
-        })
-        lines.append(row["line"])
-
-    return {"text": "\n".join(lines), "lines": lines, "items": items}
-def _score(parsed, confidence, engine):
-    bonus = {"google_vision": 25, "ocr_space": 15, "tesseract": 5}.get(engine, 0)
-    return len(parsed.get("items", [])) * 100 + len(parsed.get("text", "")) + int(confidence or 0) + bonus
+    rows = _extract_item_rows(text or '')
+    items = [{
+        'raw_text': r['line'],
+        'product_text': r['product_text'],
+        'product_code': r['product_code'],
+        'qty': r['qty'],
+    } for r in rows]
+    return {'text': '\n'.join(r['line'] for r in rows), 'lines': [r['line'] for r in rows], 'items': items}
 
 
-def _run_tesseract(image_path, roi=None, handwriting_mode=False):
-    if pytesseract is None:
-        return None
-    try:
-        img = preprocess_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
-        raw_data = pytesseract.image_to_data(
-            img,
-            lang="chi_tra+eng",
-            config="--psm 6",
-            output_type=pytesseract.Output.DICT,
-        )
-        confidence_values = []
-        for conf in raw_data.get("conf", []):
-            try:
-                val = float(conf)
-                if val > 0:
-                    confidence_values.append(val)
-            except Exception:
-                pass
-        avg_confidence = int(sum(confidence_values) / len(confidence_values)) if confidence_values else 0
-        text = pytesseract.image_to_string(img, lang="chi_tra+eng", config="--psm 6")
-        parsed = parse_ocr_text(text)
-        return {
-            "engine": "tesseract",
-            "text": parsed["text"],
-            "lines": parsed["lines"],
-            "items": parsed["items"],
-            "confidence": avg_confidence,
-            "score": _score(parsed, avg_confidence, "tesseract"),
-        }
-    except Exception as e:
-        log_error("ocr_tesseract", e)
-        return None
-
-
-def _run_ocr_space(image_path, roi=None, handwriting_mode=False):
-    try:
-        prepared_path = _prepare_temp_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
-        with open(prepared_path, "rb") as f:
-            payload = {
-                "apikey": OCR_SPACE_API_KEY,
-                "language": "cht",
-                "OCREngine": 2,
-                "scale": True,
-                "isTable": False,
-                "detectOrientation": True,
-            }
-            resp = requests.post(
-                "https://api.ocr.space/parse/image",
-                files={"filename": f},
-                data=payload,
-                timeout=30,
-            )
-        data = resp.json()
-        parsed_results = data.get("ParsedResults") or []
-        text = "\n".join((r.get("ParsedText") or "") for r in parsed_results).strip()
-        confs = []
-        for pr in parsed_results:
-            overlay = pr.get("TextOverlay") or {}
-            for line in overlay.get("Lines") or []:
-                for word in line.get("Words") or []:
-                    conf = word.get("Confidence")
-                    if conf is not None:
-                        try:
-                            confs.append(float(conf))
-                        except Exception:
-                            pass
-        confidence = int(sum(confs) / len(confs)) if confs else 0
-        parsed = parse_ocr_text(text)
-        return {
-            "engine": "ocr_space",
-            "text": parsed["text"],
-            "lines": parsed["lines"],
-            "items": parsed["items"],
-            "confidence": confidence,
-            "score": _score(parsed, confidence, "ocr_space"),
-        }
-    except Exception as e:
-        log_error("ocr_space", e)
-        return None
-
-
-def _run_google_vision(image_path, roi=None, handwriting_mode=False):
+def _run_google_vision(image_path, roi=None):
     if not GOOGLE_VISION_API_KEY:
         return None
-    try:
-        prepared_path = _prepare_temp_image(image_path, roi=roi, handwriting_mode=handwriting_mode)
-        with open(prepared_path, "rb") as f:
-            content = base64.b64encode(f.read()).decode("utf-8")
-        payload = {
-            "requests": [{
-                "image": {"content": content},
-                "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
-                "imageContext": {"languageHints": ["zh-TW", "en"]},
-            }]
-        }
-        resp = requests.post(
-            f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}",
-            json=payload,
-            timeout=30,
-        )
-        data = resp.json()
-        response = (data.get("responses") or [{}])[0]
-        annotation = response.get("fullTextAnnotation") or {}
-        text = annotation.get("text", "")
-        confs = []
-        for page in annotation.get("pages") or []:
-            for block in page.get("blocks") or []:
-                conf = block.get("confidence")
-                if conf is not None:
-                    confs.append(float(conf) * 100)
-        confidence = int(sum(confs) / len(confs)) if confs else 0
-        parsed = parse_ocr_text(text)
-        return {
-            "engine": "google_vision",
-            "text": parsed["text"],
-            "lines": parsed["lines"],
-            "items": parsed["items"],
-            "confidence": confidence,
-            "score": _score(parsed, confidence, "google_vision"),
-        }
-    except Exception as e:
-        log_error("google_vision", e)
-        return None
+    prepared = preprocess_image(image_path, roi=roi)
+    import io
+    buf = io.BytesIO()
+    prepared.save(buf, format='PNG')
+    content = base64.b64encode(buf.getvalue()).decode('utf-8')
+    payload = {
+        'requests': [{
+            'image': {'content': content},
+            'features': [{'type': 'DOCUMENT_TEXT_DETECTION'}],
+            'imageContext': {'languageHints': ['zh-TW', 'en']},
+        }]
+    }
+    resp = requests.post(f'https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}', json=payload, timeout=30)
+    data = resp.json()
+    response = (data.get('responses') or [{}])[0]
+    annotation = response.get('fullTextAnnotation') or {}
+    raw_text = annotation.get('text', '')
+    confs = []
+    for page in annotation.get('pages') or []:
+        for block in page.get('blocks') or []:
+            conf = block.get('confidence')
+            if conf is not None:
+                confs.append(float(conf) * 100)
+    confidence = int(sum(confs) / len(confs)) if confs else 0
+    parsed = parse_ocr_text(raw_text)
+    return {
+        'engine': 'google_vision',
+        'raw_text': raw_text,
+        'text': parsed['text'],
+        'lines': parsed['lines'],
+        'items': parsed['items'],
+        'confidence': confidence,
+        'customer_guess': _guess_customer(raw_text),
+    }
 
 
 def process_ocr_text(image_path, roi=None, handwriting_mode=False):
     try:
         period = datetime_now_month()
-        candidates = []
-        free_candidates = [r for r in (_run_ocr_space(image_path, roi=roi, handwriting_mode=handwriting_mode), _run_tesseract(image_path, roi=roi, handwriting_mode=handwriting_mode)) if r]
-        candidates.extend(free_candidates)
-        best_free = sorted(free_candidates, key=lambda x: x.get("score", 0), reverse=True)[0] if free_candidates else None
+        enabled = str(get_setting('google_ocr_enabled', '1')) == '1'
+        if not GOOGLE_VISION_API_KEY or not enabled:
+            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
+        if get_ocr_usage('google_vision', period) >= 980:
+            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': ['google_vision_monthly_limit_reached'], 'customer_guess': ''}
 
-        google_allowed = bool(GOOGLE_VISION_API_KEY) and get_ocr_usage("google_vision", period) < 980
-        should_try_google = google_allowed and (
-            best_free is None or
-            int(best_free.get("confidence", 0)) < 78 or
-            len(best_free.get("items", [])) == 0
-        )
-        if should_try_google:
-            google_result = _run_google_vision(image_path, roi=roi, handwriting_mode=handwriting_mode)
-            if google_result:
-                candidates.append(google_result)
-                increment_ocr_usage("google_vision", period)
-
-        if not candidates:
-            return {
-                "success": False,
-                "duplicate": False,
-                "text": "",
-                "lines": [],
-                "items": [],
-                "confidence": 0,
-                "engines": [],
-            }
-        best = sorted(candidates, key=lambda x: x.get("score", 0), reverse=True)[0]
-        engines = [c.get("engine") for c in candidates]
-        if GOOGLE_VISION_API_KEY and not should_try_google and get_ocr_usage("google_vision", period) >= 980:
-            engines.append("google_vision_monthly_limit_reached")
-        best_text = best.get("text", "")
+        result = _run_google_vision(image_path, roi=roi)
+        if not result:
+            return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
+        increment_ocr_usage('google_vision', period)
         return {
-            "success": True,
-            "duplicate": False,
-            "raw_text": best_text,
-            "text": best_text,
-            "lines": best.get("lines", []),
-            "items": best.get("items", []),
-            "confidence": int(best.get("confidence", 0)),
-            "engines": engines,
-            "customer_guess": guess_customer_name(best_text),
+            'success': True,
+            'duplicate': False,
+            'raw_text': result.get('raw_text', ''),
+            'text': result.get('text', ''),
+            'lines': result.get('lines', []),
+            'items': result.get('items', []),
+            'confidence': int(result.get('confidence', 0)),
+            'engines': ['google_vision'],
+            'customer_guess': result.get('customer_guess', ''),
         }
     except Exception as e:
-        log_error("process_ocr_text", e)
-        return {
-            "success": False,
-            "duplicate": False,
-            "text": "",
-            "lines": [],
-            "items": [],
-            "confidence": 0,
-            "engines": [],
-        }
+        log_error('process_ocr_text_google_only', e)
+        return {'success': False, 'duplicate': False, 'text': '', 'raw_text': '', 'lines': [], 'items': [], 'confidence': 0, 'engines': [], 'customer_guess': ''}
