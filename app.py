@@ -220,8 +220,9 @@ def api_upload_ocr():
         if len(content) > MAX_UPLOAD_SIZE:
             return error_response("圖片過大")
         image_hash = hashlib.md5(content).hexdigest()
-        if image_hash_exists(image_hash):
-            return error_response("此圖片已上傳過")
+        force = str(request.form.get("force") or "0").lower() in ("1", "true", "yes", "on")
+        if image_hash_exists(image_hash) and not force:
+            return jsonify(success=False, duplicate=True, image_hash=image_hash, error="相同照片上傳過，是否重新識別？"), 409
         ext = file.filename.rsplit(".", 1)[1].lower()
         filename = f"{image_hash}.{ext}"
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -237,11 +238,25 @@ def api_upload_ocr():
                 roi = None
         handwriting_mode = str(request.form.get("handwriting_mode") or "0").lower() in ("1", "true", "yes", "on")
         result = process_ocr_text(path, roi=roi, handwriting_mode=handwriting_mode)
-        save_image_hash(image_hash)
+        if not result.get('success') and not result.get('text'):
+            return error_response('OCR辨識失敗')
+        if not image_hash_exists(image_hash):
+            save_image_hash(image_hash)
         confidence = int(result.get("confidence", 0))
         log_action(current_username(), f"OCR辨識[{','.join(result.get('engines', []))}]")
-        return jsonify(success=True, text=result.get("text", ""), raw_text=result.get("raw_text", result.get("text", "")), items=result.get("items", []), confidence=confidence, engines=result.get("engines", []), customer_guess=result.get("customer_guess", ""),
-                       warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""), sync_time=int(os.path.getmtime(path)))
+        return jsonify(
+            success=True,
+            duplicate=False,
+            image_hash=image_hash,
+            text=result.get("text", ""),
+            raw_text=result.get("raw_text", result.get("text", "")),
+            items=result.get("items", []),
+            confidence=confidence,
+            engines=result.get("engines", []),
+            customer_guess=result.get("customer_guess", ""),
+            warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""),
+            sync_time=int(os.path.getmtime(path))
+        )
     except Exception as e:
         log_error("upload_ocr", str(e))
         return error_response("OCR辨識失敗")
