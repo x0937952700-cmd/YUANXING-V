@@ -158,7 +158,117 @@ def init_db():
             message {text},
             created_at {text}
         )""",
-        f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
+    ]
+    for t in tables:
+        cur.execute(t)
+
+    if USE_POSTGRES:
+        cur.execute("SELECT to_regclass('public.warehouse_cells')")
+        table_exists = cur.fetchone()[0] is not None
+
+        if table_exists:
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'warehouse_cells'
+                ORDER BY ordinal_position
+            """)
+            existing_cols = {r[0] for r in cur.fetchall()}
+        else:
+            existing_cols = set()
+
+        legacy_schema = table_exists and ('area' in existing_cols or 'zone' not in existing_cols or 'column_index' not in existing_cols or 'slot_type' not in existing_cols or 'slot_number' not in existing_cols)
+
+        if legacy_schema:
+            cur.execute("SELECT to_regclass('public.warehouse_cells_legacy')")
+            legacy_exists = cur.fetchone()[0] is not None
+            if not legacy_exists:
+                cur.execute('ALTER TABLE warehouse_cells RENAME TO warehouse_cells_legacy')
+            cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
+                id {pk},
+                zone {text} NOT NULL,
+                column_index INTEGER NOT NULL,
+                slot_type {text} NOT NULL,
+                slot_number INTEGER NOT NULL,
+                items_json {text},
+                note {text},
+                updated_at {text},
+                UNIQUE(zone, column_index, slot_type, slot_number)
+            )""")
+
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'warehouse_cells_legacy'
+                ORDER BY ordinal_position
+            """)
+            legacy_cols = {r[0] for r in cur.fetchall()}
+
+            def pick(*names, default_sql=None):
+                for name in names:
+                    if name in legacy_cols:
+                        return f'"{name}"'
+                return default_sql
+
+            zone_expr = pick('zone', 'area', default_sql="'A'")
+            col_expr = pick('column_index', 'col', 'column', default_sql='1')
+            slot_type_expr = pick('slot_type', 'front_back', 'side', default_sql="'front'")
+            slot_num_expr = pick('slot_number', 'row', 'position', default_sql='1')
+            items_expr = pick('items_json', default_sql="'[]'")
+            note_expr = pick('note', 'memo', 'remark', default_sql="''")
+            updated_expr = pick('updated_at', 'created_at', default_sql=f"'{now()}'")
+
+            cur.execute(f"""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                SELECT
+                    COALESCE(NULLIF({zone_expr}::text, ''), 'A'),
+                    COALESCE({col_expr}::integer, 1),
+                    COALESCE(NULLIF({slot_type_expr}::text, ''), 'front'),
+                    COALESCE({slot_num_expr}::integer, 1),
+                    COALESCE({items_expr}::text, '[]'),
+                    COALESCE({note_expr}::text, ''),
+                    COALESCE({updated_expr}::text, '{now()}')
+                FROM warehouse_cells_legacy
+                ON CONFLICT (zone, column_index, slot_type, slot_number) DO NOTHING
+            """)
+        else:
+            cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
+                id {pk},
+                zone {text} NOT NULL,
+                column_index INTEGER NOT NULL,
+                slot_type {text} NOT NULL,
+                slot_number INTEGER NOT NULL,
+                items_json {text},
+                note {text},
+                updated_at {text},
+                UNIQUE(zone, column_index, slot_type, slot_number)
+            )""")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT")
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot
+                ON warehouse_cells(zone, column_index, slot_type, slot_number)
+            """)
+
+        for zone in ('A', 'B'):
+            for col in range(1, 13):
+                for slot_type in ('front', 'back'):
+                    for num in range(1, 11):
+                        cur.execute("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            SELECT %s, %s, %s, %s, %s, %s, %s
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM warehouse_cells
+                                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+                            )
+                        """, (zone, col, slot_type, num, '[]', '', now(), zone, col, slot_type, num))
+    else:
+        cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
             id {pk},
             zone {text} NOT NULL,
             column_index INTEGER NOT NULL,
@@ -168,41 +278,16 @@ def init_db():
             note {text},
             updated_at {text},
             UNIQUE(zone, column_index, slot_type, slot_number)
-        )""",
-    ]
-    for t in tables:
-        cur.execute(t)
-
-    # 修復 PostgreSQL 舊資料表缺欄位（只補欄位，不動其他邏輯）
-    if USE_POSTGRES:
-        try:
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT")
-        except Exception:
-            pass
-    for zone in ("A", "B"):
-        for col in range(1, 13):
-            for slot_type in ("front", "back"):
-                for num in range(1, 11):
-                    if USE_POSTGRES:
-                        cur.execute("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            SELECT %s, %s, %s, %s, %s, %s, %s
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM warehouse_cells
-                                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
-                            )
-                        """, (zone, col, slot_type, num, "[]", "", now(), zone, col, slot_type, num))
-                    else:
+        )""")
+        for zone in ('A', 'B'):
+            for col in range(1, 13):
+                for slot_type in ('front', 'back'):
+                    for num in range(1, 11):
                         cur.execute("""
                             INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (zone, col, slot_type, num, "[]", "", now()))
+                        """, (zone, col, slot_type, num, '[]', '', now()))
+
     conn.commit()
     conn.close()
 
