@@ -4,6 +4,7 @@ const state = {
   rememberLogin: true,
   lastOcrItems: [],
   warehouse: { cells: [], zones: null, availableItems: [], activeZone: 'A' },
+  adminUsers: [],
   currentCell: null,
   currentCellItems: [],
   currentCustomer: null,
@@ -114,6 +115,38 @@ async function logout(){
   localStorage.removeItem('username');
   localStorage.removeItem('password');
   window.location.href = '/login';
+}
+
+
+async function loadAdminUsers(){
+  const box = $('admin-users');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/admin/users', { method:'GET' });
+    state.adminUsers = data.items || [];
+    box.innerHTML = `<table><thead><tr><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead><tbody>${state.adminUsers.map(u => `
+      <tr>
+        <td>${escapeHTML(u.username || '')}</td>
+        <td>${escapeHTML(u.role || 'user')}</td>
+        <td>${Number(u.is_blocked || 0) ? '黑名單' : '正常'}</td>
+        <td>${u.username === '陳韋廷' ? '管理員' : `<button class="ghost-btn small-btn" onclick="toggleUserBlocked('${encodeURIComponent(u.username)}', ${Number(u.is_blocked || 0) ? 'false' : 'true'})">${Number(u.is_blocked || 0) ? '解除黑名單' : '加入黑名單'}</button>`}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+  }
+}
+
+async function toggleUserBlocked(encodedUsername, blocked){
+  try {
+    await requestJSON('/api/admin/block', {
+      method:'POST',
+      body: JSON.stringify({ username: decodeURIComponent(encodedUsername), blocked })
+    });
+    toast(blocked ? '已加入黑名單' : '已解除黑名單', 'ok');
+    loadAdminUsers();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 async function changePassword(){
@@ -276,7 +309,6 @@ async function loadInventory(){
         <div class="sub">總數量：${item.qty || 0}</div>
         <div class="sub">已放倉庫：${item.placed_qty || 0}</div>
         <div class="sub">未放倉庫：${item.unplaced_qty || 0}</div>
-        <div class="sub">客戶：${escapeHTML(item.customer_name || '—')}</div>
         <div class="sub">位置：${escapeHTML(item.location || '—')}</div>
       `;
       el.appendChild(card);
@@ -490,6 +522,12 @@ function getCellItems(zone, column_index, slot_type, slot_number){
   try { return JSON.parse(cell.items_json || '[]'); } catch(e){ return []; }
 }
 
+function getMaxSlot(zone, column, side){
+  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone && parseInt(c.column_index) === parseInt(column) && c.slot_type === side);
+  if (!zoneCells.length) return 10;
+  return Math.max(10, ...zoneCells.map(c => parseInt(c.slot_number || 0)).filter(Boolean));
+}
+
 function getVisibleZoneColumns(zone){
   const zoneCells = state.warehouse.cells.filter(c => c.zone === zone);
   const byCol = new Map();
@@ -523,16 +561,25 @@ function renderWarehouseZones(){
     const columns = getVisibleZoneColumns(zone);
     columns.forEach(c => {
       const col = document.createElement('div');
-      col.className = 'column-card';
-      col.innerHTML = `<div class="column-head">${zone} ${c}</div>`;
+      col.className = 'column-card intuitive-column';
+      col.innerHTML = `
+        <div class="column-head-row">
+          <div class="column-head">${zone} 第 ${c} 欄</div>
+          <button class="ghost-btn tiny-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除欄</button>
+        </div>`;
       ['front', 'back'].forEach(side => {
         const label = document.createElement('div');
-        label.className = 'slot-label';
-        label.textContent = side === 'front' ? '前排' : '後排';
+        label.className = 'slot-label slot-label-row';
+        label.innerHTML = `<span>${side === 'front' ? '前排' : '後排'}</span>
+          <span class="row-slot-actions">
+            <button class="ghost-btn tiny-btn" onclick="addWarehouseSlot('${zone}', ${c}, '${side}')">＋格</button>
+            <button class="ghost-btn tiny-btn" onclick="removeWarehouseSlot('${zone}', ${c}, '${side}')">－格</button>
+          </span>`;
         col.appendChild(label);
         const row = document.createElement('div');
-        row.className = 'slot-row';
-        for (let n=1; n<=10; n++) {
+        row.className = 'slot-row dynamic-slot-row';
+        const maxSlot = getMaxSlot(zone, c, side);
+        for (let n = 1; n <= maxSlot; n++) {
           const slot = document.createElement('div');
           slot.className = 'slot';
           slot.dataset.zone = zone;
@@ -540,17 +587,16 @@ function renderWarehouseZones(){
           slot.dataset.side = side;
           slot.dataset.num = n;
           const items = getCellItems(zone, c, side, n);
-          slot.innerHTML = `<div class="slot-title">${n}</div><div class="slot-count">${items.length ? `${items.length} 筆` : '空'}</div>`;
-          if (items.length) {
-            const first = items[0];
-            slot.innerHTML += `<div class="slot-chip" draggable="true">${escapeHTML(first.product_text || first.product || '')} × ${first.qty || 0}</div>`;
-            slot.classList.add('filled');
-          }
+          const title = `${side === 'front' ? '前' : '後'}${String(n).padStart(2, '0')}`;
+          const names = items.slice(0, 2).map(it => `${escapeHTML(it.product_text || '')}×${it.qty || 0}`).join('<br>');
+          slot.innerHTML = `<div class="slot-title">${title}</div><div class="slot-count">${items.length ? names : '空格'}</div>`;
+          if (items.length) slot.classList.add('filled');
           slot.addEventListener('click', () => openWarehouseModal(zone, c, side, n));
           slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
           slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
           slot.addEventListener('drop', async ev => {
-            ev.preventDefault(); slot.classList.remove('drag-over');
+            ev.preventDefault();
+            slot.classList.remove('drag-over');
             const raw = ev.dataTransfer.getData('text/plain');
             if (!raw) return;
             const parsed = JSON.parse(raw);
@@ -567,6 +613,32 @@ function renderWarehouseZones(){
   };
   renderZone('A');
   renderZone('B');
+}
+
+async function addWarehouseSlot(zone, column, side){
+  try {
+    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: side }) });
+    toast('已新增格子', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function removeWarehouseSlot(zone, column, side){
+  try {
+    const maxSlot = getMaxSlot(zone, column, side);
+    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: side, slot_number: maxSlot }) });
+    toast('已刪除格子', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteWarehouseColumn(zone, column){
+  if (!confirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`)) return;
+  try {
+    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
+    toast('已刪除欄位', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function openWarehouseModal(zone, column, side, num){
@@ -752,4 +824,8 @@ window.renderCustomers = renderCustomers;
 
 window.setWarehouseZone = setWarehouseZone;
 window.jumpToZone = jumpToZone;
-window.addWarehouseColumn = addWarehouseColumn;
+window.addWarehouseSlot = addWarehouseSlot;
+window.removeWarehouseSlot = removeWarehouseSlot;
+window.deleteWarehouseColumn = deleteWarehouseColumn;
+window.loadAdminUsers = loadAdminUsers;
+window.toggleUserBlocked = toggleUserBlocked;

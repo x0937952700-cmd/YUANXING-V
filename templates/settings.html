@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 {% block body %}
 <div class="module-screen">
@@ -18,5 +17,18 @@
     <button class="primary-btn" onclick="changePassword()">儲存</button>
     <div id="settings-msg" class="alert hidden"></div>
   </div>
+
+  {% if is_admin %}
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">管理員功能</div>
+        <div class="muted">陳韋廷可將註冊帳號加入黑名單，黑名單不可登入。</div>
+      </div>
+      <button class="primary-btn" onclick="loadAdminUsers()">重新整理名單</button>
+    </div>
+    <div id="admin-users" class="table-card"></div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

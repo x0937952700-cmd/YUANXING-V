@@ -13,8 +13,9 @@ from db import (
     ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
+    warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
+    list_users, set_user_blocked, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
 )
 from ocr import process_ocr_text, parse_ocr_text
 from backup import run_daily_backup
@@ -115,7 +116,9 @@ def login_page():
 
 @app.route("/settings")
 def settings_page():
-    return render_template("settings.html", username=current_username(), title="設定")
+    user = get_user(current_username()) or {}
+    is_admin = (user.get('role') == 'admin') or (current_username() == '陳韋廷')
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin)
 
 @app.route("/inventory")
 def inventory_page():
@@ -154,14 +157,18 @@ def api_login():
         if not username or not password:
             return error_response("帳號密碼不可空白")
         user = get_user(username)
+        if user and int(user.get('is_blocked') or 0) == 1:
+            return error_response("此帳號已被停用", 403)
         if not user:
             create_user(username, password)
             log_action(username, "建立帳號")
+            user = get_user(username) or {}
         else:
             update_password(username, password)
+            user = get_user(username) or user
         session.permanent = True
         session["user"] = username
-        session["role"] = "admin" if username == "陳韋廷" else "user"
+        session["role"] = user.get('role') or ("admin" if username == "陳韋廷" else "user")
         log_action(username, "登入系統")
         return jsonify(success=True, username=username, role=session.get("role"))
     except Exception as e:
@@ -489,6 +496,79 @@ def api_backup():
 @login_required_json
 def api_backups():
     return jsonify(list_backups())
+
+
+@app.route("/api/admin/users", methods=["GET"])
+@login_required_json
+def api_admin_users():
+    user = get_user(current_username()) or {}
+    if (user.get('role') != 'admin') and current_username() != '陳韋廷':
+        return error_response("權限不足", 403)
+    return jsonify(success=True, items=list_users())
+
+@app.route("/api/admin/block", methods=["POST"])
+@login_required_json
+def api_admin_block():
+    user = get_user(current_username()) or {}
+    if (user.get('role') != 'admin') and current_username() != '陳韋廷':
+        return error_response("權限不足", 403)
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    blocked = bool(data.get('blocked'))
+    if not username or username == '陳韋廷':
+        return error_response("不可操作此帳號")
+    set_user_blocked(username, blocked)
+    log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
+    return jsonify(success=True, items=list_users())
+
+@app.route("/api/warehouse/add-slot", methods=["POST"])
+@login_required_json
+def api_warehouse_add_slot():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index"))
+        slot_type = (data.get("slot_type") or "front").strip()
+        slot_number = warehouse_add_slot(zone, column_index, slot_type)
+        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_type}-{slot_number}")
+        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_add_slot", str(e))
+        return error_response("新增格子失敗")
+
+@app.route("/api/warehouse/remove-slot", methods=["POST"])
+@login_required_json
+def api_warehouse_remove_slot():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index"))
+        slot_type = (data.get("slot_type") or "front").strip()
+        slot_number = int(data.get("slot_number"))
+        result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
+        if not result.get('success'):
+            return error_response(result.get('error') or '刪除格子失敗')
+        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_type}-{slot_number}")
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_remove_slot", str(e))
+        return error_response("刪除格子失敗")
+
+@app.route("/api/warehouse/delete-column", methods=["POST"])
+@login_required_json
+def api_warehouse_delete_column():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index"))
+        result = warehouse_delete_column(zone, column_index)
+        if not result.get('success'):
+            return error_response(result.get('error') or '刪除欄位失敗')
+        log_action(current_username(), f"刪除欄位 {zone}{column_index}")
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_delete_column", str(e))
+        return error_response("刪除欄位失敗")
 
 @app.route("/health")
 def health():

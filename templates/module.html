@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 {% block body %}
 <div class="module-screen" data-module="{{ module_key }}">
@@ -8,22 +7,26 @@
     <div class="spacer"></div>
   </div>
 
-  {% if module_key not in ['shipping_query','warehouse'] %}
-  <div class="glass panel upload-panel engine-upgraded">
-    <div class="upload-row">
+  {% if module_key not in ['shipping_query','warehouse','customers'] %}
+  <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
+    <div class="upload-row tight-row">
       <button class="primary-btn" onclick="openAlbumPicker()">上傳檔案（相簿 / 拍照）</button>
+      <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
+      <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
+      {% if module_key not in ['inventory','orders','master_order','ship'] %}
       <button class="ghost-btn" onclick="openCameraPicker()">右下角拍照上傳</button>
       <button class="ghost-btn" onclick="resetModuleForm()">重新整理</button>
+      <span class="pill" id="ocr-mode-pill">模式：{{ title }}</span>
+      {% endif %}
     </div>
     <input id="album-input" class="hidden" type="file" accept="image/*" multiple>
     <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
-    <div class="meta-row">
-      <span class="pill" id="ocr-mode-pill">模式：{{ title }}</span>
-      <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
-      <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
-    </div>
+
+    {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
     <input class="text-input" id="customer-name" placeholder="請輸入或點選客戶">
+    {% endif %}
+
     <label class="field-label">倉庫格位 / 預設位置</label>
     <input class="text-input" id="location-input" placeholder="例如：A後排01">
     <label class="field-label">OCR 文字框（可直接修改）</label>
@@ -87,7 +90,7 @@
   <section class="subsection" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>倉庫圖</h3>
-      <span class="muted">A / B 區切換，全頁顯示，預設 1-6 欄，每欄前後各 10 格，可新增格子欄並拖曳商品</span>
+      <span class="muted">可切換單區整頁查看，前後排可增加 / 刪除格子，空欄可刪除。</span>
     </div>
     <div class="search-row warehouse-search-toolbar">
       <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113">
@@ -106,7 +109,6 @@
           <div class="zone-title">A 區</div>
           <div class="btn-row compact">
             <button class="ghost-btn" onclick="jumpToZone('A')">跳到 A 區</button>
-            <button class="primary-btn" onclick="addWarehouseColumn('A')">添加格子</button>
           </div>
         </div>
         <div class="zone-grid six-grid" id="zone-A-grid"></div>
@@ -116,7 +118,6 @@
           <div class="zone-title">B 區</div>
           <div class="btn-row compact">
             <button class="ghost-btn" onclick="jumpToZone('B')">跳到 B 區</button>
-            <button class="primary-btn" onclick="addWarehouseColumn('B')">添加格子</button>
           </div>
         </div>
         <div class="zone-grid six-grid" id="zone-B-grid"></div>

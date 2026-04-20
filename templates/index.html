@@ -1,12 +1,11 @@
-
 {% extends "base.html" %}
 {% block body %}
 <div class="home-screen">
   <div class="hero center">
     <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
     <h1 class="page-title center">沅興木業</h1>
-    <div class="home-top-actions">
-      <div class="user-pill">{{ username }}</div>
+    <div class="home-top-actions centered-actions">
+      <div class="home-mini-btn user-cell">{{ username }}</div>
       <a class="home-mini-btn" href="{{ url_for('settings_page') }}">設定</a>
       <button class="home-mini-btn" onclick="logout()">登出</button>
     </div>
@@ -20,11 +19,6 @@
     <a class="menu-btn" href="{{ url_for('shipping_query_page') }}" target="_self">出貨查詢</a>
     <a class="menu-btn" href="{{ url_for('warehouse_page') }}" target="_self">倉庫圖</a>
     <a class="menu-btn" href="{{ url_for('customers_page') }}" target="_self">客戶資料</a>
-  </div>
-
-  <div class="feature-card glass">
-    <div class="section-title">商業級操作介面</div>
-    <h2 class="feature-head">手機拍照 / 相簿上傳 / OCR / 人工修正 / 自動學習</h2>
   </div>
 </div>
 {% endblock %}

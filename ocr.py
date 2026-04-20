@@ -6,7 +6,7 @@ from difflib import get_close_matches
 import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-from db import log_error, get_corrections, list_inventory
+from db import log_error, get_corrections, list_inventory, get_ocr_usage, increment_ocr_usage
 
 try:
     import pytesseract
@@ -20,6 +20,11 @@ NOISE_WORDS = [
 
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
 GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+def datetime_now_month():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m")
 
 
 def preprocess_image(image_path):
@@ -258,13 +263,24 @@ def _run_google_vision(image_path):
 
 def process_ocr_text(image_path):
     try:
-        candidates = [
-            result for result in (
-                _run_google_vision(image_path),
-                _run_ocr_space(image_path),
-                _run_tesseract(image_path),
-            ) if result
-        ]
+        period = datetime_now_month()
+        candidates = []
+        free_candidates = [r for r in (_run_ocr_space(image_path), _run_tesseract(image_path)) if r]
+        candidates.extend(free_candidates)
+        best_free = sorted(free_candidates, key=lambda x: x.get("score", 0), reverse=True)[0] if free_candidates else None
+
+        google_allowed = bool(GOOGLE_VISION_API_KEY) and get_ocr_usage("google_vision", period) < 980
+        should_try_google = google_allowed and (
+            best_free is None or
+            int(best_free.get("confidence", 0)) < 78 or
+            len(best_free.get("items", [])) == 0
+        )
+        if should_try_google:
+            google_result = _run_google_vision(image_path)
+            if google_result:
+                candidates.append(google_result)
+                increment_ocr_usage("google_vision", period)
+
         if not candidates:
             return {
                 "success": False,
@@ -276,6 +292,9 @@ def process_ocr_text(image_path):
                 "engines": [],
             }
         best = sorted(candidates, key=lambda x: x.get("score", 0), reverse=True)[0]
+        engines = [c.get("engine") for c in candidates]
+        if GOOGLE_VISION_API_KEY and not should_try_google and get_ocr_usage("google_vision", period) >= 980:
+            engines.append("google_vision_monthly_limit_reached")
         return {
             "success": True,
             "duplicate": False,
@@ -283,7 +302,7 @@ def process_ocr_text(image_path):
             "lines": best.get("lines", []),
             "items": best.get("items", []),
             "confidence": int(best.get("confidence", 0)),
-            "engines": [c.get("engine") for c in candidates],
+            "engines": engines,
         }
     except Exception as e:
         log_error("process_ocr_text", e)

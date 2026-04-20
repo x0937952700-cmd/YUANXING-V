@@ -79,6 +79,8 @@ def init_db():
             id {pk},
             username {text} UNIQUE NOT NULL,
             password {text} NOT NULL,
+            role {text} DEFAULT 'user',
+            is_blocked INTEGER DEFAULT 0,
             created_at {text},
             updated_at {text}
         )""",
@@ -158,9 +160,31 @@ def init_db():
             message {text},
             created_at {text}
         )""",
+        f"""CREATE TABLE IF NOT EXISTS ocr_usage (
+            id {pk},
+            engine {text} NOT NULL,
+            period {text} NOT NULL,
+            count INTEGER DEFAULT 0,
+            updated_at {text}
+        )""",
     ]
     for t in tables:
         cur.execute(t)
+
+    if USE_POSTGRES:
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
+    else:
+        cur.execute("PRAGMA table_info(users)")
+        user_cols = {r[1] for r in cur.fetchall()}
+        if 'role' not in user_cols:
+            cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+        if 'is_blocked' not in user_cols:
+            cur.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
+
+    cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
 
     if USE_POSTGRES:
         cur.execute("SELECT to_regclass('public.warehouse_cells')")
@@ -302,10 +326,11 @@ def get_user(username):
 def create_user(username, password):
     conn = get_db()
     cur = conn.cursor()
+    role = 'admin' if username == '陳韋廷' else 'user'
     cur.execute(sql("""
-        INSERT INTO users(username, password, created_at, updated_at)
-        VALUES (?, ?, ?, ?)
-    """), (username, password, now(), now()))
+        INSERT INTO users(username, password, role, is_blocked, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """), (username, password, role, 0, now(), now()))
     conn.commit()
     conn.close()
 
@@ -316,6 +341,49 @@ def update_password(username, new_password):
         UPDATE users SET password = ?, updated_at = ?
         WHERE username = ?
     """), (new_password, now(), username))
+    conn.commit()
+    conn.close()
+
+def list_users():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT username, role, COALESCE(is_blocked,0) AS is_blocked, created_at, updated_at FROM users ORDER BY created_at DESC, username ASC"))
+    rows = rows_to_dict(cur)
+    conn.close()
+    return rows
+
+def set_user_blocked(username, blocked):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("UPDATE users SET is_blocked = ?, updated_at = ? WHERE username = ?"), (1 if blocked else 0, now(), username))
+    conn.commit()
+    conn.close()
+
+def get_ocr_usage(engine, period):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT count FROM ocr_usage WHERE engine = ? AND period = ?"), (engine, period))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return 0
+    return int(row[0] if USE_POSTGRES else row['count'])
+
+def increment_ocr_usage(engine, period):
+    conn = get_db()
+    cur = conn.cursor()
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO ocr_usage(engine, period, count, updated_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (engine, period) DO UPDATE SET count = ocr_usage.count + 1, updated_at = EXCLUDED.updated_at
+        """, (engine, period, 1, now()))
+    else:
+        cur.execute("""
+            INSERT INTO ocr_usage(engine, period, count, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(engine, period) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at
+        """, (engine, period, 1, now()))
     conn.commit()
     conn.close()
 
@@ -689,6 +757,69 @@ def warehouse_add_column(zone):
     conn.commit()
     conn.close()
     return next_col
+
+def warehouse_add_slot(zone, column_index, slot_type):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ?"), (zone, column_index, slot_type))
+    row = fetchone_dict(cur) or {}
+    next_slot = int(row.get('max_slot') or 0) + 1
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            SELECT %s, %s, %s, %s, %s, %s, %s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM warehouse_cells
+                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+            )
+        """, (zone, column_index, slot_type, next_slot, '[]', '__USER_ADDED_SLOT__', now(), zone, column_index, slot_type, next_slot))
+    else:
+        cur.execute("""
+            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (zone, column_index, slot_type, next_slot, '[]', '__USER_ADDED_SLOT__', now()))
+    conn.commit()
+    conn.close()
+    return next_slot
+
+def warehouse_remove_slot(zone, column_index, slot_type, slot_number):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?"), (zone, column_index, slot_type, slot_number))
+    row = fetchone_dict(cur)
+    if not row:
+        conn.close()
+        return {'success': False, 'error': '找不到格子'}
+    try:
+        items = json.loads(row.get('items_json') or '[]')
+    except Exception:
+        items = []
+    if items:
+        conn.close()
+        return {'success': False, 'error': '格子內還有商品，無法刪除'}
+    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?"), (zone, column_index, slot_type, slot_number))
+    conn.commit()
+    conn.close()
+    return {'success': True}
+
+def warehouse_delete_column(zone, column_index):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
+    rows = cur.fetchall()
+    for row in rows:
+        try:
+            items_raw = row[0] if USE_POSTGRES else row['items_json']
+            items = json.loads(items_raw or '[]')
+        except Exception:
+            items = []
+        if items:
+            conn.close()
+            return {'success': False, 'error': '欄位內還有商品，無法刪除'}
+    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
+    conn.commit()
+    conn.close()
+    return {'success': True}
 
 def warehouse_move_item(from_key, to_key, product_text, qty):
     conn = get_db()
