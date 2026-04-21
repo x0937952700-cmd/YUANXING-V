@@ -1,11 +1,14 @@
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file
 from datetime import timedelta, datetime
 from functools import wraps
 import os
+import io
+import time
 import hashlib
 import json
 from PIL import Image
+from openpyxl import Workbook
 
 from db import (
     init_db, get_user, create_user, update_password, log_action,
@@ -13,11 +16,13 @@ from db import (
     ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
-    warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
+    warehouse_add_slot, warehouse_remove_slot,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
+    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
+    register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats
 )
-from ocr import process_ocr_text, parse_ocr_text, process_native_ocr_text
+from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
 app = Flask(__name__)
@@ -26,6 +31,11 @@ if not _SECRET_KEY:
     raise RuntimeError("SECRET_KEY environment variable is required")
 app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE', '1') == '1',
+)
 
 UPLOAD_FOLDER = "uploads"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
@@ -42,6 +52,77 @@ PUBLIC_PATHS = {
 def current_username():
     return session.get("user", "")
 
+
+SYNC_SETTINGS_KEY = 'sync_last_event'
+LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
+PENDING_QUEUE_LIMIT = 50
+
+_db_log_action = log_action
+
+def notify_sync_event(kind='refresh', module='all', message='', extra=None):
+    payload = {
+        'id': str(int(time.time() * 1000)),
+        'kind': kind,
+        'module': module or 'all',
+        'message': message or '',
+        'user': current_username(),
+        'at': now(),
+        'extra': extra or {},
+    }
+    try:
+        set_setting(SYNC_SETTINGS_KEY, json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        try:
+            log_error('notify_sync_event', str(e))
+        except Exception:
+            pass
+    return payload
+
+
+def log_action(username, action):
+    _db_log_action(username, action)
+    notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
+
+
+def ensure_daily_backup():
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
+            return
+        result = run_daily_backup()
+        if result.get('success'):
+            set_setting(LAST_DAILY_BACKUP_KEY, today)
+    except Exception as e:
+        log_error('ensure_daily_backup', str(e))
+
+
+def request_key_from_payload(data, endpoint=''):
+    key = (request.headers.get('X-Request-Key') or (data or {}).get('request_key') or '').strip()
+    if not key:
+        return ''
+    if register_submit_request(key, endpoint=endpoint):
+        return key
+    return ''
+
+def duplicate_success(message='重複送出已忽略'):
+    return jsonify(success=True, duplicate=True, message=message)
+
+
+def export_rows_to_xlsx(sheet_name, rows, columns):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31] or 'Sheet1'
+    ws.append([header for header, _ in columns])
+    for row in rows:
+        ws.append([row.get(key, '') if isinstance(row, dict) else '' for _, key in columns])
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(40, max(10, max_len + 2))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
 def require_login():
     return bool(current_username())
 
@@ -56,6 +137,8 @@ def login_required_json(f):
 @app.before_request
 def protect_pages():
     path = request.path
+    if require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+        ensure_daily_backup()
     if path.startswith("/static/") or path in ("/health",):
         return None
     public = [
@@ -69,6 +152,15 @@ def protect_pages():
             return jsonify(success=False, error="請先登入"), 401
         return redirect(url_for("login_page"))
     return None
+
+@app.after_request
+def apply_security_headers(response):
+    response.headers.setdefault('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    response.headers.setdefault('Pragma', 'no-cache')
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()')
+    return response
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -211,8 +303,8 @@ def api_change_password():
         user = get_user(current_username())
         if not user or not verify_password(user.get('password'), old_password):
             return error_response("舊密碼錯誤")
-        if not new_password or len(new_password) < 4:
-            return error_response("新密碼至少 4 碼")
+        if not new_password or len(new_password) < 6:
+            return error_response("新密碼至少 6 碼")
         if new_password != confirm_password:
             return error_response("兩次密碼不一致")
         update_password(current_username(), new_password)
@@ -221,11 +313,6 @@ def api_change_password():
     except Exception as e:
         log_error("change_password", str(e))
         return error_response("修改失敗")
-
-@app.route("/api/upload_ocr", methods=["POST"])
-@login_required_json
-def api_upload_ocr():
-    return error_response("這一版已取消雲端 Google OCR，請改用原生 App 的手機內建文字辨識。")
 
 @app.route("/api/native-ocr/parse", methods=["POST"])
 @login_required_json
@@ -237,7 +324,6 @@ def api_native_ocr_parse():
         native_confidence = int(data.get("confidence") or data.get("ocr_confidence") or 0)
         blocks = data.get("blocks") or data.get("positions") or []
         ocr_mode = (data.get("ocr_mode") or data.get("mode") or 'blue').strip() or 'blue'
-        template_hint = (data.get("template") or data.get("template_hint") or 'native_device').strip() or 'native_device'
         roi = data.get("roi") or None
         if not raw_text and not customer_hint and not blocks:
             return error_response("沒有可解析的辨識文字")
@@ -247,14 +333,13 @@ def api_native_ocr_parse():
             native_confidence=native_confidence,
             blocks=blocks,
             ocr_mode=ocr_mode,
-            template_hint=template_hint,
             roi=roi,
         )
         items = result.get('items') or []
         normalized_text = result.get('text') or ''
         customer_guess = result.get('customer_guess') or ''
         partial = bool((normalized_text or raw_text) and (not normalized_text or not customer_guess))
-        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]/{result.get('template','native_device')}")
+        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]")
         return jsonify(
             success=True,
             text=normalized_text or raw_text,
@@ -266,8 +351,7 @@ def api_native_ocr_parse():
             warning=result.get('warning') or '',
             engines=result.get('engines', []),
             customer_guess=customer_guess,
-            template=result.get('template', 'native_device'),
-            template_name='手機原生辨識',
+            cleaned_text=result.get('cleaned_text') or '',
             suggested_roi=result.get('suggested_roi'),
             partial=partial,
             line_map=result.get('line_map', []),
@@ -287,6 +371,8 @@ def api_save_correction():
         if wrong and correct and wrong != correct:
             save_correction(wrong, correct)
             log_action(current_username(), f"修正OCR {wrong}->{correct}")
+            add_audit_trail(current_username(), 'upsert', 'corrections', wrong, before_json={}, after_json={'wrong_text': wrong, 'correct_text': correct})
+            notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞庫已更新', extra={'wrong_text': wrong})
         return jsonify(success=True)
     except Exception as e:
         log_error("save_correction", str(e))
@@ -317,6 +403,8 @@ def api_inventory():
         if request.method == "GET":
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/inventory'):
+            return duplicate_success('相同庫存送出已忽略')
         items = _parse_items_from_request(data)
         operator = current_username()
         location = (data.get("location") or "").strip()
@@ -324,6 +412,8 @@ def api_inventory():
         for it in items:
             save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
         log_action(operator, "建立庫存")
+        add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
+        notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=grouped_inventory())
     except Exception as e:
         log_error("inventory", str(e))
@@ -336,6 +426,8 @@ def api_orders():
         if request.method == "GET":
             return jsonify(success=True, items=get_orders())
         data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/orders'):
+            return duplicate_success('相同訂單送出已忽略')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -343,6 +435,8 @@ def api_orders():
         upsert_customer(customer_name)
         save_order(customer_name, items, current_username())
         log_action(current_username(), "建立訂單")
+        add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=get_orders())
     except Exception as e:
         log_error("orders", str(e))
@@ -355,6 +449,8 @@ def api_master_orders():
         if request.method == "GET":
             return jsonify(success=True, items=get_master_orders())
         data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/master_orders'):
+            return duplicate_success('相同總單送出已忽略')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -362,6 +458,8 @@ def api_master_orders():
         upsert_customer(customer_name)
         save_master_order(customer_name, items, current_username())
         log_action(current_username(), "更新總單")
+        add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=get_master_orders())
     except Exception as e:
         log_error("master_orders", str(e))
@@ -372,6 +470,8 @@ def api_master_orders():
 def api_ship():
     try:
         data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/ship'):
+            return duplicate_success('相同出貨送出已忽略')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -381,6 +481,8 @@ def api_ship():
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
             log_action(current_username(), "完成出貨")
+            add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
+            notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
@@ -429,6 +531,8 @@ def api_customers():
             region=(data.get("region") or "北區").strip()
         )
         log_action(current_username(), f"儲存客戶 {name}")
+        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json={}, after_json=data)
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
         return jsonify(success=True, items=get_customers())
     except Exception as e:
         log_error("customers", str(e))
@@ -457,7 +561,12 @@ def api_warehouse_cell():
         items = data.get("items") or []
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
+        if items:
+            top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
+            record_recent_slot(current_username(), top_customer, zone, column_index, slot_number)
         log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
+        add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
         return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
         log_error("warehouse_cell", str(e))
@@ -477,6 +586,12 @@ def api_warehouse_move():
         result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty)
         if result.get("success"):
             log_action(current_username(), f"拖曳商品 {product_text}")
+            try:
+                record_recent_slot(current_username(), '', to_key[0], int(to_key[1]), int(to_key[2]))
+            except Exception:
+                pass
+            add_audit_trail(current_username(), 'move', 'warehouse_cells', product_text, before_json={'from_key': from_key}, after_json={'to_key': to_key, 'qty': qty, 'product_text': product_text})
+            notify_sync_event(kind='refresh', module='warehouse', message='倉庫位置已移動', extra={'product_text': product_text, 'qty': qty})
         return jsonify(result)
     except Exception as e:
         log_error("warehouse_move", str(e))
@@ -492,6 +607,7 @@ def api_warehouse_add_column():
             return error_response("區域錯誤")
         column_index = warehouse_add_column(zone)
         log_action(current_username(), f"新增格子欄 {zone}{column_index}")
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增欄位', extra={'zone': zone, 'column_index': column_index})
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_column", str(e))
@@ -575,6 +691,7 @@ def api_admin_block():
         return error_response("不可操作此帳號")
     set_user_blocked(username, blocked)
     log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
+    notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
     return jsonify(success=True, items=list_users())
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
@@ -587,6 +704,7 @@ def api_warehouse_add_slot():
         slot_type = 'direct'
         slot_number = warehouse_add_slot(zone, column_index, slot_type)
         log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
         return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
@@ -605,27 +723,11 @@ def api_warehouse_remove_slot():
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
         log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
         return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
         return error_response("刪除格子失敗")
-
-@app.route("/api/warehouse/delete-column", methods=["POST"])
-@login_required_json
-def api_warehouse_delete_column():
-    try:
-        data = request.get_json(silent=True) or {}
-        zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index"))
-        result = warehouse_delete_column(zone, column_index)
-        if not result.get('success'):
-            return error_response(result.get('error') or '刪除欄位失敗')
-        log_action(current_username(), f"刪除欄位 {zone}{column_index}")
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
-    except Exception as e:
-        log_error("warehouse_delete_column", str(e))
-        return error_response("刪除欄位失敗")
-
 
 
 @app.route("/api/orders/to-master", methods=["POST"])
@@ -642,6 +744,7 @@ def api_orders_to_master():
         upsert_customer(customer_name)
         save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
         log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
+        notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
         return jsonify(success=True, items=get_master_orders())
     except Exception as e:
         log_error("orders_to_master", str(e))
@@ -724,7 +827,7 @@ def _build_anomalies(inv_rows, order_rows, master_rows):
         cur.execute(sql("SELECT source, message, created_at FROM errors WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 50"), (today,))
         for r in rows_to_dict(cur):
             src = (r.get('source') or '')
-            if 'ocr' in src.lower() or 'google' in src.lower():
+            if 'ocr' in src.lower():
                 anomalies['ocr_errors'].append({'type':'ocr_errors','message':f"OCR異常：{src}｜{r.get('message') or ''}"})
         cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? AND action LIKE ? ORDER BY created_at DESC LIMIT 50"), (today, '%黑名單登入攔截%'))
         for r in rows_to_dict(cur):
@@ -801,6 +904,7 @@ def api_today_changes():
 def api_today_changes_mark_read():
     try:
         set_setting('today_changes_read_at', now())
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已讀已更新')
         return jsonify(success=True)
     except Exception as e:
         log_error('today_changes_mark_read', str(e))
@@ -815,6 +919,7 @@ def api_today_change_delete(log_id):
         cur.execute(sql('DELETE FROM logs WHERE id = ?'), (log_id,))
         conn.commit()
         conn.close()
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
         return jsonify(success=True, **_today_changes_payload())
     except Exception as e:
         log_error('today_change_delete', str(e))
@@ -827,25 +932,190 @@ def api_anomalies():
     return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 
-@app.route('/api/admin/google-ocr', methods=['GET'])
+@app.route('/api/sync/stream')
 @login_required_json
-def api_admin_google_ocr_get():
-    if current_username() != '陳韋廷':
-        return error_response('權限不足', 403)
-    period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
+def api_sync_stream():
+    def generate():
+        last_seen = ''
+        while True:
+            payload = get_setting(SYNC_SETTINGS_KEY, '') or ''
+            if payload and payload != last_seen:
+                last_seen = payload
+                yield f"data: {payload}\n\n"
+            else:
+                yield ': keepalive\n\n'
+            time.sleep(1.5)
+    return Response(stream_with_context(generate()), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
-@app.route('/api/admin/google-ocr', methods=['POST'])
+@app.route('/api/corrections', methods=['GET', 'POST', 'DELETE'])
 @login_required_json
-def api_admin_google_ocr_set():
+def api_corrections_manage():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=list_corrections_rows())
+        data = request.get_json(silent=True) or {}
+        wrong_text = (data.get('wrong_text') or '').strip()
+        if request.method == 'DELETE':
+            delete_correction(wrong_text)
+            notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞已刪除', extra={'wrong_text': wrong_text})
+            return jsonify(success=True, items=list_corrections_rows())
+        correct_text = (data.get('correct_text') or '').strip()
+        if not wrong_text or not correct_text:
+            return error_response('請輸入錯字與正確字')
+        save_correction(wrong_text, correct_text)
+        add_audit_trail(current_username(), 'upsert', 'corrections', wrong_text, before_json={}, after_json={'wrong_text': wrong_text, 'correct_text': correct_text})
+        notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞已更新', extra={'wrong_text': wrong_text})
+        return jsonify(success=True, items=list_corrections_rows())
+    except Exception as e:
+        log_error('api_corrections_manage', str(e))
+        return error_response('修正詞管理失敗')
+
+@app.route('/api/customer-aliases', methods=['GET', 'POST', 'DELETE'])
+@login_required_json
+def api_customer_aliases_manage():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=list_customer_aliases())
+        data = request.get_json(silent=True) or {}
+        alias = (data.get('alias') or '').strip()
+        if request.method == 'DELETE':
+            delete_customer_alias(alias)
+            notify_sync_event(kind='refresh', module='settings', message='客戶別名已刪除', extra={'alias': alias})
+            return jsonify(success=True, items=list_customer_aliases())
+        target_name = (data.get('target_name') or '').strip()
+        if not alias or not target_name:
+            return error_response('請輸入別名與正式客戶名稱')
+        save_customer_alias(alias, target_name)
+        add_audit_trail(current_username(), 'upsert', 'customer_aliases', alias, before_json={}, after_json={'alias': alias, 'target_name': target_name})
+        notify_sync_event(kind='refresh', module='settings', message='客戶別名已更新', extra={'alias': alias})
+        return jsonify(success=True, items=list_customer_aliases())
+    except Exception as e:
+        log_error('api_customer_aliases_manage', str(e))
+        return error_response('客戶別名管理失敗')
+
+@app.route('/api/recent-slots', methods=['GET'])
+@login_required_json
+def api_recent_slots():
+    customer_name = (request.args.get('customer_name') or '').strip()
+    return jsonify(success=True, items=get_recent_slots(current_username(), customer_name=customer_name, limit=8))
+
+@app.route('/api/audit-trails', methods=['GET'])
+@login_required_json
+def api_audit_trails():
+    limit = int(request.args.get('limit') or 200)
+    username = (request.args.get('username') or '').strip()
+    entity_type = (request.args.get('entity_type') or '').strip()
+    keyword = (request.args.get('q') or '').strip().lower()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
+    items = list_audit_trails(limit=max(limit * 4, 200))
+    filtered = []
+    for item in items:
+        if username and username not in (item.get('username') or ''):
+            continue
+        if entity_type and entity_type not in (item.get('entity_type') or ''):
+            continue
+        created = (item.get('created_at') or '')[:10]
+        if start_date and created and created < start_date:
+            continue
+        if end_date and created and created > end_date:
+            continue
+        hay = json.dumps(item, ensure_ascii=False).lower()
+        if keyword and keyword not in hay:
+            continue
+        filtered.append(item)
+        if len(filtered) >= limit:
+            break
+    return jsonify(success=True, items=filtered)
+
+@app.route('/api/customer-specs', methods=['GET'])
+@login_required_json
+def api_customer_specs():
+    name = (request.args.get('name') or '').strip()
+    return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
+
+@app.route('/api/reports/export', methods=['GET'])
+@login_required_json
+def api_reports_export():
+    report_type = (request.args.get('type') or 'inventory').strip()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
+    if report_type == 'inventory':
+        rows = inventory_summary()
+        columns = [('商品', 'product_text'), ('總數量', 'qty'), ('已放倉庫', 'placed_qty'), ('未放倉庫', 'unplaced_qty'), ('位置', 'location')]
+        name = 'inventory_report.xlsx'
+    elif report_type == 'shipping':
+        rows = get_shipping_records(start_date or None, end_date or None, request.args.get('q') or '')
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
+        name = 'shipping_report.xlsx'
+    elif report_type == 'master_orders':
+        rows = get_master_orders()
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('更新時間', 'updated_at')]
+        name = 'master_orders_report.xlsx'
+    elif report_type == 'unplaced':
+        rows = [r for r in inventory_summary() if int(r.get('unplaced_qty') or 0) > 0]
+        columns = [('商品', 'product_text'), ('未放倉庫數量', 'unplaced_qty'), ('總數量', 'qty'), ('位置', 'location')]
+        name = 'unplaced_report.xlsx'
+    else:
+        return error_response('報表類型不存在')
+    buf = export_rows_to_xlsx(report_type, rows, columns)
+    return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+
+@app.route('/api/backups/download/<path:filename>', methods=['GET'])
+@login_required_json
+def api_backup_download(filename):
+    safe_name = os.path.basename(filename)
+    path = os.path.join('backups', safe_name)
+    if not os.path.isfile(path):
+        return error_response('找不到備份檔', 404)
+    return send_file(path, as_attachment=True, download_name=safe_name)
+
+@app.route('/api/backups/restore', methods=['POST'])
+@login_required_json
+def api_backup_restore():
     if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
-    set_setting('google_ocr_enabled', '0')
-    set_setting('native_ocr_mode', '1')
-    log_action(current_username(), '保持原生OCR模式')
-    period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
+    filename = os.path.basename((data.get('filename') or '').strip())
+    if not filename:
+        return error_response('請選擇備份檔')
+    path = os.path.join('backups', filename)
+    if not os.path.isfile(path):
+        return error_response('找不到備份檔', 404)
+    if filename.endswith('.json'):
+        payload = json.load(open(path, 'r', encoding='utf-8'))
+        conn = get_db(); cur = conn.cursor()
+        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','settings','customer_aliases','warehouse_recent_slots','audit_trails']
+        try:
+            for table in tables:
+                if table not in payload:
+                    continue
+                cur.execute(sql(f'DELETE FROM {table}'))
+                rows = payload.get(table) or []
+                for row in rows:
+                    keys = list(row.keys())
+                    if not keys:
+                        continue
+                    cols = ','.join(keys)
+                    holders = ','.join(['?'] * len(keys))
+                    cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row[k] for k in keys))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            log_error('backup_restore', str(e))
+            return error_response('還原失敗')
+        finally:
+            conn.close()
+        notify_sync_event(kind='refresh', module='all', message='已還原備份')
+        return jsonify(success=True)
+    return error_response('目前只支援 JSON 備份還原')
+
+@app.route('/api/session/config', methods=['GET'])
+@login_required_json
+def api_session_config():
+    return jsonify(success=True, idle_timeout_seconds=1800)
 
 @app.route("/health")
 def health():

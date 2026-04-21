@@ -57,3 +57,16 @@ body { background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%); }
   .dialog-actions { justify-content: stretch; }
   .dialog-actions .btn { flex: 1; }
 }
+
+
+/* premium shell overrides */
+:root{background:#f5efe8;color:#2d3138}
+body{background:radial-gradient(circle at top,#ffffff 0%,#f4eee7 56%,#eee3d7 100%)}
+.topbar{background:rgba(246,241,234,.92);border-bottom:1px solid rgba(52,38,29,.08);box-shadow:0 10px 24px rgba(52,38,29,.08)}
+.brand{font-size:20px;color:#34261d}
+.btn{background:linear-gradient(180deg,#5a4333,#34261d);box-shadow:0 12px 24px rgba(52,38,29,.18)}
+.btn.secondary{background:rgba(255,255,255,.92);color:#2d3138;border:1px solid rgba(52,38,29,.08)}
+.status{background:rgba(52,38,29,.92);box-shadow:0 12px 28px rgba(52,38,29,.22)}
+.dialog-card{background:rgba(255,255,255,.98);border-radius:28px;box-shadow:0 24px 56px rgba(52,38,29,.14)}
+.ocr-stage{border-radius:24px;background:#f7f2ec}
+.ocr-stage-roi{border-color:#8a6a52;background:rgba(138,106,82,.16)}

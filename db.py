@@ -186,6 +186,38 @@ def init_db():
             count INTEGER DEFAULT 0,
             updated_at {text}
         )""",
+
+f"""CREATE TABLE IF NOT EXISTS submit_requests (
+    id {pk},
+    request_key {text} UNIQUE NOT NULL,
+    endpoint {text},
+    created_at {text}
+)""",
+f"""CREATE TABLE IF NOT EXISTS customer_aliases (
+    id {pk},
+    alias {text} UNIQUE NOT NULL,
+    target_name {text} NOT NULL,
+    updated_at {text}
+)""",
+f"""CREATE TABLE IF NOT EXISTS warehouse_recent_slots (
+    id {pk},
+    username {text},
+    customer_name {text},
+    zone {text},
+    column_index INTEGER,
+    slot_number INTEGER,
+    used_at {text}
+)""",
+f"""CREATE TABLE IF NOT EXISTS audit_trails (
+    id {pk},
+    username {text},
+    action_type {text},
+    entity_type {text},
+    entity_key {text},
+    before_json {text},
+    after_json {text},
+    created_at {text}
+)""",
         f"""CREATE TABLE IF NOT EXISTS app_settings (
             id {pk},
             key {text} UNIQUE NOT NULL,
@@ -217,17 +249,8 @@ def init_db():
             INSERT INTO app_settings(key, value, updated_at)
             VALUES (%s, %s, %s)
             ON CONFLICT (key) DO NOTHING
-        """, ('google_ocr_enabled', '0', now()))
-        cur.execute("""
-            INSERT INTO app_settings(key, value, updated_at)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (key) DO NOTHING
         """, ('native_ocr_mode', '1', now()))
     else:
-        cur.execute("""
-            INSERT OR IGNORE INTO app_settings(key, value, updated_at)
-            VALUES (?, ?, ?)
-        """, ('google_ocr_enabled', '0', now()))
         cur.execute("""
             INSERT OR IGNORE INTO app_settings(key, value, updated_at)
             VALUES (?, ?, ?)
@@ -1045,25 +1068,6 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
     conn.commit(); conn.close(); return {'success': True}
 
-def warehouse_delete_column(zone, column_index):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
-    rows = cur.fetchall()
-    for row in rows:
-        try:
-            items_raw = row[0] if USE_POSTGRES else row['items_json']
-            items = json.loads(items_raw or '[]')
-        except Exception:
-            items = []
-        if items:
-            conn.close()
-            return {'success': False, 'error': '欄位內還有商品，無法刪除'}
-    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
-    conn.commit()
-    conn.close()
-    return {'success': True}
-
 def warehouse_move_item(from_key, to_key, product_text, qty):
     conn = get_db()
     cur = conn.cursor()
@@ -1170,3 +1174,170 @@ def list_backups():
             })
     files.sort(key=lambda x: x["created_at"], reverse=True)
     return {"success": True, "files": files}
+
+
+def register_submit_request(request_key, endpoint=''):
+    request_key = (request_key or '').strip()
+    if not request_key:
+        return True
+    conn = get_db()
+    cur = conn.cursor()
+    created = False
+    try:
+        if USE_POSTGRES:
+            cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (request_key, endpoint, now()))
+        else:
+            cur.execute("INSERT OR IGNORE INTO submit_requests(request_key, endpoint, created_at) VALUES (?, ?, ?)", (request_key, endpoint, now()))
+        created = (cur.rowcount or 0) > 0
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log_error('register_submit_request', e)
+    finally:
+        conn.close()
+    return created
+
+def list_corrections_rows():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('SELECT wrong_text, correct_text, updated_at FROM corrections ORDER BY updated_at DESC, wrong_text ASC'))
+    rows = rows_to_dict(cur)
+    conn.close()
+    return rows
+
+def delete_correction(wrong_text):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('DELETE FROM corrections WHERE wrong_text = ?'), ((wrong_text or '').strip(),))
+    conn.commit()
+    conn.close()
+
+def save_customer_alias(alias, target_name):
+    alias = (alias or '').strip()
+    target_name = (target_name or '').strip()
+    if not alias or not target_name:
+        return
+    conn = get_db()
+    cur = conn.cursor()
+    if USE_POSTGRES:
+        cur.execute("INSERT INTO customer_aliases(alias, target_name, updated_at) VALUES (%s, %s, %s) ON CONFLICT (alias) DO UPDATE SET target_name = EXCLUDED.target_name, updated_at = EXCLUDED.updated_at", (alias, target_name, now()))
+    else:
+        cur.execute("INSERT INTO customer_aliases(alias, target_name, updated_at) VALUES (?, ?, ?) ON CONFLICT(alias) DO UPDATE SET target_name=excluded.target_name, updated_at=excluded.updated_at", (alias, target_name, now()))
+    conn.commit()
+    conn.close()
+
+def list_customer_aliases():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('SELECT alias, target_name, updated_at FROM customer_aliases ORDER BY updated_at DESC, alias ASC'))
+    rows = rows_to_dict(cur)
+    conn.close()
+    return rows
+
+def get_customer_aliases_map():
+    return {row.get('alias'): row.get('target_name') for row in list_customer_aliases() if row.get('alias') and row.get('target_name')}
+
+def delete_customer_alias(alias):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('DELETE FROM customer_aliases WHERE alias = ?'), ((alias or '').strip(),))
+    conn.commit()
+    conn.close()
+
+def record_recent_slot(username='', customer_name='', zone='A', column_index=1, slot_number=1):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql('DELETE FROM warehouse_recent_slots WHERE username = ? AND customer_name = ? AND zone = ? AND column_index = ? AND slot_number = ?'), ((username or '').strip(), (customer_name or '').strip(), (zone or 'A').strip(), int(column_index or 1), int(slot_number or 1)))
+        cur.execute(sql('INSERT INTO warehouse_recent_slots(username, customer_name, zone, column_index, slot_number, used_at) VALUES (?, ?, ?, ?, ?, ?)'), ((username or '').strip(), (customer_name or '').strip(), (zone or 'A').strip(), int(column_index or 1), int(slot_number or 1), now()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log_error('record_recent_slot', e)
+    finally:
+        conn.close()
+
+def get_recent_slots(username='', customer_name='', limit=8):
+    conn = get_db()
+    cur = conn.cursor()
+    params = []
+    query = 'SELECT username, customer_name, zone, column_index, slot_number, used_at FROM warehouse_recent_slots WHERE 1=1'
+    if username:
+        query += ' AND username = ?'
+        params.append((username or '').strip())
+    if customer_name:
+        query += ' AND customer_name = ?'
+        params.append((customer_name or '').strip())
+    query += ' ORDER BY used_at DESC'
+    cur.execute(sql(query), tuple(params))
+    rows = rows_to_dict(cur)
+    conn.close()
+    deduped = []
+    seen = set()
+    for row in rows:
+        key = (row.get('zone'), int(row.get('column_index') or 0), int(row.get('slot_number') or 0))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+        if len(deduped) >= int(limit or 8):
+            break
+    return deduped
+
+def add_audit_trail(username='', action_type='', entity_type='', entity_key='', before_json=None, after_json=None):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql('INSERT INTO audit_trails(username, action_type, entity_type, entity_key, before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'), ((username or '').strip(), (action_type or '').strip(), (entity_type or '').strip(), (entity_key or '').strip(), json.dumps(before_json, ensure_ascii=False) if isinstance(before_json, (dict, list)) else (before_json or ''), json.dumps(after_json, ensure_ascii=False) if isinstance(after_json, (dict, list)) else (after_json or ''), now()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log_error('add_audit_trail', e)
+    finally:
+        conn.close()
+
+def list_audit_trails(limit=200):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('SELECT * FROM audit_trails ORDER BY id DESC'))
+    rows = rows_to_dict(cur)
+    conn.close()
+    out = []
+    for row in rows[:int(limit or 200)]:
+        for key in ('before_json', 'after_json'):
+            try:
+                row[key] = json.loads(row.get(key) or '{}') if row.get(key) else {}
+            except Exception:
+                pass
+        out.append(row)
+    return out
+
+def get_customer_spec_stats(customer_name='', limit=20):
+    customer_name = (customer_name or '').strip()
+    conn = get_db()
+    cur = conn.cursor()
+    params = []
+    filters = []
+    if customer_name:
+        filters.append('customer_name = ?')
+        params.append(customer_name)
+    where = (' WHERE ' + ' AND '.join(filters)) if filters else ''
+    union_sql = f"SELECT customer_name, product_text, qty, 'inventory' AS source FROM inventory {where} UNION ALL SELECT customer_name, product_text, qty, 'orders' AS source FROM orders {where} UNION ALL SELECT customer_name, product_text, qty, 'master_orders' AS source FROM master_orders {where} UNION ALL SELECT customer_name, product_text, qty, 'shipping' AS source FROM shipping_records {where}"
+    cur.execute(sql(union_sql), tuple(params * 4 if customer_name else []))
+    rows = rows_to_dict(cur)
+    conn.close()
+    stats = {}
+    for row in rows:
+        name = (row.get('customer_name') or '').strip()
+        product = (row.get('product_text') or '').strip()
+        if not product:
+            continue
+        key = (name, product)
+        bucket = stats.setdefault(key, {'customer_name': name, 'product_text': product, 'qty_total': 0, 'sources': set()})
+        bucket['qty_total'] += int(row.get('qty') or 0)
+        bucket['sources'].add(row.get('source') or '')
+    out = list(stats.values())
+    out.sort(key=lambda r: (-int(r.get('qty_total') or 0), r.get('customer_name') or '', r.get('product_text') or ''))
+    for row in out:
+        row['sources'] = sorted([s for s in row.get('sources') or [] if s])
+    return out[:int(limit or 20)]

@@ -4,9 +4,8 @@ import { Ocr } from '@jcesarmobile/capacitor-ocr';
 
 type OcrSource = 'camera' | 'photos';
 type OcrMode = 'blue' | 'general' | 'handwriting';
-type OcrTemplate = 'whiteboard' | 'shipping_note' | 'native_device';
 type NormalizedBox = { id: string; text: string; confidence: number; bbox: { x: number; y: number; w: number; h: number } };
-type RequestPayload = { type: 'native-ocr-request'; source?: OcrSource; requestId?: string; ocrMode?: OcrMode; template?: OcrTemplate; appId?: string };
+type RequestPayload = { type: 'native-ocr-request'; source?: OcrSource; requestId?: string; ocrMode?: OcrMode; appId?: string };
 
 const DEFAULT_BACKEND_URL = 'https://yuanxing-v.onrender.com';
 const BACKEND_URL_STORAGE_KEY = 'yuanxing_backend_url';
@@ -45,18 +44,13 @@ app.innerHTML = `
   </div>
   <div id="ocr-modal" class="overlay hidden">
     <div class="dialog-card large">
-      <h3>手動框選後直接辨識</h3>
-      <p>拖拉框出要辨識的範圍，或直接用整張圖辨識。</p>
+      <h3>上傳檔案 / 拍照</h3>
+      <p>拖拉框出你要辨識的範圍，辨識完成後會直接回填到系統，並沿用新的商用介面樣式。</p>
       <div class="dialog-toolbar">
         <select id="ocr-mode-input" class="dialog-input compact-input">
-          <option value="blue">藍字優先</option>
-          <option value="general">一般模式</option>
-          <option value="handwriting">手寫優先</option>
-        </select>
-        <select id="ocr-template-input" class="dialog-input compact-input">
-          <option value="whiteboard">白板模板</option>
-          <option value="shipping_note">出貨單模板</option>
-          <option value="native_device">通用模板</option>
+          <option value="blue">優先選項：藍字優先</option>
+          <option value="general">優先選項：一般模式</option>
+          <option value="handwriting">優先選項：手寫優先</option>
         </select>
       </div>
       <div id="ocr-stage" class="ocr-stage">
@@ -64,7 +58,6 @@ app.innerHTML = `
         <div id="ocr-stage-roi" class="ocr-stage-roi hidden"></div>
       </div>
       <div class="dialog-actions">
-        <button id="ocr-full-btn" class="btn secondary">整張直接辨識</button>
         <button id="ocr-clear-btn" class="btn secondary">清除框選</button>
         <button id="ocr-cancel-btn" class="btn secondary">取消</button>
         <button id="ocr-run-btn" class="btn">開始辨識</button>
@@ -226,21 +219,18 @@ async function imageToDataUrl(webPath: string): Promise<{ dataUrl: string; width
   return { dataUrl: canvas.toDataURL('image/jpeg', 0.86), width: img.width, height: img.height };
 }
 
-async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTemplate: OcrTemplate): Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }> {
+async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode): Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }> {
   const modal = document.querySelector<HTMLDivElement>('#ocr-modal')!;
   const stage = document.querySelector<HTMLDivElement>('#ocr-stage')!;
   const img = document.querySelector<HTMLImageElement>('#ocr-stage-img')!;
   const roiBox = document.querySelector<HTMLDivElement>('#ocr-stage-roi')!;
   const modeInput = document.querySelector<HTMLSelectElement>('#ocr-mode-input')!;
-  const templateInput = document.querySelector<HTMLSelectElement>('#ocr-template-input')!;
   const clearBtn = document.querySelector<HTMLButtonElement>('#ocr-clear-btn')!;
   const cancelBtn = document.querySelector<HTMLButtonElement>('#ocr-cancel-btn')!;
-  const fullBtn = document.querySelector<HTMLButtonElement>('#ocr-full-btn')!;
   const runBtn = document.querySelector<HTMLButtonElement>('#ocr-run-btn')!;
 
   img.src = previewDataUrl;
   modeInput.value = defaultMode;
-  templateInput.value = defaultTemplate;
   modal.classList.remove('hidden');
 
   let roi: { x: number; y: number; w: number; h: number } | null = null;
@@ -293,8 +283,8 @@ async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTe
   stage.addEventListener('touchmove', onMove, { passive: false });
   window.addEventListener('touchend', onEnd);
 
-  const result = await new Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }>((resolve) => {
-    const cleanup = (output: { roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }) => {
+  const result = await new Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }>((resolve) => {
+    const cleanup = (output: { roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }) => {
       modal.classList.add('hidden');
       stage.removeEventListener('mousedown', onStart);
       stage.removeEventListener('mousemove', onMove);
@@ -304,14 +294,12 @@ async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTe
       window.removeEventListener('touchend', onEnd);
       clearBtn.onclick = null;
       cancelBtn.onclick = null;
-      fullBtn.onclick = null;
       runBtn.onclick = null;
       resolve(output);
     };
     clearBtn.onclick = () => clearSelection();
-    cancelBtn.onclick = () => cleanup({ roi: null, mode: modeInput.value as OcrMode, template: templateInput.value as OcrTemplate, cancelled: true });
-    fullBtn.onclick = () => cleanup({ roi: null, mode: modeInput.value as OcrMode, template: templateInput.value as OcrTemplate, cancelled: false });
-    runBtn.onclick = () => cleanup({ roi, mode: modeInput.value as OcrMode, template: templateInput.value as OcrTemplate, cancelled: false });
+    cancelBtn.onclick = () => cleanup({ roi: null, mode: modeInput.value as OcrMode, cancelled: true });
+    runBtn.onclick = () => cleanup({ roi, mode: modeInput.value as OcrMode, cancelled: false });
   });
   return result;
 }
@@ -320,7 +308,6 @@ async function runNativeOcr(request: RequestPayload) {
   try {
     const source = request.source === 'camera' ? 'camera' : 'photos';
     const defaultMode = (request.ocrMode || 'blue') as OcrMode;
-    const defaultTemplate = (request.template || 'whiteboard') as OcrTemplate;
     setStatus(source === 'camera' ? '正在開啟相機…' : '正在開啟相簿…');
     const photo = await Camera.getPhoto({
       quality: 90,
@@ -335,7 +322,7 @@ async function runNativeOcr(request: RequestPayload) {
 
     const preview = await imageToDataUrl(previewPath);
     const previewDataUrl = preview.dataUrl;
-    const selection = await chooseRoi(previewDataUrl, defaultMode, defaultTemplate);
+    const selection = await chooseRoi(previewDataUrl, defaultMode);
     if (selection.cancelled) {
       setStatus('已取消辨識');
       return;
@@ -360,7 +347,6 @@ async function runNativeOcr(request: RequestPayload) {
         source,
         requestId: request.requestId || '',
         ocrMode: selection.mode,
-        template: selection.template,
         roi: selection.roi,
         blocks: activeBoxes,
         line_map: lineMap,

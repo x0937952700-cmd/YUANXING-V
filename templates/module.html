@@ -8,11 +8,13 @@
   </div>
 
   {% if module_key not in ['shipping_query','warehouse','customers'] %}
-  <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
+  <div class="glass panel upload-panel engine-upgraded compact-upload premium-panel {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
+    <div class="panel-tag">OCR 工作區</div>
     <div class="upload-row tight-row ocr-action-row">
       <button class="primary-btn ocr-main-btn" onclick="openAlbumPicker()">上傳檔案</button>
       <button class="ghost-btn ocr-main-btn" onclick="openCameraPicker()">拍照</button>
     </div>
+    <div id="pending-queue-panel" class="queue-panel hidden"></div>
     <div class="upload-row tight-row ocr-option-row ocr-status-row">
       <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
       <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
@@ -43,8 +45,10 @@
     <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡；也可以直接貼上手機辨識好的文字，系統會自動整理成你要的格式"></textarea>
     <div class="btn-row">
       <button class="primary-btn" onclick="confirmSubmit()">確認送出</button>
+      <button class="ghost-btn" onclick="cleanOcrTextarea()">一鍵去雜訊</button>
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
     </div>
+    <div id="ocr-diff-preview" class="result-card hidden"></div>
     <div id="module-result" class="result-card hidden"></div>
   </div>
   {% endif %}
@@ -106,7 +110,7 @@
       <span class="muted">直立卡片式排列，六欄縱向顯示，每欄 20 格。</span>
     </div>
     <div class="search-row warehouse-search-toolbar">
-      <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113">
+      <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
       <button class="primary-btn" onclick="searchWarehouse()">搜尋</button>
       <button class="ghost-btn" onclick="renderWarehouse()">清除搜尋</button>
     </div>
@@ -120,7 +124,9 @@
       <button id="zone-switch-ALL" class="chip zone-switch" onclick="setWarehouseZone('ALL')">全部</button>
     </div>
     <div id="warehouse-search-results" class="search-results hidden"></div>
+    <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
+    <div id="warehouse-undo-mount"></div>
     <div class="warehouse-zone-wrap single-zone-mode">
       <div class="zone-card full-zone" id="zone-A">
         <div class="zone-titlebar">
@@ -149,7 +155,8 @@
       <span class="muted">可手動編輯名稱、電話、地址、特殊要求</span>
     </div>
     <div class="customer-editor">
-      <div class="customer-detail glass">
+      <div class="customer-detail glass premium-panel">
+        <div class="panel-tag">客戶資料編輯</div>
         <label class="field-label">客戶名稱</label>
         <input class="text-input" id="cust-name">
         <label class="field-label">電話</label>
@@ -221,6 +228,7 @@
       <select id="warehouse-item-select" class="text-input"></select>
       <label class="field-label">加入數量</label>
       <input id="warehouse-add-qty" class="text-input" type="number" min="1" value="1">
+      <div id="warehouse-recent-slots" class="chip-list"></div>
       <div class="btn-row">
         <button class="primary-btn" onclick="addSelectedItemToCell()">加入格位</button>
         <button class="ghost-btn" onclick="saveWarehouseCell()">儲存格位</button>
