@@ -21,7 +21,10 @@ from ocr import process_ocr_text, parse_ocr_text
 from backup import run_daily_backup
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "warehouse-secret-key")
+_SECRET_KEY = os.getenv("SECRET_KEY")
+if not _SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is required")
+app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
 UPLOAD_FOLDER = "uploads"
@@ -161,6 +164,10 @@ def api_login():
             return error_response("帳號密碼不可空白")
         user = get_user(username)
         if user and int(user.get('is_blocked') or 0) == 1:
+            try:
+                log_action(username or 'unknown', '黑名單登入攔截')
+            except Exception:
+                pass
             return error_response("此帳號已被停用", 403)
         if not user:
             create_user(username, password)
@@ -228,9 +235,6 @@ def api_upload_ocr():
         if len(content) > MAX_UPLOAD_SIZE:
             return error_response("圖片過大")
         image_hash = hashlib.md5(content).hexdigest()
-        force = str(request.form.get("force") or "0").lower() in ("1", "true", "yes", "on")
-        if image_hash_exists(image_hash) and not force:
-            return jsonify(success=False, duplicate=True, image_hash=image_hash, error="相同照片上傳過，是否重新識別？"), 409
         ext = file.filename.rsplit(".", 1)[1].lower()
         filename = f"{image_hash}.{ext}"
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -245,27 +249,58 @@ def api_upload_ocr():
             except Exception:
                 roi = None
         handwriting_mode = str(request.form.get("handwriting_mode") or "0").lower() in ("1", "true", "yes", "on")
+        duplicate_existing = image_hash_exists(image_hash)
         result = process_ocr_text(path, roi=roi, handwriting_mode=handwriting_mode)
-        has_output = bool(result.get('text') or result.get('raw_text') or result.get('customer_guess'))
+        items = result.get('items') or []
+        normalized_text = result.get('text') or ''
+        if not normalized_text and items:
+            normalized_text = '\n'.join([
+                (it.get('raw_text') or ((it.get('product_text') or '') + (f"x{int(it.get('qty') or 1)}" if int(it.get('qty') or 1) != 1 else '')))
+                for it in items if (it.get('raw_text') or it.get('product_text'))
+            ])
+        raw_text = result.get('raw_text') or normalized_text
+        customer_guess = result.get('customer_guess') or ''
+        has_output = bool(normalized_text.strip() or raw_text.strip() or customer_guess or items)
+        template = result.get("template", "auto")
+        template_name = {"whiteboard": "白板模板", "shipping_note": "出貨單模板", "auto": "自動模式"}.get(template, "自動模式")
         if not result.get('success') and not has_output:
-            return error_response('OCR辨識失敗')
-        if not image_hash_exists(image_hash):
+            specific_error = result.get('error') or ''
+            if not (os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')):
+                specific_error = specific_error or 'Google OCR 金鑰未設定'
+            elif str(get_setting('google_ocr_enabled', '1')) != '1':
+                specific_error = specific_error or 'Google OCR 已被停用'
+            else:
+                specific_error = specific_error or f'{template_name}未抓到可辨識內容，可改手動微調範圍後再試'
+            return error_response(specific_error)
+        if not duplicate_existing:
             save_image_hash(image_hash)
         confidence = int(result.get("confidence", 0))
-        log_action(current_username(), f"OCR辨識[{','.join(result.get('engines', []))}]")
+        warning = result.get('warning', '')
+        if has_output and (not normalized_text or not customer_guess):
+            missing_parts = []
+            if not customer_guess:
+                missing_parts.append('客戶名稱')
+            if not normalized_text:
+                missing_parts.append('商品文字')
+            warning = warning or (f'已辨識部分內容，請確認{'、'.join(missing_parts)}' if missing_parts else '')
+        elif has_output:
+            warning = warning or f'{template_name}已自動套用並完成辨識'
+        log_action(current_username(), f"OCR辨識[{','.join(result.get('engines', []))}]/{template}")
         return jsonify(
             success=True,
-            duplicate=False,
+            duplicate_existing=duplicate_existing,
             image_hash=image_hash,
-            text=result.get("text", ""),
-            raw_text=result.get("raw_text", result.get("text", "")),
-            items=result.get("items", []),
+            text=normalized_text,
+            raw_text=raw_text,
+            items=items,
             confidence=confidence,
+            warning=warning,
             engines=result.get("engines", []),
-            customer_guess=result.get("customer_guess", ""),
-            template=result.get("template", "auto"),
+            customer_guess=customer_guess,
+            template=template,
+            template_name=template_name,
             suggested_roi=result.get("suggested_roi"),
-            warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""),
+            partial=bool(has_output and (not normalized_text or not customer_guess)),
             sync_time=int(os.path.getmtime(path))
         )
     except Exception as e:
@@ -447,7 +482,7 @@ def api_warehouse_cell():
         data = request.get_json(silent=True) or {}
         zone = data.get("zone")
         column_index = int(data.get("column_index"))
-        slot_type = data.get("slot_type")
+        slot_type = data.get("slot_type") or 'direct'
         slot_number = int(data.get("slot_number"))
         items = data.get("items") or []
         note = data.get("note") or ""
@@ -579,9 +614,9 @@ def api_warehouse_add_slot():
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
-        slot_type = (data.get("slot_type") or "front").strip()
+        slot_type = 'direct'
         slot_number = warehouse_add_slot(zone, column_index, slot_type)
-        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_type}-{slot_number}")
+        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
@@ -594,12 +629,12 @@ def api_warehouse_remove_slot():
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
-        slot_type = (data.get("slot_type") or "front").strip()
+        slot_type = 'direct'
         slot_number = int(data.get("slot_number"))
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
-        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_type}-{slot_number}")
+        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
@@ -646,44 +681,144 @@ def api_orders_to_master():
 def _today_key():
     return datetime.now().strftime('%Y-%m-%d')
 
+def _aggregate_customer_products(rows):
+    out = {}
+    for r in rows:
+        key = ((r.get('customer_name') or '').strip(), (r.get('product_text') or '').strip())
+        out[key] = out.get(key, 0) + int(r.get('qty') or 0)
+    return out
+
+def _aggregate_inventory_products(rows):
+    out = {}
+    for r in rows:
+        key = (r.get('product_text') or '').strip()
+        out[key] = out.get(key, 0) + int(r.get('qty') or 0)
+    return out
+
+
+def _build_anomalies(inv_rows, order_rows, master_rows):
+    anomalies = {
+        'negative_inventory': [],
+        'orders_over_master': [],
+        'master_over_inventory': [],
+        'unplaced': [],
+        'duplicate_products': [],
+        'shipping_deduction': [],
+        'ocr_errors': [],
+        'blocked_logins': [],
+    }
+    inv_by_product = _aggregate_inventory_products(inv_rows)
+    ord_by_cp = _aggregate_customer_products(order_rows)
+    mst_by_cp = _aggregate_customer_products(master_rows)
+
+    for r in inv_rows:
+        if int(r.get('qty') or 0) < 0:
+            anomalies['negative_inventory'].append({'type':'negative_inventory','message':f"庫存負數：{r.get('product_text')} ({r.get('qty')})",'product_text':r.get('product_text') or ''})
+        if int(r.get('unplaced_qty') or 0) > 0:
+            anomalies['unplaced'].append({'type':'unplaced','message':f"未錄入倉庫圖：{r.get('product_text')} ({r.get('unplaced_qty')})",'product_text':r.get('product_text') or '', 'qty':int(r.get('unplaced_qty') or 0)})
+
+    for key, oq in ord_by_cp.items():
+        mq = int(mst_by_cp.get(key) or 0)
+        if oq > mq:
+            customer_name, product_text = key
+            anomalies['orders_over_master'].append({'type':'orders_over_master','message':f"{customer_name}｜訂單大於總單：{product_text} ({oq}>{mq})",'customer_name':customer_name,'product_text':product_text,'order_qty':oq,'master_qty':mq})
+
+    product_master_total = {}
+    for (_, product_text), qty in mst_by_cp.items():
+        product_master_total[product_text] = product_master_total.get(product_text, 0) + int(qty or 0)
+    for product_text, mq in product_master_total.items():
+        iq = int(inv_by_product.get(product_text) or 0)
+        if mq > iq:
+            anomalies['master_over_inventory'].append({'type':'master_over_inventory','message':f"總單大於庫存：{product_text} ({mq}>{iq})",'product_text':product_text,'master_qty':mq,'inventory_qty':iq})
+
+    def _dups(rows, source_name):
+        seen = {}
+        for r in rows:
+            key = ((r.get('customer_name') or '').strip(), (r.get('product_text') or '').strip())
+            if not all(key):
+                continue
+            seen.setdefault(key, []).append(r)
+        for key, vals in seen.items():
+            if len(vals) > 1:
+                anomalies['duplicate_products'].append({'type':'duplicate_products','message':f"{source_name}重複商品：{key[0]}｜{key[1]}（{len(vals)}筆）",'customer_name':key[0],'product_text':key[1],'source':source_name})
+    _dups(order_rows, '訂單')
+    _dups(master_rows, '總單')
+
+    try:
+        conn = get_db(); cur = conn.cursor(); today = _today_key()
+        cur.execute(sql("SELECT customer_name, product_text, note, shipped_at FROM shipping_records WHERE substr(shipped_at,1,10)=? ORDER BY shipped_at DESC"), (today,))
+        for r in rows_to_dict(cur):
+            note = r.get('note') or ''
+            if '補扣' in note:
+                anomalies['shipping_deduction'].append({'type':'shipping_deduction','message':f"出貨補扣：{r.get('customer_name')}｜{r.get('product_text')}｜{note}"})
+        cur.execute(sql("SELECT source, message, created_at FROM errors WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 50"), (today,))
+        for r in rows_to_dict(cur):
+            src = (r.get('source') or '')
+            if 'ocr' in src.lower() or 'google' in src.lower():
+                anomalies['ocr_errors'].append({'type':'ocr_errors','message':f"OCR異常：{src}｜{r.get('message') or ''}"})
+        cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? AND action LIKE ? ORDER BY created_at DESC LIMIT 50"), (today, '%黑名單登入攔截%'))
+        for r in rows_to_dict(cur):
+            anomalies['blocked_logins'].append({'type':'blocked_logins','message':f"黑名單登入異常：{r.get('username') or ''}"})
+        conn.close()
+    except Exception:
+        pass
+
+    return anomalies
+
+
 def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 80"), (today,))
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
     logs = rows_to_dict(cur)
     conn.close()
+
     inbound = []
     outbound = []
+    new_orders = []
     others = []
     for r in logs:
         action = r.get('action') or ''
         if '出貨' in action:
             outbound.append(r)
-        elif any(k in action for k in ['庫存', '進貨', 'OCR', '總單', '訂單', '儲存客戶']):
+        elif '訂單' in action:
+            new_orders.append(r)
+        elif any(k in action for k in ['庫存', '進貨', 'OCR', '總單', '儲存客戶']):
             inbound.append(r)
         else:
             others.append(r)
+
     inv = inventory_summary()
-    unplaced = [r for r in inv if int(r.get('unplaced_qty') or 0) > 0]
-    anomalies = []
-    for r in inv:
-        if int(r.get('qty') or 0) < 0:
-            anomalies.append({'type':'negative_inventory','product_text':r.get('product_text'),'message':'庫存出現負數'})
+    orders = get_orders()
+    masters = get_master_orders()
+    anomalies = _build_anomalies(inv, orders, masters)
+    anomaly_list = []
+    for key in ['negative_inventory', 'orders_over_master', 'master_over_inventory', 'duplicate_products', 'shipping_deduction', 'ocr_errors', 'blocked_logins']:
+        anomaly_list.extend(anomalies.get(key, []))
+    unplaced = anomalies['unplaced']
+    read_at = get_setting('today_changes_read_at', '') or ''
+    unread_count = len([r for r in logs if not read_at or (r.get('created_at') or '') > read_at])
+
     return {
         'summary': {
             'inbound_count': len(inbound),
             'outbound_count': len(outbound),
+            'new_order_count': len(new_orders),
             'unplaced_count': len(unplaced),
-            'anomaly_count': len(anomalies),
+            'anomaly_count': len(anomaly_list),
+            'unread_count': unread_count,
         },
         'feed': {
-            'inbound': inbound[:30],
-            'outbound': outbound[:30],
-            'others': others[:20],
+            'inbound': inbound[:60],
+            'outbound': outbound[:60],
+            'new_orders': new_orders[:60],
+            'others': others[:40],
         },
-        'unplaced_items': unplaced[:50],
-        'anomalies': anomalies[:50],
+        'unplaced_items': unplaced[:120],
+        'anomalies': anomaly_list[:120],
+        'anomaly_groups': anomalies,
+        'read_at': read_at,
     }
 
 @app.route('/api/today-changes', methods=['GET'])
@@ -691,11 +826,35 @@ def _today_changes_payload():
 def api_today_changes():
     return jsonify(success=True, **_today_changes_payload())
 
+@app.route('/api/today-changes/read', methods=['POST'])
+@login_required_json
+def api_today_changes_mark_read():
+    try:
+        set_setting('today_changes_read_at', now())
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('today_changes_mark_read', str(e))
+        return error_response('清除已讀失敗')
+
+@app.route('/api/today-changes/<int:log_id>', methods=['DELETE'])
+@login_required_json
+def api_today_change_delete(log_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql('DELETE FROM logs WHERE id = ?'), (log_id,))
+        conn.commit()
+        conn.close()
+        return jsonify(success=True, **_today_changes_payload())
+    except Exception as e:
+        log_error('today_change_delete', str(e))
+        return error_response('刪除異動失敗')
+
 @app.route('/api/anomalies', methods=['GET'])
 @login_required_json
 def api_anomalies():
-    return jsonify(success=True, **{'items': _today_changes_payload().get('anomalies', [])})
-
+    payload = _today_changes_payload()
+    return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 
 @app.route('/api/admin/google-ocr', methods=['GET'])
@@ -704,7 +863,7 @@ def api_admin_google_ocr_get():
     if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), count=get_ocr_usage('google_vision', period), period=period, limit=980)
+    return jsonify(success=True, enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), count=get_ocr_usage('google_vision', period), period=period, limit=980, remaining=max(0, 980 - get_ocr_usage('google_vision', period)), key_configured=bool(os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')))
 
 @app.route('/api/admin/google-ocr', methods=['POST'])
 @login_required_json
@@ -716,7 +875,7 @@ def api_admin_google_ocr_set():
     set_setting('google_ocr_enabled', enabled)
     log_action(current_username(), f"Google OCR{'開啟' if enabled == '1' else '關閉'}")
     period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=(enabled=='1'), count=get_ocr_usage('google_vision', period), period=period, limit=980)
+    return jsonify(success=True, enabled=(enabled=='1'), count=get_ocr_usage('google_vision', period), period=period, limit=980, remaining=max(0, 980 - get_ocr_usage('google_vision', period)), key_configured=bool(os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')))
 
 @app.route("/health")
 def health():

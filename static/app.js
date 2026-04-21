@@ -15,7 +15,9 @@ const state = {
   roi: null,
   todayChangesOpen: false,
   lastOcrTemplate: '',
-  __confirmResolver: null
+  __confirmResolver: null,
+  todayOnlyUnread: false,
+  todayCategoryFilter: 'all'
 };
 
 function $(id){ return document.getElementById(id); }
@@ -48,16 +50,30 @@ function toast(msg, kind=''){
   window.__toastTimer = setTimeout(()=>{ t.className='toast'; }, 2400);
 }
 
+function setPillState(el, kind){
+  if (!el) return;
+  el.classList.remove('ok-pill','warn-pill','error-pill');
+  if (kind) el.classList.add(kind + '-pill');
+}
 
-function askConfirm(message, title='請確認', okText='確認', cancelText='取消'){
+function scrollToOcrFields(){
+  const target = $('customer-name') || $('ocr-text');
+  if (target && typeof target.scrollIntoView === 'function') {
+    target.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+}
+
+
+function askConfirm(message, title='請確認', okText='確認', cancelText='取消', opts={}){
   const modal = $('confirm-modal');
   const msg = $('confirm-message');
   const ttl = $('confirm-title');
   const ok = $('confirm-ok-btn');
   const cancel = $('confirm-cancel-btn');
-  if (!modal || !msg || !ttl || !ok || !cancel) return Promise.resolve(window.confirm(message));
+  if (!modal || !msg || !ttl || !ok || !cancel) return Promise.resolve(window.confirm(typeof message === 'string' ? message : '請確認'));
   ttl.textContent = title;
-  msg.textContent = message;
+  if (opts && opts.html) msg.innerHTML = message;
+  else msg.textContent = message;
   ok.textContent = okText;
   cancel.textContent = cancelText;
   modal.classList.remove('hidden');
@@ -91,8 +107,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if ($('old-password')) {
     loadGoogleOcrStatus();
+    loadBackups();
   }
-  if ($('today-changes-btn')) {
+  if ($('today-changes-btn') || $('today-summary-cards')) {
     loadTodayChanges();
   }
   if (state.module) {
@@ -191,12 +208,16 @@ async function toggleUserBlocked(encodedUsername, blocked){
 
 async function loadGoogleOcrStatus(){
   const box = $('google-ocr-panel');
-  if (!box) return;
+  const status = $('system-status-panel');
+  if (!box && !status) return;
   try {
     const data = await requestJSON('/api/admin/google-ocr', { method:'GET' });
-    box.innerHTML = `<div class="card-list"><div class="card"><div class="title">本月使用次數</div><div class="sub">${data.count} / ${data.limit}</div></div><div class="card"><div class="title">目前狀態</div><div class="sub">${data.enabled ? '啟用' : '停用'}</div></div><div class="btn-row"><button class="primary-btn" onclick="setGoogleOcrEnabled(${data.enabled ? 'false' : 'true'})">${data.enabled ? '手動關閉' : '手動開啟'}</button></div></div>`;
+    const remain = Number(data.remaining ?? Math.max(0, (data.limit || 980) - (data.count || 0)));
+    if (box) box.innerHTML = `<div class="card-list"><div class="card"><div class="title">本月使用次數</div><div class="sub"><strong>${data.count} / ${data.limit}</strong>剩餘 ${remain} 次</div></div><div class="card"><div class="title">目前狀態</div><div class="sub">${data.enabled ? '啟用' : '停用'}${data.key_configured ? '｜金鑰已配置' : '｜金鑰未配置'}</div></div><div class="btn-row"><button class="primary-btn" onclick="setGoogleOcrEnabled(${data.enabled ? 'false' : 'true'})">${data.enabled ? '手動關閉' : '手動開啟'}</button></div></div>`;
+    if (status) status.innerHTML = `<div class="card"><div class="title">Google OCR</div><div class="sub"><strong>${data.enabled ? '已啟用' : '已停用'}</strong>${data.key_configured ? '金鑰已配置' : '請設定金鑰'}<br>本月 ${data.count}/${data.limit}，剩餘 ${remain} 次</div></div><div class="card"><div class="title">安全設定</div><div class="sub"><strong>SECRET_KEY</strong><br>此版本採環境變數強制啟動，未設定不會啟動服務。</div></div>`;
   } catch (e) {
-    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+    if (box) box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+    if (status) status.innerHTML = `<div class="alert">${escapeHTML(e.message || '系統狀態載入失敗')}</div>`;
   }
 }
 
@@ -225,6 +246,28 @@ async function changePassword(){
     $('old-password').value = $('new-password').value = $('confirm-password').value = '';
   } catch (e) {
     if (msg) { msg.textContent = e.message; msg.classList.remove('hidden'); }
+  }
+}
+
+async function loadBackups(){
+  const box = $('backup-panel');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/backups', { method:'GET' });
+    const files = data.files || [];
+    box.innerHTML = files.length ? `<table class="backup-table"><thead><tr><th>檔名</th><th>大小</th><th>建立時間</th></tr></thead><tbody>${files.map(f => `<tr><td>${escapeHTML(f.filename || '')}</td><td>${Number(f.size || 0).toLocaleString()}</td><td>${escapeHTML(f.created_at || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="small-note">目前沒有備份檔</div>';
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '備份清單載入失敗')}</div>`;
+  }
+}
+
+async function createBackup(){
+  try {
+    await requestJSON('/api/backup', { method:'POST', body:'{}' });
+    toast('已建立備份', 'ok');
+    loadBackups();
+  } catch (e) {
+    toast(e.message || '建立備份失敗', 'error');
   }
 }
 
@@ -268,29 +311,31 @@ async function handleFiles(fileList){
   state.roi = null;
   renderOcrPreview(file);
   if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '正在自動套用模板並辨識';
+  setPillState($('ocr-warning-pill'), 'warn');
+  if ($('ocr-template-pill')) { $('ocr-template-pill').textContent = '模板：自動判斷中'; $('ocr-template-pill').className = 'pill template-auto'; }
+  const detail = $('ocr-status-detail'); if (detail) detail.textContent = '系統會先自動框出建議辨識區，再直接辨識；如果不準可手動微調。';
   toast('已自動套用模板框選並開始辨識，如不準可再手動微調', 'ok');
   await uploadOcrFile(file, false);
 }
 
-async function uploadOcrFile(file, useRoi=false, force=false){
+async function uploadOcrFile(file, useRoi=false){
   const form = new FormData();
   form.append('file', file);
   if (useRoi && state.roi) form.append('roi', JSON.stringify(state.roi));
-  if (force) form.append('force', '1');
   try {
     const res = await fetch('/api/upload_ocr', { method:'POST', body: form });
     const data = await res.json().catch(() => ({ success:false, error:'OCR失敗' }));
-    if (data.duplicate || res.status === 409) {
-      const ok = await askConfirm(data.error || '相同照片上傳過，是否重新識別？', '相同照片', '重新識別', '取消');
-      if (ok) return uploadOcrFile(file, useRoi, true);
-      toast('已取消重新識別', 'warn');
-      return;
-    }
     if (!res.ok || data.success === false) throw new Error(data.error || 'OCR失敗');
+    if (data.duplicate_existing && !useRoi) {
+      const ok = await askConfirm('相同照片曾上傳過，是否仍使用這次辨識結果？', '重複照片', '使用這次結果', '取消');
+      if (!ok) {
+        toast('已取消套用重複照片結果', 'warn');
+        return;
+      }
+    }
     if ($('ocr-text')) $('ocr-text').value = data.text || '';
     state.lastOcrOriginalText = data.raw_text || data.text || '';
     if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || ('辨識完成｜' + ((data.engines||[]).join(' / ') || '單引擎'));
     state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
     state.lastOcrTemplate = data.template || '';
     if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
@@ -298,14 +343,33 @@ async function uploadOcrFile(file, useRoi=false, force=false){
       state.roi = data.suggested_roi;
       applySuggestedRoiBox(data.suggested_roi);
     }
-    const tplName = data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式');
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || (`${tplName}已自動套用，可手動微調`);
+    const tplName = data.template_name || (data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式'));
+    if ($('ocr-template-pill')) {
+      $('ocr-template-pill').textContent = `模板：${tplName}`;
+      $('ocr-template-pill').className = `pill ${data.template === 'whiteboard' ? 'template-whiteboard' : (data.template === 'shipping_note' ? 'template-shipping' : 'template-auto')}`;
+    }
+    const warningPill = $('ocr-warning-pill');
+    const detail = $('ocr-status-detail');
+    const statusText = data.warning || (data.partial ? '已辨識部分內容，請檢查後送出' : `${tplName}已自動套用，可手動微調`);
+    if (warningPill) warningPill.textContent = statusText;
+    setPillState(warningPill, data.partial || data.warning ? 'warn' : 'ok');
+    if (detail) detail.textContent = `辨識引擎：${(data.engines||[]).join(' / ') || 'google_vision'}｜模板：${tplName}${data.partial ? '｜目前為部分結果，請確認缺漏欄位' : ''}`;
     if (data.warning) toast(data.warning, 'warn');
     else toast((useRoi ? '區域辨識完成' : 'OCR辨識完成') + '｜' + tplName, 'ok');
+    scrollToOcrFields();
     if (state.module === 'ship') await loadShipPreview();
   } catch (e) {
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = e.message;
-    toast(e.message || 'OCR辨識失敗', 'error');
+    const msg = e.message || 'OCR辨識失敗';
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = msg;
+    setPillState($('ocr-warning-pill'), 'error');
+    const detail = $('ocr-status-detail');
+    if (detail) {
+      if (msg.includes('金鑰')) detail.textContent = '請先在 Render 設定 Google OCR 金鑰後再重試。';
+      else if (msg.includes('停用')) detail.textContent = 'Google OCR 目前被停用，請到設定頁重新啟用。';
+      else if (msg.includes('模板')) detail.textContent = '模板沒有抓到有效區域，可先微調框選後再辨識。';
+      else detail.textContent = '圖片可能過暗、模糊或手寫顏色不足，建議重拍或微調框選。';
+    }
+    toast(msg, 'error');
   }
 }
 
@@ -337,8 +401,67 @@ function parseTextareaItems(){
   return items;
 }
 
+
 function toggleTodayChanges(){
   window.location.href = '/today-changes';
+}
+
+function renderTodayLogList(items, emptyText){
+  const filtered = state.todayOnlyUnread ? (items || []).filter(r => r.__unread) : (items || []);
+  if (!filtered || !filtered.length) return `<div class="small-note">${emptyText}</div>`;
+  return filtered.map(r => `<div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}"><div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button></div>`).join('');
+}
+
+async function deleteTodayChange(id){
+  if (!id) return;
+  const ok = await askConfirm('確定刪除這筆今日異動？', '刪除異動', '刪除', '取消');
+  if (!ok) return;
+  try {
+    await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
+    toast('已刪除異動', 'ok');
+    await loadTodayChanges();
+  } catch (e) {
+    toast(e.message || '刪除失敗', 'error');
+  }
+}
+
+async function markTodayChangesRead(){
+  try {
+    await requestJSON('/api/today-changes/read', { method:'POST', body:'{}' });
+    toast('已清除已讀', 'ok');
+    await loadTodayChanges();
+  } catch (e) { toast(e.message || '清除已讀失敗', 'error'); }
+}
+
+function toggleTodayUnreadFilter(){
+  state.todayOnlyUnread = !state.todayOnlyUnread;
+  const btn = $('today-unread-toggle');
+  if (btn) btn.textContent = state.todayOnlyUnread ? '只看全部' : '只看未讀';
+  loadTodayChanges();
+}
+
+function setTodayCategoryFilter(filter){
+  state.todayCategoryFilter = filter || 'all';
+  ['all','inbound','outbound','orders','unplaced','anomaly'].forEach(k => {
+    const el = $(`today-filter-${k}`); if (el) el.classList.toggle('active', state.todayCategoryFilter === k);
+  });
+  applyTodayCategoryFilter();
+}
+
+function applyTodayCategoryFilter(){
+  const map = {
+    inbound: ['today-inbound-list'],
+    outbound: ['today-outbound-list'],
+    orders: ['today-order-list'],
+    unplaced: ['today-unplaced-list'],
+    anomaly: ['today-anomaly-list'],
+    all: ['today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list','today-anomaly-list']
+  };
+  const visible = new Set(map[state.todayCategoryFilter] || map.all);
+  ['today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list','today-anomaly-list'].forEach(id => {
+    const panel = $(id)?.closest('.panel');
+    if (panel) panel.classList.toggle('hidden-by-filter', !visible.has(id));
+  });
 }
 
 async function loadTodayChanges(){
@@ -346,19 +469,28 @@ async function loadTodayChanges(){
   try {
     const data = await requestJSON('/api/today-changes', { method:'GET' });
     const s = data.summary || {};
+    const readAt = data.read_at || '';
+    const markUnread = (items) => (items || []).map(r => ({ ...r, __unread: !readAt || String(r.created_at || '') > readAt }));
     if ($('home-unplaced-pill')) $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
+    if ($('today-unread-badge')) $('today-unread-badge').textContent = String(s.unread_count || 0);
     $('today-summary-cards').innerHTML = [
-      ['進貨 / 其他異動', s.inbound_count || 0],
-      ['出貨', s.outbound_count || 0],
-      ['未錄入倉庫圖', s.unplaced_count || 0],
-      ['異常比對', s.anomaly_count || 0],
-    ].map(([t,v]) => `<div class="card"><div class="title">${t}</div><div class="sub">${v}</div></div>`).join('');
-    $('today-inbound-list').innerHTML = (data.feed?.inbound || []).map(r => `<div class="chip-item">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div>`).join('') || '<div class="small-note">今日沒有進貨 / 其他異動</div>';
-    $('today-outbound-list').innerHTML = (data.feed?.outbound || []).map(r => `<div class="chip-item">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div>`).join('') || '<div class="small-note">今日沒有出貨</div>';
-    const anomalyItems = [...(data.anomalies || []).map(a => a.message || a.product_text || '異常'), ...(data.unplaced_items || []).slice(0,10).map(i => `未錄入：${i.product_text} (${i.unplaced_qty})`)];
-    $('today-anomaly-list').innerHTML = anomalyItems.map(v => `<div class="chip-item">${escapeHTML(v)}</div>`).join('') || '<div class="small-note">目前沒有異常</div>';
+      ['進貨', s.inbound_count || 0, 'inbound'],
+      ['出貨', s.outbound_count || 0, 'outbound'],
+      ['新增訂單', s.new_order_count || 0, 'orders'],
+      ['未錄入倉庫圖', s.unplaced_count || 0, 'unplaced'],
+      ['異常比對', s.anomaly_count || 0, 'anomaly'],
+      ['未讀', s.unread_count || 0, 'all'],
+    ].map(([t,v,k]) => `<div class="card ${state.todayCategoryFilter===k?'active':''}" onclick="setTodayCategoryFilter('${k}')"><div class="title">${t}</div><div class="sub">${v}</div></div>`).join('');
+    if ($('today-inbound-list')) $('today-inbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.inbound || []), '今日沒有進貨');
+    if ($('today-outbound-list')) $('today-outbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.outbound || []), '今日沒有出貨');
+    if ($('today-order-list')) $('today-order-list').innerHTML = renderTodayLogList(markUnread(data.feed?.new_orders || []), '今日沒有新增訂單');
+    if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((data.unplaced_items || []).map(i => `<div class="chip-item log-chip"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></div>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
+    if ($('today-anomaly-list')) $('today-anomaly-list').innerHTML = ((data.anomalies || []).map(a => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(a.type || '異常')}</strong>｜${escapeHTML(a.message || a.product_text || '異常')}</div></div>`).join('')) || '<div class="small-note">目前沒有異常</div>';
+    applyTodayCategoryFilter();
   } catch (e) {
     console.error(e);
+    const box = $('today-summary-cards');
+    if (box) box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
   }
 }
 
@@ -517,15 +649,16 @@ async function confirmSubmit(){
 
     const dedupe = await filterExistingCustomerItems(customer_name, items);
     if (dedupe.ignored.length && dedupe.items.length) {
-      const ok = confirm(`偵測到重複商品：\n${dedupe.ignored.map(it => `${it.product_text}x${it.qty}`).join('\n')}\n\n是否忽略以上重複，只新增其他商品？`);
+      const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const ok = await askConfirm(html, '重複商品確認', '忽略重複並送出', '取消', {html:true});
       if (!ok) return;
       items = dedupe.items;
     } else if (dedupe.ignored.length && !dedupe.items.length) {
-      const ok = confirm(`這次辨識的商品都已存在：\n${dedupe.ignored.map(it => `${it.product_text}x${it.qty}`).join('\n')}\n\n是否略過送出？`);
+      const html = `<div class="dup-modal-list"><div><strong>這次辨識的商品都已存在</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const ok = await askConfirm(html, '重複商品確認', '知道了', '取消', {html:true});
       if (ok) toast('已略過重複商品', 'ok');
       return;
     }
-
     let payload = { customer_name, location, ocr_text, items };
     if (module === 'ship') {
       const preview = state.shipPreview || await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
@@ -564,7 +697,14 @@ function renderSubmitResult(module, data, customerName=''){
     html += `<div class="muted">客戶：${escapeHTML(customerName)}</div>`;
     breakdown.forEach(b => {
       const locs = (b.locations || []).map(loc => `${loc.zone}區第${loc.column_index}欄第${String(loc.visual_slot || loc.slot_number).padStart(2,'0')}格`).join('、');
-      html += `<div class="chip-item"><strong>${escapeHTML(b.product_text)}</strong> × ${b.qty}<br>扣除：總單 ${b.master_deduct}｜訂單 ${b.order_deduct}｜庫存 ${b.inventory_deduct}${b.used_inventory_fallback ? '｜庫存補扣' : ''}${locs ? `<br>位置：${escapeHTML(locs)}` : ''}</div>`;
+      html += `<div class="card ship-result-card"><div class="title">${escapeHTML(b.product_text)}</div><div class="sub">本次出貨：${b.qty}</div>`;
+      html += `<div class="chip-list"><div class="chip-item">總單扣除：${b.master_deduct}</div><div class="chip-item">訂單扣除：${b.order_deduct}</div><div class="chip-item">庫存扣除：${b.inventory_deduct}</div>${b.used_inventory_fallback ? '<div class="chip-item">已啟用庫存補扣</div>' : ''}</div>`;
+      if (b.master_details?.length) html += `<div class="small-note">總單明細：${b.master_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.order_details?.length) html += `<div class="small-note">訂單明細：${b.order_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.inventory_details?.length) html += `<div class="small-note">庫存明細：${b.inventory_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.remaining_after) html += `<div class="small-note">扣減後剩餘：總單 ${b.remaining_after.master}｜訂單 ${b.remaining_after.order}｜庫存 ${b.remaining_after.inventory}</div>`;
+      if (locs) html += `<div class="small-note">倉庫位置：${escapeHTML(locs)}</div>`;
+      html += `</div>`;
     });
   } else if (module === 'orders') {
     html += `<div class="section-title">訂單已建立</div><div class="muted">客戶：${escapeHTML(customerName)}｜狀態：pending</div>`;
@@ -662,51 +802,25 @@ async function loadShipPreview(){
   if (!panel) return;
   const customer_name = ($('customer-name')?.value || '').trim();
   const items = parseTextareaItems();
-  if (!customer_name || !items.length) { panel.classList.add('hidden'); panel.innerHTML=''; state.shipPreview = null; return; }
+  if (!customer_name || !items.length){
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
   try {
     const data = await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
-    state.shipPreview = data;
     panel.classList.remove('hidden');
-    const highlightKeys = [];
-    let html = `<div class="section-title">出貨前預覽｜${escapeHTML(customer_name)}</div>`;
-    if (data.needs_inventory_fallback) html += `<div class="warning-red">客戶總單 / 訂單不足，確認送出時會詢問是否改扣庫存。</div>`;
-    (data.items || []).forEach(it => {
-      html += `<div class="card"><div class="title">${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div><div class="sub">總單可扣：${it.master_available || 0}｜訂單可扣：${it.order_available || 0}｜庫存可扣：${it.inventory_available || 0}</div>`;
-      if (it.locations && it.locations.length) {
-        html += `<div class="chip-list">` + it.locations.map(loc => {
-          const key = `${loc.zone}|${loc.column_index}|${loc.slot_type}|${loc.slot_number}`;
-          highlightKeys.push(key);
-          return `<div class="chip-item">${loc.zone}區 第 ${loc.column_index} 欄 第 ${String(loc.visual_slot || loc.slot_number).padStart(2,'0')} 格｜${loc.qty}</div>`;
-        }).join('') + `</div>`;
-      } else {
-        html += `<div class="small-note">倉庫圖未找到位置</div>`;
-      }
-      html += `</div>`;
-    });
-    if (highlightKeys.length) localStorage.setItem('shipPreviewWarehouseHighlights', JSON.stringify(highlightKeys));
-    html += `<div class="btn-row"><button class="ghost-btn" onclick="window.open('/warehouse','_blank')">查看倉庫圖位置</button></div>`;
-    panel.innerHTML = html;
+    panel.innerHTML = `<div class="alert">${escapeHTML(data.message || '出貨預覽完成')}</div>` + (data.items || []).map(item => `
+      <div class="ship-breakdown-item">
+        <div><strong>${escapeHTML(item.product_text || '')}</strong>｜需求 ${item.qty || 0}</div>
+        <div class="small-note">總單可扣 ${item.master_available || 0}｜訂單可扣 ${item.order_available || 0}｜庫存可扣 ${item.inventory_available || 0}</div>
+        <div class="small-note">建議：${escapeHTML(item.recommendation || '')}${item.shortage_reasons?.length ? '｜' + escapeHTML(item.shortage_reasons.join('、')) : ''}</div>
+        <div class="ship-breakdown-list">${(item.locations || []).map(loc => `<span class="ship-location-chip">${escapeHTML(loc.zone)}-${loc.column_index}-${String(loc.visual_slot || loc.slot_number || 0).padStart(2,'0')}｜將出 ${loc.ship_qty || loc.qty || 0}${typeof loc.remain_after !== 'undefined' ? `｜剩 ${loc.remain_after}` : ''}</span>`).join('') || '<span class="small-note">倉庫圖中尚未找到此商品位置</span>'}</div>
+      </div>`).join('');
   } catch (e) {
     panel.classList.remove('hidden');
-    panel.innerHTML = `<div class="warning-red">${escapeHTML(e.message || '出貨預覽失敗')}</div>`;
+    panel.innerHTML = `<div class="alert">${escapeHTML(e.message || '出貨預覽失敗')}</div>`;
   }
-}
-
-function setupCustomerDropZones(){
-  qsa('.category-box').forEach(box => {
-    box.ondragover = e => { e.preventDefault(); box.classList.add('drag-over'); };
-    box.ondragleave = () => box.classList.remove('drag-over');
-    box.ondrop = async e => {
-      e.preventDefault(); box.classList.remove('drag-over');
-      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-      if (!data || !data.name) return;
-      try {
-        await requestJSON('/api/customers', { method:'POST', body: JSON.stringify({ name:data.name, region: box.dataset.region }) });
-        toast('客戶分類已更新', 'ok');
-        loadCustomerBlocks();
-      } catch(err){ toast(err.message, 'error'); }
-    };
-  });
 }
 
 async function openCustomerModal(name){
@@ -860,70 +974,53 @@ async function addWarehouseColumn(zone){
   }
 }
 
-function buildCellKey(zone, column_index, slot_type, slot_number){
-  return [zone, column_index, slot_type, slot_number];
+
+function buildCellKey(zone, column_index, slot_number){
+  return [zone, column_index, slot_number];
 }
 
-function visualSlotToCell(n){
-  const num = parseInt(n, 10);
-  if (num <= 10) return { side: 'front', slot: num };
-  return { side: 'back', slot: num - 10 };
-}
-
-function cellToVisualSlot(side, slot){
-  const n = parseInt(slot, 10);
-  return side === 'back' ? n + 10 : n;
-}
-
-function getUnifiedSlotItems(zone, column_index, visualNumber){
-  const mapped = visualSlotToCell(visualNumber);
-  return getCellItems(zone, column_index, mapped.side, mapped.slot);
-}
-
-function getCellItems(zone, column_index, slot_type, slot_number){
-  const cell = state.warehouse.cells.find(c => c.zone === zone && parseInt(c.column_index) === parseInt(column_index) && c.slot_type === slot_type && parseInt(c.slot_number) === parseInt(slot_number));
+function getCellItems(zone, column_index, slot_number){
+  const cell = state.warehouse.cells.find(c => c.zone === zone && parseInt(c.column_index) === parseInt(column_index) && parseInt(c.slot_number) === parseInt(slot_number));
   if (!cell) return [];
   try { return JSON.parse(cell.items_json || '[]'); } catch(e){ return []; }
 }
 
-function getMaxSlot(zone, column, side){
-  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone && parseInt(c.column_index) === parseInt(column) && c.slot_type === side);
-  if (!zoneCells.length) return 10;
-  return Math.max(10, ...zoneCells.map(c => parseInt(c.slot_number || 0)).filter(Boolean));
+function getMaxSlot(zone, column){
+  const zoneCells = state.warehouse.cells.filter(c => c.zone === zone && parseInt(c.column_index) === parseInt(column));
+  if (!zoneCells.length) return 20;
+  return Math.max(20, ...zoneCells.map(c => parseInt(c.slot_number || 0)).filter(Boolean));
 }
 
 function getVisibleZoneColumns(zone){
-  return [1, 2, 3, 4, 5, 6];
+  const cols = state.warehouse.cells.filter(c => c.zone === zone).map(c => parseInt(c.column_index || 0)).filter(Boolean);
+  const maxCol = Math.max(6, ...(cols.length ? cols : [0]));
+  return Array.from({length:maxCol}, (_,i)=>i+1);
 }
 
 function getColumnVisibleSlots(zone, column){
   const zoneCells = state.warehouse.cells.filter(c => c.zone === zone && parseInt(c.column_index) === parseInt(column));
   if (!zoneCells.length) return 20;
-  let maxVisual = 20;
-  zoneCells.forEach(c => {
-    const visual = cellToVisualSlot(c.slot_type, c.slot_number);
-    if (visual > maxVisual) maxVisual = visual;
-  });
-  return maxVisual;
+  return Math.max(20, ...zoneCells.map(c => parseInt(c.slot_number || 0)).filter(Boolean));
 }
 
 async function addWarehouseVisualSlot(zone, column){
-  const next = getColumnVisibleSlots(zone, column) + 1;
-  const mapped = visualSlotToCell(next);
   try {
-    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: mapped.side }) });
-    toast('已新增格子', 'ok');
+    const next = getColumnVisibleSlots(zone, column) + 1;
+    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_number: next }) });
+    toast(`已新增第 ${next} 格`, 'ok');
     await renderWarehouse();
   } catch (e) { toast(e.message, 'error'); }
 }
 
 async function removeWarehouseVisualSlot(zone, column){
   const current = getColumnVisibleSlots(zone, column);
-  if (current <= 1) return;
-  const mapped = visualSlotToCell(current);
+  const items = getCellItems(zone, column, current);
+  if (items.length) return toast('最後一格仍有商品，無法刪除', 'warn');
+  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄最後一格（第 ${current} 格）？`, '刪除格子', '刪除', '取消');
+  if (!ok) return;
   try {
-    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: mapped.side, slot_number: mapped.slot }) });
-    toast('已刪除格子', 'ok');
+    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_number: current }) });
+    toast(`已刪除第 ${current} 格`, 'ok');
     await renderWarehouse();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -937,36 +1034,33 @@ function renderWarehouseZones(){
     const columns = getVisibleZoneColumns(zone);
     columns.forEach(c => {
       const col = document.createElement('div');
-      col.className = 'vertical-column-card';
-      col.innerHTML = `<div class="column-head">${zone} 第 ${c} 欄</div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－格子</button></div>`;
+      col.className = 'vertical-column-card intuitive-column';
+      const visibleSlots = getColumnVisibleSlots(zone, c);
+      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋新增格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－刪除最後一格</button><button class="ghost-btn small-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除整欄</button></div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
-      const visibleSlots = getColumnVisibleSlots(zone, c);
       for (let n = 1; n <= visibleSlots; n++) {
-        const mapped = visualSlotToCell(n);
-        const items = getUnifiedSlotItems(zone, c, n);
+        const items = getCellItems(zone, c, n);
         const slot = document.createElement('div');
         slot.className = 'vertical-slot';
         slot.dataset.zone = zone;
         slot.dataset.column = c;
-        slot.dataset.side = mapped.side;
-        slot.dataset.num = mapped.slot;
-        const names = items.slice(0, 2).map(it => `${escapeHTML(it.product_text || '')}×${it.qty || 0}`).join('<br>');
-        slot.innerHTML = `<div class="slot-title">${String(n).padStart(2, '0')}</div><div class="slot-count">${items.length ? names : '空格'}</div>`;
-        const key = `${zone}|${c}|${mapped.side}|${mapped.slot}`;
+        slot.dataset.num = n;
+        const key = `${zone}|${c}|direct|${n}`;
         if (items.length) slot.classList.add('filled');
         if (state.searchHighlightKeys.has(key)) slot.classList.add('highlight');
-        slot.addEventListener('click', () => { showWarehouseDetail(zone, c, mapped.side, mapped.slot, items); openWarehouseModal(zone, c, mapped.side, mapped.slot); });
+        const summary = items.length ? items.slice(0,2).map(it => `<div class="slot-line customer">客戶：${escapeHTML(it.customer_name || '未指定客戶')}</div><div class="slot-line product">商品：${escapeHTML(it.product_text || '')}</div><div class="slot-line qty">數量：${it.qty || 0}</div>`).join('<hr class="slot-sep">') : '<div class="slot-line empty">空格</div>';
+        slot.innerHTML = `<div class="slot-title">第 ${String(n).padStart(2, '0')} 格</div><div class="slot-count">${summary}</div>`;
+        slot.addEventListener('click', () => { showWarehouseDetail(zone, c, n, items); openWarehouseModal(zone, c, n); });
         slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
         slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
         slot.addEventListener('drop', async ev => {
-          ev.preventDefault();
-          slot.classList.remove('drag-over');
+          ev.preventDefault(); slot.classList.remove('drag-over');
           const raw = ev.dataTransfer.getData('text/plain');
           if (!raw) return;
           const parsed = JSON.parse(raw);
           if (parsed.kind === 'warehouse-item') {
-            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, mapped.side, mapped.slot), parsed.product_text, parsed.qty);
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty);
           }
         });
         list.appendChild(slot);
@@ -979,25 +1073,12 @@ function renderWarehouseZones(){
   renderZone('B');
 }
 
-async function addWarehouseSlot(zone, column, side){
-  try {
-    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: side }) });
-    toast('已新增格子', 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function removeWarehouseSlot(zone, column, side){
-  try {
-    const maxSlot = getMaxSlot(zone, column, side);
-    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_type: side, slot_number: maxSlot }) });
-    toast('已刪除格子', 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
-}
+async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zone, column); }
+async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
 async function deleteWarehouseColumn(zone, column){
-  if (!confirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`)) return;
+  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
+  if (!ok) return;
   try {
     await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
     toast('已刪除欄位', 'ok');
@@ -1005,13 +1086,12 @@ async function deleteWarehouseColumn(zone, column){
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function openWarehouseModal(zone, column, side, num){
-  state.currentCell = { zone, column, slot_type: side, slot_number: num };
-  state.currentCellItems = getCellItems(zone, column, side, num);
+async function openWarehouseModal(zone, column, num){
+  state.currentCell = { zone, column, slot_type: 'direct', slot_number: num };
+  state.currentCellItems = getCellItems(zone, column, num);
   $('warehouse-modal').classList.remove('hidden');
-  const visualNum = cellToVisualSlot(side, num);
-  $('warehouse-modal-meta').textContent = `${zone} 區 / 第 ${column} 欄 / 第 ${String(visualNum).padStart(2, '0')} 格`;
-  $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && c.slot_type===side && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
+  $('warehouse-modal-meta').textContent = `${zone} 區 / 第 ${column} 欄 / 第 ${String(num).padStart(2, '0')} 格`;
+  $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
   renderWarehouseCellItems();
   refreshWarehouseSelect();
   const search = $('warehouse-item-search');
@@ -1053,7 +1133,7 @@ function renderWarehouseCellItems(){
     chip.addEventListener('dragstart', ev => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({
         kind: 'warehouse-item',
-        fromKey: buildCellKey(state.currentCell.zone, state.currentCell.column, state.currentCell.slot_type, state.currentCell.slot_number),
+        fromKey: buildCellKey(state.currentCell.zone, state.currentCell.column, state.currentCell.slot_number),
         product_text: it.product_text || '',
         qty: it.qty || 1
       }));
@@ -1141,9 +1221,9 @@ async function searchWarehouse(){
       const item = r.item;
       const div = document.createElement('div');
       div.className = 'search-card';
-      const visualNum = cellToVisualSlot(cell.slot_type, cell.slot_number);
+      const visualNum = parseInt(cell.slot_number || 0);
       div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 第 ${cell.column_index} 欄 第 ${String(visualNum).padStart(2,'0')} 格</strong><br>${escapeHTML(item.product_text || '')} × ${item.qty || 0}`;
-      div.addEventListener('click', () => { setWarehouseZone(cell.zone); openWarehouseModal(cell.zone, cell.column_index, cell.slot_type, cell.slot_number); });
+      div.addEventListener('click', () => { setWarehouseZone(cell.zone); setTimeout(()=>{ highlightWarehouseCell(cell.zone, cell.column_index, cell.slot_number); openWarehouseModal(cell.zone, cell.column_index, cell.slot_number); }, 120); });
       box.appendChild(div);
     });
   } catch (e) {
@@ -1151,12 +1231,23 @@ async function searchWarehouse(){
   }
 }
 
-function showWarehouseDetail(zone, column, side, num, items){
+function showWarehouseDetail(zone, column, num, items){
   const box = $('warehouse-detail-panel');
   if (!box) return;
   box.classList.remove('hidden');
-  const visualNum = cellToVisualSlot(side, num);
-  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(visualNum).padStart(2,'0')} 格</div>` + (items.length ? items.map(it => `<div class="chip-item">${escapeHTML(it.product_text || '')} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
+  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(num).padStart(2,'0')} 格</div>` + (items.length ? items.map(it => `<div class="chip-item"><div><strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong></div><div>${escapeHTML(it.product_text || '')}</div><div>數量：${it.qty || 0}</div></div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
+  highlightWarehouseCell(zone, column, num);
+}
+
+
+
+function highlightWarehouseCell(zone, column, num){
+  const target = document.querySelector(`.vertical-slot[data-zone="${zone}"][data-column="${column}"][data-num="${num}"]`);
+  if (target){
+    target.classList.add('flash-highlight');
+    target.scrollIntoView({behavior:'smooth', block:'center', inline:'center'});
+    setTimeout(()=>target.classList.remove('flash-highlight'), 3200);
+  }
 }
 
 async function reverseLookup(){
@@ -1200,6 +1291,9 @@ window.saveWarehouseCell = saveWarehouseCell;
 window.renderWarehouse = renderWarehouse;
 window.renderCustomers = renderCustomers;
 window.toggleTodayChanges = toggleTodayChanges;
+window.markTodayChangesRead = markTodayChangesRead;
+window.toggleTodayUnreadFilter = toggleTodayUnreadFilter;
+window.deleteTodayChange = deleteTodayChange;
 window.runRoiOcr = runRoiOcr;
 window.clearRoiSelection = clearRoiSelection;
 window.learnOcrCorrection = learnOcrCorrection;
@@ -1214,6 +1308,9 @@ window.removeWarehouseSlot = removeWarehouseSlot;
 window.deleteWarehouseColumn = deleteWarehouseColumn;
 window.loadAdminUsers = loadAdminUsers;
 window.loadGoogleOcrStatus = loadGoogleOcrStatus;
+window.loadBackups = loadBackups;
+window.createBackup = createBackup;
+window.setTodayCategoryFilter = setTodayCategoryFilter;
 window.setGoogleOcrEnabled = setGoogleOcrEnabled;
 window.addWarehouseVisualSlot = addWarehouseVisualSlot;
 window.removeWarehouseVisualSlot = removeWarehouseVisualSlot;
