@@ -42,6 +42,30 @@
   </div>
   {% endif %}
 
+
+  {% if is_admin %}
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">系統狀態</div>
+        <div class="muted">快速查看 Google OCR、密鑰與備份狀態。</div>
+      </div>
+      <button class="primary-btn" onclick="loadGoogleOcrStatus(); loadBackups()">全部重新整理</button>
+    </div>
+    <div id="system-status-panel" class="card-list"></div>
+  </div>
+
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">資料備份</div>
+        <div class="muted">可手動建立備份並查看最近備份清單。</div>
+      </div>
+      <button class="primary-btn" onclick="createBackup()">立即備份</button>
+    </div>
+    <div id="backup-panel" class="table-card">載入中...</div>
+  </div>
+
   <div class="glass panel">
     <div class="section-title">帳號</div>
     <button class="primary-btn full" onclick="logout()">登出</button>

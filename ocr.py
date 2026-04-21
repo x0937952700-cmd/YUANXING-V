@@ -164,6 +164,39 @@ def _extract_item_rows(raw_text):
     return rows
 
 
+def _fallback_extract_lines(raw_text):
+    raw_text = _normalize_x(raw_text or "")
+    lines = []
+    for raw in raw_text.splitlines():
+        line = re.sub(r"\s+", "", raw)
+        if line.count('x') >= 2 and '=' in line:
+            line = re.sub(r'[^0-9x=+]', '', line)
+            if line:
+                lines.append(line)
+    return lines
+
+
+def _build_items_from_lines(lines):
+    items = []
+    for line in lines:
+        clean = _normalize_x(line)
+        if '=' not in clean:
+            continue
+        left, right = clean.split('=', 1)
+        for seg in re.split(r"[+＋]", right):
+            nums = [int(x) for x in re.findall(r"\d+", seg)]
+            if not nums:
+                continue
+            rhs = nums[0]
+            qty = nums[1] if len(nums) > 1 else 1
+            items.append({
+                "raw_text": f"{left}={rhs}" + (f"x{qty}" if qty != 1 else ""),
+                "product_text": f"{left}={rhs}",
+                "product_code": f"{left}={rhs}",
+                "qty": qty,
+            })
+    return items
+
 def parse_ocr_text(text):
     rows = _extract_item_rows(text or "")
     items = [{
@@ -172,40 +205,52 @@ def parse_ocr_text(text):
         "product_code": r["product_code"],
         "qty": r["qty"],
     } for r in rows]
-    return {"text": "\n".join(r["line"] for r in rows), "lines": [r["line"] for r in rows], "items": items}
-
+    output_text = "\n".join(r["line"] for r in rows)
+    if not output_text:
+        fallback_lines = _fallback_extract_lines(text or "")
+        items = _build_items_from_lines(fallback_lines)
+        output_text = "\n".join(i["raw_text"] for i in items)
+    return {"text": output_text, "lines": output_text.splitlines() if output_text else [], "items": items}
 
 def _google_annotate_from_image(img):
     if not GOOGLE_VISION_API_KEY:
         return {"raw_text": "", "confidence": 0}
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    content = base64.b64encode(buf.getvalue()).decode("utf-8")
-    payload = {
-        "requests": [{
-            "image": {"content": content},
-            "features": [{"type": "DOCUMENT_TEXT_DETECTION"}],
-            "imageContext": {"languageHints": ["zh-TW", "en"]},
-        }]
-    }
-    resp = requests.post(
-        f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}",
-        json=payload,
-        timeout=30
-    )
-    data = resp.json()
-    response = (data.get("responses") or [{}])[0]
-    annotation = response.get("fullTextAnnotation") or {}
-    raw_text = annotation.get("text", "")
-    confs = []
-    for page in annotation.get("pages") or []:
-        for block in page.get("blocks") or []:
-            conf = block.get("confidence")
-            if conf is not None:
-                confs.append(float(conf) * 100)
-    confidence = int(sum(confs) / len(confs)) if confs else 0
-    return {"raw_text": raw_text, "confidence": confidence}
-
+    try:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        content = base64.b64encode(buf.getvalue()).decode("utf-8")
+        payload = {
+            "requests": [{
+                "image": {"content": content},
+                "features": [
+                    {"type": "DOCUMENT_TEXT_DETECTION"},
+                    {"type": "TEXT_DETECTION"}
+                ],
+                "imageContext": {"languageHints": ["zh-TW", "zh", "en"]},
+            }]
+        }
+        resp = requests.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}",
+            json=payload,
+            timeout=30
+        )
+        data = resp.json()
+        response = (data.get("responses") or [{}])[0]
+        annotation = response.get("fullTextAnnotation") or {}
+        raw_text = annotation.get("text", "")
+        if not raw_text:
+            raw_text = ((response.get("textAnnotations") or [{}])[0] or {}).get("description", "")
+        confs = []
+        for page in annotation.get("pages") or []:
+            for block in page.get("blocks") or []:
+                conf = block.get("confidence")
+                if conf is not None:
+                    confs.append(float(conf) * 100)
+        confidence = int(sum(confs) / len(confs)) if confs else (88 if raw_text else 0)
+        return {"raw_text": raw_text, "confidence": confidence}
+    except Exception as e:
+        log_error("google_annotate", e)
+        return {"raw_text": "", "confidence": 0}
 
 def _detect_template(image_path):
     try:
@@ -236,6 +281,14 @@ def _crop_relative(image_path, rect):
     return img.crop((left, top, right, bottom))
 
 
+def _template_default_roi(template):
+    if template == "shipping_note":
+        return {"x": 0.04, "y": 0.18, "w": 0.50, "h": 0.66}
+    if template == "whiteboard":
+        return {"x": 0.05, "y": 0.16, "w": 0.90, "h": 0.74}
+    return None
+
+
 def _extract_customer_by_template(image_path, template):
     try:
         if template == "whiteboard":
@@ -254,52 +307,96 @@ def _extract_customer_by_template(image_path, template):
 
 def _extract_products_by_template(image_path, template, roi=None):
     try:
-        if roi:
-            mask = preprocess_image(image_path, roi=roi, mode="blue")
+        applied_roi = roi or _template_default_roi(template)
+        masks = []
+        if template == "whiteboard":
+            masks = [preprocess_image(image_path, roi=applied_roi, mode="blue")]
         elif template == "shipping_note":
-            img = _crop_relative(image_path, (0.02, 0.16, 0.52, 0.78))
-            mask = _mask_color(img, mode="blue")
+            target_roi = applied_roi or {"x": 0.02, "y": 0.16, "w": 0.52, "h": 0.62}
+            masks = [
+                preprocess_image(image_path, roi=target_roi, mode="blue"),
+                preprocess_image(image_path, roi=target_roi, mode="handwriting"),
+            ]
+            applied_roi = target_roi
         else:
-            mask = preprocess_image(image_path, mode="blue")
-        result = _google_annotate_from_image(mask)
-        parsed = parse_ocr_text(result.get("raw_text", ""))
-        return {
-            "raw_text": result.get("raw_text", ""),
-            "confidence": result.get("confidence", 0),
-            "text": parsed["text"],
-            "lines": parsed["lines"],
-            "items": parsed["items"],
-        }
-    except Exception:
-        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": []}
+            masks = [preprocess_image(image_path, roi=applied_roi, mode="blue")]
 
+        best = {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": applied_roi}
+        for mask in masks:
+            result = _google_annotate_from_image(mask)
+            parsed = parse_ocr_text(result.get("raw_text", ""))
+            candidate = {
+                "raw_text": result.get("raw_text", ""),
+                "confidence": result.get("confidence", 0),
+                "text": parsed["text"],
+                "lines": parsed["lines"],
+                "items": parsed["items"],
+                "suggested_roi": applied_roi,
+            }
+            cand_score = (len(candidate["items"]) * 1000) + len(candidate["text"]) + candidate["confidence"]
+            best_score = (len(best["items"]) * 1000) + len(best["text"]) + best["confidence"]
+            if cand_score > best_score:
+                best = candidate
+
+        if not best["text"] and not roi:
+            fallback = _google_annotate_from_image(preprocess_image(image_path, mode="blue"))
+            parsed = parse_ocr_text(fallback.get("raw_text", ""))
+            if parsed["text"]:
+                best = {
+                    "raw_text": fallback.get("raw_text", ""),
+                    "confidence": fallback.get("confidence", 0),
+                    "text": parsed["text"],
+                    "lines": parsed["lines"],
+                    "items": parsed["items"],
+                    "suggested_roi": applied_roi,
+                }
+        return best
+    except Exception as e:
+        log_error("extract_products_by_template", e)
+        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": roi or _template_default_roi(template)}
 
 def process_ocr_text(image_path, roi=None, handwriting_mode=False):
+    empty = {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto", "warning": "", "error": "", "suggested_roi": _template_default_roi("auto")}
     try:
         period = datetime_now_month()
         enabled = str(get_setting("google_ocr_enabled", "1")) == "1"
-        empty = {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto"}
-        if not GOOGLE_VISION_API_KEY or not enabled:
-            return empty
+        if not GOOGLE_VISION_API_KEY:
+            return {**empty, "error": "Google OCR 金鑰未設定"}
+        if not enabled:
+            return {**empty, "error": "Google OCR 已被停用"}
         if get_ocr_usage("google_vision", period) >= 980:
-            return {**empty, "engines": ["google_vision_monthly_limit_reached"]}
+            return {**empty, "engines": ["google_vision_monthly_limit_reached"], "error": "Google OCR 本月使用量已達上限"}
 
         template = _detect_template(image_path)
         customer_guess = _extract_customer_by_template(image_path, template)
         products = _extract_products_by_template(image_path, template, roi=roi)
         increment_ocr_usage("google_vision", period)
+        text = products.get("text", "")
+        raw_text = products.get("raw_text", "")
+        items = products.get("items", [])
+        confidence = int(products.get("confidence", 0))
+        warning = ""
+        if confidence and confidence < 55:
+            warning = "辨識信心偏低，建議確認自動框選範圍後再送出"
+        if not text and customer_guess:
+            warning = warning or "已抓到客戶名稱，但商品內容不足，請手動微調框選"
+        if text and not customer_guess:
+            warning = warning or "已抓到商品內容，但客戶名稱不足，請確認上方客戶區"
         return {
-            "success": True,
+            "success": bool(text or raw_text or customer_guess),
             "duplicate": False,
-            "raw_text": products.get("raw_text", ""),
-            "text": products.get("text", ""),
+            "raw_text": raw_text,
+            "text": text,
             "lines": products.get("lines", []),
-            "items": products.get("items", []),
-            "confidence": int(products.get("confidence", 0)),
+            "items": items,
+            "confidence": confidence,
             "engines": ["google_vision"],
             "customer_guess": customer_guess,
             "template": template,
+            "warning": warning,
+            "error": "",
+            "suggested_roi": products.get("suggested_roi") or _template_default_roi(template),
         }
     except Exception as e:
         log_error("process_ocr_text_google_template", e)
-        return {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto"}
+        return {**empty, "error": "Google OCR 執行失敗"}
