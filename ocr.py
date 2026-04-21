@@ -236,6 +236,14 @@ def _crop_relative(image_path, rect):
     return img.crop((left, top, right, bottom))
 
 
+def _template_default_roi(template):
+    if template == "shipping_note":
+        return {"x": 0.04, "y": 0.18, "w": 0.50, "h": 0.66}
+    if template == "whiteboard":
+        return {"x": 0.05, "y": 0.16, "w": 0.90, "h": 0.74}
+    return None
+
+
 def _extract_customer_by_template(image_path, template):
     try:
         if template == "whiteboard":
@@ -254,8 +262,9 @@ def _extract_customer_by_template(image_path, template):
 
 def _extract_products_by_template(image_path, template, roi=None):
     try:
-        if roi:
-            mask = preprocess_image(image_path, roi=roi, mode="blue")
+        applied_roi = roi or _template_default_roi(template)
+        if applied_roi:
+            mask = preprocess_image(image_path, roi=applied_roi, mode="blue")
         elif template == "shipping_note":
             img = _crop_relative(image_path, (0.02, 0.16, 0.52, 0.78))
             mask = _mask_color(img, mode="blue")
@@ -263,15 +272,20 @@ def _extract_products_by_template(image_path, template, roi=None):
             mask = preprocess_image(image_path, mode="blue")
         result = _google_annotate_from_image(mask)
         parsed = parse_ocr_text(result.get("raw_text", ""))
+        if not parsed["text"] and not roi and template == "whiteboard":
+            fallback = _google_annotate_from_image(preprocess_image(image_path, mode="blue"))
+            parsed = parse_ocr_text(fallback.get("raw_text", ""))
+            result = {"raw_text": fallback.get("raw_text", ""), "confidence": max(result.get("confidence", 0), fallback.get("confidence", 0))}
         return {
             "raw_text": result.get("raw_text", ""),
             "confidence": result.get("confidence", 0),
             "text": parsed["text"],
             "lines": parsed["lines"],
             "items": parsed["items"],
+            "suggested_roi": applied_roi,
         }
     except Exception:
-        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": []}
+        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": roi or _template_default_roi(template)}
 
 
 def process_ocr_text(image_path, roi=None, handwriting_mode=False):
@@ -289,7 +303,7 @@ def process_ocr_text(image_path, roi=None, handwriting_mode=False):
         products = _extract_products_by_template(image_path, template, roi=roi)
         increment_ocr_usage("google_vision", period)
         return {
-            "success": True,
+            "success": bool(products.get("text") or products.get("raw_text") or customer_guess),
             "duplicate": False,
             "raw_text": products.get("raw_text", ""),
             "text": products.get("text", ""),
@@ -299,6 +313,7 @@ def process_ocr_text(image_path, roi=None, handwriting_mode=False):
             "engines": ["google_vision"],
             "customer_guess": customer_guess,
             "template": template,
+            "suggested_roi": products.get("suggested_roi"),
         }
     except Exception as e:
         log_error("process_ocr_text_google_template", e)

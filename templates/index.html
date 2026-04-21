@@ -7,7 +7,7 @@
     <div class="home-top-actions centered-actions">
       <div class="home-mini-btn user-cell">{{ username }}</div>
       <a class="home-mini-btn" href="{{ url_for('settings_page') }}">設定</a>
-      <button class="home-mini-btn" id="today-changes-btn" onclick="toggleTodayChanges()">今日異動</button>
+      <a class="home-mini-btn" id="today-changes-btn" href="{{ url_for('today_changes_page') }}">今日異動</a>
           </div>
   </div>
 
@@ -19,22 +19,6 @@
     <a class="menu-btn" href="{{ url_for('shipping_query_page') }}" target="_self">出貨查詢</a>
     <a class="menu-btn" href="{{ url_for('warehouse_page') }}" target="_self">倉庫圖</a>
     <a class="menu-btn" href="{{ url_for('customers_page') }}" target="_self">客戶資料</a>
-  </div>
-
-  <div id="today-changes-panel" class="glass feature-card hidden">
-    <div class="section-head">
-      <h3>今日異動</h3>
-      <span class="muted">依進貨 / 出貨分類，並顯示異常比對與未錄入倉庫圖提醒</span>
-    </div>
-    <div class="card-list" id="today-summary-cards"></div>
-    <div class="today-columns">
-      <div class="glass panel"><div class="section-title">進貨 / 其他異動</div><div id="today-inbound-list" class="chip-list"></div></div>
-      <div class="glass panel"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list"></div></div>
-    </div>
-    <div class="glass panel">
-      <div class="section-title">異常比對 / 未錄入倉庫圖</div>
-      <div id="today-anomaly-list" class="chip-list"></div>
-    </div>
   </div>
 </div>
 {% endblock %}

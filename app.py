@@ -147,6 +147,10 @@ def warehouse_page():
 def customers_page():
     return render_template("module.html", module_key="customers", title="客戶資料", username=current_username())
 
+@app.route("/today-changes")
+def today_changes_page():
+    return render_template("today_changes.html", username=current_username(), title="今日異動")
+
 @app.route("/api/login", methods=["POST"])
 def api_login():
     try:
@@ -242,7 +246,8 @@ def api_upload_ocr():
                 roi = None
         handwriting_mode = str(request.form.get("handwriting_mode") or "0").lower() in ("1", "true", "yes", "on")
         result = process_ocr_text(path, roi=roi, handwriting_mode=handwriting_mode)
-        if not result.get('success') and not result.get('text'):
+        has_output = bool(result.get('text') or result.get('raw_text') or result.get('customer_guess'))
+        if not result.get('success') and not has_output:
             return error_response('OCR辨識失敗')
         if not image_hash_exists(image_hash):
             save_image_hash(image_hash)
@@ -259,6 +264,7 @@ def api_upload_ocr():
             engines=result.get("engines", []),
             customer_guess=result.get("customer_guess", ""),
             template=result.get("template", "auto"),
+            suggested_roi=result.get("suggested_roi"),
             warning=("辨識信心偏低，請確認內容" if confidence < 80 else ""),
             sync_time=int(os.path.getmtime(path))
         )

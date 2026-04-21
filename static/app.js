@@ -267,8 +267,9 @@ async function handleFiles(fileList){
   state.lastSelectedFile = file;
   state.roi = null;
   renderOcrPreview(file);
-  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '請框選要辨識的區域';
-  toast('請框選要辨識的區域後放開手指', 'ok');
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '正在自動套用模板並辨識';
+  toast('已自動套用模板框選並開始辨識，如不準可再手動微調', 'ok');
+  await uploadOcrFile(file, false);
 }
 
 async function uploadOcrFile(file, useRoi=false, force=false){
@@ -293,7 +294,12 @@ async function uploadOcrFile(file, useRoi=false, force=false){
     state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
     state.lastOcrTemplate = data.template || '';
     if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
+    if (data.suggested_roi) {
+      state.roi = data.suggested_roi;
+      applySuggestedRoiBox(data.suggested_roi);
+    }
     const tplName = data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式');
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = data.warning || (`${tplName}已自動套用，可手動微調`);
     if (data.warning) toast(data.warning, 'warn');
     else toast((useRoi ? '區域辨識完成' : 'OCR辨識完成') + '｜' + tplName, 'ok');
     if (state.module === 'ship') await loadShipPreview();
@@ -331,10 +337,8 @@ function parseTextareaItems(){
   return items;
 }
 
-async function toggleTodayChanges(){
-  state.todayChangesOpen = !state.todayChangesOpen;
-  $('today-changes-panel')?.classList.toggle('hidden', !state.todayChangesOpen);
-  if (state.todayChangesOpen) await loadTodayChanges();
+function toggleTodayChanges(){
+  window.location.href = '/today-changes';
 }
 
 async function loadTodayChanges(){
@@ -390,6 +394,27 @@ function renderOcrPreview(file){
   wrap.ontouchmove = moveSelect;
   window.onmouseup = endSelect;
   window.ontouchend = endSelect;
+}
+
+function applySuggestedRoiBox(roi){
+  const wrap = $('ocr-preview-wrap');
+  const box = $('ocr-roi-box');
+  if (!wrap || !box || !roi) return;
+  const apply = () => {
+    const rect = wrap.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      setTimeout(apply, 80);
+      return;
+    }
+    Object.assign(box.style, {
+      left: `${roi.x * rect.width}px`,
+      top: `${roi.y * rect.height}px`,
+      width: `${roi.w * rect.width}px`,
+      height: `${roi.h * rect.height}px`
+    });
+    box.classList.remove('hidden');
+  };
+  apply();
 }
 
 async function runRoiOcr(){
