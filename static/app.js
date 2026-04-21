@@ -307,6 +307,15 @@ async function handleNativeOcrResult(payload={}){
   }
 }
 
+
+function openAlbumPicker(){
+  return requestNativeOcr('photos');
+}
+
+function openCameraPicker(){
+  return requestNativeOcr('camera');
+}
+
 function requestNativeOcr(source='photos'){
   if (!canUseNativeOcr()) {
     toast('這一版 OCR 改成原生 App 使用，請在手機原生 App 內開啟。', 'warn');
