@@ -8,8 +8,7 @@
   </div>
 
   {% if module_key not in ['shipping_query','warehouse','customers'] %}
-  <div class="glass panel upload-panel engine-upgraded compact-upload premium-panel {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
-    <div class="panel-tag">OCR 工作區</div>
+  <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
     <div class="upload-row tight-row ocr-action-row">
       <button class="primary-btn ocr-main-btn" onclick="openAlbumPicker()">上傳檔案</button>
       <button class="ghost-btn ocr-main-btn" onclick="openCameraPicker()">拍照</button>
@@ -126,7 +125,6 @@
     <div id="warehouse-search-results" class="search-results hidden"></div>
     <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
-    <div id="warehouse-undo-mount"></div>
     <div class="warehouse-zone-wrap single-zone-mode">
       <div class="zone-card full-zone" id="zone-A">
         <div class="zone-titlebar">
@@ -155,8 +153,7 @@
       <span class="muted">可手動編輯名稱、電話、地址、特殊要求</span>
     </div>
     <div class="customer-editor">
-      <div class="customer-detail glass premium-panel">
-        <div class="panel-tag">客戶資料編輯</div>
+      <div class="customer-detail glass">
         <label class="field-label">客戶名稱</label>
         <input class="text-input" id="cust-name">
         <label class="field-label">電話</label>

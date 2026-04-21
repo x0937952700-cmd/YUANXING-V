@@ -1,10 +1,11 @@
+
 {% extends "base.html" %}
 {% block body %}
 <div class="auth-screen">
-  <div class="auth-card glass premium-auth-card">
+  <div class="auth-card glass">
     <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
     <h1 class="page-title center">沅興木業</h1>
-    <p class="muted center">登入後自動記住帳號，並啟用閒置保護與原生 App 同步。</p>
+    <p class="muted center">登入後自動記住你，支援手機與電腦同步</p>
 
     <div id="login-error" class="alert hidden"></div>
 
@@ -14,11 +15,8 @@
     <label class="field-label">密碼</label>
     <input id="login-password" class="text-input" type="password" placeholder="請輸入密碼" autocomplete="current-password">
 
-    <div class="btn-stack">
-      <button class="primary-btn full" onclick="submitLogin()">登入</button>
-      <button class="ghost-btn full" onclick="toggleLoginSave()">記住帳號：<span id="remember-label">開</span></button>
-    </div>
-    <div class="small-note center auth-note">系統不會在瀏覽器保存明碼密碼。</div>
+    <button class="primary-btn full" onclick="submitLogin()">登入</button>
+    <button class="ghost-btn full" onclick="toggleLoginSave()">切換永久登入：<span id="remember-label">開</span></button>
   </div>
 </div>
 {% endblock %}

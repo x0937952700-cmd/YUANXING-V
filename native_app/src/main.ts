@@ -44,8 +44,8 @@ app.innerHTML = `
   </div>
   <div id="ocr-modal" class="overlay hidden">
     <div class="dialog-card large">
-      <h3>上傳檔案 / 拍照</h3>
-      <p>拖拉框出你要辨識的範圍，辨識完成後會直接回填到系統，並沿用新的商用介面樣式。</p>
+      <h3>上傳檔案 / 拍照後直接辨識</h3>
+      <p>拖拉框出你要辨識的範圍，辨識完成後會直接回填到系統。</p>
       <div class="dialog-toolbar">
         <select id="ocr-mode-input" class="dialog-input compact-input">
           <option value="blue">優先選項：藍字優先</option>
