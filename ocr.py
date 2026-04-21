@@ -1,13 +1,29 @@
+import os
 import re
+import io
+import base64
 from difflib import get_close_matches, SequenceMatcher
+from collections import Counter
+
+import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 from db import (
     log_error,
     get_customers,
+    get_setting,
+    get_ocr_usage,
+    increment_ocr_usage,
     get_corrections,
     get_customer_aliases_map,
 )
+
+GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+
+def datetime_now_month():
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m")
 
 
 def _coerce_roi(roi):
@@ -54,6 +70,9 @@ def _mask_color(img, mode="blue"):
         if mode == "blue":
             score = int(b * 1.9 - r * 0.8 - g * 0.65)
             val = 255 if score > 55 and b > r + 15 and b > g + 15 else 0
+        elif mode == "green":
+            score = int(g * 1.9 - r * 0.75 - b * 0.8)
+            val = 255 if score > 45 and g > r + 10 and g > b + 10 else 0
         elif mode == "handwriting":
             v = (r + g + b) // 3
             val = 255 if v < 185 else 0
@@ -85,21 +104,22 @@ def _normalize_no_space(text):
 def _normalize_ocr_noise(text):
     text = _normalize_x(text or "")
     text = text.replace("—", "-").replace("－", "-").replace("→", "=").replace("=>", "=").replace("➜", "=").replace("~", "=")
-    text = text.replace("，", ",").replace("。", ".").replace("；", ";").replace("：", ":").replace("＋", "+")
+    text = text.replace("|", "1").replace("I", "1").replace("l", "1")
+    text = text.replace("O", "0").replace("o", "0")
+    text = text.replace("，", ",").replace("。", ".")
+    text = text.replace("；", ";").replace("：", ":")
+    text = text.replace("＋", "+")
     return text
 
 
-def clean_ocr_noise(text):
-    text = _normalize_ocr_noise(text)
-    text = re.sub(r"[\t\r]+", "\n", text)
-    text = re.sub(r"[ \u3000]+", " ", text)
-    text = re.sub(r" *\n+ *", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = text.replace("｜", "1").replace("|", "1")
-    text = text.replace("O", "0").replace("o", "0")
-    text = text.replace("l", "1").replace("I", "1")
-    text = re.sub(r"[^0-9A-Za-z一-鿿x=+\-.,/\n ]", "", text)
-    return text.strip()
+def _normalize_item_line(line):
+    line = _normalize_ocr_noise(line)
+    line = re.sub(r"[\[\]{}()（）]", "", line)
+    line = re.sub(r"\s+", "", line)
+    line = re.sub(r"[^0-9x=+\-.,/一-鿿]", "", line)
+    line = line.replace("-", "=") if "=" not in line and line.count("x") >= 2 and line.count("-") == 1 else line
+    line = re.sub(r"(?<=\d)(?=\d{1,3}x\d+$)", "=", line, count=1) if "=" not in line else line
+    return line
 
 
 def _apply_corrections(text):
@@ -126,7 +146,13 @@ def _extract_chinese_candidates(text):
 
 
 def _customer_alias_map():
-    base = {"東升": "東昇", "东升": "東昇", "东昇": "東昇", "沅兴": "沅興", "沅興木葉": "沅興木業"}
+    base = {
+        "東升": "東昇",
+        "东升": "東昇",
+        "东昇": "東昇",
+        "沅兴": "沅興",
+        "沅興木葉": "沅興木業",
+    }
     try:
         base.update(get_customer_aliases_map() or {})
     except Exception as e:
@@ -163,8 +189,10 @@ def _guess_customer(raw_text, customer_hint=""):
     if not names:
         candidates = _extract_chinese_candidates(raw_text)
         return candidates[0]["text"] if candidates else ""
+
     alias_map = _customer_alias_map()
     normalized_text = _normalize_no_space(raw_text)
+
     for base in names:
         normalized_base = _normalize_no_space(base)
         if normalized_base and normalized_base in normalized_text:
@@ -175,6 +203,7 @@ def _guess_customer(raw_text, customer_hint=""):
                 if _normalize_no_space(base) == _normalize_no_space(target):
                     return base
             return target
+
     best_name = ""
     best_score = 0.0
     for cand in _extract_chinese_candidates(raw_text):
@@ -184,8 +213,10 @@ def _guess_customer(raw_text, customer_hint=""):
             if score > best_score:
                 best_score = score
                 best_name = base
+
     if best_name and best_score >= 0.85:
         return best_name
+
     candidates = [c["text"] for c in _extract_chinese_candidates(raw_text)]
     if candidates:
         m = get_close_matches(candidates[0], names, n=1, cutoff=0.5)
@@ -217,7 +248,7 @@ def _extract_bbox(block):
                 h = float(h or 0)
             return {"x": x, "y": y, "w": max(0.0, w), "h": max(0.0, h)}
         except Exception:
-            pass
+            return {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
     return {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
 
 
@@ -227,11 +258,12 @@ def _sort_native_blocks(blocks):
         text = (block.get("text") or "").strip()
         if not text:
             continue
+        bbox = _extract_bbox(block)
         normalized.append({
             "id": block.get("id") or f"b{i+1}",
             "text": text,
             "confidence": int(round(float(block.get("confidence") or 0))),
-            "bbox": _extract_bbox(block),
+            "bbox": bbox,
         })
     normalized.sort(key=lambda b: (round(b["bbox"]["y"] / 0.03) if b["bbox"]["y"] <= 1 else b["bbox"]["y"], b["bbox"]["x"]))
     return normalized
@@ -269,7 +301,12 @@ def _group_native_blocks_to_lines(blocks):
             "id": f"line-{idx+1}",
             "text": line_text,
             "confidence": avg_conf,
-            "bbox": {"x": min_x, "y": min_y, "w": max(0.0, max_r - min_x), "h": max(0.0, max_b - min_y)},
+            "bbox": {
+                "x": min_x,
+                "y": min_y,
+                "w": max(0.0, max_r - min_x),
+                "h": max(0.0, max_b - min_y),
+            },
             "blocks": ordered,
         })
     return result
@@ -279,18 +316,6 @@ def _structured_text_from_blocks(blocks, fallback_text=""):
     lines = _group_native_blocks_to_lines(blocks)
     text = "\n".join(line["text"] for line in lines if line["text"].strip()).strip()
     return text or (fallback_text or "").strip(), lines
-
-
-def _normalize_item_line(line):
-    line = clean_ocr_noise(line)
-    line = re.sub(r"[\[\]{}()（）]", "", line)
-    line = re.sub(r"\s+", "", line)
-    line = re.sub(r"[^0-9x=+\-.,/一-鿿]", "", line)
-    if "=" not in line and line.count("x") >= 2 and line.count("-") == 1:
-        line = line.replace("-", "=")
-    if "=" not in line:
-        line = re.sub(r"(?<=\d)(?=\d{1,3}x\d+$)", "=", line, count=1)
-    return line
 
 
 def _ensure_equals_candidate(line, prev_dims=None):
@@ -322,6 +347,7 @@ def _extract_item_rows(raw_text):
             line = _ensure_equals_candidate(line, prev_dims=prev_dims)
         if "=" not in line:
             continue
+
         left, right = line.split("=", 1)
         left_nums = [int(x) for x in re.findall(r"\d+", left)]
         if len(left_nums) >= 3:
@@ -332,16 +358,24 @@ def _extract_item_rows(raw_text):
             dims = [left_nums[0], prev_dims[1], prev_dims[2]]
         else:
             dims = prev_dims
+
         if not dims:
             continue
         prev_dims = dims
-        segments = [seg for seg in re.split(r"[+＋,，;；]", right) if seg] or [right]
+
+        segments = [seg for seg in re.split(r"[+＋,，;；]", right) if seg]
+        if not segments:
+            segments = [right]
         for seg in segments:
+            seg = seg.strip()
+            if not seg:
+                continue
             nums = [int(x) for x in re.findall(r"\d+", seg)]
             if not nums:
                 continue
             rhs = nums[0]
-            qty = max(1, int(nums[1] if len(nums) > 1 else 1))
+            qty = nums[1] if len(nums) > 1 else 1
+            qty = max(1, int(qty))
             line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
             rows.append({
                 "line": line_out,
@@ -350,6 +384,7 @@ def _extract_item_rows(raw_text):
                 "qty": qty,
                 "dims": dims,
             })
+
     rows.sort(key=lambda r: (r["dims"][2], r["dims"][1], r["dims"][0], -(r["qty"] or 1), r["line"]))
     return rows
 
@@ -382,19 +417,19 @@ def _build_items_from_lines(lines):
             if not nums:
                 continue
             rhs = nums[0]
-            qty = max(1, nums[1] if len(nums) > 1 else 1)
+            qty = nums[1] if len(nums) > 1 else 1
             items.append({
                 "raw_text": f"{left}={rhs}" + (f"x{qty}" if qty != 1 else ""),
                 "product_text": f"{left}={rhs}",
                 "product_code": f"{left}={rhs}",
-                "qty": qty,
+                "qty": max(1, qty),
             })
     return items
 
 
 def parse_ocr_text(text):
-    cleaned = _apply_corrections(clean_ocr_noise(text or ""))
-    rows = _extract_item_rows(cleaned)
+    text = _apply_corrections(_normalize_ocr_noise(text or ""))
+    rows = _extract_item_rows(text)
     items = [{
         "raw_text": r["line"],
         "product_text": r["product_text"],
@@ -403,22 +438,169 @@ def parse_ocr_text(text):
     } for r in rows]
     output_text = "\n".join(r["line"] for r in rows)
     if not output_text:
-        fallback_lines = _fallback_extract_lines(cleaned)
+        fallback_lines = _fallback_extract_lines(text)
         items = _build_items_from_lines(fallback_lines)
         output_text = "\n".join(i["raw_text"] for i in items)
-    return {"text": output_text, "lines": output_text.splitlines() if output_text else [], "items": items, "cleaned_text": cleaned}
+    return {"text": output_text, "lines": output_text.splitlines() if output_text else [], "items": items}
 
 
-def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blocks=None, ocr_mode="blue", roi=None):
+def _google_annotate_from_image(img):
+    if not GOOGLE_VISION_API_KEY:
+        return {"raw_text": "", "confidence": 0}
+    try:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        content = base64.b64encode(buf.getvalue()).decode("utf-8")
+        payload = {
+            "requests": [{
+                "image": {"content": content},
+                "features": [
+                    {"type": "DOCUMENT_TEXT_DETECTION"},
+                    {"type": "TEXT_DETECTION"}
+                ],
+                "imageContext": {"languageHints": ["zh-TW", "zh", "en"]},
+            }]
+        }
+        resp = requests.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_VISION_API_KEY}",
+            json=payload,
+            timeout=30
+        )
+        data = resp.json()
+        response = (data.get("responses") or [{}])[0]
+        annotation = response.get("fullTextAnnotation") or {}
+        raw_text = annotation.get("text", "")
+        if not raw_text:
+            raw_text = ((response.get("textAnnotations") or [{}])[0] or {}).get("description", "")
+        confs = []
+        for page in annotation.get("pages") or []:
+            for block in page.get("blocks") or []:
+                conf = block.get("confidence")
+                if conf is not None:
+                    confs.append(float(conf) * 100)
+        confidence = int(sum(confs) / len(confs)) if confs else (88 if raw_text else 0)
+        return {"raw_text": raw_text, "confidence": confidence}
+    except Exception as e:
+        log_error("google_annotate", e)
+        return {"raw_text": "", "confidence": 0}
+
+
+def _detect_template(image_path):
+    try:
+        img = _open_and_crop(image_path)
+        small = img.resize((min(800, img.size[0]), int(img.size[1] * min(800, img.size[0]) / img.size[0])))
+        gray = ImageOps.grayscale(small)
+        bw = gray.point(lambda p: 255 if p < 130 else 0)
+        w, h = bw.size
+        rows = [sum(1 for x in range(w) if bw.getpixel((x, y)) > 0) / w for y in range(h)]
+        cols = [sum(1 for y in range(h) if bw.getpixel((x, y)) > 0) / h for x in range(w)]
+        strong_rows = sum(1 for r in rows if r > 0.45)
+        strong_cols = sum(1 for c in cols if c > 0.28)
+        if strong_rows >= 4 and strong_cols >= 4:
+            return "shipping_note"
+        return "whiteboard"
+    except Exception:
+        return "auto"
+
+
+def _crop_relative(image_path, rect):
+    img = _open_and_crop(image_path)
+    w, h = img.size
+    left = int(rect[0] * w)
+    top = int(rect[1] * h)
+    right = int(rect[2] * w)
+    bottom = int(rect[3] * h)
+    return img.crop((left, top, right, bottom))
+
+
+def _template_default_roi(template):
+    if template == "shipping_note":
+        return {"x": 0.04, "y": 0.18, "w": 0.50, "h": 0.66}
+    if template == "whiteboard":
+        return {"x": 0.05, "y": 0.16, "w": 0.90, "h": 0.74}
+    return None
+
+
+def _extract_customer_by_template(image_path, template):
+    try:
+        if template == "whiteboard":
+            img = _crop_relative(image_path, (0.02, 0.04, 0.55, 0.26))
+            mask = _mask_color(img, mode="green")
+        elif template == "shipping_note":
+            img = _crop_relative(image_path, (0.0, 0.02, 0.33, 0.24))
+            mask = _mask_color(img, mode="handwriting")
+        else:
+            mask = _mask_color(_open_and_crop(image_path), mode="blue")
+        result = _google_annotate_from_image(mask)
+        return _guess_customer(result.get("raw_text", ""))
+    except Exception:
+        return ""
+
+
+def _extract_products_by_template(image_path, template, roi=None):
+    try:
+        applied_roi = roi or _template_default_roi(template)
+        masks = []
+        if template == "whiteboard":
+            masks = [preprocess_image(image_path, roi=applied_roi, mode="blue")]
+        elif template == "shipping_note":
+            target_roi = applied_roi or {"x": 0.02, "y": 0.16, "w": 0.52, "h": 0.62}
+            masks = [
+                preprocess_image(image_path, roi=target_roi, mode="blue"),
+                preprocess_image(image_path, roi=target_roi, mode="handwriting"),
+            ]
+            applied_roi = target_roi
+        else:
+            masks = [preprocess_image(image_path, roi=applied_roi, mode="blue")]
+
+        best = {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": applied_roi}
+        for mask in masks:
+            result = _google_annotate_from_image(mask)
+            parsed = parse_ocr_text(result.get("raw_text", ""))
+            candidate = {
+                "raw_text": result.get("raw_text", ""),
+                "confidence": result.get("confidence", 0),
+                "text": parsed["text"],
+                "lines": parsed["lines"],
+                "items": parsed["items"],
+                "suggested_roi": applied_roi,
+            }
+            cand_score = (len(candidate["items"]) * 1000) + len(candidate["text"]) + candidate["confidence"]
+            best_score = (len(best["items"]) * 1000) + len(best["text"]) + best["confidence"]
+            if cand_score > best_score:
+                best = candidate
+
+        if not best["text"] and not roi:
+            fallback = _google_annotate_from_image(preprocess_image(image_path, mode="blue"))
+            parsed = parse_ocr_text(fallback.get("raw_text", ""))
+            if parsed["text"]:
+                best = {
+                    "raw_text": fallback.get("raw_text", ""),
+                    "confidence": fallback.get("confidence", 0),
+                    "text": parsed["text"],
+                    "lines": parsed["lines"],
+                    "items": parsed["items"],
+                    "suggested_roi": applied_roi,
+                }
+        return best
+    except Exception as e:
+        log_error("extract_products_by_template", e)
+        return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": roi or _template_default_roi(template)}
+
+
+def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blocks=None, ocr_mode="blue", template_hint="native_device", roi=None):
     native_confidence = int(native_confidence or 0)
+    template_hint = (template_hint or "native_device").strip() or "native_device"
     ocr_mode = (ocr_mode or "blue").strip() or "blue"
+
     structured_text, line_map = _structured_text_from_blocks(blocks or [], fallback_text=raw_text or "")
-    cleaned_text = clean_ocr_noise(structured_text or raw_text or "")
-    corrected_text = _apply_corrections(cleaned_text)
+    corrected_text = _apply_corrections(_normalize_ocr_noise(structured_text or raw_text or ""))
     parsed = parse_ocr_text(corrected_text)
     customer_guess = _guess_customer(corrected_text or structured_text or raw_text or "", customer_hint=customer_hint)
+
     lines = parsed.get("lines") or [ln.strip() for ln in corrected_text.splitlines() if ln.strip()]
     parse_items = parsed.get("items") or []
+
     coverage_score = 0
     if corrected_text.strip():
         coverage_score += 30
@@ -429,10 +611,12 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
     if line_map:
         coverage_score += 5
     parse_confidence = min(98, coverage_score)
+
     if native_confidence > 0 and parse_confidence > 0:
         final_confidence = int(round(native_confidence * 0.58 + parse_confidence * 0.42))
     else:
         final_confidence = max(native_confidence, parse_confidence)
+
     warning = ""
     if corrected_text.strip() and not parsed.get("text"):
         warning = "已收到原生辨識文字，但格式仍需人工確認；你可直接在下方文字框修改後送出"
@@ -440,7 +624,10 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
         warning = "已抓到商品內容，但客戶名稱不足，請確認客戶欄位"
     elif final_confidence and final_confidence < 55:
         warning = "辨識已完成，但信心偏低；請直接確認文字內容後送出"
+
     engines = ["native_device_ocr", f"native_mode:{ocr_mode}"]
+    if template_hint:
+        engines.append(f"template:{template_hint}")
     if customer_hint:
         engines.append("customer_hint")
     if blocks:
@@ -449,11 +636,11 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
         engines.append("roi_filtered")
     if corrected_text != structured_text:
         engines.append("ocr_corrections_applied")
+
     return {
         "success": bool(corrected_text.strip() or parsed.get("text") or customer_guess),
         "duplicate": False,
         "raw_text": corrected_text,
-        "cleaned_text": cleaned_text,
         "text": parsed.get("text", "") or corrected_text,
         "lines": lines,
         "items": parse_items,
@@ -462,6 +649,7 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
         "parse_confidence": parse_confidence,
         "engines": engines,
         "customer_guess": customer_guess,
+        "template": template_hint,
         "warning": warning,
         "error": "",
         "suggested_roi": roi,
@@ -475,3 +663,50 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
             for line in line_map
         ],
     }
+
+
+def process_ocr_text(image_path, roi=None, handwriting_mode=False):
+    empty = {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto", "warning": "", "error": "", "suggested_roi": _template_default_roi("auto")}
+    try:
+        period = datetime_now_month()
+        enabled = str(get_setting("google_ocr_enabled", "1")) == "1"
+        if not GOOGLE_VISION_API_KEY:
+            return {**empty, "error": "Google OCR 金鑰未設定"}
+        if not enabled:
+            return {**empty, "error": "Google OCR 已被停用"}
+        if get_ocr_usage("google_vision", period) >= 980:
+            return {**empty, "engines": ["google_vision_monthly_limit_reached"], "error": "Google OCR 本月使用量已達上限"}
+
+        template = _detect_template(image_path)
+        customer_guess = _extract_customer_by_template(image_path, template)
+        products = _extract_products_by_template(image_path, template, roi=roi)
+        increment_ocr_usage("google_vision", period)
+        text = products.get("text", "")
+        raw_text = products.get("raw_text", "")
+        items = products.get("items", [])
+        confidence = int(products.get("confidence", 0))
+        warning = ""
+        if confidence and confidence < 55:
+            warning = "辨識信心偏低，建議確認自動框選範圍後再送出"
+        if not text and customer_guess:
+            warning = warning or "已抓到客戶名稱，但商品內容不足，請手動微調框選"
+        if text and not customer_guess:
+            warning = warning or "已抓到商品內容，但客戶名稱不足，請確認上方客戶區"
+        return {
+            "success": bool(text or raw_text or customer_guess),
+            "duplicate": False,
+            "raw_text": raw_text,
+            "text": text,
+            "lines": products.get("lines", []),
+            "items": items,
+            "confidence": confidence,
+            "engines": ["google_vision"],
+            "customer_guess": customer_guess,
+            "template": template,
+            "warning": warning,
+            "error": "",
+            "suggested_roi": products.get("suggested_roi") or _template_default_roi(template),
+        }
+    except Exception as e:
+        log_error("process_ocr_text_google_template", e)
+        return {**empty, "error": "Google OCR 執行失敗"}

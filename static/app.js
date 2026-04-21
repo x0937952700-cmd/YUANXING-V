@@ -14,10 +14,12 @@ const state = {
   lastOcrOriginalText: '',
   roi: null,
   todayChangesOpen: false,
+  lastOcrTemplate: '',
   __confirmResolver: null,
   todayOnlyUnread: false,
   todayCategoryFilter: 'all',
   nativeOcrMode: 'blue',
+  nativeOcrTemplate: 'whiteboard',
   ocrHistory: [],
   pendingSubmitQueue: [],
   lineMap: [],
@@ -65,8 +67,10 @@ function updateOfflineSyncPill(){
   renderPendingQueuePanel();
 }
 function getSelectedOcrMode(){ return ($('ocr-mode-select')?.value || state.nativeOcrMode || 'blue'); }
-function setSelectedOcrOptions(mode){
+function getSelectedTemplate(){ return (state.nativeOcrTemplate || 'whiteboard'); }
+function setSelectedOcrOptions(mode, template){
   state.nativeOcrMode = mode || state.nativeOcrMode || 'blue';
+  state.nativeOcrTemplate = template || state.nativeOcrTemplate || 'whiteboard';
   if ($('ocr-mode-select')) $('ocr-mode-select').value = state.nativeOcrMode;
 }
 function queuePendingSubmit(entry){
@@ -143,27 +147,6 @@ function renderNativePreview(){
   }
   renderLineMap();
 }
-
-function renderOcrDiffPreview(rawText='', cleanedText='', finalText=''){
-  const box = $('ocr-diff-preview');
-  if (!box) return;
-  const raw = String(rawText || '').trim();
-  const clean = String(cleanedText || '').trim();
-  const finalOut = String(finalText || '').trim();
-  if (!raw && !clean && !finalOut) {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-  box.classList.remove('hidden');
-  box.innerHTML = `
-    <div class="section-head"><h3>OCR 自動整理差異</h3><span class="muted">左邊原文、右邊整理後格式</span></div>
-    <div class="today-columns" style="grid-template-columns:1fr 1fr; gap:10px;">
-      <div class="glass panel"><div class="section-title">原始文字</div><pre class="small-note" style="white-space:pre-wrap;">${escapeHTML(raw || '（空白）')}</pre></div>
-      <div class="glass panel"><div class="section-title">整理後</div><pre class="small-note" style="white-space:pre-wrap;">${escapeHTML(finalOut || clean || '（空白）')}</pre></div>
-    </div>`;
-}
-
 function applyLocalNativeOcrPreview(payload={}){
   const fallbackText = payload.text || payload.rawText || payload.raw_text || '';
   if ($('ocr-text')) $('ocr-text').value = fallbackText;
@@ -256,12 +239,14 @@ async function parseNativeOcrText(payload={}){
       confidence: payload.confidence || 0,
       blocks: payload.blocks || [],
       ocr_mode: payload.ocrMode || getSelectedOcrMode(),
+      template: payload.template || getSelectedTemplate(),
       roi: payload.roi || null,
     })
   });
   if ($('ocr-text')) $('ocr-text').value = data.text || payload.text || '';
   state.lastOcrOriginalText = data.raw_text || data.text || payload.text || '';
   state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
+  state.lastOcrTemplate = data.template || getSelectedTemplate() || 'native_device';
   state.lineMap = data.line_map || payload.line_map || payload.blocks || [];
   if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || payload.confidence || 0}%`;
@@ -286,7 +271,7 @@ async function parseNativeOcrText(payload={}){
 async function handleNativeOcrResult(payload={}){
   try {
     if (payload.error) throw new Error(payload.error);
-    setSelectedOcrOptions(payload.ocrMode || payload.ocr_mode || getSelectedOcrMode());
+    setSelectedOcrOptions(payload.ocrMode || payload.ocr_mode || getSelectedOcrMode(), payload.template || getSelectedTemplate());
     applyLocalNativeOcrPreview(payload);
     await parseNativeOcrText(payload);
   } catch (e) {
@@ -307,15 +292,6 @@ async function handleNativeOcrResult(payload={}){
   }
 }
 
-
-function openAlbumPicker(){
-  return requestNativeOcr('photos');
-}
-
-function openCameraPicker(){
-  return requestNativeOcr('camera');
-}
-
 function requestNativeOcr(source='photos'){
   if (!canUseNativeOcr()) {
     toast('這一版 OCR 改成原生 App 使用，請在手機原生 App 內開啟。', 'warn');
@@ -328,6 +304,7 @@ function requestNativeOcr(source='photos'){
     source,
     requestId,
     ocrMode: getSelectedOcrMode(),
+    template: getSelectedTemplate(),
     appId: 'yuanxing-native-shell-v20',
   };
   setNativeOcrBusy(true, source);
@@ -399,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initLoginPage();
   }
   if ($('old-password')) {
+    if ($('system-status-panel')) loadGoogleOcrStatus();
     if ($('backup-panel')) loadBackups();
     loadCorrectionsList();
     loadCustomerAliasesList();
@@ -408,7 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTodayChanges();
   }
   if (state.module) {
-    setSelectedOcrOptions(getSelectedOcrMode());
+    setSelectedOcrOptions(getSelectedOcrMode(), getSelectedTemplate());
     initModulePage();
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.__confirmResolver) state.__confirmResolver(false); });
@@ -493,6 +471,704 @@ async function toggleUserBlocked(encodedUsername, blocked){
 
 
 
+async function loadGoogleOcrStatus(){
+  const box = $('google-ocr-panel');
+  const status = $('system-status-panel');
+  if (!box && !status) return;
+  try {
+    const data = await requestJSON('/api/admin/google-ocr', { method:'GET' });
+    if (box) box.innerHTML = `<div class="card-list"><div class="card"><div class="title">OCR 模式</div><div class="sub"><strong>手機原生辨識</strong><br>Google OCR 已移除</div></div></div>`;
+    if (status) status.innerHTML = `<div class="card"><div class="title">OCR 模式</div><div class="sub"><strong>手機原生辨識</strong><br>Google OCR 已停用，請從原生 App 進行拍照或相簿辨識。</div></div><div class="card"><div class="title">安全設定</div><div class="sub"><strong>SECRET_KEY</strong><br>此版本採環境變數強制啟動，未設定不會啟動服務。</div></div>`;
+  } catch (e) {
+    if (box) box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+    if (status) status.innerHTML = `<div class="alert">${escapeHTML(e.message || '系統狀態載入失敗')}</div>`;
+  }
+}
+
+async function setGoogleOcrEnabled(enabled){
+  try {
+    await requestJSON('/api/admin/google-ocr', { method:'POST', body: JSON.stringify({ enabled: false }) });
+    toast('此版本固定使用手機原生 OCR', 'ok');
+    loadGoogleOcrStatus();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function changePassword(){
+  const old_password = ($('old-password')?.value || '').trim();
+  const new_password = ($('new-password')?.value || '').trim();
+  const confirm_password = ($('confirm-password')?.value || '').trim();
+  const msg = $('settings-msg');
+  try {
+    await requestJSON('/api/change_password', {
+      method: 'POST',
+      body: JSON.stringify({ old_password, new_password, confirm_password })
+    });
+    if (msg) { msg.textContent = '密碼已更新'; msg.classList.remove('hidden'); }
+    toast('密碼修改成功', 'ok');
+    $('old-password').value = $('new-password').value = $('confirm-password').value = '';
+  } catch (e) {
+    if (msg) { msg.textContent = e.message; msg.classList.remove('hidden'); }
+  }
+}
+
+async function loadBackups(){
+  const box = $('backup-panel');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/backups', { method:'GET' });
+    const files = data.files || [];
+    box.innerHTML = files.length ? `<table class="backup-table"><thead><tr><th>檔名</th><th>大小</th><th>建立時間</th></tr></thead><tbody>${files.map(f => `<tr><td>${escapeHTML(f.filename || '')}</td><td>${Number(f.size || 0).toLocaleString()}</td><td>${escapeHTML(f.created_at || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="small-note">目前沒有備份檔</div>';
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '備份清單載入失敗')}</div>`;
+  }
+}
+
+async function createBackup(){
+  try {
+    await requestJSON('/api/backup', { method:'POST', body:'{}' });
+    toast('已建立備份', 'ok');
+    loadBackups();
+  } catch (e) {
+    toast(e.message || '建立備份失敗', 'error');
+  }
+}
+
+
+async function autoFormatOcrTextarea(source='paste'){
+  const area = $('ocr-text');
+  if (!area || state.ocrTextareaAutoFormatting) return;
+  const raw = (area.value || '').trim();
+  if (!raw) return;
+  state.ocrTextareaAutoFormatting = true;
+  try {
+    const data = await requestJSON('/api/native-ocr/parse', {
+      method: 'POST',
+      body: JSON.stringify({
+        raw_text: raw,
+        customer_hint: ($('customer-name')?.value || '').trim(),
+        confidence: 0,
+        blocks: [],
+        ocr_mode: getSelectedOcrMode(),
+        template: getSelectedTemplate(),
+        roi: null,
+      })
+    });
+    if (data.text) area.value = data.text;
+    if ($('customer-name') && data.customer_guess && !$('customer-name').value.trim()) $('customer-name').value = data.customer_guess;
+    state.lastOcrItems = data.items || parseTextareaItems();
+    state.lineMap = data.line_map || [];
+    if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
+    if ($('ocr-warning-pill')) {
+      $('ocr-warning-pill').textContent = data.warning || (source === 'paste' ? '已自動整理貼上的 OCR 文字' : '已自動整理 OCR 文字');
+      setPillState($('ocr-warning-pill'), data.warning ? 'warn' : 'ok');
+    }
+    renderNativePreview();
+  } catch (e) {
+    if ($('ocr-warning-pill')) {
+      $('ocr-warning-pill').textContent = '文字已貼上，可直接修改後送出';
+      setPillState($('ocr-warning-pill'), 'warn');
+    }
+  } finally {
+    state.ocrTextareaAutoFormatting = false;
+  }
+}
+
+function bindOcrTextareaAutoFormat(){
+  const area = $('ocr-text');
+  if (!area || area.dataset.autoFormatBound === '1') return;
+  area.dataset.autoFormatBound = '1';
+  area.addEventListener('paste', () => {
+    state.ocrTextareaLastPastedAt = Date.now();
+    setTimeout(() => autoFormatOcrTextarea('paste'), 80);
+  });
+  area.addEventListener('drop', () => {
+    state.ocrTextareaLastPastedAt = Date.now();
+    setTimeout(() => autoFormatOcrTextarea('drop'), 80);
+  });
+}
+
+function initModulePage(){
+  const module = state.module;
+  setupUploadButtons();
+  bindOcrTextareaAutoFormat();
+  const album = $('album-input');
+  const camera = $('camera-input');
+  if (album) album.addEventListener('change', e => handleFiles(e.target.files));
+  if (camera) camera.addEventListener('change', e => handleFiles(e.target.files));
+
+  if (module === 'inventory') loadInventory();
+  if (module === 'orders' || module === 'master_order' || module === 'ship') loadCustomerBlocks();
+  if (module === 'orders') loadOrdersList();
+  if (module === 'master_order') loadMasterList();
+  if (module === 'shipping_query') loadShippingRecords();
+  if (module === 'warehouse') renderWarehouse();
+  if (module === 'customers') renderCustomers();
+}
+
+function setupUploadButtons(){
+  // nothing else; native picker behavior via hidden input
+}
+
+function openAlbumPicker(){ requestNativeOcr('photos'); }
+function openCameraPicker(){ requestNativeOcr('camera'); }
+function resetModuleForm(){
+  if ($('ocr-text')) $('ocr-text').value = '';
+  if ($('customer-name')) $('customer-name').value = '';
+  if ($('location-input')) $('location-input').value = '';
+  if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = '信心值：0%';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '尚未辨識';
+  if ($('module-result')) { $('module-result').classList.add('hidden'); $('module-result').innerHTML = ''; }
+}
+
+async function handleFiles(fileList){
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+  toast('請改用上傳檔案或拍照；手動框選已整合到原生流程。', 'warn');
+}
+
+async function uploadOcrFile(file, useRoi=false){
+  const msg = '此版本已改成原生 App 先框選再辨識，網頁端不再走舊 upload_ocr 路徑。';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = msg;
+  setPillState($('ocr-warning-pill'), 'warn');
+  toast(msg, 'warn');
+}
+
+function normalizeOcrLine(line){
+  return String(line || '').replace(/[×X＊*]/g, 'x').replace(/＝/g, '=').replace(/\s+/g, '');
+}
+
+function parseTextareaItems(){
+  const text = ($('ocr-text')?.value || '').trim();
+  if (!text) return [];
+  const lines = text.split(/\n+/).map(s => normalizeOcrLine(s)).filter(Boolean);
+  const items = [];
+  lines.forEach(line => {
+    if (!line.includes('=')) return;
+    const [left, rightRaw] = line.split('=');
+    const segments = String(rightRaw || '').split(/[+＋]/).map(s => s.trim()).filter(Boolean);
+    segments.forEach(seg => {
+      const nums = seg.match(/\d+/g) || [];
+      if (!nums.length) return;
+      const rhs = nums[0];
+      const qty = parseInt(nums[1] || '1', 10) || 1;
+      items.push({
+        product_text: `${left}=${rhs}`,
+        product_code: `${left}=${rhs}`,
+        qty
+      });
+    });
+  });
+  return items;
+}
+
+
+function toggleTodayChanges(){
+  window.location.href = '/today-changes';
+}
+
+function renderTodayLogList(items, emptyText){
+  const filtered = state.todayOnlyUnread ? (items || []).filter(r => r.__unread) : (items || []);
+  if (!filtered || !filtered.length) return `<div class="small-note">${emptyText}</div>`;
+  return filtered.map(r => `<div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}" data-log-id="${Number(r.id||0)}"><div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button></div>`).join('');
+}
+
+function renderTodayChangesFromData(data){
+  const s = data.summary || {};
+  const readAt = data.read_at || '';
+  const markUnread = (items) => (items || []).map(r => ({ ...r, __unread: !readAt || String(r.created_at || '') > readAt }));
+  if ($('home-unplaced-pill')) $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
+  if ($('today-unread-badge')) $('today-unread-badge').textContent = String(s.unread_count || 0);
+  if ($('today-summary-cards')) $('today-summary-cards').innerHTML = [
+    ['進貨', s.inbound_count || 0, 'inbound'],
+    ['出貨', s.outbound_count || 0, 'outbound'],
+    ['新增訂單', s.new_order_count || 0, 'orders'],
+    ['未錄入倉庫圖', s.unplaced_count || 0, 'unplaced'],
+    ['異常比對', s.anomaly_count || 0, 'anomaly'],
+    ['未讀', s.unread_count || 0, 'all'],
+  ].map(([t,v,k]) => `<div class="card ${state.todayCategoryFilter===k?'active':''}" onclick="setTodayCategoryFilter('${k}')"><div class="title">${t}</div><div class="sub">${v}</div></div>`).join('');
+  if ($('today-inbound-list')) $('today-inbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.inbound || []), '今日沒有進貨');
+  if ($('today-outbound-list')) $('today-outbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.outbound || []), '今日沒有出貨');
+  if ($('today-order-list')) $('today-order-list').innerHTML = renderTodayLogList(markUnread(data.feed?.new_orders || []), '今日沒有新增訂單');
+  state.todayUnplacedItems = data.unplaced_items || [];
+  if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((state.todayUnplacedItems || []).map((i, idx) => `<button class="chip-item log-chip" onclick="openUnplacedFromToday(${idx})"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></button>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
+  if ($('today-anomaly-list')) $('today-anomaly-list').innerHTML = ((data.anomalies || []).map(a => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(a.type || '異常')}</strong>｜${escapeHTML(a.message || a.product_text || '異常')}</div></div>`).join('')) || '<div class="small-note">目前沒有異常</div>';
+  applyTodayCategoryFilter();
+}
+
+async function deleteTodayChange(id){
+  if (!id) return;
+  const ok = await askConfirm('確定刪除這筆今日異動？', '刪除異動', '刪除', '取消');
+  if (!ok) return;
+  const row = document.querySelector(`[data-log-id="${Number(id)}"]`);
+  if (row) row.style.opacity = '0.35';
+  try {
+    const data = await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
+    toast('已刪除異動', 'ok');
+    renderTodayChangesFromData(data);
+  } catch (e) {
+    if (row) row.style.opacity = '1';
+    toast(e.message || '刪除失敗', 'error');
+  }
+}
+
+async function markTodayChangesRead(){
+  try {
+    await requestJSON('/api/today-changes/read', { method:'POST', body:'{}' });
+    toast('已清除已讀', 'ok');
+    await loadTodayChanges();
+  } catch (e) { toast(e.message || '清除已讀失敗', 'error'); }
+}
+
+function toggleTodayUnreadFilter(){
+  state.todayOnlyUnread = !state.todayOnlyUnread;
+  const btn = $('today-unread-toggle');
+  if (btn) btn.textContent = state.todayOnlyUnread ? '只看全部' : '只看未讀';
+  loadTodayChanges();
+}
+
+function setTodayCategoryFilter(filter){
+  state.todayCategoryFilter = filter || 'all';
+  ['all','inbound','outbound','orders','unplaced','anomaly'].forEach(k => {
+    const el = $(`today-filter-${k}`); if (el) el.classList.toggle('active', state.todayCategoryFilter === k);
+  });
+  applyTodayCategoryFilter();
+}
+
+function applyTodayCategoryFilter(){
+  const map = {
+    inbound: ['today-inbound-list'],
+    outbound: ['today-outbound-list'],
+    orders: ['today-order-list'],
+    unplaced: ['today-unplaced-list'],
+    anomaly: ['today-anomaly-list'],
+    all: ['today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list','today-anomaly-list']
+  };
+  const visible = new Set(map[state.todayCategoryFilter] || map.all);
+  ['today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list','today-anomaly-list'].forEach(id => {
+    const panel = $(id)?.closest('.panel');
+    if (panel) panel.classList.toggle('hidden-by-filter', !visible.has(id));
+  });
+}
+
+async function loadTodayChanges(){
+  if (!$('today-summary-cards')) return;
+  try {
+    const data = await requestJSON('/api/today-changes', { method:'GET' });
+    renderTodayChangesFromData(data);
+  } catch (e) {
+    console.error(e);
+    const box = $('today-summary-cards');
+    if (box) box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
+  }
+}
+
+function renderOcrPreview(file){
+  const panel = $('ocr-preview-panel'); const img = $('ocr-preview-img'); const wrap = $('ocr-preview-wrap'); const box = $('ocr-roi-box');
+  if (!panel || !img || !wrap || !box) return;
+  const url = URL.createObjectURL(file);
+  img.src = url;
+  panel.classList.remove('hidden');
+  box.classList.add('hidden');
+  let start = null;
+  const update = (x1,y1,x2,y2) => {
+    const rect = wrap.getBoundingClientRect();
+    const left = Math.max(0, Math.min(x1,x2));
+    const top = Math.max(0, Math.min(y1,y2));
+    const width = Math.abs(x2-x1);
+    const height = Math.abs(y2-y1);
+    Object.assign(box.style, {left:left+'px', top:top+'px', width:width+'px', height:height+'px'});
+    box.classList.remove('hidden');
+    state.roi = { x: left / rect.width, y: top / rect.height, w: width / rect.width, h: height / rect.height };
+  };
+  const point = (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  };
+  const startSelect = (e) => { const p = point(e); start = p; update(p.x,p.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
+  const moveSelect = (e) => { if (!start) return; const p = point(e); update(start.x,start.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
+  const endSelect = async () => { if (start) { start = null; toast('已框選辨識範圍，請按「確認送出後開始識別」', 'ok'); } };
+  wrap.onmousedown = startSelect;
+  wrap.onmousemove = moveSelect;
+  wrap.ontouchstart = startSelect;
+  wrap.ontouchmove = moveSelect;
+  window.onmouseup = endSelect;
+  window.ontouchend = endSelect;
+}
+
+function applySuggestedRoiBox(roi){
+  const wrap = $('ocr-preview-wrap');
+  const box = $('ocr-roi-box');
+  if (!wrap || !box || !roi) return;
+  const apply = () => {
+    const rect = wrap.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      setTimeout(apply, 80);
+      return;
+    }
+    Object.assign(box.style, {
+      left: `${roi.x * rect.width}px`,
+      top: `${roi.y * rect.height}px`,
+      width: `${roi.w * rect.width}px`,
+      height: `${roi.h * rect.height}px`
+    });
+    box.classList.remove('hidden');
+  };
+  apply();
+}
+
+async function runRoiOcr(){
+  toast('手動框選已改成原生 App 內先框選再辨識，請直接點拍照或上傳檔案。', 'ok');
+}
+
+function clearRoiSelection(){
+  state.roi = null;
+  $('ocr-roi-box')?.classList.add('hidden');
+}
+
+async function learnOcrCorrection(){
+  const raw = (state.lastOcrOriginalText || '').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const edited = (($('ocr-text')?.value || '').trim()).split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const pairs = [];
+  const len = Math.min(raw.length, edited.length);
+  for (let i=0;i<len;i++){
+    if (raw[i] && edited[i] && raw[i] !== edited[i]) pairs.push([raw[i], edited[i]]);
+  }
+  if (!pairs.length) return toast('沒有可學習的修正', 'warn');
+  try {
+    for (const [wrong_text, correct_text] of pairs){
+      await requestJSON('/api/save_correction', { method:'POST', body: JSON.stringify({ wrong_text, correct_text }) });
+    }
+    toast(`已學習 ${pairs.length} 筆修正`, 'ok');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadOrdersList(){
+  const el = $('orders-list');
+  if (!el) return;
+  try {
+    const data = await requestJSON('/api/orders', { method:'GET' });
+    el.innerHTML = '';
+    (data.items || []).forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class=\"title\">${escapeHTML(item.customer_name || '')}</div><div class=\"sub\">${escapeHTML(item.product_text || '')} × ${item.qty || 0}</div><div class=\"btn-row\"><button class=\"ghost-btn small-btn to-master-btn\">加入總單</button></div>`;
+      card.querySelector('button').onclick = () => addOrderToMaster(item);
+      el.appendChild(card);
+    });
+  } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
+}
+
+async function addOrderToMaster(item){
+  try {
+    await requestJSON('/api/orders/to-master', { method:'POST', body: JSON.stringify(item) });
+    toast('已加入總單', 'ok');
+    if (state.module === 'master_order') loadMasterList();
+  } catch(e){ toast(e.message, 'error'); }
+}
+
+async function loadMasterList(){
+  const el = $('master-list');
+  if (!el) return;
+  try {
+    const data = await requestJSON('/api/master_orders', { method:'GET' });
+    el.innerHTML = '';
+    (data.items || []).forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="title">${escapeHTML(item.customer_name || '')}</div><div class="sub">${escapeHTML(item.product_text || '')} × ${item.qty || 0}</div>`;
+      el.appendChild(card);
+    });
+  } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
+}
+
+function itemSignature(it){
+  return `${it.product_text || ''}@@${Number(it.qty || 0)}`;
+}
+
+async function filterExistingCustomerItems(customerName, items){
+  if (!customerName || !['orders','master_order','ship'].includes(state.module)) {
+    return { items, ignored: [] };
+  }
+  const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(customerName)}`, { method:'GET' });
+  const sigs = new Set((data.items || []).map(itemSignature));
+  const ignored = [];
+  const fresh = [];
+  items.forEach(it => {
+    if (sigs.has(itemSignature(it))) ignored.push(it);
+    else fresh.push(it);
+  });
+  return { items: fresh, ignored };
+}
+
+async function confirmSubmit(){
+  const module = state.module;
+  if (state.submitInFlight) return toast('資料送出中，請稍候', 'warn');
+  const customer_name = ($('customer-name')?.value || '').trim();
+  const location = ($('location-input')?.value || '').trim();
+  const ocr_text = ($('ocr-text')?.value || '').trim();
+  let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
+  if (!items.length) return toast('沒有可送出的辨識內容', 'warn');
+  let endpoint = '/api/inventory';
+  if (module === 'orders') endpoint = '/api/orders';
+  if (module === 'master_order') endpoint = '/api/master_orders';
+  if (module === 'ship') endpoint = '/api/ship';
+  const fingerprint = JSON.stringify({ module, customer_name, location, items });
+  if (fingerprint === state.submitLastFingerprint && Date.now() - state.submitLastAt < 4000) {
+    return toast('剛剛已送出相同內容，系統已忽略重複點擊', 'warn');
+  }
+  try {
+    state.submitInFlight = true;
+    const dedupe = await filterExistingCustomerItems(customer_name, items);
+    if (dedupe.ignored.length && dedupe.items.length) {
+      const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const ok = await askConfirm(html, '重複商品確認', '忽略重複並送出', '取消', {html:true});
+      if (!ok) return;
+      items = dedupe.items;
+    } else if (dedupe.ignored.length && !dedupe.items.length) {
+      const html = `<div class="dup-modal-list"><div><strong>這次辨識的商品都已存在</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const ok = await askConfirm(html, '重複商品確認', '知道了', '取消', {html:true});
+      if (ok) toast('已略過重複商品', 'ok');
+      return;
+    }
+    let payload = { customer_name, location, ocr_text, items, request_key: `${module}-${Date.now()}-${Math.random().toString(36).slice(2,8)}` };
+    if (module === 'ship') {
+      const preview = state.shipPreview || await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
+      state.shipPreview = preview;
+      if (preview.needs_inventory_fallback) {
+        const ok = await askConfirm('該客戶總單 / 訂單不足，是否改扣庫存？', '出貨提醒', '確認改扣庫存', '取消');
+        if (!ok) return;
+        payload.allow_inventory_fallback = true;
+      }
+    }
+    const data = await requestJSON(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+    renderSubmitResult(module, data, customer_name);
+    state.lastOcrItems = items;
+    saveOcrHistoryEntry({ text: ocr_text, customer_name, items, line_map: state.lineMap, preview: state.nativePreview, created_at: new Date().toISOString() });
+    if (module === 'inventory') await loadInventory();
+    if (module === 'orders') await loadOrdersList();
+    if (module === 'master_order') await loadMasterList();
+    if (module === 'ship') await loadShippingRecords();
+    if (module === 'warehouse') await renderWarehouse();
+    state.submitLastFingerprint = fingerprint;
+    state.submitLastAt = Date.now();
+    toast('送出完成', 'ok');
+  } catch (e) {
+    const payload = { customer_name, location, ocr_text, items };
+    if (isLikelyNetworkError(e)) {
+      queuePendingSubmit({ endpoint, payload, module });
+      showResult('網路暫時不穩，已先存入待同步佇列，恢復連線後會自動補送。');
+      toast('已加入待同步佇列', 'warn');
+      return;
+    }
+    showResult(`錯誤：${e.message}`, true);
+  } finally {
+    state.submitInFlight = false;
+  }
+}
+
+function renderSubmitResult(module, data, customerName=''){
+  const box = $('module-result');
+  if (!box) return;
+  box.classList.remove('hidden');
+  let html = '';
+  if (module === 'ship') {
+    const breakdown = data.breakdown || [];
+    html += `<div class="section-title">出貨結果</div>`;
+    html += `<div class="muted">客戶：${escapeHTML(customerName)}</div>`;
+    breakdown.forEach(b => {
+      const locs = (b.locations || []).map(loc => `${loc.zone}區第${loc.column_index}欄第${String(loc.visual_slot || loc.slot_number).padStart(2,'0')}格`).join('、');
+      html += `<div class="card ship-result-card"><div class="title">${escapeHTML(b.product_text)}</div><div class="sub">本次出貨：${b.qty}</div>`;
+      html += `<div class="chip-list"><div class="chip-item">總單扣除：${b.master_deduct}</div><div class="chip-item">訂單扣除：${b.order_deduct}</div><div class="chip-item">庫存扣除：${b.inventory_deduct}</div>${b.used_inventory_fallback ? '<div class="chip-item">已啟用庫存補扣</div>' : ''}</div>`;
+      if (b.master_details?.length) html += `<div class="small-note">總單明細：${b.master_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.order_details?.length) html += `<div class="small-note">訂單明細：${b.order_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.inventory_details?.length) html += `<div class="small-note">庫存明細：${b.inventory_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
+      if (b.remaining_after) html += `<div class="small-note">扣減後剩餘：總單 ${b.remaining_after.master}｜訂單 ${b.remaining_after.order}｜庫存 ${b.remaining_after.inventory}</div>`;
+      if (locs) html += `<div class="small-note">倉庫位置：${escapeHTML(locs)}</div>`;
+      html += `</div>`;
+    });
+  } else if (module === 'orders') {
+    html += `<div class="section-title">訂單已建立</div><div class="muted">客戶：${escapeHTML(customerName)}｜狀態：pending</div>`;
+  } else if (module === 'master_order') {
+    html += `<div class="section-title">總單已更新</div><div class="muted">客戶：${escapeHTML(customerName)}</div>`;
+  } else if (module === 'inventory') {
+    html += `<div class="section-title">庫存已更新</div>`;
+  } else {
+    html += `<div class="section-title">已儲存</div>`;
+  }
+  box.innerHTML = html;
+}
+
+function showResult(msg, isError=false){
+  const box = $('module-result');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="${isError ? 'warning-red' : ''}">${msg}</div>`;
+}
+
+async function loadInventory(){
+  try {
+    const data = await requestJSON('/api/inventory', { method:'GET' });
+    const el = $('inventory-summary');
+    if (!el) return;
+    el.innerHTML = '';
+    (data.items || []).forEach(item => {
+      const card = document.createElement('div');
+      card.className = `card ${item.needs_red ? 'red' : ''}`;
+      card.innerHTML = `
+        <div class="title ${item.needs_red ? 'warning-red' : ''}">${escapeHTML(item.product_text || '')}</div>
+        <div class="sub">總數量：${item.qty || 0}</div>
+        <div class="sub">已放倉庫：${item.placed_qty || 0}</div>
+        <div class="sub">未放倉庫：${item.unplaced_qty || 0}</div>
+        <div class="sub">位置：${escapeHTML(item.location || '—')}</div>
+      `;
+      el.appendChild(card);
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function loadCustomerBlocks(){
+  try {
+    const data = await requestJSON('/api/customers', { method:'GET' });
+    const groups = { '北區': $('region-north'), '中區': $('region-center'), '南區': $('region-south') };
+    if ($('customers-north')) groups['北區'] = $('customers-north');
+    if ($('customers-center')) groups['中區'] = $('customers-center');
+    if ($('customers-south')) groups['南區'] = $('customers-south');
+    Object.values(groups).forEach(el => { if (el) el.innerHTML=''; });
+    const q = ($('customer-search')?.value || '').trim().toLowerCase();
+    (data.items || []).filter(c => !q || (c.name || '').toLowerCase().includes(q)).forEach(c => {
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.draggable = true;
+      chip.dataset.customer = c.name;
+      chip.innerHTML = `<span>${escapeHTML(c.name)}</span>`;
+      chip.addEventListener('dragstart', ev => {
+        ev.dataTransfer.setData('text/plain', JSON.stringify({name:c.name, region:c.region || '北區'}));
+      });
+      chip.addEventListener('click', () => { if (['orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
+      const target = groups[c.region || '北區'] || groups['北區'];
+      target?.appendChild(chip);
+    });
+    setupCustomerDropZones();
+    if (state.module === 'customers') {
+      $('cust-region').value = '北區';
+      if (! $('cust-name').value) {
+        $('cust-name').placeholder = '點選客戶可自動帶入';
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+
+async function selectCustomerForModule(name){
+  if ($('customer-name')) $('customer-name').value = name;
+  try {
+    const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    const panel = $('selected-customer-items');
+    if (panel) {
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>') + `<div id="customer-specs-inline" class="chip-list"></div>`;
+      loadCustomerSpecs(name, 'customer-specs-inline');
+    }
+    if (state.module === 'ship') await loadShipPreview();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadShipPreview(){
+  if (state.module !== 'ship') return;
+  const panel = $('ship-preview-panel');
+  if (!panel) return;
+  const customer_name = ($('customer-name')?.value || '').trim();
+  const items = parseTextareaItems();
+  if (!customer_name || !items.length){
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  try {
+    const data = await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
+    panel.classList.remove('hidden');
+    panel.innerHTML = `<div class="alert">${escapeHTML(data.message || '出貨預覽完成')}</div>` + (data.items || []).map(item => `
+      <div class="ship-breakdown-item">
+        <div><strong>${escapeHTML(item.product_text || '')}</strong>｜需求 ${item.qty || 0}</div>
+        <div class="small-note">總單可扣 ${item.master_available || 0}｜訂單可扣 ${item.order_available || 0}｜庫存可扣 ${item.inventory_available || 0}</div>
+        <div class="small-note">建議：${escapeHTML(item.recommendation || '')}${item.shortage_reasons?.length ? '｜' + escapeHTML(item.shortage_reasons.join('、')) : ''}</div>
+        <div class="ship-breakdown-list">${(item.locations || []).map(loc => `<span class="ship-location-chip">${escapeHTML(loc.zone)}-${loc.column_index}-${String(loc.visual_slot || loc.slot_number || 0).padStart(2,'0')}｜將出 ${loc.ship_qty || loc.qty || 0}${typeof loc.remain_after !== 'undefined' ? `｜剩 ${loc.remain_after}` : ''}</span>`).join('') || '<span class="small-note">倉庫圖中尚未找到此商品位置</span>'}</div>
+      </div>`).join('');
+  } catch (e) {
+    panel.classList.remove('hidden');
+    panel.innerHTML = `<div class="alert">${escapeHTML(e.message || '出貨預覽失敗')}</div>`;
+  }
+}
+
+async function openCustomerModal(name){
+  try {
+    state.currentCustomer = name;
+    const detail = await requestJSON(`/api/customers/${encodeURIComponent(name)}`, { method:'GET' });
+    const items = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    $('customer-modal').classList.remove('hidden');
+    const body = $('customer-modal-body');
+    body.innerHTML = `
+      <div class="card-list">
+        <div class="card">
+          <div class="title">${escapeHTML(name)}</div>
+          <div class="sub">電話：${escapeHTML(detail.item?.phone || '')}</div>
+          <div class="sub">地址：${escapeHTML(detail.item?.address || '')}</div>
+          <div class="sub">特殊要求：${escapeHTML(detail.item?.notes || '')}</div>
+          <div class="sub">區域：${escapeHTML(detail.item?.region || '')}</div>
+        </div>
+        <div class="card">
+          <div class="title">商品</div>
+          <div id="customer-modal-items" class="chip-list"></div>
+        </div>
+        <div class="card">
+          <div class="title">常用規格</div>
+          <div id="customer-specs-box" class="chip-list"></div>
+        </div>
+      </div>`;
+    const list = $('customer-modal-items');
+    loadCustomerSpecs(name, 'customer-specs-box');
+    (items.items || []).forEach(it => {
+      const ch = document.createElement('div');
+      ch.className='chip-item';
+      ch.textContent = `${it.source}｜${it.product_text || ''} × ${it.qty || 0}`;
+      list.appendChild(ch);
+    });
+    $('cust-name').value = detail.item?.name || name;
+    $('cust-phone').value = detail.item?.phone || '';
+    $('cust-address').value = detail.item?.address || '';
+    $('cust-notes').value = detail.item?.notes || '';
+    $('cust-region').value = detail.item?.region || '北區';
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function closeCustomerModal(){ $('customer-modal')?.classList.add('hidden'); }
+
+async function saveCustomer(){
+  try {
+    const payload = {
+      name: ($('cust-name')?.value || '').trim(),
+      phone: ($('cust-phone')?.value || '').trim(),
+      address: ($('cust-address')?.value || '').trim(),
+      notes: ($('cust-notes')?.value || '').trim(),
+      region: $('cust-region')?.value || '北區'
+    };
+    await requestJSON('/api/customers', { method:'POST', body: JSON.stringify(payload) });
+    toast('客戶已儲存', 'ok');
+    await loadCustomerBlocks();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 async function loadShippingRecords(){
   try {
     const range = $('ship-range')?.value || '7';
@@ -547,7 +1223,17 @@ async function renderWarehouse(){
     } catch (e) {}
     $('warehouse-unplaced-pill') && ($('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`);
     renderWarehouseZones();
+    renderWarehouseUnplacedInline();
     setWarehouseZone(state.warehouse.activeZone || 'A', false);
+    try {
+      const rawQuick = localStorage.getItem('warehouseQuickPlaceProduct');
+      if (rawQuick) {
+        localStorage.removeItem('warehouseQuickPlaceProduct');
+        const item = JSON.parse(rawQuick);
+        const idx = (state.warehouse.availableItems || []).findIndex(it => it.product_text === item.product_text);
+        if (idx >= 0) setTimeout(() => quickPlaceUnplaced(idx), 180);
+      }
+    } catch (e) {}
   } catch (e) {
     console.error(e);
     toast(e.message || '倉庫圖載入失敗', 'error');
@@ -673,7 +1359,13 @@ function renderWarehouseZones(){
           if (!raw) return;
           const parsed = JSON.parse(raw);
           if (parsed.kind === 'warehouse-item') {
-            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty);
+            let qty = parseInt(parsed.qty || 1, 10) || 1;
+            if (qty > 1) {
+              const input = window.prompt(`要移動幾件？（可拆量移動，最多 ${qty} 件）`, String(qty));
+              if (input === null) return;
+              qty = Math.max(1, Math.min(qty, parseInt(input || '1', 10) || 1));
+            }
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, qty);
           }
         });
         list.appendChild(slot);
@@ -689,6 +1381,16 @@ function renderWarehouseZones(){
 async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zone, column); }
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
+async function deleteWarehouseColumn(zone, column){
+  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
+  if (!ok) return;
+  try {
+    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
+    toast('已刪除欄位', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function openWarehouseModal(zone, column, num){
   state.currentCell = { zone, column, slot_type: 'direct', slot_number: num };
   state.currentCellItems = getCellItems(zone, column, num);
@@ -697,6 +1399,7 @@ async function openWarehouseModal(zone, column, num){
   $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
   renderWarehouseCellItems();
   refreshWarehouseSelect();
+  loadRecentSlots();
   const search = $('warehouse-item-search');
   if (search) search.oninput = refreshWarehouseSelect;
 }
@@ -801,6 +1504,15 @@ async function moveWarehouseItem(fromKey, toKey, product_text, qty){
 
 async function searchWarehouse(){
   const q = ($('warehouse-search')?.value || '').trim();
+  const jump = q.match(/^([ABab])\s*[- ]\s*(\d{1,2})\s*[- ]\s*(\d{1,2})$/);
+  if (jump) {
+    const zone = String(jump[1] || '').toUpperCase();
+    const column = parseInt(jump[2] || '0', 10) || 0;
+    const num = parseInt(jump[3] || '0', 10) || 0;
+    setWarehouseZone(zone);
+    setTimeout(() => { highlightWarehouseCell(zone, column, num); openWarehouseModal(zone, column, num); }, 120);
+    return;
+  }
   if (!q) {
     state.searchHighlightKeys = new Set();
     $('warehouse-search-results')?.classList.add('hidden');
@@ -936,16 +1648,16 @@ function connectRealtimeSync(){
         $('ocr-warning-pill').textContent = payload.message || '資料已同步更新';
         setPillState($('ocr-warning-pill'), 'ok');
       }
-      handleRealtimeRefresh(mod, payload);
+      handleRealtimeRefresh(mod);
     };
     es.onerror = () => {};
   } catch (e) {}
 }
 
-async function handleRealtimeRefresh(mod, payload=null){
+async function handleRealtimeRefresh(mod){
   try {
-    if ($('today-summary-cards') && ['today_changes','all','badge'].includes(mod)) return await loadTodayChanges();
-    if ($('admin-users') && ['settings','all'].includes(mod)) { await loadAuditTrails(); await loadBackups(); }
+    if ($('today-summary-cards')) return await loadTodayChanges();
+    if ($('admin-users')) await loadAuditTrails();
     if (state.module === 'inventory' && ['inventory','all'].includes(mod)) return await loadInventory();
     if (state.module === 'orders' && ['orders','customers','all'].includes(mod)) { await loadOrdersList(); return await loadCustomerBlocks(); }
     if (state.module === 'master_order' && ['master_order','customers','all'].includes(mod)) { await loadMasterList(); return await loadCustomerBlocks(); }
@@ -1007,24 +1719,13 @@ async function loadAuditTrails(){
   const box = $('audit-trails-list');
   if (!box) return;
   try {
-    const params = new URLSearchParams({ limit:'80' });
-    if (($('audit-q')?.value || '').trim()) params.set('q', ($('audit-q').value || '').trim());
-    if (($('audit-user')?.value || '').trim()) params.set('username', ($('audit-user').value || '').trim());
-    if (($('audit-entity')?.value || '').trim()) params.set('entity_type', ($('audit-entity').value || '').trim());
-    if (($('audit-start')?.value || '').trim()) params.set('start_date', ($('audit-start').value || '').trim());
-    if (($('audit-end')?.value || '').trim()) params.set('end_date', ($('audit-end').value || '').trim());
-    const data = await requestJSON(`/api/audit-trails?${params.toString()}`, { method:'GET' });
+    const data = await requestJSON('/api/audit-trails?limit=80', { method:'GET' });
     box.innerHTML = (data.items || []).map(item => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(item.created_at || '')}</strong>｜${escapeHTML(item.username || '')}｜${escapeHTML(item.entity_type || '')}｜${escapeHTML(item.action_type || '')}｜${escapeHTML(item.entity_key || '')}</div><div class="small-note">前：${escapeHTML(JSON.stringify(item.before_json || {}))}<br>後：${escapeHTML(JSON.stringify(item.after_json || {}))}</div></div>`).join('') || '<div class="small-note">尚無差異紀錄</div>';
   } catch (e) { box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`; }
 }
 
 function downloadReport(type){
-  const params = new URLSearchParams({ type });
-  const start = ($('report-start')?.value || '').trim();
-  const end = ($('report-end')?.value || '').trim();
-  if (start) params.set('start_date', start);
-  if (end) params.set('end_date', end);
-  window.location.href = `/api/reports/export?${params.toString()}`;
+  window.location.href = `/api/reports/export?type=${encodeURIComponent(type)}`;
 }
 
 async function loadRecentSlots(){
@@ -1049,6 +1750,35 @@ function openUnplacedFromToday(index){
   window.location.href = '/warehouse';
 }
 
+function renderWarehouseUnplacedInline(){
+  const box = $('warehouse-unplaced-list-inline');
+  if (!box) return;
+  const items = (state.warehouse.availableItems || []).slice(0, 12);
+  if (!items.length) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  box.innerHTML = items.map((item, idx) => `<div class="search-card" onclick="quickPlaceUnplaced(${idx})"><strong>${escapeHTML(item.product_text || '')}</strong><br>${escapeHTML(item.customer_name || '未指定客戶')}｜未錄入 ${item.unplaced_qty || 0}</div>`).join('');
+}
+function quickPlaceUnplaced(index){
+  const item = (state.warehouse.availableItems || [])[index];
+  if (!item) return;
+  state.warehouse.quickPickItem = item;
+  const zone = state.warehouse.activeZone === 'B' ? 'B' : 'A';
+  openWarehouseModal(zone, 1, 1);
+  setTimeout(() => {
+    const sel = $('warehouse-item-select');
+    if (!sel) return;
+    for (const opt of Array.from(sel.options)) {
+      try {
+        const data = JSON.parse(opt.value || '{}');
+        if (data.product_text === item.product_text) { sel.value = opt.value; break; }
+      } catch (e) {}
+    }
+  }, 80);
+}
 // expose globals
 window.openAlbumPicker = openAlbumPicker;
 window.openCameraPicker = openCameraPicker;
@@ -1086,10 +1816,13 @@ window.setWarehouseZone = setWarehouseZone;
 window.jumpToZone = jumpToZone;
 window.addWarehouseSlot = addWarehouseSlot;
 window.removeWarehouseSlot = removeWarehouseSlot;
+window.deleteWarehouseColumn = deleteWarehouseColumn;
 window.loadAdminUsers = loadAdminUsers;
+window.loadGoogleOcrStatus = loadGoogleOcrStatus;
 window.loadBackups = loadBackups;
 window.createBackup = createBackup;
 window.setTodayCategoryFilter = setTodayCategoryFilter;
+window.setGoogleOcrEnabled = setGoogleOcrEnabled;
 window.addWarehouseVisualSlot = addWarehouseVisualSlot;
 window.removeWarehouseVisualSlot = removeWarehouseVisualSlot;
 window.toggleUserBlocked = toggleUserBlocked;

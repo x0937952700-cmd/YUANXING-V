@@ -16,13 +16,13 @@ from db import (
     ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
-    warehouse_add_slot, warehouse_remove_slot,
+    warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
+    list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats
 )
-from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
+from ocr import process_ocr_text, parse_ocr_text, process_native_ocr_text
 from backup import run_daily_backup
 
 app = Flask(__name__)
@@ -98,9 +98,6 @@ def request_key_from_payload(data, endpoint=''):
     if register_submit_request(key, endpoint=endpoint):
         return key
     return ''
-
-def duplicate_success(message='重複送出已忽略'):
-    return jsonify(success=True, duplicate=True, message=message)
 
 
 def export_rows_to_xlsx(sheet_name, rows, columns):
@@ -300,6 +297,11 @@ def api_change_password():
         log_error("change_password", str(e))
         return error_response("修改失敗")
 
+@app.route("/api/upload_ocr", methods=["POST"])
+@login_required_json
+def api_upload_ocr():
+    return error_response("這一版已取消雲端 Google OCR，請改用原生 App 的手機內建文字辨識。")
+
 @app.route("/api/native-ocr/parse", methods=["POST"])
 @login_required_json
 def api_native_ocr_parse():
@@ -310,6 +312,7 @@ def api_native_ocr_parse():
         native_confidence = int(data.get("confidence") or data.get("ocr_confidence") or 0)
         blocks = data.get("blocks") or data.get("positions") or []
         ocr_mode = (data.get("ocr_mode") or data.get("mode") or 'blue').strip() or 'blue'
+        template_hint = (data.get("template") or data.get("template_hint") or 'native_device').strip() or 'native_device'
         roi = data.get("roi") or None
         if not raw_text and not customer_hint and not blocks:
             return error_response("沒有可解析的辨識文字")
@@ -319,13 +322,14 @@ def api_native_ocr_parse():
             native_confidence=native_confidence,
             blocks=blocks,
             ocr_mode=ocr_mode,
+            template_hint=template_hint,
             roi=roi,
         )
         items = result.get('items') or []
         normalized_text = result.get('text') or ''
         customer_guess = result.get('customer_guess') or ''
         partial = bool((normalized_text or raw_text) and (not normalized_text or not customer_guess))
-        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]")
+        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]/{result.get('template','native_device')}")
         return jsonify(
             success=True,
             text=normalized_text or raw_text,
@@ -337,7 +341,8 @@ def api_native_ocr_parse():
             warning=result.get('warning') or '',
             engines=result.get('engines', []),
             customer_guess=customer_guess,
-            cleaned_text=result.get('cleaned_text') or '',
+            template=result.get('template', 'native_device'),
+            template_name='手機原生辨識',
             suggested_roi=result.get('suggested_roi'),
             partial=partial,
             line_map=result.get('line_map', []),
@@ -389,8 +394,7 @@ def api_inventory():
         if request.method == "GET":
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
-        if not request_key_from_payload(data, endpoint='/api/inventory'):
-            return duplicate_success('相同庫存送出已忽略')
+        request_key_from_payload(data, endpoint='/api/inventory')
         items = _parse_items_from_request(data)
         operator = current_username()
         location = (data.get("location") or "").strip()
@@ -412,8 +416,7 @@ def api_orders():
         if request.method == "GET":
             return jsonify(success=True, items=get_orders())
         data = request.get_json(silent=True) or {}
-        if not request_key_from_payload(data, endpoint='/api/orders'):
-            return duplicate_success('相同訂單送出已忽略')
+        request_key_from_payload(data, endpoint='/api/orders')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -435,8 +438,7 @@ def api_master_orders():
         if request.method == "GET":
             return jsonify(success=True, items=get_master_orders())
         data = request.get_json(silent=True) or {}
-        if not request_key_from_payload(data, endpoint='/api/master_orders'):
-            return duplicate_success('相同總單送出已忽略')
+        request_key_from_payload(data, endpoint='/api/master_orders')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -456,8 +458,7 @@ def api_master_orders():
 def api_ship():
     try:
         data = request.get_json(silent=True) or {}
-        if not request_key_from_payload(data, endpoint='/api/ship'):
-            return duplicate_success('相同出貨送出已忽略')
+        request_key_from_payload(data, endpoint='/api/ship')
         items = _parse_items_from_request(data)
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
@@ -715,6 +716,24 @@ def api_warehouse_remove_slot():
         log_error("warehouse_remove_slot", str(e))
         return error_response("刪除格子失敗")
 
+@app.route("/api/warehouse/delete-column", methods=["POST"])
+@login_required_json
+def api_warehouse_delete_column():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index"))
+        result = warehouse_delete_column(zone, column_index)
+        if not result.get('success'):
+            return error_response(result.get('error') or '刪除欄位失敗')
+        log_action(current_username(), f"刪除欄位 {zone}{column_index}")
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除欄位', extra={'zone': zone, 'column_index': column_index})
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_delete_column", str(e))
+        return error_response("刪除欄位失敗")
+
+
 
 @app.route("/api/orders/to-master", methods=["POST"])
 @login_required_json
@@ -813,7 +832,7 @@ def _build_anomalies(inv_rows, order_rows, master_rows):
         cur.execute(sql("SELECT source, message, created_at FROM errors WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 50"), (today,))
         for r in rows_to_dict(cur):
             src = (r.get('source') or '')
-            if 'ocr' in src.lower():
+            if 'ocr' in src.lower() or 'google' in src.lower():
                 anomalies['ocr_errors'].append({'type':'ocr_errors','message':f"OCR異常：{src}｜{r.get('message') or ''}"})
         cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? AND action LIKE ? ORDER BY created_at DESC LIMIT 50"), (today, '%黑名單登入攔截%'))
         for r in rows_to_dict(cur):
@@ -918,6 +937,27 @@ def api_anomalies():
     return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 
+@app.route('/api/admin/google-ocr', methods=['GET'])
+@login_required_json
+def api_admin_google_ocr_get():
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    period = datetime.now().strftime('%Y-%m')
+    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
+
+@app.route('/api/admin/google-ocr', methods=['POST'])
+@login_required_json
+def api_admin_google_ocr_set():
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    data = request.get_json(silent=True) or {}
+    set_setting('google_ocr_enabled', '0')
+    set_setting('native_ocr_mode', '1')
+    log_action(current_username(), '保持原生OCR模式')
+    period = datetime.now().strftime('%Y-%m')
+    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
+
+
 @app.route('/api/sync/stream')
 @login_required_json
 def api_sync_stream():
@@ -989,30 +1029,7 @@ def api_recent_slots():
 @login_required_json
 def api_audit_trails():
     limit = int(request.args.get('limit') or 200)
-    username = (request.args.get('username') or '').strip()
-    entity_type = (request.args.get('entity_type') or '').strip()
-    keyword = (request.args.get('q') or '').strip().lower()
-    start_date = (request.args.get('start_date') or '').strip()
-    end_date = (request.args.get('end_date') or '').strip()
-    items = list_audit_trails(limit=max(limit * 4, 200))
-    filtered = []
-    for item in items:
-        if username and username not in (item.get('username') or ''):
-            continue
-        if entity_type and entity_type not in (item.get('entity_type') or ''):
-            continue
-        created = (item.get('created_at') or '')[:10]
-        if start_date and created and created < start_date:
-            continue
-        if end_date and created and created > end_date:
-            continue
-        hay = json.dumps(item, ensure_ascii=False).lower()
-        if keyword and keyword not in hay:
-            continue
-        filtered.append(item)
-        if len(filtered) >= limit:
-            break
-    return jsonify(success=True, items=filtered)
+    return jsonify(success=True, items=list_audit_trails(limit=limit))
 
 @app.route('/api/customer-specs', methods=['GET'])
 @login_required_json
@@ -1024,14 +1041,12 @@ def api_customer_specs():
 @login_required_json
 def api_reports_export():
     report_type = (request.args.get('type') or 'inventory').strip()
-    start_date = (request.args.get('start_date') or '').strip()
-    end_date = (request.args.get('end_date') or '').strip()
     if report_type == 'inventory':
         rows = inventory_summary()
         columns = [('商品', 'product_text'), ('總數量', 'qty'), ('已放倉庫', 'placed_qty'), ('未放倉庫', 'unplaced_qty'), ('位置', 'location')]
         name = 'inventory_report.xlsx'
     elif report_type == 'shipping':
-        rows = get_shipping_records(start_date or None, end_date or None, request.args.get('q') or '')
+        rows = get_shipping_records(request.args.get('start_date'), request.args.get('end_date'), request.args.get('q') or '')
         columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
         name = 'shipping_report.xlsx'
     elif report_type == 'master_orders':
@@ -1046,62 +1061,6 @@ def api_reports_export():
         return error_response('報表類型不存在')
     buf = export_rows_to_xlsx(report_type, rows, columns)
     return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-
-@app.route('/api/backups/download/<path:filename>', methods=['GET'])
-@login_required_json
-def api_backup_download(filename):
-    safe_name = os.path.basename(filename)
-    path = os.path.join('backups', safe_name)
-    if not os.path.isfile(path):
-        return error_response('找不到備份檔', 404)
-    return send_file(path, as_attachment=True, download_name=safe_name)
-
-@app.route('/api/backups/restore', methods=['POST'])
-@login_required_json
-def api_backup_restore():
-    if current_username() != '陳韋廷':
-        return error_response('權限不足', 403)
-    data = request.get_json(silent=True) or {}
-    filename = os.path.basename((data.get('filename') or '').strip())
-    if not filename:
-        return error_response('請選擇備份檔')
-    path = os.path.join('backups', filename)
-    if not os.path.isfile(path):
-        return error_response('找不到備份檔', 404)
-    if filename.endswith('.json'):
-        payload = json.load(open(path, 'r', encoding='utf-8'))
-        conn = get_db(); cur = conn.cursor()
-        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','settings','customer_aliases','warehouse_recent_slots','audit_trails']
-        try:
-            for table in tables:
-                if table not in payload:
-                    continue
-                cur.execute(sql(f'DELETE FROM {table}'))
-                rows = payload.get(table) or []
-                for row in rows:
-                    keys = list(row.keys())
-                    if not keys:
-                        continue
-                    cols = ','.join(keys)
-                    holders = ','.join(['?'] * len(keys))
-                    cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row[k] for k in keys))
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            log_error('backup_restore', str(e))
-            return error_response('還原失敗')
-        finally:
-            conn.close()
-        notify_sync_event(kind='refresh', module='all', message='已還原備份')
-        return jsonify(success=True)
-    return error_response('目前只支援 JSON 備份還原')
-
-@app.route('/api/session/config', methods=['GET'])
-@login_required_json
-def api_session_config():
-    return jsonify(success=True, idle_timeout_seconds=1800)
 
 @app.route("/health")
 def health():

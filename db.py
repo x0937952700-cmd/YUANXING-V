@@ -249,8 +249,17 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             INSERT INTO app_settings(key, value, updated_at)
             VALUES (%s, %s, %s)
             ON CONFLICT (key) DO NOTHING
+        """, ('google_ocr_enabled', '0', now()))
+        cur.execute("""
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO NOTHING
         """, ('native_ocr_mode', '1', now()))
     else:
+        cur.execute("""
+            INSERT OR IGNORE INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+        """, ('google_ocr_enabled', '0', now()))
         cur.execute("""
             INSERT OR IGNORE INTO app_settings(key, value, updated_at)
             VALUES (?, ?, ?)
@@ -1067,6 +1076,25 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         conn.close(); return {'success': False, 'error': '格子內還有商品，無法刪除'}
     cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
     conn.commit(); conn.close(); return {'success': True}
+
+def warehouse_delete_column(zone, column_index):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
+    rows = cur.fetchall()
+    for row in rows:
+        try:
+            items_raw = row[0] if USE_POSTGRES else row['items_json']
+            items = json.loads(items_raw or '[]')
+        except Exception:
+            items = []
+        if items:
+            conn.close()
+            return {'success': False, 'error': '欄位內還有商品，無法刪除'}
+    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ?"), (zone, column_index))
+    conn.commit()
+    conn.close()
+    return {'success': True}
 
 def warehouse_move_item(from_key, to_key, product_text, qty):
     conn = get_db()

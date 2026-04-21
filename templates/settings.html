@@ -33,7 +33,7 @@
       </div>
       <div class="card">
         <div class="title">使用方式</div>
-        <div class="sub">請從原生 App 內按「上傳檔案」或「拍照」，辨識完成會直接貼進下方文字框。</div>
+        <div class="sub">請從原生 App 內按「原生相簿辨識」或「原生相機辨識」，辨識完成會直接貼進下方文字框。</div>
       </div>
     </div>
   </div>
@@ -77,8 +77,6 @@
       </div>
     </div>
     <div class="btn-row compact">
-      <input class="text-input small" id="report-start" type="date">
-      <input class="text-input small" id="report-end" type="date">
       <button class="ghost-btn" onclick="downloadReport('inventory')">庫存報表</button>
       <button class="ghost-btn" onclick="downloadReport('shipping')">出貨報表</button>
       <button class="ghost-btn" onclick="downloadReport('master_orders')">總單報表</button>
@@ -93,13 +91,6 @@
         <div class="muted">查看誰在什麼時間改了哪些資料。</div>
       </div>
       <button class="primary-btn" onclick="loadAuditTrails()">重新整理</button>
-    </div>
-    <div class="btn-row compact">
-      <input class="text-input small" id="audit-q" placeholder="搜尋關鍵字">
-      <input class="text-input small" id="audit-user" placeholder="操作人">
-      <input class="text-input small" id="audit-entity" placeholder="模組">
-      <input class="text-input small" id="audit-start" type="date">
-      <input class="text-input small" id="audit-end" type="date">
     </div>
     <div id="audit-trails-list" class="chip-list stacked-list"></div>
   </div>
@@ -122,7 +113,7 @@
         <div class="section-title">系統狀態</div>
         <div class="muted">快速查看原生 OCR 模式與備份狀態。</div>
       </div>
-      <button class="primary-btn" onclick="loadBackups()">全部重新整理</button>
+      <button class="primary-btn" onclick="loadGoogleOcrStatus(); loadBackups()">全部重新整理</button>
     </div>
     <div id="system-status-panel" class="card-list"></div>
   </div>
@@ -135,7 +126,7 @@
       </div>
       <button class="primary-btn" onclick="createBackup()">立即備份</button>
     </div>
-    <div id="backup-panel" class="table-card">載入中...</div><div class="small-note">還原前請先下載備份保留一份。</div>
+    <div id="backup-panel" class="table-card">載入中...</div>
   </div>
   {% endif %}
 
