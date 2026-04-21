@@ -547,17 +547,7 @@ async function renderWarehouse(){
     } catch (e) {}
     $('warehouse-unplaced-pill') && ($('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`);
     renderWarehouseZones();
-    renderWarehouseUnplacedInline();
     setWarehouseZone(state.warehouse.activeZone || 'A', false);
-    try {
-      const rawQuick = localStorage.getItem('warehouseQuickPlaceProduct');
-      if (rawQuick) {
-        localStorage.removeItem('warehouseQuickPlaceProduct');
-        const item = JSON.parse(rawQuick);
-        const idx = (state.warehouse.availableItems || []).findIndex(it => it.product_text === item.product_text);
-        if (idx >= 0) setTimeout(() => quickPlaceUnplaced(idx), 180);
-      }
-    } catch (e) {}
   } catch (e) {
     console.error(e);
     toast(e.message || '倉庫圖載入失敗', 'error');
@@ -683,13 +673,7 @@ function renderWarehouseZones(){
           if (!raw) return;
           const parsed = JSON.parse(raw);
           if (parsed.kind === 'warehouse-item') {
-            let qty = parseInt(parsed.qty || 1, 10) || 1;
-            if (qty > 1) {
-              const input = window.prompt(`要移動幾件？（可拆量移動，最多 ${qty} 件）`, String(qty));
-              if (input === null) return;
-              qty = Math.max(1, Math.min(qty, parseInt(input || '1', 10) || 1));
-            }
-            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, qty);
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty);
           }
         });
         list.appendChild(slot);
@@ -705,6 +689,16 @@ function renderWarehouseZones(){
 async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zone, column); }
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
+async function deleteWarehouseColumn(zone, column){
+  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
+  if (!ok) return;
+  try {
+    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
+    toast('已刪除欄位', 'ok');
+    await renderWarehouse();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function openWarehouseModal(zone, column, num){
   state.currentCell = { zone, column, slot_type: 'direct', slot_number: num };
   state.currentCellItems = getCellItems(zone, column, num);
@@ -713,7 +707,6 @@ async function openWarehouseModal(zone, column, num){
   $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
   renderWarehouseCellItems();
   refreshWarehouseSelect();
-  loadRecentSlots();
   const search = $('warehouse-item-search');
   if (search) search.oninput = refreshWarehouseSelect;
 }
