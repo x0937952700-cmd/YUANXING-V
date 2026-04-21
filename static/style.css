@@ -370,3 +370,16 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .ocr-history-item{justify-content:space-between;max-width:100%;text-align:left}
 .flash-highlight{animation:flashOutline 1.1s ease 1}
 @keyframes flashOutline{0%{box-shadow:0 0 0 0 rgba(37,99,235,.45)}50%{box-shadow:0 0 0 8px rgba(37,99,235,.2)}100%{box-shadow:0 0 0 0 rgba(37,99,235,0)}}
+
+
+.ocr-action-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:10px}
+.ocr-main-btn{width:100%;justify-content:center;display:inline-flex}
+.ocr-status-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:center}
+.ocr-status-row .pill,.ocr-status-row .inline-select{width:100%;min-height:46px}
+.ocr-status-row .inline-select{min-width:0}
+.warehouse-plusminus-btn{min-width:52px;font-size:1.15rem;font-weight:900;padding:8px 0}
+.vertical-column-card .warehouse-col-tools .warehouse-plusminus-btn{flex:0 0 56px}
+@media (max-width:720px){
+  .ocr-status-row{grid-template-columns:1fr}
+  .ocr-action-row{grid-template-columns:1fr 1fr}
+}

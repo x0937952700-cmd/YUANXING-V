@@ -9,27 +9,19 @@
 
   {% if module_key not in ['shipping_query','warehouse','customers'] %}
   <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
-    <div class="upload-row tight-row">
-      <button class="primary-btn" onclick="openAlbumPicker()">原生相簿辨識</button>
+    <div class="upload-row tight-row ocr-action-row">
+      <button class="primary-btn ocr-main-btn" onclick="openAlbumPicker()">上傳檔案</button>
+      <button class="ghost-btn ocr-main-btn" onclick="openCameraPicker()">拍照</button>
+    </div>
+    <div class="upload-row tight-row ocr-option-row ocr-status-row">
       <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
       <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
-      <button class="ghost-btn" onclick="openCameraPicker()">原生相機辨識</button>
-    </div>
-    <div class="upload-row tight-row ocr-option-row">
-      <span class="pill" id="offline-sync-pill">即時同步</span>
       <select id="ocr-mode-select" class="text-input small inline-select">
-        <option value="blue">藍字優先</option>
-        <option value="general">一般模式</option>
-        <option value="handwriting">手寫優先</option>
-      </select>
-      <select id="ocr-template-select" class="text-input small inline-select">
-        <option value="whiteboard">白板模板</option>
-        <option value="shipping_note">出貨單模板</option>
-        <option value="native_device">通用模板</option>
+        <option value="blue">優先選項：藍字優先</option>
+        <option value="general">優先選項：一般模式</option>
+        <option value="handwriting">優先選項：手寫優先</option>
       </select>
     </div>
-    <div class="small-note native-ocr-note">這一版已改成手機原生文字辨識。拍照或選圖後，會先在原生 App 內手動框選，再直接辨識並貼入下方文字框；你仍可手動修改後送出。</div>
-    <div id="ocr-status-detail" class="small-note">辨識引擎：native_device_ocr</div>
     <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
       <div class="section-head"><h3>辨識來源定位</h3><span class="muted">可點下方每一行內容，反查原圖位置。</span></div>
       <div id="ocr-preview-wrap" class="ocr-preview-wrap">
@@ -39,8 +31,6 @@
       </div>
       <div id="ocr-line-map" class="chip-list ocr-line-map"></div>
     </div>
-    <div class="section-head"><h3>最近辨識</h3><span class="muted">可快速回填最近幾筆 OCR 結果</span></div>
-    <div id="ocr-history-list" class="chip-list ocr-history-list"></div>
 
     {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
@@ -49,8 +39,8 @@
 
     <label class="field-label">倉庫格位 / 預設位置</label>
     <input class="text-input" id="location-input" placeholder="例如：A-1-01">
-    <label class="field-label">OCR 文字框（可直接修改）</label>
-    <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡，可人工修改"></textarea>
+    <label class="field-label">OCR 文字框（可直接修改 / 可貼上文字自動整理）</label>
+    <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡；也可以直接貼上手機辨識好的文字，系統會自動整理成你要的格式"></textarea>
     <div class="btn-row">
       <button class="primary-btn" onclick="confirmSubmit()">確認送出</button>
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>

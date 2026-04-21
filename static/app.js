@@ -25,6 +25,8 @@ const state = {
   lineMap: [],
   nativePreview: null,
   pendingNativeRequestId: '',
+  ocrTextareaAutoFormatting: false,
+  ocrTextareaLastPastedAt: 0,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -53,7 +55,7 @@ function updateOfflineSyncPill(){
   const pill = $('offline-sync-pill');
   if (!pill) return;
   const count = state.pendingSubmitQueue.length;
-  pill.textContent = count ? `待同步：${count}` : '即時同步';
+  pill.textContent = count ? `待同步：${count}` : '已同步';
   pill.classList.toggle('warn', !!count);
 }
 function getSelectedOcrMode(){ return ($('ocr-mode-select')?.value || state.nativeOcrMode || 'blue'); }
@@ -93,7 +95,7 @@ function restoreOcrHistory(index){
   state.lineMap = it.line_map || [];
   state.nativePreview = it.preview || null;
   renderNativePreview();
-  toast('已回填最近辨識結果', 'ok');
+  toast('已回填辨識結果', 'ok');
 }
 function renderLineMap(){
   const box = $('ocr-line-map');
@@ -142,7 +144,7 @@ function applyLocalNativeOcrPreview(payload={}){
   const fallbackText = payload.text || payload.rawText || payload.raw_text || '';
   if ($('ocr-text')) $('ocr-text').value = fallbackText;
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${payload.confidence || 0}%`;
-  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '手機原生辨識完成，正在整理格式…';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '辨識完成，正在整理格式…';
   setPillState($('ocr-warning-pill'), 'warn');
   state.lastOcrOriginalText = fallbackText;
   state.lastOcrItems = parseTextareaItems();
@@ -216,7 +218,7 @@ function setNativeOcrBusy(isBusy, source=''){
   const warningPill = $('ocr-warning-pill');
   if (!warningPill) return;
   if (isBusy) {
-    warningPill.textContent = source === 'camera' ? '手機相機辨識中…' : '手機相簿辨識中…';
+    warningPill.textContent = source === 'camera' ? '拍照辨識中…' : '上傳檔案辨識中…';
     setPillState(warningPill, 'warn');
   }
 }
@@ -242,11 +244,9 @@ async function parseNativeOcrText(payload={}){
   if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || payload.confidence || 0}%`;
   const warningPill = $('ocr-warning-pill');
-  const statusText = data.warning || '手機原生辨識完成，可直接修改後送出';
+  const statusText = data.warning || '辨識完成，可直接修改後送出';
   if (warningPill) warningPill.textContent = `${statusText}｜原生 ${data.ocr_confidence || payload.confidence || 0}%｜解析 ${data.parse_confidence || 0}%`;
   setPillState(warningPill, data.warning ? 'warn' : 'ok');
-  const detail = $('ocr-status-detail');
-  if (detail) detail.textContent = `辨識引擎：${(data.engines || ['native_device_ocr']).join(' / ')}｜模板：${data.template || 'native_device'}`;
   renderNativePreview();
   saveOcrHistoryEntry({
     text: data.text || payload.text || '',
@@ -256,7 +256,7 @@ async function parseNativeOcrText(payload={}){
     preview: state.nativePreview,
     created_at: new Date().toISOString(),
   });
-  toast(data.warning || '手機原生辨識完成', data.warning ? 'warn' : 'ok');
+  toast(data.warning || '辨識完成', data.warning ? 'warn' : 'ok');
   scrollToOcrFields();
   if (state.module === 'ship') await loadShipPreview();
 }
@@ -269,7 +269,7 @@ async function handleNativeOcrResult(payload={}){
     await parseNativeOcrText(payload);
   } catch (e) {
     const msg = e.message || '原生辨識失敗';
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = `${msg}；已保留原始辨識文字，可直接修改或稍後自動同步`;
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = `${msg}；已保留原始辨識文字，可直接修改或稍後補送`;
     setPillState($('ocr-warning-pill'), 'error');
     if (payload && (payload.text || payload.rawText || payload.raw_text)) {
       saveOcrHistoryEntry({
@@ -524,9 +524,64 @@ async function createBackup(){
   }
 }
 
+
+async function autoFormatOcrTextarea(source='paste'){
+  const area = $('ocr-text');
+  if (!area || state.ocrTextareaAutoFormatting) return;
+  const raw = (area.value || '').trim();
+  if (!raw) return;
+  state.ocrTextareaAutoFormatting = true;
+  try {
+    const data = await requestJSON('/api/native-ocr/parse', {
+      method: 'POST',
+      body: JSON.stringify({
+        raw_text: raw,
+        customer_hint: ($('customer-name')?.value || '').trim(),
+        confidence: 0,
+        blocks: [],
+        ocr_mode: getSelectedOcrMode(),
+        template: getSelectedTemplate(),
+        roi: null,
+      })
+    });
+    if (data.text) area.value = data.text;
+    if ($('customer-name') && data.customer_guess && !$('customer-name').value.trim()) $('customer-name').value = data.customer_guess;
+    state.lastOcrItems = data.items || parseTextareaItems();
+    state.lineMap = data.line_map || [];
+    if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
+    if ($('ocr-warning-pill')) {
+      $('ocr-warning-pill').textContent = data.warning || (source === 'paste' ? '已自動整理貼上的 OCR 文字' : '已自動整理 OCR 文字');
+      setPillState($('ocr-warning-pill'), data.warning ? 'warn' : 'ok');
+    }
+    renderNativePreview();
+  } catch (e) {
+    if ($('ocr-warning-pill')) {
+      $('ocr-warning-pill').textContent = '文字已貼上，可直接修改後送出';
+      setPillState($('ocr-warning-pill'), 'warn');
+    }
+  } finally {
+    state.ocrTextareaAutoFormatting = false;
+  }
+}
+
+function bindOcrTextareaAutoFormat(){
+  const area = $('ocr-text');
+  if (!area || area.dataset.autoFormatBound === '1') return;
+  area.dataset.autoFormatBound = '1';
+  area.addEventListener('paste', () => {
+    state.ocrTextareaLastPastedAt = Date.now();
+    setTimeout(() => autoFormatOcrTextarea('paste'), 80);
+  });
+  area.addEventListener('drop', () => {
+    state.ocrTextareaLastPastedAt = Date.now();
+    setTimeout(() => autoFormatOcrTextarea('drop'), 80);
+  });
+}
+
 function initModulePage(){
   const module = state.module;
   setupUploadButtons();
+  bindOcrTextareaAutoFormat();
   const album = $('album-input');
   const camera = $('camera-input');
   if (album) album.addEventListener('change', e => handleFiles(e.target.files));
@@ -559,7 +614,7 @@ function resetModuleForm(){
 async function handleFiles(fileList){
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  toast('請改用原生 App 的相機或相簿辨識；手動框選已整合到原生流程。', 'warn');
+  toast('請改用上傳檔案或拍照；手動框選已整合到原生流程。', 'warn');
 }
 
 async function uploadOcrFile(file, useRoi=false){
@@ -753,7 +808,7 @@ function applySuggestedRoiBox(roi){
 }
 
 async function runRoiOcr(){
-  toast('手動框選已改成原生 App 內先框選再辨識，請直接點原生相機或原生相簿。', 'ok');
+  toast('手動框選已改成原生 App 內先框選再辨識，請直接點拍照或上傳檔案。', 'ok');
 }
 
 function clearRoiSelection(){
@@ -1242,7 +1297,7 @@ function renderWarehouseZones(){
       const col = document.createElement('div');
       col.className = 'vertical-column-card intuitive-column';
       const visibleSlots = getColumnVisibleSlots(zone, c);
-      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋新增格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－刪除最後一格</button><button class="ghost-btn small-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除整欄</button></div>`;
+      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn warehouse-plusminus-btn" title="增加格子" aria-label="增加格子" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button><button class="ghost-btn small-btn warehouse-plusminus-btn" title="減少格子" aria-label="減少格子" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button></div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
       for (let n = 1; n <= visibleSlots; n++) {
