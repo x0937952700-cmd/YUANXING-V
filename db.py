@@ -684,7 +684,105 @@ def _deduct_from_inventory(cur, product_text, qty_needed):
             break
     return True, used
 
-def ship_order(customer_name, items, operator):
+def _sum_available(cur, table, customer_name, product_text):
+    cur.execute(sql(f"SELECT COALESCE(SUM(qty),0) AS total FROM {table} WHERE customer_name = ? AND product_text = ? AND qty > 0"), (customer_name, product_text))
+    row = fetchone_dict(cur)
+    return int((row or {}).get('total') or 0)
+
+def _sum_inventory(cur, product_text):
+    cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM inventory WHERE product_text = ? AND qty > 0"), (product_text,))
+    row = fetchone_dict(cur)
+    return int((row or {}).get('total') or 0)
+
+def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_target):
+    qty_target = int(qty_target or 0)
+    if qty_target <= 0:
+        return []
+    cur.execute(sql(f"""
+        SELECT id, qty
+        FROM {table}
+        WHERE customer_name = ? AND product_text = ? AND qty > 0
+        ORDER BY id ASC
+    """), (customer_name, product_text))
+    rows = cur.fetchall()
+    remain = qty_target
+    used = []
+    for row in rows:
+        rid = row[0] if USE_POSTGRES else row["id"]
+        stock = row[1] if USE_POSTGRES else row["qty"]
+        if remain <= 0:
+            break
+        use_qty = min(int(stock), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), rid))
+        used.append({"id": rid, "qty": use_qty})
+        remain -= use_qty
+    return used
+
+def _warehouse_locations_for_product(product_text):
+    cells = warehouse_get_cells()
+    out = []
+    for cell in cells:
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+        except Exception:
+            items = []
+        for it in items:
+            if (it.get('product_text') or '') == product_text and int(it.get('qty') or 0) > 0:
+                visual_num = int(cell.get('slot_number') or 0)
+                if (cell.get('slot_type') or '') == 'back':
+                    visual_num += 10
+                out.append({
+                    'zone': cell.get('zone'),
+                    'column_index': int(cell.get('column_index') or 0),
+                    'slot_type': cell.get('slot_type'),
+                    'slot_number': int(cell.get('slot_number') or 0),
+                    'visual_slot': visual_num,
+                    'qty': int(it.get('qty') or 0),
+                    'product_text': it.get('product_text') or ''
+                })
+    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot']))
+    return out
+
+def preview_ship_order(customer_name, items):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        preview = []
+        needs_inventory_fallback = False
+        for item in items:
+            product_text = item['product_text']
+            qty_needed = int(item.get('qty') or 0)
+            master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
+            order_available = _sum_available(cur, 'orders', customer_name, product_text)
+            inventory_available = _sum_inventory(cur, product_text)
+            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
+            inventory_only_ok = inventory_available >= qty_needed
+            needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
+            if needs_fallback:
+                needs_inventory_fallback = True
+            preview.append({
+                'product_text': product_text,
+                'qty': qty_needed,
+                'master_available': master_available,
+                'order_available': order_available,
+                'inventory_available': inventory_available,
+                'strict_ok': strict_ok,
+                'inventory_only_ok': inventory_only_ok,
+                'needs_inventory_fallback': needs_fallback,
+                'locations': _warehouse_locations_for_product(product_text),
+            })
+        return {
+            'success': True,
+            'items': preview,
+            'needs_inventory_fallback': needs_inventory_fallback,
+            'message': ('客戶總單/訂單不足，可改扣庫存' if needs_inventory_fallback else '可直接出貨')
+        }
+    finally:
+        conn.close()
+
+def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -693,32 +791,58 @@ def ship_order(customer_name, items, operator):
             product_text = item["product_text"]
             qty_needed = int(item["qty"])
 
-            ok1, used_master = _deduct_from_table(cur, "master_orders", customer_name, product_text, qty_needed)
-            if not ok1:
-                conn.rollback()
-                return {"success": False, "error": f"{product_text} 總單庫存不足"}
+            master_available = _sum_available(cur, "master_orders", customer_name, product_text)
+            order_available = _sum_available(cur, "orders", customer_name, product_text)
+            inventory_available = _sum_inventory(cur, product_text)
 
-            ok2, used_order = _deduct_from_table(cur, "orders", customer_name, product_text, qty_needed)
-            if not ok2:
-                conn.rollback()
-                return {"success": False, "error": f"{product_text} 訂單庫存不足"}
+            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
 
-            ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
-            if not ok3:
-                conn.rollback()
-                return {"success": False, "error": f"{product_text} 庫存不足"}
+            if strict_ok:
+                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, qty_needed)
+                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, qty_needed)
+                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                if not ok3:
+                    conn.rollback()
+                    return {"success": False, "error": f"{product_text} 庫存不足"}
+                note = "已出貨"
+            else:
+                if not allow_inventory_fallback:
+                    conn.rollback()
+                    reasons = []
+                    if master_available < qty_needed:
+                        reasons.append(f"總單不足({master_available}/{qty_needed})")
+                    if order_available < qty_needed:
+                        reasons.append(f"訂單不足({order_available}/{qty_needed})")
+                    if inventory_available < qty_needed:
+                        reasons.append(f"庫存不足({inventory_available}/{qty_needed})")
+                    return {"success": False, "requires_inventory_fallback": True, "error": f"{product_text}「{'、'.join(reasons)}」，是否改扣庫存？"}
+                if inventory_available < qty_needed:
+                    conn.rollback()
+                    return {"success": False, "error": f"{product_text} 庫存不足，無法改扣庫存"}
+                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, min(master_available, qty_needed))
+                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, min(order_available, qty_needed))
+                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                if not ok3:
+                    conn.rollback()
+                    return {"success": False, "error": f"{product_text} 庫存不足"}
+                note = "庫存補扣出貨"
 
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, product_text, product_code, qty, operator, shipped_at, note)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, item.get("product_code", ""), qty_needed, operator, now(), "已出貨"))
+            """), (customer_name, product_text, item.get("product_code", ""), qty_needed, operator, now(), note))
 
             breakdown.append({
                 "product_text": product_text,
                 "qty": qty_needed,
-                "master_deduct": qty_needed,
-                "order_deduct": qty_needed,
-                "inventory_deduct": qty_needed
+                "master_deduct": sum(x["qty"] for x in used_master),
+                "order_deduct": sum(x["qty"] for x in used_order),
+                "inventory_deduct": sum(x["qty"] for x in used_inv),
+                "master_available": master_available,
+                "order_available": order_available,
+                "inventory_available": inventory_available,
+                "used_inventory_fallback": (not strict_ok),
+                "locations": _warehouse_locations_for_product(product_text),
             })
         conn.commit()
         return {"success": True, "breakdown": breakdown}

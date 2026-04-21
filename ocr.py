@@ -64,7 +64,7 @@ def _mask_color(img, mode="blue"):
         elif mode == "green":
             score = int(g * 1.9 - r * 0.75 - b * 0.8)
             val = 255 if score > 45 and g > r + 10 and g > b + 10 else 0
-        else:
+        elif mode == "handwriting":
             # handwriting-like dark strokes
             v = (r + g + b) // 3
             val = 255 if v < 185 else 0
@@ -242,8 +242,8 @@ def _extract_customer_by_template(image_path, template):
             img = _crop_relative(image_path, (0.02, 0.04, 0.55, 0.26))
             mask = _mask_color(img, mode="green")
         elif template == "shipping_note":
-            img = _crop_relative(image_path, (0.0, 0.03, 0.28, 0.2))
-            mask = _mask_color(img, mode="blue")
+            img = _crop_relative(image_path, (0.0, 0.02, 0.33, 0.24))
+            mask = _mask_color(img, mode="handwriting")
         else:
             mask = _mask_color(_open_and_crop(image_path), mode="blue")
         result = _google_annotate_from_image(mask)
@@ -257,7 +257,7 @@ def _extract_products_by_template(image_path, template, roi=None):
         if roi:
             mask = preprocess_image(image_path, roi=roi, mode="blue")
         elif template == "shipping_note":
-            img = _crop_relative(image_path, (0.03, 0.12, 0.5, 0.68))
+            img = _crop_relative(image_path, (0.02, 0.16, 0.52, 0.78))
             mask = _mask_color(img, mode="blue")
         else:
             mask = preprocess_image(image_path, mode="blue")

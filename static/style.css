@@ -282,3 +282,7 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 @media (max-width:720px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(6,minmax(120px,1fr));}}
 .ocr-preview-template{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0;}
 .template-pill{border-radius:999px;padding:8px 12px;background:#eef2ff;color:#334155;font-weight:700;font-size:.88rem;border:1px solid rgba(17,24,39,.08);}
+
+#selected-customer-items .chip-item, #ship-preview-panel .chip-item { margin: 6px 0; }
+.compact-grid { margin-top: 10px; }
+#ship-preview-panel .card { margin-top: 10px; }

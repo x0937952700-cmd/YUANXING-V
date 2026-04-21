@@ -10,7 +10,7 @@ from PIL import Image
 from db import (
     init_db, get_user, create_user, update_password, log_action,
     save_inventory_item, list_inventory, save_order, save_master_order,
-    ship_order, get_shipping_records, save_correction, log_error,
+    ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot, warehouse_delete_column,
@@ -366,8 +366,8 @@ def api_ship():
         if not customer_name:
             return error_response("請輸入客戶名稱")
         upsert_customer(customer_name)
-        # confirm ship button required from frontend
-        result = ship_order(customer_name, items, current_username())
+        allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
+        result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
             log_action(current_username(), "完成出貨")
         return jsonify(result)
@@ -383,6 +383,22 @@ def api_shipping_records():
     q = (request.args.get("q") or '').strip()
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
     return jsonify(success=True, records=rows)
+
+@app.route("/api/ship-preview", methods=["POST"])
+@login_required_json
+def api_ship_preview():
+    try:
+        data = request.get_json(silent=True) or {}
+        items = _parse_items_from_request(data)
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        if not items:
+            return error_response("沒有可預覽的商品")
+        return jsonify(preview_ship_order(customer_name, items))
+    except Exception as e:
+        log_error("ship_preview", str(e))
+        return error_response("出貨預覽失敗")
 
 @app.route("/api/customers", methods=["GET", "POST"])
 @login_required_json

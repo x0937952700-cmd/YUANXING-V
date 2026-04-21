@@ -296,6 +296,7 @@ async function uploadOcrFile(file, useRoi=false, force=false){
     const tplName = data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式');
     if (data.warning) toast(data.warning, 'warn');
     else toast((useRoi ? '區域辨識完成' : 'OCR辨識完成') + '｜' + tplName, 'ok');
+    if (state.module === 'ship') await loadShipPreview();
   } catch (e) {
     if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = e.message;
     toast(e.message || 'OCR辨識失敗', 'error');
@@ -341,7 +342,7 @@ async function loadTodayChanges(){
   try {
     const data = await requestJSON('/api/today-changes', { method:'GET' });
     const s = data.summary || {};
-    $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
+    if ($('home-unplaced-pill')) $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
     $('today-summary-cards').innerHTML = [
       ['進貨 / 其他異動', s.inbound_count || 0],
       ['出貨', s.outbound_count || 0],
@@ -500,7 +501,16 @@ async function confirmSubmit(){
       return;
     }
 
-    const payload = { customer_name, location, ocr_text, items };
+    let payload = { customer_name, location, ocr_text, items };
+    if (module === 'ship') {
+      const preview = state.shipPreview || await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
+      state.shipPreview = preview;
+      if (preview.needs_inventory_fallback) {
+        const ok = await askConfirm('該客戶總單 / 訂單不足，是否改扣庫存？', '出貨提醒', '確認改扣庫存', '取消');
+        if (!ok) return;
+        payload.allow_inventory_fallback = true;
+      }
+    }
     const data = await requestJSON(endpoint, {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -528,7 +538,8 @@ function renderSubmitResult(module, data, customerName=''){
     html += `<div class="section-title">出貨結果</div>`;
     html += `<div class="muted">客戶：${escapeHTML(customerName)}</div>`;
     breakdown.forEach(b => {
-      html += `<div class="chip-item"><strong>${escapeHTML(b.product_text)}</strong> × ${b.qty} ｜ 總單 ${b.master_deduct} ｜ 訂單 ${b.order_deduct} ｜ 庫存 ${b.inventory_deduct}</div>`;
+      const locs = (b.locations || []).map(loc => `${loc.zone}區第${loc.column_index}欄第${String(loc.visual_slot || loc.slot_number).padStart(2,'0')}格`).join('、');
+      html += `<div class="chip-item"><strong>${escapeHTML(b.product_text)}</strong> × ${b.qty}<br>扣除：總單 ${b.master_deduct}｜訂單 ${b.order_deduct}｜庫存 ${b.inventory_deduct}${b.used_inventory_fallback ? '｜庫存補扣' : ''}${locs ? `<br>位置：${escapeHTML(locs)}` : ''}</div>`;
     });
   } else if (module === 'orders') {
     html += `<div class="section-title">訂單已建立</div><div class="muted">客戶：${escapeHTML(customerName)}｜狀態：pending</div>`;
@@ -590,7 +601,7 @@ async function loadCustomerBlocks(){
       chip.addEventListener('dragstart', ev => {
         ev.dataTransfer.setData('text/plain', JSON.stringify({name:c.name, region:c.region || '北區'}));
       });
-      chip.addEventListener('click', () => openCustomerModal(c.name));
+      chip.addEventListener('click', () => { if (['orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
       const target = groups[c.region || '北區'] || groups['北區'];
       target?.appendChild(chip);
     });
@@ -603,6 +614,56 @@ async function loadCustomerBlocks(){
     }
   } catch (e) {
     console.error(e);
+  }
+}
+
+
+async function selectCustomerForModule(name){
+  if ($('customer-name')) $('customer-name').value = name;
+  try {
+    const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    const panel = $('selected-customer-items');
+    if (panel) {
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>');
+    }
+    if (state.module === 'ship') await loadShipPreview();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function loadShipPreview(){
+  if (state.module !== 'ship') return;
+  const panel = $('ship-preview-panel');
+  if (!panel) return;
+  const customer_name = ($('customer-name')?.value || '').trim();
+  const items = parseTextareaItems();
+  if (!customer_name || !items.length) { panel.classList.add('hidden'); panel.innerHTML=''; state.shipPreview = null; return; }
+  try {
+    const data = await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
+    state.shipPreview = data;
+    panel.classList.remove('hidden');
+    const highlightKeys = [];
+    let html = `<div class="section-title">出貨前預覽｜${escapeHTML(customer_name)}</div>`;
+    if (data.needs_inventory_fallback) html += `<div class="warning-red">客戶總單 / 訂單不足，確認送出時會詢問是否改扣庫存。</div>`;
+    (data.items || []).forEach(it => {
+      html += `<div class="card"><div class="title">${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div><div class="sub">總單可扣：${it.master_available || 0}｜訂單可扣：${it.order_available || 0}｜庫存可扣：${it.inventory_available || 0}</div>`;
+      if (it.locations && it.locations.length) {
+        html += `<div class="chip-list">` + it.locations.map(loc => {
+          const key = `${loc.zone}|${loc.column_index}|${loc.slot_type}|${loc.slot_number}`;
+          highlightKeys.push(key);
+          return `<div class="chip-item">${loc.zone}區 第 ${loc.column_index} 欄 第 ${String(loc.visual_slot || loc.slot_number).padStart(2,'0')} 格｜${loc.qty}</div>`;
+        }).join('') + `</div>`;
+      } else {
+        html += `<div class="small-note">倉庫圖未找到位置</div>`;
+      }
+      html += `</div>`;
+    });
+    if (highlightKeys.length) localStorage.setItem('shipPreviewWarehouseHighlights', JSON.stringify(highlightKeys));
+    html += `<div class="btn-row"><button class="ghost-btn" onclick="window.open('/warehouse','_blank')">查看倉庫圖位置</button></div>`;
+    panel.innerHTML = html;
+  } catch (e) {
+    panel.classList.remove('hidden');
+    panel.innerHTML = `<div class="warning-red">${escapeHTML(e.message || '出貨預覽失敗')}</div>`;
   }
 }
 
@@ -728,6 +789,10 @@ async function renderWarehouse(){
     state.warehouse.cells = data.cells || [];
     state.warehouse.zones = data.zones || {};
     state.warehouse.availableItems = avail.items || [];
+    try {
+      const external = JSON.parse(localStorage.getItem('shipPreviewWarehouseHighlights') || '[]');
+      if (Array.isArray(external) && external.length) state.searchHighlightKeys = new Set(external);
+    } catch (e) {}
     $('warehouse-unplaced-pill') && ($('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`);
     renderWarehouseZones();
     setWarehouseZone(state.warehouse.activeZone || 'A', false);
@@ -1113,6 +1178,8 @@ window.toggleTodayChanges = toggleTodayChanges;
 window.runRoiOcr = runRoiOcr;
 window.clearRoiSelection = clearRoiSelection;
 window.learnOcrCorrection = learnOcrCorrection;
+window.loadShipPreview = loadShipPreview;
+window.selectCustomerForModule = selectCustomerForModule;
 window.addOrderToMaster = addOrderToMaster;
 
 window.setWarehouseZone = setWarehouseZone;
