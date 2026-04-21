@@ -19,18 +19,26 @@
     <div id="settings-msg" class="alert hidden"></div>
   </div>
 
-  {% if is_admin %}
   <div class="glass panel">
     <div class="section-head">
       <div>
-        <div class="section-title">Google OCR 控制</div>
-        <div class="muted">可查看本月使用次數，並手動開啟或關閉 Google OCR。</div>
+        <div class="section-title">OCR 模式</div>
+        <div class="muted">這一版已固定改為手機原生文字辨識，Google OCR 已完全停用。</div>
       </div>
-      <button class="primary-btn" onclick="loadGoogleOcrStatus()">重新整理</button>
     </div>
-    <div id="google-ocr-panel" class="table-card">載入中...</div>
+    <div class="card-list">
+      <div class="card">
+        <div class="title">目前狀態</div>
+        <div class="sub">{{ '手機原生 OCR 已啟用' if native_ocr_mode else '手機原生 OCR 未啟用' }}</div>
+      </div>
+      <div class="card">
+        <div class="title">使用方式</div>
+        <div class="sub">請從原生 App 內按「原生相簿辨識」或「原生相機辨識」，辨識完成會直接貼進下方文字框。</div>
+      </div>
+    </div>
   </div>
 
+  {% if is_admin %}
   <div class="glass panel">
     <div class="section-head">
       <div>
@@ -46,7 +54,7 @@
     <div class="section-head">
       <div>
         <div class="section-title">系統狀態</div>
-        <div class="muted">快速查看 Google OCR、密鑰與備份狀態。</div>
+        <div class="muted">快速查看原生 OCR 模式與備份狀態。</div>
       </div>
       <button class="primary-btn" onclick="loadGoogleOcrStatus(); loadBackups()">全部重新整理</button>
     </div>

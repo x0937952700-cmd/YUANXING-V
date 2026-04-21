@@ -17,12 +17,157 @@ const state = {
   lastOcrTemplate: '',
   __confirmResolver: null,
   todayOnlyUnread: false,
-  todayCategoryFilter: 'all'
+  todayCategoryFilter: 'all',
+  nativeOcrMode: 'blue',
+  nativeOcrTemplate: 'whiteboard',
+  ocrHistory: [],
+  pendingSubmitQueue: [],
+  lineMap: [],
+  nativePreview: null,
+  pendingNativeRequestId: '',
 };
 
 function $(id){ return document.getElementById(id); }
 function qs(sel){ return document.querySelector(sel); }
 function qsa(sel){ return Array.from(document.querySelectorAll(sel)); }
+
+const NATIVE_SHELL_ORIGIN_ALLOWLIST = ['capacitor://localhost', 'http://localhost', 'https://localhost', 'ionic://localhost', 'app://localhost', 'null', ''];
+const PENDING_SUBMIT_KEY = 'yuanxingPendingSubmits';
+const OCR_HISTORY_KEY = 'yuanxingOcrHistory';
+
+function getParentTargetOrigin(){ return '*'; }
+function safeJSONParse(raw, fallback){ try { return JSON.parse(raw); } catch(e){ return fallback; } }
+function isTrustedNativeMessage(event){
+  if (!event || !event.data || typeof event.data !== 'object') return false;
+  if (window.parent && event.source !== window.parent) return false;
+  const origin = String(event.origin || '');
+  return NATIVE_SHELL_ORIGIN_ALLOWLIST.includes(origin) || origin.startsWith('capacitor://') || origin.startsWith('ionic://') || origin.startsWith('app://') || origin.startsWith('http://localhost') || origin.startsWith('https://localhost');
+}
+function loadStoredQueues(){
+  state.pendingSubmitQueue = safeJSONParse(localStorage.getItem(PENDING_SUBMIT_KEY), []);
+  state.ocrHistory = safeJSONParse(localStorage.getItem(OCR_HISTORY_KEY), []);
+}
+function persistPendingQueue(){ localStorage.setItem(PENDING_SUBMIT_KEY, JSON.stringify(state.pendingSubmitQueue.slice(-30))); updateOfflineSyncPill(); }
+function persistOcrHistory(){ localStorage.setItem(OCR_HISTORY_KEY, JSON.stringify(state.ocrHistory.slice(0,20))); }
+function updateOfflineSyncPill(){
+  const pill = $('offline-sync-pill');
+  if (!pill) return;
+  const count = state.pendingSubmitQueue.length;
+  pill.textContent = count ? `待同步：${count}` : '即時同步';
+  pill.classList.toggle('warn', !!count);
+}
+function getSelectedOcrMode(){ return ($('ocr-mode-select')?.value || state.nativeOcrMode || 'blue'); }
+function getSelectedTemplate(){ return ($('ocr-template-select')?.value || state.nativeOcrTemplate || 'whiteboard'); }
+function setSelectedOcrOptions(mode, template){
+  state.nativeOcrMode = mode || state.nativeOcrMode || 'blue';
+  state.nativeOcrTemplate = template || state.nativeOcrTemplate || 'whiteboard';
+  if ($('ocr-mode-select')) $('ocr-mode-select').value = state.nativeOcrMode;
+  if ($('ocr-template-select')) $('ocr-template-select').value = state.nativeOcrTemplate;
+}
+function queuePendingSubmit(entry){
+  state.pendingSubmitQueue.push({ ...entry, queued_at: new Date().toISOString() });
+  persistPendingQueue();
+}
+function isLikelyNetworkError(err){
+  const msg = String(err?.message || err || '').toLowerCase();
+  return err instanceof TypeError || /network|failed to fetch|load failed|timeout|offline|internet/.test(msg);
+}
+function saveOcrHistoryEntry(entry){
+  const items = [entry, ...state.ocrHistory.filter(it => !(it.text === entry.text && it.customer_name === entry.customer_name))];
+  state.ocrHistory = items.slice(0, 12);
+  persistOcrHistory();
+  renderOcrHistory();
+}
+function renderOcrHistory(){
+  const box = $('ocr-history-list');
+  if (!box) return;
+  if (!state.ocrHistory.length) { box.innerHTML = '<div class="small-note">尚無最近辨識紀錄</div>'; return; }
+  box.innerHTML = state.ocrHistory.map((it, idx) => `<button class="chip-item ocr-history-item" onclick="restoreOcrHistory(${idx})"><span>${escapeHTML(it.customer_name || '未指定客戶')}</span><span>${escapeHTML((it.text || '').split(/\n/)[0] || '')}</span></button>`).join('');
+}
+function restoreOcrHistory(index){
+  const it = state.ocrHistory[index];
+  if (!it) return;
+  if ($('ocr-text')) $('ocr-text').value = it.text || '';
+  if ($('customer-name') && it.customer_name) $('customer-name').value = it.customer_name;
+  state.lastOcrItems = it.items || parseTextareaItems();
+  state.lineMap = it.line_map || [];
+  state.nativePreview = it.preview || null;
+  renderNativePreview();
+  toast('已回填最近辨識結果', 'ok');
+}
+function renderLineMap(){
+  const box = $('ocr-line-map');
+  if (!box) return;
+  if (!state.lineMap || !state.lineMap.length) { box.innerHTML = '<div class="small-note">辨識完成後，可點這裡的行內容反查圖片位置</div>'; return; }
+  box.innerHTML = state.lineMap.map((line, idx) => `<button class="chip-item ocr-line-chip" onclick="highlightOcrLine(${idx})">${escapeHTML(line.text || '')}</button>`).join('');
+}
+function highlightOcrLine(index){
+  const line = (state.lineMap || [])[index];
+  const previewBox = $('ocr-highlight-box');
+  const img = $('ocr-preview-img');
+  if (!line || !previewBox || !img || !state.nativePreview?.image) return;
+  const rect = img.getBoundingClientRect();
+  const bbox = line.bbox || {};
+  previewBox.style.left = `${(bbox.x || 0) * rect.width}px`;
+  previewBox.style.top = `${(bbox.y || 0) * rect.height}px`;
+  previewBox.style.width = `${(bbox.w || 0) * rect.width}px`;
+  previewBox.style.height = `${(bbox.h || 0) * rect.height}px`;
+  previewBox.classList.remove('hidden');
+  previewBox.classList.add('flash-highlight');
+  setTimeout(() => previewBox.classList.remove('flash-highlight'), 1800);
+}
+function renderNativePreview(){
+  const panel = $('ocr-preview-panel');
+  const img = $('ocr-preview-img');
+  if (!panel || !img) return;
+  if (!state.nativePreview?.image) { panel.classList.add('hidden'); renderLineMap(); return; }
+  img.src = state.nativePreview.image;
+  panel.classList.remove('hidden');
+  const roiBox = $('ocr-roi-box');
+  if (roiBox && state.nativePreview.roi) {
+    const apply = () => {
+      const rect = img.getBoundingClientRect();
+      if (!rect.width || !rect.height) return setTimeout(apply, 50);
+      roiBox.style.left = `${state.nativePreview.roi.x * rect.width}px`;
+      roiBox.style.top = `${state.nativePreview.roi.y * rect.height}px`;
+      roiBox.style.width = `${state.nativePreview.roi.w * rect.width}px`;
+      roiBox.style.height = `${state.nativePreview.roi.h * rect.height}px`;
+      roiBox.classList.remove('hidden');
+    };
+    apply();
+  }
+  renderLineMap();
+}
+function applyLocalNativeOcrPreview(payload={}){
+  const fallbackText = payload.text || payload.rawText || payload.raw_text || '';
+  if ($('ocr-text')) $('ocr-text').value = fallbackText;
+  if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${payload.confidence || 0}%`;
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '手機原生辨識完成，正在整理格式…';
+  setPillState($('ocr-warning-pill'), 'warn');
+  state.lastOcrOriginalText = fallbackText;
+  state.lastOcrItems = parseTextareaItems();
+  state.lineMap = payload.line_map || payload.lineMap || payload.blocks || [];
+  if (payload.previewDataUrl || payload.preview_data_url) {
+    state.nativePreview = { image: payload.previewDataUrl || payload.preview_data_url, roi: payload.roi || null };
+  }
+  renderNativePreview();
+}
+async function syncPendingSubmits(){
+  if (!state.pendingSubmitQueue.length) return;
+  const keep = [];
+  for (const entry of state.pendingSubmitQueue) {
+    try {
+      await requestJSON(entry.endpoint, { method: 'POST', body: JSON.stringify(entry.payload) });
+    } catch (e) {
+      keep.push(entry);
+    }
+  }
+  state.pendingSubmitQueue = keep;
+  persistPendingQueue();
+  if (!keep.length) toast('待同步資料已補送完成', 'ok');
+}
+window.addEventListener('online', () => { syncPendingSubmits(); });
+
 
 async function requestJSON(url, options={}){
   const res = await fetch(url, {
@@ -63,6 +208,119 @@ function scrollToOcrFields(){
   }
 }
 
+function canUseNativeOcr(){
+  return !!(window.NativeOcrBridge || window.parent !== window || window.Capacitor);
+}
+
+function setNativeOcrBusy(isBusy, source=''){
+  const warningPill = $('ocr-warning-pill');
+  if (!warningPill) return;
+  if (isBusy) {
+    warningPill.textContent = source === 'camera' ? '手機相機辨識中…' : '手機相簿辨識中…';
+    setPillState(warningPill, 'warn');
+  }
+}
+
+async function parseNativeOcrText(payload={}){
+  const data = await requestJSON('/api/native-ocr/parse', {
+    method: 'POST',
+    body: JSON.stringify({
+      raw_text: payload.text || payload.rawText || payload.raw_text || '',
+      customer_hint: payload.customer_name || payload.customerHint || '',
+      confidence: payload.confidence || 0,
+      blocks: payload.blocks || [],
+      ocr_mode: payload.ocrMode || getSelectedOcrMode(),
+      template: payload.template || getSelectedTemplate(),
+      roi: payload.roi || null,
+    })
+  });
+  if ($('ocr-text')) $('ocr-text').value = data.text || payload.text || '';
+  state.lastOcrOriginalText = data.raw_text || data.text || payload.text || '';
+  state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
+  state.lastOcrTemplate = data.template || getSelectedTemplate() || 'native_device';
+  state.lineMap = data.line_map || payload.line_map || payload.blocks || [];
+  if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
+  if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || payload.confidence || 0}%`;
+  const warningPill = $('ocr-warning-pill');
+  const statusText = data.warning || '手機原生辨識完成，可直接修改後送出';
+  if (warningPill) warningPill.textContent = `${statusText}｜原生 ${data.ocr_confidence || payload.confidence || 0}%｜解析 ${data.parse_confidence || 0}%`;
+  setPillState(warningPill, data.warning ? 'warn' : 'ok');
+  const detail = $('ocr-status-detail');
+  if (detail) detail.textContent = `辨識引擎：${(data.engines || ['native_device_ocr']).join(' / ')}｜模板：${data.template || 'native_device'}`;
+  renderNativePreview();
+  saveOcrHistoryEntry({
+    text: data.text || payload.text || '',
+    customer_name: data.customer_guess || payload.customer_name || '',
+    items: state.lastOcrItems,
+    line_map: state.lineMap,
+    preview: state.nativePreview,
+    created_at: new Date().toISOString(),
+  });
+  toast(data.warning || '手機原生辨識完成', data.warning ? 'warn' : 'ok');
+  scrollToOcrFields();
+  if (state.module === 'ship') await loadShipPreview();
+}
+
+async function handleNativeOcrResult(payload={}){
+  try {
+    if (payload.error) throw new Error(payload.error);
+    setSelectedOcrOptions(payload.ocrMode || payload.ocr_mode || getSelectedOcrMode(), payload.template || getSelectedTemplate());
+    applyLocalNativeOcrPreview(payload);
+    await parseNativeOcrText(payload);
+  } catch (e) {
+    const msg = e.message || '原生辨識失敗';
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = `${msg}；已保留原始辨識文字，可直接修改或稍後自動同步`;
+    setPillState($('ocr-warning-pill'), 'error');
+    if (payload && (payload.text || payload.rawText || payload.raw_text)) {
+      saveOcrHistoryEntry({
+        text: payload.text || payload.rawText || payload.raw_text || '',
+        customer_name: payload.customer_name || '',
+        items: parseTextareaItems(),
+        line_map: payload.line_map || payload.blocks || [],
+        preview: state.nativePreview,
+        created_at: new Date().toISOString(),
+      });
+    }
+    toast(msg, 'error');
+  }
+}
+
+function requestNativeOcr(source='photos'){
+  if (!canUseNativeOcr()) {
+    toast('這一版 OCR 改成原生 App 使用，請在手機原生 App 內開啟。', 'warn');
+    return false;
+  }
+  const requestId = `ocr-${Date.now()}`;
+  state.pendingNativeRequestId = requestId;
+  const payload = {
+    type: 'native-ocr-request',
+    source,
+    requestId,
+    ocrMode: getSelectedOcrMode(),
+    template: getSelectedTemplate(),
+    appId: 'yuanxing-native-shell-v20',
+  };
+  setNativeOcrBusy(true, source);
+  if (window.NativeOcrBridge && typeof window.NativeOcrBridge.request === 'function') {
+    window.NativeOcrBridge.request(JSON.stringify(payload));
+    return true;
+  }
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage(payload, getParentTargetOrigin());
+    return true;
+  }
+  toast('原生辨識橋接尚未就緒', 'warn');
+  return false;
+}
+
+window.receiveNativeOcrResult = handleNativeOcrResult;
+window.addEventListener('message', (event) => {
+  if (!isTrustedNativeMessage(event)) return;
+  const data = event && event.data;
+  if (!data || typeof data !== 'object') return;
+  if (data.type === 'native-ocr-result') handleNativeOcrResult(data.payload || data);
+});
+
 
 function askConfirm(message, title='請確認', okText='確認', cancelText='取消', opts={}){
   const modal = $('confirm-modal');
@@ -97,7 +355,11 @@ function currentModule(){
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadStoredQueues();
   state.module = currentModule();
+  updateOfflineSyncPill();
+  renderOcrHistory();
+  syncPendingSubmits();
   if ($('remember-label')) {
     state.rememberLogin = localStorage.getItem('rememberLogin') !== '0';
     $('remember-label').textContent = state.rememberLogin ? '開' : '關';
@@ -113,6 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTodayChanges();
   }
   if (state.module) {
+    setSelectedOcrOptions(getSelectedOcrMode(), getSelectedTemplate());
     initModulePage();
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.__confirmResolver) state.__confirmResolver(false); });
@@ -120,12 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function initLoginPage(){
   const u = localStorage.getItem('username') || '';
-  const p = localStorage.getItem('password') || '';
   if ($('login-username')) $('login-username').value = u;
-  if ($('login-password')) $('login-password').value = p;
-  if (u && p) {
-    submitLogin(true);
-  }
   const pass = $('login-password');
   if (pass) pass.addEventListener('keypress', e => { if (e.key === 'Enter') submitLogin(); });
 }
@@ -145,16 +403,13 @@ async function submitLogin(auto=false){
     return;
   }
   try {
-    const data = await requestJSON('/api/login', {
+    await requestJSON('/api/login', {
       method: 'POST',
       body: JSON.stringify({ username, password })
     });
-    localStorage.setItem('username', username);
-    localStorage.setItem('password', password);
-    if (state.rememberLogin) {
-      localStorage.setItem('username', username);
-      localStorage.setItem('password', password);
-    }
+    if (state.rememberLogin) localStorage.setItem('username', username);
+    else localStorage.removeItem('username');
+    localStorage.removeItem('password');
     if (err) err.classList.add('hidden');
     window.location.href = '/';
   } catch (e) {
@@ -167,7 +422,6 @@ async function submitLogin(auto=false){
 
 async function logout(){
   try { await requestJSON('/api/logout', { method:'POST', body:'{}' }); } catch(e){}
-  localStorage.removeItem('username');
   localStorage.removeItem('password');
   window.location.href = '/login';
 }
@@ -212,9 +466,8 @@ async function loadGoogleOcrStatus(){
   if (!box && !status) return;
   try {
     const data = await requestJSON('/api/admin/google-ocr', { method:'GET' });
-    const remain = Number(data.remaining ?? Math.max(0, (data.limit || 980) - (data.count || 0)));
-    if (box) box.innerHTML = `<div class="card-list"><div class="card"><div class="title">本月使用次數</div><div class="sub"><strong>${data.count} / ${data.limit}</strong>剩餘 ${remain} 次</div></div><div class="card"><div class="title">目前狀態</div><div class="sub">${data.enabled ? '啟用' : '停用'}${data.key_configured ? '｜金鑰已配置' : '｜金鑰未配置'}</div></div><div class="btn-row"><button class="primary-btn" onclick="setGoogleOcrEnabled(${data.enabled ? 'false' : 'true'})">${data.enabled ? '手動關閉' : '手動開啟'}</button></div></div>`;
-    if (status) status.innerHTML = `<div class="card"><div class="title">Google OCR</div><div class="sub"><strong>${data.enabled ? '已啟用' : '已停用'}</strong>${data.key_configured ? '金鑰已配置' : '請設定金鑰'}<br>本月 ${data.count}/${data.limit}，剩餘 ${remain} 次</div></div><div class="card"><div class="title">安全設定</div><div class="sub"><strong>SECRET_KEY</strong><br>此版本採環境變數強制啟動，未設定不會啟動服務。</div></div>`;
+    if (box) box.innerHTML = `<div class="card-list"><div class="card"><div class="title">OCR 模式</div><div class="sub"><strong>手機原生辨識</strong><br>Google OCR 已移除</div></div></div>`;
+    if (status) status.innerHTML = `<div class="card"><div class="title">OCR 模式</div><div class="sub"><strong>手機原生辨識</strong><br>Google OCR 已停用，請從原生 App 進行拍照或相簿辨識。</div></div><div class="card"><div class="title">安全設定</div><div class="sub"><strong>SECRET_KEY</strong><br>此版本採環境變數強制啟動，未設定不會啟動服務。</div></div>`;
   } catch (e) {
     if (box) box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`;
     if (status) status.innerHTML = `<div class="alert">${escapeHTML(e.message || '系統狀態載入失敗')}</div>`;
@@ -223,8 +476,8 @@ async function loadGoogleOcrStatus(){
 
 async function setGoogleOcrEnabled(enabled){
   try {
-    await requestJSON('/api/admin/google-ocr', { method:'POST', body: JSON.stringify({ enabled }) });
-    toast(enabled ? '已開啟 Google OCR' : '已關閉 Google OCR', 'ok');
+    await requestJSON('/api/admin/google-ocr', { method:'POST', body: JSON.stringify({ enabled: false }) });
+    toast('此版本固定使用手機原生 OCR', 'ok');
     loadGoogleOcrStatus();
   } catch (e) {
     toast(e.message, 'error');
@@ -292,8 +545,8 @@ function setupUploadButtons(){
   // nothing else; native picker behavior via hidden input
 }
 
-function openAlbumPicker(){ $('album-input')?.click(); }
-function openCameraPicker(){ $('camera-input')?.click(); }
+function openAlbumPicker(){ requestNativeOcr('photos'); }
+function openCameraPicker(){ requestNativeOcr('camera'); }
 function resetModuleForm(){
   if ($('ocr-text')) $('ocr-text').value = '';
   if ($('customer-name')) $('customer-name').value = '';
@@ -306,67 +559,14 @@ function resetModuleForm(){
 async function handleFiles(fileList){
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  const file = files[0];
-  state.lastSelectedFile = file;
-  state.roi = null;
-  renderOcrPreview(file);
-  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '請手動框選後，再按下方按鈕開始識別';
-  setPillState($('ocr-warning-pill'), 'warn');
-  if ($('ocr-template-pill')) { $('ocr-template-pill').textContent = '模板：手動框選'; $('ocr-template-pill').className = 'pill template-auto'; }
-  const detail = $('ocr-status-detail'); if (detail) detail.textContent = '已取消自動框選，請手動框選照片範圍後按「確認送出後開始識別」。';
-  toast('請先手動框選辨識範圍，再按下方按鈕開始識別', 'ok');
+  toast('請改用原生 App 的相機或相簿辨識；手動框選已整合到原生流程。', 'warn');
 }
 
 async function uploadOcrFile(file, useRoi=false){
-  const form = new FormData();
-  form.append('file', file);
-  if (useRoi && state.roi) form.append('roi', JSON.stringify(state.roi));
-  try {
-    const res = await fetch('/api/upload_ocr', { method:'POST', body: form });
-    const data = await res.json().catch(() => ({ success:false, error:'OCR失敗' }));
-    if (!res.ok || data.success === false) throw new Error(data.error || 'OCR失敗');
-    if (data.duplicate_existing && !useRoi) {
-      const ok = await askConfirm('相同照片曾上傳過，是否仍使用這次辨識結果？', '重複照片', '使用這次結果', '取消');
-      if (!ok) {
-        toast('已取消套用重複照片結果', 'warn');
-        return;
-      }
-    }
-    if ($('ocr-text')) $('ocr-text').value = data.text || '';
-    state.lastOcrOriginalText = data.raw_text || data.text || '';
-    if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
-    state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
-    state.lastOcrTemplate = data.template || '';
-    if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
-    // 已取消自動框選：只保留使用者手動框選的 ROI
-    const tplName = data.template_name || (data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式'));
-    if ($('ocr-template-pill')) {
-      $('ocr-template-pill').textContent = `模板：${tplName}`;
-      $('ocr-template-pill').className = `pill ${data.template === 'whiteboard' ? 'template-whiteboard' : (data.template === 'shipping_note' ? 'template-shipping' : 'template-auto')}`;
-    }
-    const warningPill = $('ocr-warning-pill');
-    const detail = $('ocr-status-detail');
-    const statusText = data.warning || (data.partial ? '已辨識部分內容，請檢查後送出' : `${tplName}已自動套用，可手動微調`);
-    if (warningPill) warningPill.textContent = statusText;
-    setPillState(warningPill, data.partial || data.warning ? 'warn' : 'ok');
-    if (detail) detail.textContent = `辨識引擎：${(data.engines||[]).join(' / ') || 'google_vision'}｜模板：${tplName}${data.partial ? '｜目前為部分結果，請確認缺漏欄位' : ''}`;
-    if (data.warning) toast(data.warning, 'warn');
-    else toast((useRoi ? '區域辨識完成' : 'OCR辨識完成') + '｜' + tplName, 'ok');
-    scrollToOcrFields();
-    if (state.module === 'ship') await loadShipPreview();
-  } catch (e) {
-    const msg = e.message || 'OCR辨識失敗';
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = msg;
-    setPillState($('ocr-warning-pill'), 'error');
-    const detail = $('ocr-status-detail');
-    if (detail) {
-      if (msg.includes('金鑰')) detail.textContent = '請先在 Render 設定 Google OCR 金鑰後再重試。';
-      else if (msg.includes('停用')) detail.textContent = 'Google OCR 目前被停用，請到設定頁重新啟用。';
-      else if (msg.includes('模板')) detail.textContent = '模板沒有抓到有效區域，可先微調框選後再辨識。';
-      else detail.textContent = '圖片可能過暗、模糊或手寫顏色不足，建議重拍或微調框選。';
-    }
-    toast(msg, 'error');
-  }
+  const msg = '此版本已改成原生 App 先框選再辨識，網頁端不再走舊 upload_ocr 路徑。';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = msg;
+  setPillState($('ocr-warning-pill'), 'warn');
+  toast(msg, 'warn');
 }
 
 function normalizeOcrLine(line){
@@ -405,18 +605,43 @@ function toggleTodayChanges(){
 function renderTodayLogList(items, emptyText){
   const filtered = state.todayOnlyUnread ? (items || []).filter(r => r.__unread) : (items || []);
   if (!filtered || !filtered.length) return `<div class="small-note">${emptyText}</div>`;
-  return filtered.map(r => `<div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}"><div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button></div>`).join('');
+  return filtered.map(r => `<div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}" data-log-id="${Number(r.id||0)}"><div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button></div>`).join('');
+}
+
+function renderTodayChangesFromData(data){
+  const s = data.summary || {};
+  const readAt = data.read_at || '';
+  const markUnread = (items) => (items || []).map(r => ({ ...r, __unread: !readAt || String(r.created_at || '') > readAt }));
+  if ($('home-unplaced-pill')) $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
+  if ($('today-unread-badge')) $('today-unread-badge').textContent = String(s.unread_count || 0);
+  if ($('today-summary-cards')) $('today-summary-cards').innerHTML = [
+    ['進貨', s.inbound_count || 0, 'inbound'],
+    ['出貨', s.outbound_count || 0, 'outbound'],
+    ['新增訂單', s.new_order_count || 0, 'orders'],
+    ['未錄入倉庫圖', s.unplaced_count || 0, 'unplaced'],
+    ['異常比對', s.anomaly_count || 0, 'anomaly'],
+    ['未讀', s.unread_count || 0, 'all'],
+  ].map(([t,v,k]) => `<div class="card ${state.todayCategoryFilter===k?'active':''}" onclick="setTodayCategoryFilter('${k}')"><div class="title">${t}</div><div class="sub">${v}</div></div>`).join('');
+  if ($('today-inbound-list')) $('today-inbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.inbound || []), '今日沒有進貨');
+  if ($('today-outbound-list')) $('today-outbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.outbound || []), '今日沒有出貨');
+  if ($('today-order-list')) $('today-order-list').innerHTML = renderTodayLogList(markUnread(data.feed?.new_orders || []), '今日沒有新增訂單');
+  if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((data.unplaced_items || []).map(i => `<div class="chip-item log-chip"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></div>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
+  if ($('today-anomaly-list')) $('today-anomaly-list').innerHTML = ((data.anomalies || []).map(a => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(a.type || '異常')}</strong>｜${escapeHTML(a.message || a.product_text || '異常')}</div></div>`).join('')) || '<div class="small-note">目前沒有異常</div>';
+  applyTodayCategoryFilter();
 }
 
 async function deleteTodayChange(id){
   if (!id) return;
   const ok = await askConfirm('確定刪除這筆今日異動？', '刪除異動', '刪除', '取消');
   if (!ok) return;
+  const row = document.querySelector(`[data-log-id="${Number(id)}"]`);
+  if (row) row.style.opacity = '0.35';
   try {
-    await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
+    const data = await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
     toast('已刪除異動', 'ok');
-    await loadTodayChanges();
+    renderTodayChangesFromData(data);
   } catch (e) {
+    if (row) row.style.opacity = '1';
     toast(e.message || '刪除失敗', 'error');
   }
 }
@@ -464,25 +689,7 @@ async function loadTodayChanges(){
   if (!$('today-summary-cards')) return;
   try {
     const data = await requestJSON('/api/today-changes', { method:'GET' });
-    const s = data.summary || {};
-    const readAt = data.read_at || '';
-    const markUnread = (items) => (items || []).map(r => ({ ...r, __unread: !readAt || String(r.created_at || '') > readAt }));
-    if ($('home-unplaced-pill')) $('home-unplaced-pill').textContent = `未錄入倉庫圖：${s.unplaced_count || 0}`;
-    if ($('today-unread-badge')) $('today-unread-badge').textContent = String(s.unread_count || 0);
-    $('today-summary-cards').innerHTML = [
-      ['進貨', s.inbound_count || 0, 'inbound'],
-      ['出貨', s.outbound_count || 0, 'outbound'],
-      ['新增訂單', s.new_order_count || 0, 'orders'],
-      ['未錄入倉庫圖', s.unplaced_count || 0, 'unplaced'],
-      ['異常比對', s.anomaly_count || 0, 'anomaly'],
-      ['未讀', s.unread_count || 0, 'all'],
-    ].map(([t,v,k]) => `<div class="card ${state.todayCategoryFilter===k?'active':''}" onclick="setTodayCategoryFilter('${k}')"><div class="title">${t}</div><div class="sub">${v}</div></div>`).join('');
-    if ($('today-inbound-list')) $('today-inbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.inbound || []), '今日沒有進貨');
-    if ($('today-outbound-list')) $('today-outbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.outbound || []), '今日沒有出貨');
-    if ($('today-order-list')) $('today-order-list').innerHTML = renderTodayLogList(markUnread(data.feed?.new_orders || []), '今日沒有新增訂單');
-    if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((data.unplaced_items || []).map(i => `<div class="chip-item log-chip"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></div>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
-    if ($('today-anomaly-list')) $('today-anomaly-list').innerHTML = ((data.anomalies || []).map(a => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(a.type || '異常')}</strong>｜${escapeHTML(a.message || a.product_text || '異常')}</div></div>`).join('')) || '<div class="small-note">目前沒有異常</div>';
-    applyTodayCategoryFilter();
+    renderTodayChangesFromData(data);
   } catch (e) {
     console.error(e);
     const box = $('today-summary-cards');
@@ -546,9 +753,7 @@ function applySuggestedRoiBox(roi){
 }
 
 async function runRoiOcr(){
-  if (!state.lastSelectedFile) return toast('請先上傳圖片', 'warn');
-  if (!state.roi) return toast('請先手動框選辨識範圍', 'warn');
-  await uploadOcrFile(state.lastSelectedFile, true);
+  toast('手動框選已改成原生 App 內先框選再辨識，請直接點原生相機或原生相簿。', 'ok');
 }
 
 function clearRoiSelection(){
@@ -638,12 +843,11 @@ async function confirmSubmit(){
   const ocr_text = ($('ocr-text')?.value || '').trim();
   let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
   if (!items.length) return toast('沒有可送出的辨識內容', 'warn');
+  let endpoint = '/api/inventory';
+  if (module === 'orders') endpoint = '/api/orders';
+  if (module === 'master_order') endpoint = '/api/master_orders';
+  if (module === 'ship') endpoint = '/api/ship';
   try {
-    let endpoint = '/api/inventory';
-    if (module === 'orders') endpoint = '/api/orders';
-    if (module === 'master_order') endpoint = '/api/master_orders';
-    if (module === 'ship') endpoint = '/api/ship';
-
     const dedupe = await filterExistingCustomerItems(customer_name, items);
     if (dedupe.ignored.length && dedupe.items.length) {
       const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
@@ -666,12 +870,10 @@ async function confirmSubmit(){
         payload.allow_inventory_fallback = true;
       }
     }
-    const data = await requestJSON(endpoint, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
+    const data = await requestJSON(endpoint, { method: 'POST', body: JSON.stringify(payload) });
     renderSubmitResult(module, data, customer_name);
     state.lastOcrItems = items;
+    saveOcrHistoryEntry({ text: ocr_text, customer_name, items, line_map: state.lineMap, preview: state.nativePreview, created_at: new Date().toISOString() });
     if (module === 'inventory') await loadInventory();
     if (module === 'orders') await loadOrdersList();
     if (module === 'master_order') await loadMasterList();
@@ -679,6 +881,13 @@ async function confirmSubmit(){
     if (module === 'warehouse') await renderWarehouse();
     toast('送出完成', 'ok');
   } catch (e) {
+    const payload = { customer_name, location, ocr_text, items };
+    if (isLikelyNetworkError(e)) {
+      queuePendingSubmit({ endpoint, payload, module });
+      showResult('網路暫時不穩，已先存入待同步佇列，恢復連線後會自動補送。');
+      toast('已加入待同步佇列', 'warn');
+      return;
+    }
     showResult(`錯誤：${e.message}`, true);
   }
 }
@@ -1248,6 +1457,11 @@ function highlightWarehouseCell(zone, column, num){
 }
 
 async function reverseLookup(){
+  if (state.lineMap && state.lineMap.length) {
+    highlightOcrLine(0);
+    toast('已定位到第一筆辨識區塊，可點下方每行內容切換定位', 'ok');
+    return;
+  }
   const q = ($('ocr-text')?.value || $('customer-name')?.value || '').trim();
   if (!q) return;
   if (state.module === 'warehouse') {
@@ -1295,6 +1509,8 @@ window.runRoiOcr = runRoiOcr;
 window.clearRoiSelection = clearRoiSelection;
 window.learnOcrCorrection = learnOcrCorrection;
 window.loadShipPreview = loadShipPreview;
+window.restoreOcrHistory = restoreOcrHistory;
+window.highlightOcrLine = highlightOcrLine;
 window.selectCustomerForModule = selectCustomerForModule;
 window.addOrderToMaster = addOrderToMaster;
 

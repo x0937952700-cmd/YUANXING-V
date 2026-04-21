@@ -217,12 +217,21 @@ def init_db():
             INSERT INTO app_settings(key, value, updated_at)
             VALUES (%s, %s, %s)
             ON CONFLICT (key) DO NOTHING
-        """, ('google_ocr_enabled', '1', now()))
+        """, ('google_ocr_enabled', '0', now()))
+        cur.execute("""
+            INSERT INTO app_settings(key, value, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO NOTHING
+        """, ('native_ocr_mode', '1', now()))
     else:
         cur.execute("""
             INSERT OR IGNORE INTO app_settings(key, value, updated_at)
             VALUES (?, ?, ?)
-        """, ('google_ocr_enabled', '1', now()))
+        """, ('google_ocr_enabled', '0', now()))
+        cur.execute("""
+            INSERT OR IGNORE INTO app_settings(key, value, updated_at)
+            VALUES (?, ?, ?)
+        """, ('native_ocr_mode', '1', now()))
 
     if USE_POSTGRES:
         cur.execute("SELECT to_regclass('public.warehouse_cells')")

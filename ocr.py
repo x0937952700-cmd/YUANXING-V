@@ -2,12 +2,20 @@ import os
 import re
 import io
 import base64
-from difflib import get_close_matches
+from difflib import get_close_matches, SequenceMatcher
+from collections import Counter
 
 import requests
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-from db import log_error, get_customers, get_setting, get_ocr_usage, increment_ocr_usage
+from db import (
+    log_error,
+    get_customers,
+    get_setting,
+    get_ocr_usage,
+    increment_ocr_usage,
+    get_corrections,
+)
 
 GOOGLE_VISION_API_KEY = os.getenv("GOOGLE_VISION_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
@@ -65,9 +73,11 @@ def _mask_color(img, mode="blue"):
             score = int(g * 1.9 - r * 0.75 - b * 0.8)
             val = 255 if score > 45 and g > r + 10 and g > b + 10 else 0
         elif mode == "handwriting":
-            # handwriting-like dark strokes
             v = (r + g + b) // 3
             val = 255 if v < 185 else 0
+        else:
+            v = (r + g + b) // 3
+            val = 255 if v < 170 else 0
         out.append(val)
     mask = Image.new("L", img.size)
     mask.putdata(out)
@@ -90,67 +100,276 @@ def _normalize_no_space(text):
     return re.sub(r"\s+", "", _normalize_x(text or ""))
 
 
+def _normalize_ocr_noise(text):
+    text = _normalize_x(text or "")
+    text = text.replace("—", "-").replace("－", "-").replace("→", "=").replace("=>", "=")
+    text = text.replace("|", "1").replace("I", "1").replace("l", "1")
+    text = text.replace("O", "0").replace("o", "0")
+    text = text.replace("，", ",").replace("。", ".")
+    text = text.replace("；", ";").replace("：", ":")
+    text = text.replace("＋", "+")
+    return text
+
+
+def _normalize_item_line(line):
+    line = _normalize_ocr_noise(line)
+    line = re.sub(r"[\[\]{}()（）]", "", line)
+    line = re.sub(r"\s+", "", line)
+    line = re.sub(r"[^0-9x=+\-.,/一-鿿]", "", line)
+    line = line.replace("-", "=") if "=" not in line and line.count("x") >= 2 and line.count("-") == 1 else line
+    line = re.sub(r"(?<=\d)(?=\d{1,3}x\d+$)", "=", line, count=1) if "=" not in line else line
+    return line
+
+
+def _apply_corrections(text):
+    try:
+        corrections = get_corrections() or {}
+    except Exception as e:
+        log_error("get_corrections", str(e))
+        corrections = {}
+    result = text or ""
+    if corrections:
+        for wrong, right in sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True):
+            if wrong and right:
+                result = result.replace(wrong, right)
+    return result
+
+
 def _extract_chinese_candidates(text):
     candidates = []
-    for raw in (text or "").splitlines():
+    for idx, raw in enumerate((text or "").splitlines()):
         clean = re.sub(r"[^一-鿿]", "", raw or "")
         if len(clean) >= 2:
-            candidates.append(clean)
+            candidates.append({"text": clean, "line_index": idx})
     return candidates
 
 
-def _guess_customer(raw_text):
+def _customer_alias_map():
+    return {
+        "東升": "東昇",
+        "东升": "東昇",
+        "东昇": "東昇",
+        "沅兴": "沅興",
+        "沅興木葉": "沅興木業",
+    }
+
+
+def _score_customer_candidate(candidate, base_name, line_index=99):
+    cand = _normalize_no_space(candidate)
+    base = _normalize_no_space(base_name)
+    if not cand or not base:
+        return 0.0
+    ratio = SequenceMatcher(None, cand, base).ratio()
+    bonus = 0.0
+    if cand == base:
+        bonus += 1.2
+    elif cand in base or base in cand:
+        bonus += 0.7
+    if line_index == 0:
+        bonus += 0.6
+    elif line_index == 1:
+        bonus += 0.35
+    elif line_index == 2:
+        bonus += 0.2
+    if 2 <= len(candidate) <= 6:
+        bonus += 0.15
+    return ratio + bonus
+
+
+def _guess_customer(raw_text, customer_hint=""):
+    if customer_hint:
+        return customer_hint.strip()
     names = [r.get("name") for r in get_customers() if r.get("name")]
+    if not names:
+        candidates = _extract_chinese_candidates(raw_text)
+        return candidates[0]["text"] if candidates else ""
+
+    alias_map = _customer_alias_map()
     normalized_text = _normalize_no_space(raw_text)
-    alias_map = {"東升": "東昇", "东升": "東昇", "东昇": "東昇"}
+
     for base in names:
-        if base and _normalize_no_space(base) in normalized_text:
+        normalized_base = _normalize_no_space(base)
+        if normalized_base and normalized_base in normalized_text:
             return base
     for alias, target in alias_map.items():
-        if alias in normalized_text:
+        if _normalize_no_space(alias) in normalized_text:
+            for base in names:
+                if _normalize_no_space(base) == _normalize_no_space(target):
+                    return base
             return target
 
-    candidates = _extract_chinese_candidates(raw_text)
-    for cand in candidates:
-        m = get_close_matches(cand, names, n=1, cutoff=0.5)
+    best_name = ""
+    best_score = 0.0
+    for cand in _extract_chinese_candidates(raw_text):
+        raw_candidate = alias_map.get(cand["text"], cand["text"])
+        for base in names:
+            score = _score_customer_candidate(raw_candidate, base, cand["line_index"])
+            if score > best_score:
+                best_score = score
+                best_name = base
+
+    if best_name and best_score >= 0.85:
+        return best_name
+
+    candidates = [c["text"] for c in _extract_chinese_candidates(raw_text)]
+    if candidates:
+        m = get_close_matches(candidates[0], names, n=1, cutoff=0.5)
         if m:
             return m[0]
-    return candidates[0] if candidates else ""
+        return candidates[0]
+    return ""
+
+
+def _extract_bbox(block):
+    raw = block.get("bbox") or block.get("bounds") or block.get("frame") or block.get("boundingBox") or {}
+    if isinstance(raw, dict):
+        x = raw.get("x", raw.get("left", 0))
+        y = raw.get("y", raw.get("top", 0))
+        w = raw.get("w", raw.get("width", raw.get("right", 0)))
+        h = raw.get("h", raw.get("height", raw.get("bottom", 0)))
+        right = raw.get("right")
+        bottom = raw.get("bottom")
+        try:
+            x = float(x or 0)
+            y = float(y or 0)
+            if right is not None and bottom is not None:
+                right = float(right)
+                bottom = float(bottom)
+                w = max(0.0, right - x)
+                h = max(0.0, bottom - y)
+            else:
+                w = float(w or 0)
+                h = float(h or 0)
+            return {"x": x, "y": y, "w": max(0.0, w), "h": max(0.0, h)}
+        except Exception:
+            return {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
+    return {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
+
+
+def _sort_native_blocks(blocks):
+    normalized = []
+    for i, block in enumerate(blocks or []):
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+        bbox = _extract_bbox(block)
+        normalized.append({
+            "id": block.get("id") or f"b{i+1}",
+            "text": text,
+            "confidence": int(round(float(block.get("confidence") or 0))),
+            "bbox": bbox,
+        })
+    normalized.sort(key=lambda b: (round(b["bbox"]["y"] / 0.03) if b["bbox"]["y"] <= 1 else b["bbox"]["y"], b["bbox"]["x"]))
+    return normalized
+
+
+def _group_native_blocks_to_lines(blocks):
+    blocks = _sort_native_blocks(blocks)
+    if not blocks:
+        return []
+    lines = []
+    for block in blocks:
+        placed = False
+        by = block["bbox"]["y"]
+        bh = block["bbox"]["h"] or 0.03
+        tolerance = max(0.018, bh * 0.75)
+        for line in lines:
+            if abs(by - line["anchor_y"]) <= tolerance:
+                line["blocks"].append(block)
+                ys = [b["bbox"]["y"] for b in line["blocks"]]
+                line["anchor_y"] = sum(ys) / max(1, len(ys))
+                placed = True
+                break
+        if not placed:
+            lines.append({"anchor_y": by, "blocks": [block]})
+    result = []
+    for idx, line in enumerate(lines):
+        ordered = sorted(line["blocks"], key=lambda b: b["bbox"]["x"])
+        line_text = " ".join(b["text"] for b in ordered).strip()
+        avg_conf = int(round(sum(b["confidence"] for b in ordered) / max(1, len(ordered))))
+        min_x = min(b["bbox"]["x"] for b in ordered)
+        min_y = min(b["bbox"]["y"] for b in ordered)
+        max_r = max(b["bbox"]["x"] + b["bbox"]["w"] for b in ordered)
+        max_b = max(b["bbox"]["y"] + b["bbox"]["h"] for b in ordered)
+        result.append({
+            "id": f"line-{idx+1}",
+            "text": line_text,
+            "confidence": avg_conf,
+            "bbox": {
+                "x": min_x,
+                "y": min_y,
+                "w": max(0.0, max_r - min_x),
+                "h": max(0.0, max_b - min_y),
+            },
+            "blocks": ordered,
+        })
+    return result
+
+
+def _structured_text_from_blocks(blocks, fallback_text=""):
+    lines = _group_native_blocks_to_lines(blocks)
+    text = "\n".join(line["text"] for line in lines if line["text"].strip()).strip()
+    return text or (fallback_text or "").strip(), lines
+
+
+def _ensure_equals_candidate(line, prev_dims=None):
+    clean = _normalize_item_line(line)
+    nums = re.findall(r"\d+", clean)
+    if "=" in clean:
+        return clean
+    if clean.count("x") >= 2 and len(nums) >= 4:
+        dims = nums[:3]
+        rhs = nums[3]
+        qty = nums[4] if len(nums) >= 5 else None
+        return f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty else "")
+    if prev_dims and len(nums) >= 2:
+        rhs = nums[0]
+        qty = nums[1] if len(nums) >= 2 else None
+        return f"{prev_dims[0]}x{prev_dims[1]}x{prev_dims[2]}={rhs}" + (f"x{qty}" if qty else "")
+    return clean
 
 
 def _extract_item_rows(raw_text):
     rows = []
     prev_dims = None
     for raw in (raw_text or "").splitlines():
-        line = re.sub(r"\s+", "", _normalize_x(raw))
-        if not line or "=" not in line:
+        candidate = _ensure_equals_candidate(raw, prev_dims=prev_dims)
+        line = re.sub(r"\s+", "", candidate)
+        if not line:
             continue
-        left, right = line.split("=", 1)
-        left_nums = [int(x) for x in re.findall(r"\d+", left)]
-        if not left_nums:
+        if "=" not in line and line.count("x") >= 2:
+            line = _ensure_equals_candidate(line, prev_dims=prev_dims)
+        if "=" not in line:
             continue
 
-        dims = None
+        left, right = line.split("=", 1)
+        left_nums = [int(x) for x in re.findall(r"\d+", left)]
         if len(left_nums) >= 3:
             dims = left_nums[:3]
         elif len(left_nums) == 2 and prev_dims:
             dims = [left_nums[0], left_nums[1], prev_dims[2]]
         elif len(left_nums) == 1 and prev_dims:
             dims = [left_nums[0], prev_dims[1], prev_dims[2]]
+        else:
+            dims = prev_dims
 
         if not dims:
             continue
         prev_dims = dims
 
-        segments = [seg for seg in re.split(r"[+＋]", right) if seg]
+        segments = [seg for seg in re.split(r"[+＋,，;；]", right) if seg]
         if not segments:
             segments = [right]
         for seg in segments:
+            seg = seg.strip()
+            if not seg:
+                continue
             nums = [int(x) for x in re.findall(r"\d+", seg)]
             if not nums:
                 continue
             rhs = nums[0]
             qty = nums[1] if len(nums) > 1 else 1
+            qty = max(1, int(qty))
             line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
             rows.append({
                 "line": line_out,
@@ -167,10 +386,14 @@ def _extract_item_rows(raw_text):
 def _fallback_extract_lines(raw_text):
     raw_text = _normalize_x(raw_text or "")
     lines = []
+    prev_dims = None
     for raw in raw_text.splitlines():
-        line = re.sub(r"\s+", "", raw)
+        line = _ensure_equals_candidate(raw, prev_dims=prev_dims)
         if line.count('x') >= 2 and '=' in line:
             line = re.sub(r'[^0-9x=+]', '', line)
+            nums = [int(x) for x in re.findall(r"\d+", line.split("=", 1)[0])]
+            if len(nums) >= 3:
+                prev_dims = nums[:3]
             if line:
                 lines.append(line)
     return lines
@@ -193,12 +416,14 @@ def _build_items_from_lines(lines):
                 "raw_text": f"{left}={rhs}" + (f"x{qty}" if qty != 1 else ""),
                 "product_text": f"{left}={rhs}",
                 "product_code": f"{left}={rhs}",
-                "qty": qty,
+                "qty": max(1, qty),
             })
     return items
 
+
 def parse_ocr_text(text):
-    rows = _extract_item_rows(text or "")
+    text = _apply_corrections(_normalize_ocr_noise(text or ""))
+    rows = _extract_item_rows(text)
     items = [{
         "raw_text": r["line"],
         "product_text": r["product_text"],
@@ -207,10 +432,11 @@ def parse_ocr_text(text):
     } for r in rows]
     output_text = "\n".join(r["line"] for r in rows)
     if not output_text:
-        fallback_lines = _fallback_extract_lines(text or "")
+        fallback_lines = _fallback_extract_lines(text)
         items = _build_items_from_lines(fallback_lines)
         output_text = "\n".join(i["raw_text"] for i in items)
     return {"text": output_text, "lines": output_text.splitlines() if output_text else [], "items": items}
+
 
 def _google_annotate_from_image(img):
     if not GOOGLE_VISION_API_KEY:
@@ -252,13 +478,13 @@ def _google_annotate_from_image(img):
         log_error("google_annotate", e)
         return {"raw_text": "", "confidence": 0}
 
+
 def _detect_template(image_path):
     try:
         img = _open_and_crop(image_path)
         small = img.resize((min(800, img.size[0]), int(img.size[1] * min(800, img.size[0]) / img.size[0])))
         gray = ImageOps.grayscale(small)
         bw = gray.point(lambda p: 255 if p < 130 else 0)
-        # estimate form/table via horizontal/vertical dark line density
         w, h = bw.size
         rows = [sum(1 for x in range(w) if bw.getpixel((x, y)) > 0) / w for y in range(h)]
         cols = [sum(1 for y in range(h) if bw.getpixel((x, y)) > 0) / h for x in range(w)]
@@ -354,6 +580,84 @@ def _extract_products_by_template(image_path, template, roi=None):
     except Exception as e:
         log_error("extract_products_by_template", e)
         return {"raw_text": "", "confidence": 0, "text": "", "lines": [], "items": [], "suggested_roi": roi or _template_default_roi(template)}
+
+
+def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blocks=None, ocr_mode="blue", template_hint="native_device", roi=None):
+    native_confidence = int(native_confidence or 0)
+    template_hint = (template_hint or "native_device").strip() or "native_device"
+    ocr_mode = (ocr_mode or "blue").strip() or "blue"
+
+    structured_text, line_map = _structured_text_from_blocks(blocks or [], fallback_text=raw_text or "")
+    corrected_text = _apply_corrections(_normalize_ocr_noise(structured_text or raw_text or ""))
+    parsed = parse_ocr_text(corrected_text)
+    customer_guess = _guess_customer(corrected_text or structured_text or raw_text or "", customer_hint=customer_hint)
+
+    lines = parsed.get("lines") or [ln.strip() for ln in corrected_text.splitlines() if ln.strip()]
+    parse_items = parsed.get("items") or []
+
+    coverage_score = 0
+    if corrected_text.strip():
+        coverage_score += 30
+    if parse_items:
+        coverage_score += min(50, 18 + len(parse_items) * 12)
+    if customer_guess:
+        coverage_score += 15
+    if line_map:
+        coverage_score += 5
+    parse_confidence = min(98, coverage_score)
+
+    if native_confidence > 0 and parse_confidence > 0:
+        final_confidence = int(round(native_confidence * 0.58 + parse_confidence * 0.42))
+    else:
+        final_confidence = max(native_confidence, parse_confidence)
+
+    warning = ""
+    if corrected_text.strip() and not parsed.get("text"):
+        warning = "已收到原生辨識文字，但格式仍需人工確認；你可直接在下方文字框修改後送出"
+    elif parsed.get("text") and not customer_guess:
+        warning = "已抓到商品內容，但客戶名稱不足，請確認客戶欄位"
+    elif final_confidence and final_confidence < 55:
+        warning = "辨識已完成，但信心偏低；請直接確認文字內容後送出"
+
+    engines = ["native_device_ocr", f"native_mode:{ocr_mode}"]
+    if template_hint:
+        engines.append(f"template:{template_hint}")
+    if customer_hint:
+        engines.append("customer_hint")
+    if blocks:
+        engines.append("position_sorted")
+    if roi:
+        engines.append("roi_filtered")
+    if corrected_text != structured_text:
+        engines.append("ocr_corrections_applied")
+
+    return {
+        "success": bool(corrected_text.strip() or parsed.get("text") or customer_guess),
+        "duplicate": False,
+        "raw_text": corrected_text,
+        "text": parsed.get("text", "") or corrected_text,
+        "lines": lines,
+        "items": parse_items,
+        "confidence": final_confidence,
+        "ocr_confidence": native_confidence,
+        "parse_confidence": parse_confidence,
+        "engines": engines,
+        "customer_guess": customer_guess,
+        "template": template_hint,
+        "warning": warning,
+        "error": "",
+        "suggested_roi": roi,
+        "line_map": [
+            {
+                "id": line.get("id"),
+                "text": line.get("text", ""),
+                "confidence": line.get("confidence", 0),
+                "bbox": line.get("bbox") or {"x": 0, "y": 0, "w": 0, "h": 0},
+            }
+            for line in line_map
+        ],
+    }
+
 
 def process_ocr_text(image_path, roi=None, handwriting_mode=False):
     empty = {"success": False, "duplicate": False, "text": "", "raw_text": "", "lines": [], "items": [], "confidence": 0, "engines": [], "customer_guess": "", "template": "auto", "warning": "", "error": "", "suggested_roi": _template_default_roi("auto")}

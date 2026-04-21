@@ -17,7 +17,7 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, get_ocr_usage, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now
 )
-from ocr import process_ocr_text, parse_ocr_text
+from ocr import process_ocr_text, parse_ocr_text, process_native_ocr_text
 from backup import run_daily_backup
 
 app = Flask(__name__)
@@ -120,7 +120,7 @@ def login_page():
 @app.route("/settings")
 def settings_page():
     is_admin = current_username() == '陳韋廷'
-    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, google_ocr_enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), google_ocr_usage=get_ocr_usage('google_vision', datetime.now().strftime('%Y-%m')))
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=(str(get_setting('native_ocr_mode', '1')) == '1'))
 
 @app.route("/inventory")
 def inventory_page():
@@ -225,87 +225,57 @@ def api_change_password():
 @app.route("/api/upload_ocr", methods=["POST"])
 @login_required_json
 def api_upload_ocr():
+    return error_response("這一版已取消雲端 Google OCR，請改用原生 App 的手機內建文字辨識。")
+
+@app.route("/api/native-ocr/parse", methods=["POST"])
+@login_required_json
+def api_native_ocr_parse():
     try:
-        file = request.files.get("file")
-        if not file:
-            return error_response("未選擇圖片")
-        if not allowed_file(file.filename):
-            return error_response("圖片格式錯誤")
-        content = file.read()
-        if len(content) > MAX_UPLOAD_SIZE:
-            return error_response("圖片過大")
-        image_hash = hashlib.md5(content).hexdigest()
-        ext = file.filename.rsplit(".", 1)[1].lower()
-        filename = f"{image_hash}.{ext}"
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        with open(path, "wb") as f:
-            f.write(content)
-        compress_image(path)
-        roi_raw = request.form.get("roi") or ""
-        roi = None
-        if roi_raw:
-            try:
-                roi = json.loads(roi_raw)
-            except Exception:
-                roi = None
-        handwriting_mode = str(request.form.get("handwriting_mode") or "0").lower() in ("1", "true", "yes", "on")
-        duplicate_existing = image_hash_exists(image_hash)
-        result = process_ocr_text(path, roi=roi, handwriting_mode=handwriting_mode)
+        data = request.get_json(silent=True) or {}
+        raw_text = (data.get("raw_text") or data.get("text") or "").strip()
+        customer_hint = (data.get("customer_hint") or data.get("customer_name") or "").strip()
+        native_confidence = int(data.get("confidence") or data.get("ocr_confidence") or 0)
+        blocks = data.get("blocks") or data.get("positions") or []
+        ocr_mode = (data.get("ocr_mode") or data.get("mode") or 'blue').strip() or 'blue'
+        template_hint = (data.get("template") or data.get("template_hint") or 'native_device').strip() or 'native_device'
+        roi = data.get("roi") or None
+        if not raw_text and not customer_hint and not blocks:
+            return error_response("沒有可解析的辨識文字")
+        result = process_native_ocr_text(
+            raw_text,
+            customer_hint=customer_hint,
+            native_confidence=native_confidence,
+            blocks=blocks,
+            ocr_mode=ocr_mode,
+            template_hint=template_hint,
+            roi=roi,
+        )
         items = result.get('items') or []
         normalized_text = result.get('text') or ''
-        if not normalized_text and items:
-            normalized_text = '\n'.join([
-                (it.get('raw_text') or ((it.get('product_text') or '') + (f"x{int(it.get('qty') or 1)}" if int(it.get('qty') or 1) != 1 else '')))
-                for it in items if (it.get('raw_text') or it.get('product_text'))
-            ])
-        raw_text = result.get('raw_text') or normalized_text
         customer_guess = result.get('customer_guess') or ''
-        has_output = bool(normalized_text.strip() or raw_text.strip() or customer_guess or items)
-        template = result.get("template", "auto")
-        template_name = {"whiteboard": "白板模板", "shipping_note": "出貨單模板", "auto": "自動模式"}.get(template, "自動模式")
-        if not result.get('success') and not has_output:
-            specific_error = result.get('error') or ''
-            if not (os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')):
-                specific_error = specific_error or 'Google OCR 金鑰未設定'
-            elif str(get_setting('google_ocr_enabled', '1')) != '1':
-                specific_error = specific_error or 'Google OCR 已被停用'
-            else:
-                specific_error = specific_error or f'{template_name}未抓到可辨識內容，可改手動微調範圍後再試'
-            return error_response(specific_error)
-        if not duplicate_existing:
-            save_image_hash(image_hash)
-        confidence = int(result.get("confidence", 0))
-        warning = result.get('warning', '')
-        if has_output and (not normalized_text or not customer_guess):
-            missing_parts = []
-            if not customer_guess:
-                missing_parts.append('客戶名稱')
-            if not normalized_text:
-                missing_parts.append('商品文字')
-            warning = warning or (f"已辨識部分內容，請確認{'、'.join(missing_parts)}" if missing_parts else '')
-        elif has_output:
-            warning = warning or f'{template_name}已自動套用並完成辨識'
-        log_action(current_username(), f"OCR辨識[{','.join(result.get('engines', []))}]/{template}")
+        partial = bool((normalized_text or raw_text) and (not normalized_text or not customer_guess))
+        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]/{result.get('template','native_device')}")
         return jsonify(
             success=True,
-            duplicate_existing=duplicate_existing,
-            image_hash=image_hash,
-            text=normalized_text,
-            raw_text=raw_text,
+            text=normalized_text or raw_text,
+            raw_text=result.get('raw_text') or raw_text,
             items=items,
-            confidence=confidence,
-            warning=warning,
-            engines=result.get("engines", []),
+            confidence=int(result.get('confidence') or 0),
+            ocr_confidence=int(result.get('ocr_confidence') or native_confidence or 0),
+            parse_confidence=int(result.get('parse_confidence') or 0),
+            warning=result.get('warning') or '',
+            engines=result.get('engines', []),
             customer_guess=customer_guess,
-            template=template,
-            template_name=template_name,
-            suggested_roi=result.get("suggested_roi"),
-            partial=bool(has_output and (not normalized_text or not customer_guess)),
-            sync_time=int(os.path.getmtime(path))
+            template=result.get('template', 'native_device'),
+            template_name='手機原生辨識',
+            suggested_roi=result.get('suggested_roi'),
+            partial=partial,
+            line_map=result.get('line_map', []),
+            ocr_mode=ocr_mode,
         )
     except Exception as e:
-        log_error("upload_ocr", str(e))
-        return error_response("OCR辨識失敗")
+        log_error("native_ocr_parse", str(e))
+        return error_response("原生 OCR 文字解析失敗")
 
 @app.route("/api/save_correction", methods=["POST"])
 @login_required_json
@@ -863,7 +833,7 @@ def api_admin_google_ocr_get():
     if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=(str(get_setting('google_ocr_enabled', '1')) == '1'), count=get_ocr_usage('google_vision', period), period=period, limit=980, remaining=max(0, 980 - get_ocr_usage('google_vision', period)), key_configured=bool(os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')))
+    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
 
 @app.route('/api/admin/google-ocr', methods=['POST'])
 @login_required_json
@@ -871,15 +841,19 @@ def api_admin_google_ocr_set():
     if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
-    enabled = '1' if bool(data.get('enabled')) else '0'
-    set_setting('google_ocr_enabled', enabled)
-    log_action(current_username(), f"Google OCR{'開啟' if enabled == '1' else '關閉'}")
+    set_setting('google_ocr_enabled', '0')
+    set_setting('native_ocr_mode', '1')
+    log_action(current_username(), '保持原生OCR模式')
     period = datetime.now().strftime('%Y-%m')
-    return jsonify(success=True, enabled=(enabled=='1'), count=get_ocr_usage('google_vision', period), period=period, limit=980, remaining=max(0, 980 - get_ocr_usage('google_vision', period)), key_configured=bool(os.getenv('GOOGLE_VISION_API_KEY') or os.getenv('GOOGLE_API_KEY')))
+    return jsonify(success=True, enabled=False, count=0, period=period, limit=0, remaining=0, key_configured=False, mode='native_device_only')
 
 @app.route("/health")
 def health():
-    return "OK"
+    return jsonify(success=True, status="ok", service="yuanxing", mode="native_device_only")
+
+@app.route("/api/native-shell/config", methods=["GET"])
+def api_native_shell_config():
+    return jsonify(success=True, backend_url=request.host_url.rstrip("/"), allowed_origins=["capacitor://localhost", "http://localhost", "https://localhost", "ionic://localhost", "app://localhost", "null"], app_name="沅興木業")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

@@ -10,24 +10,37 @@
   {% if module_key not in ['shipping_query','warehouse','customers'] %}
   <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
     <div class="upload-row tight-row">
-      <button class="primary-btn" onclick="openAlbumPicker()">上傳檔案（相簿 OCR）</button>
+      <button class="primary-btn" onclick="openAlbumPicker()">原生相簿辨識</button>
       <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
       <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
-      <button class="ghost-btn" onclick="openCameraPicker()">手機拍照（相機 OCR）</button>
+      <button class="ghost-btn" onclick="openCameraPicker()">原生相機辨識</button>
     </div>
-    <input id="album-input" class="hidden" type="file" accept="image/*" multiple>
-    <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
+    <div class="upload-row tight-row ocr-option-row">
+      <span class="pill" id="offline-sync-pill">即時同步</span>
+      <select id="ocr-mode-select" class="text-input small inline-select">
+        <option value="blue">藍字優先</option>
+        <option value="general">一般模式</option>
+        <option value="handwriting">手寫優先</option>
+      </select>
+      <select id="ocr-template-select" class="text-input small inline-select">
+        <option value="whiteboard">白板模板</option>
+        <option value="shipping_note">出貨單模板</option>
+        <option value="native_device">通用模板</option>
+      </select>
+    </div>
+    <div class="small-note native-ocr-note">這一版已改成手機原生文字辨識。拍照或選圖後，會先在原生 App 內手動框選，再直接辨識並貼入下方文字框；你仍可手動修改後送出。</div>
+    <div id="ocr-status-detail" class="small-note">辨識引擎：native_device_ocr</div>
     <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
-      <div class="section-head"><h3>區域辨識</h3><span class="muted">請先手動框選你要辨識的範圍，框好後按下方「確認送出後開始識別」。</span></div>
+      <div class="section-head"><h3>辨識來源定位</h3><span class="muted">可點下方每一行內容，反查原圖位置。</span></div>
       <div id="ocr-preview-wrap" class="ocr-preview-wrap">
         <img id="ocr-preview-img" class="ocr-preview-img" alt="OCR預覽">
         <div id="ocr-roi-box" class="ocr-roi-box hidden"></div>
+        <div id="ocr-highlight-box" class="ocr-highlight-box hidden"></div>
       </div>
-      <div class="btn-row compact">
-        <button class="primary-btn small-btn" onclick="runRoiOcr()">確認送出後開始識別</button>
-        <button class="ghost-btn small-btn" onclick="clearRoiSelection()">清除框選</button>
-      </div>
+      <div id="ocr-line-map" class="chip-list ocr-line-map"></div>
     </div>
+    <div class="section-head"><h3>最近辨識</h3><span class="muted">可快速回填最近幾筆 OCR 結果</span></div>
+    <div id="ocr-history-list" class="chip-list ocr-history-list"></div>
 
     {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
