@@ -57,24 +57,6 @@ def fetchone_dict(cur):
         return dict(zip(cols, row))
     return dict(row)
 
-
-
-def _merge_json_item_lists(a_json, b_json):
-    merged = {}
-    for raw in [a_json, b_json]:
-        try:
-            items = json.loads(raw or '[]') if isinstance(raw, str) else (raw or [])
-        except Exception:
-            items = []
-        for it in items:
-            key = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip())
-            if key not in merged:
-                merged[key] = dict(it)
-                merged[key]['qty'] = int(it.get('qty') or 0)
-            else:
-                merged[key]['qty'] = int(merged[key].get('qty') or 0) + int(it.get('qty') or 0)
-    return json.dumps(list(merged.values()), ensure_ascii=False)
-
 def log_error(source, message):
     try:
         conn = get_db()
@@ -274,7 +256,7 @@ def init_db():
 
             zone_expr = pick('zone', 'area', default_sql="'A'")
             col_expr = pick('column_index', 'col', 'column', default_sql='1')
-            slot_type_expr = pick('slot_type', 'front_back', 'side', default_sql="'direct'")
+            slot_type_expr = pick('slot_type', 'front_back', 'side', default_sql="'front'")
             slot_num_expr = pick('slot_number', 'row', 'position', default_sql='1')
             items_expr = pick('items_json', default_sql="'[]'")
             note_expr = pick('note', 'memo', 'remark', default_sql="''")
@@ -285,7 +267,7 @@ def init_db():
                 SELECT
                     COALESCE(NULLIF({zone_expr}::text, ''), 'A'),
                     COALESCE({col_expr}::integer, 1),
-                    COALESCE(NULLIF({slot_type_expr}::text, ''), 'direct'),
+                    COALESCE(NULLIF({slot_type_expr}::text, ''), 'front'),
                     COALESCE({slot_num_expr}::integer, 1),
                     COALESCE({items_expr}::text, '[]'),
                     COALESCE({note_expr}::text, ''),
@@ -319,15 +301,16 @@ def init_db():
 
         for zone in ('A', 'B'):
             for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        SELECT %s, %s, %s, %s, %s, %s, %s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM warehouse_cells
-                            WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
-                        )
-                    """, (zone, col, 'direct', num, '[]', '', now(), zone, col, 'direct', num))
+                for slot_type in ('front', 'back'):
+                    for num in range(1, 11):
+                        cur.execute("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            SELECT %s, %s, %s, %s, %s, %s, %s
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM warehouse_cells
+                                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+                            )
+                        """, (zone, col, slot_type, num, '[]', '', now(), zone, col, slot_type, num))
     else:
         cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
             id {pk},
@@ -342,46 +325,12 @@ def init_db():
         )""")
         for zone in ('A', 'B'):
             for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (zone, col, 'direct', num, '[]', '', now()))
-
-    # normalize warehouse to direct 1-20 model
-    try:
-        cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
-        raw_cells = rows_to_dict(cur)
-        direct_map = {}
-        for cell in raw_cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            col = int(cell.get('column_index') or 1)
-            slot_type = (cell.get('slot_type') or 'direct').strip().lower()
-            slot_no = int(cell.get('slot_number') or 1)
-            if slot_type == 'back':
-                slot_no += 10
-            elif slot_type == 'front':
-                slot_no = slot_no
-            key = (zone, col, slot_no)
-            prev = direct_map.get(key)
-            if prev:
-                prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
-                prev['note'] = prev.get('note') or cell.get('note') or ''
-                prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
-            else:
-                direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
-        cur.execute(sql("DELETE FROM warehouse_cells"))
-        for zone in ('A','B'):
-            for col in range(1, 7):
-                max_slot = max([20] + [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col])
-                for num in range(1, max_slot + 1):
-                    row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
-                    cur.execute(sql("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
-    except Exception as e:
-        log_error('warehouse_normalize_direct_model', str(e))
+                for slot_type in ('front', 'back'):
+                    for num in range(1, 11):
+                        cur.execute("""
+                            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (zone, col, slot_type, num, '[]', '', now()))
 
     conn.commit()
     conn.close()
@@ -771,7 +720,7 @@ def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_targ
         remain -= use_qty
     return used
 
-def _warehouse_locations_for_product(product_text, qty_needed=None):
+def _warehouse_locations_for_product(product_text):
     cells = warehouse_get_cells()
     out = []
     for cell in cells:
@@ -782,19 +731,19 @@ def _warehouse_locations_for_product(product_text, qty_needed=None):
         for it in items:
             if (it.get('product_text') or '') == product_text and int(it.get('qty') or 0) > 0:
                 visual_num = int(cell.get('slot_number') or 0)
-                out.append({'zone': cell.get('zone'), 'column_index': int(cell.get('column_index') or 0), 'slot_type': 'direct', 'slot_number': visual_num, 'visual_slot': visual_num, 'qty': int(it.get('qty') or 0), 'product_text': it.get('product_text') or ''})
+                if (cell.get('slot_type') or '') == 'back':
+                    visual_num += 10
+                out.append({
+                    'zone': cell.get('zone'),
+                    'column_index': int(cell.get('column_index') or 0),
+                    'slot_type': cell.get('slot_type'),
+                    'slot_number': int(cell.get('slot_number') or 0),
+                    'visual_slot': visual_num,
+                    'qty': int(it.get('qty') or 0),
+                    'product_text': it.get('product_text') or ''
+                })
     out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot']))
-    if qty_needed is None:
-        return out
-    remain = int(qty_needed or 0)
-    plan = []
-    for row in out:
-        take = min(int(row.get('qty') or 0), remain)
-        plan.append({**row, 'ship_qty': take, 'remain_after': max(0, remain - take)})
-        remain -= take
-        if remain <= 0:
-            break
-    return plan
+    return out
 
 def preview_ship_order(customer_name, items):
     conn = get_db()
@@ -813,13 +762,6 @@ def preview_ship_order(customer_name, items):
             needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
             if needs_fallback:
                 needs_inventory_fallback = True
-            shortage_reasons = []
-            if master_available < qty_needed:
-                shortage_reasons.append(f"總單不足 {master_available}/{qty_needed}")
-            if order_available < qty_needed:
-                shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
-            if inventory_available < qty_needed:
-                shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
             preview.append({
                 'product_text': product_text,
                 'qty': qty_needed,
@@ -829,14 +771,7 @@ def preview_ship_order(customer_name, items):
                 'strict_ok': strict_ok,
                 'inventory_only_ok': inventory_only_ok,
                 'needs_inventory_fallback': needs_fallback,
-                'shortage_reasons': shortage_reasons,
-                'recommendation': ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存亦不足')),
-                'source_breakdown': [
-                    {'source': '總單', 'available': master_available},
-                    {'source': '訂單', 'available': order_available},
-                    {'source': '庫存', 'available': inventory_available},
-                ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed),
+                'locations': _warehouse_locations_for_product(product_text),
             })
         return {
             'success': True,
@@ -907,16 +842,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "order_available": order_available,
                 "inventory_available": inventory_available,
                 "used_inventory_fallback": (not strict_ok),
-                "master_details": used_master,
-                "order_details": used_order,
-                "inventory_details": used_inv,
-                "note": note,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed),
-                "remaining_after": {
-                    "master": max(0, master_available - sum(x["qty"] for x in used_master)),
-                    "order": max(0, order_available - sum(x["qty"] for x in used_order)),
-                    "inventory": max(0, inventory_available - sum(x["qty"] for x in used_inv)),
-                },
+                "locations": _warehouse_locations_for_product(product_text),
             })
         conn.commit()
         return {"success": True, "breakdown": breakdown}
@@ -951,7 +877,7 @@ def get_shipping_records(start_date=None, end_date=None, q=""):
 def warehouse_get_cells():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+    cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_type, slot_number"))
     rows = rows_to_dict(cur)
     conn.close()
     return rows
@@ -961,7 +887,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -970,13 +896,12 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
 def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=""):
     conn = get_db()
     cur = conn.cursor()
-    slot_type = 'direct'
     items_json = json.dumps(items, ensure_ascii=False)
     if USE_POSTGRES:
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -987,7 +912,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute(sql("""
             UPDATE warehouse_cells
             SET items_json = ?, note = ?, updated_at = ?
-            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+            WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
         """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute(sql("""
@@ -1003,38 +928,69 @@ def warehouse_add_column(zone):
     cur.execute(sql("SELECT COALESCE(MAX(column_index), 0) AS max_col FROM warehouse_cells WHERE zone = ?"), (zone,))
     row = fetchone_dict(cur) or {}
     next_col = int(row.get('max_col') or 0) + 1
-    for num in range(1, 21):
-        cur.execute(sql("""
-            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """), (zone, next_col, 'direct', num, '[]', '__USER_ADDED__', now()))
-    conn.commit(); conn.close(); return next_col
+    for slot_type in ('front', 'back'):
+        for num in range(1, 11):
+            if USE_POSTGRES:
+                cur.execute("""
+                    INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                    SELECT %s, %s, %s, %s, %s, %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM warehouse_cells
+                        WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+                    )
+                """, (zone, next_col, slot_type, num, '[]', '__USER_ADDED__', now(), zone, next_col, slot_type, num))
+            else:
+                cur.execute("""
+                    INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (zone, next_col, slot_type, num, '[]', '__USER_ADDED__', now()))
+    conn.commit()
+    conn.close()
+    return next_col
 
-def warehouse_add_slot(zone, column_index, slot_type='direct'):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
+def warehouse_add_slot(zone, column_index, slot_type):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ?"), (zone, column_index, slot_type))
     row = fetchone_dict(cur) or {}
     next_slot = int(row.get('max_slot') or 0) + 1
-    cur.execute(sql("""
-        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """), (zone, column_index, 'direct', next_slot, '[]', '__USER_ADDED_SLOT__', now()))
-    conn.commit(); conn.close(); return next_slot
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            SELECT %s, %s, %s, %s, %s, %s, %s
+            WHERE NOT EXISTS (
+                SELECT 1 FROM warehouse_cells
+                WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
+            )
+        """, (zone, column_index, slot_type, next_slot, '[]', '__USER_ADDED_SLOT__', now(), zone, column_index, slot_type, next_slot))
+    else:
+        cur.execute("""
+            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (zone, column_index, slot_type, next_slot, '[]', '__USER_ADDED_SLOT__', now()))
+    conn.commit()
+    conn.close()
+    return next_slot
 
-def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
+def warehouse_remove_slot(zone, column_index, slot_type, slot_number):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?"), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     if not row:
-        conn.close(); return {'success': False, 'error': '找不到格子'}
+        conn.close()
+        return {'success': False, 'error': '找不到格子'}
     try:
         items = json.loads(row.get('items_json') or '[]')
     except Exception:
         items = []
     if items:
-        conn.close(); return {'success': False, 'error': '格子內還有商品，無法刪除'}
-    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
-    conn.commit(); conn.close(); return {'success': True}
+        conn.close()
+        return {'success': False, 'error': '格子內還有商品，無法刪除'}
+    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?"), (zone, column_index, slot_type, slot_number))
+    conn.commit()
+    conn.close()
+    return {'success': True}
 
 def warehouse_delete_column(zone, column_index):
     conn = get_db()
@@ -1059,51 +1015,47 @@ def warehouse_move_item(from_key, to_key, product_text, qty):
     conn = get_db()
     cur = conn.cursor()
     try:
-        def _norm(key):
-            if len(key) == 4:
-                zone, column_index, _slot_type, slot_number = key
-            else:
-                zone, column_index, slot_number = key
-            return zone, int(column_index), 'direct', int(slot_number)
         def _load(key):
-            zone, column_index, slot_type, slot_number = _norm(key)
+            zone, column_index, slot_type, slot_number = key
             cur.execute(sql("""
                 SELECT * FROM warehouse_cells
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+                WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
-        src = _load(from_key); dst = _load(to_key)
-        if not src or not dst:
-            return {'success': False, 'error': '找不到來源或目標格位'}
-        src_items = json.loads(src.get('items_json') or '[]'); dst_items = json.loads(dst.get('items_json') or '[]')
-        moved=[]; remain=qty; new_src=[]
+        src = _load(from_key)
+        dst = _load(to_key)
+        src_items = json.loads(src["items_json"] or "[]")
+        dst_items = json.loads(dst["items_json"] or "[]")
+        moved = []
+        remain = qty
+        new_src = []
         for it in src_items:
-            if it.get('product_text') == product_text and remain > 0:
-                take = min(int(it.get('qty', 0)), remain)
+            if it.get("product_text") == product_text and remain > 0:
+                take = min(int(it.get("qty", 0)), remain)
                 remain -= take
-                moved.append({**it, 'qty': take})
-                leftover = int(it.get('qty', 0)) - take
+                moved.append({**it, "qty": take})
+                leftover = int(it.get("qty", 0)) - take
                 if leftover > 0:
-                    new_src.append({**it, 'qty': leftover})
+                    new_src.append({**it, "qty": leftover})
             else:
                 new_src.append(it)
         if remain > 0:
-            return {'success': False, 'error': '來源格位數量不足'}
-        merged = {}
-        for it in dst_items + moved:
-            k = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip())
-            if k not in merged:
-                merged[k] = dict(it)
-                merged[k]['qty'] = int(it.get('qty') or 0)
-            else:
-                merged[k]['qty'] = int(merged[k].get('qty') or 0) + int(it.get('qty') or 0)
-        from_zone, from_col, _, from_slot = _norm(from_key)
-        to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(new_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(list(merged.values()), ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
-        conn.commit(); return {'success': True}
+            return {"success": False, "error": "來源格位數量不足"}
+        dst_items.extend(moved)
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET items_json = ?, updated_at = ?
+            WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
+        """), (json.dumps(new_src, ensure_ascii=False), now(), *from_key))
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET items_json = ?, updated_at = ?
+            WHERE zone = ? AND column_index = ? AND slot_type = ? AND slot_number = ?
+        """), (json.dumps(dst_items, ensure_ascii=False), now(), *to_key))
+        conn.commit()
+        return {"success": True}
     except Exception as e:
-        conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
+        conn.rollback()
+        log_error("warehouse_move_item", e)
+        return {"success": False, "error": "拖曳失敗"}
     finally:
         conn.close()
 
@@ -1137,12 +1089,13 @@ def inventory_summary():
 
 def warehouse_summary():
     cells = warehouse_get_cells()
-    zones = {'A': {}, 'B': {}}
+    zones = {"A": {}, "B": {}}
     for cell in cells:
-        zone = cell['zone']
-        col = int(cell['column_index'])
-        num = int(cell['slot_number'])
-        zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
+        zone = cell["zone"]
+        col = int(cell["column_index"])
+        slot_type = cell["slot_type"]
+        num = int(cell["slot_number"])
+        zones.setdefault(zone, {}).setdefault(col, {}).setdefault(slot_type, {})[num] = cell
     return zones
 
 def list_backups():
