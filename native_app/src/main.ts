@@ -4,9 +4,8 @@ import { Ocr } from '@jcesarmobile/capacitor-ocr';
 
 type OcrSource = 'camera' | 'photos';
 type OcrMode = 'blue' | 'general' | 'handwriting';
-type OcrTemplate = 'whiteboard' | 'shipping_note' | 'native_device';
 type NormalizedBox = { id: string; text: string; confidence: number; bbox: { x: number; y: number; w: number; h: number } };
-type RequestPayload = { type: 'native-ocr-request'; source?: OcrSource; requestId?: string; ocrMode?: OcrMode; template?: OcrTemplate; appId?: string };
+type RequestPayload = { type: 'native-ocr-request'; source?: OcrSource; requestId?: string; ocrMode?: OcrMode; appId?: string };
 
 const DEFAULT_BACKEND_URL = 'https://yuanxing-v.onrender.com';
 const BACKEND_URL_STORAGE_KEY = 'yuanxing_backend_url';
@@ -220,7 +219,7 @@ async function imageToDataUrl(webPath: string): Promise<{ dataUrl: string; width
   return { dataUrl: canvas.toDataURL('image/jpeg', 0.86), width: img.width, height: img.height };
 }
 
-async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTemplate: OcrTemplate): Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }> {
+async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode): Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }> {
   const modal = document.querySelector<HTMLDivElement>('#ocr-modal')!;
   const stage = document.querySelector<HTMLDivElement>('#ocr-stage')!;
   const img = document.querySelector<HTMLImageElement>('#ocr-stage-img')!;
@@ -284,8 +283,8 @@ async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTe
   stage.addEventListener('touchmove', onMove, { passive: false });
   window.addEventListener('touchend', onEnd);
 
-  const result = await new Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }>((resolve) => {
-    const cleanup = (output: { roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; template: OcrTemplate; cancelled: boolean }) => {
+  const result = await new Promise<{ roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }>((resolve) => {
+    const cleanup = (output: { roi: { x: number; y: number; w: number; h: number } | null; mode: OcrMode; cancelled: boolean }) => {
       modal.classList.add('hidden');
       stage.removeEventListener('mousedown', onStart);
       stage.removeEventListener('mousemove', onMove);
@@ -299,8 +298,8 @@ async function chooseRoi(previewDataUrl: string, defaultMode: OcrMode, defaultTe
       resolve(output);
     };
     clearBtn.onclick = () => clearSelection();
-    cancelBtn.onclick = () => cleanup({ roi: null, mode: modeInput.value as OcrMode, template: defaultTemplate, cancelled: true });
-    runBtn.onclick = () => cleanup({ roi, mode: modeInput.value as OcrMode, template: defaultTemplate, cancelled: false });
+    cancelBtn.onclick = () => cleanup({ roi: null, mode: modeInput.value as OcrMode, cancelled: true });
+    runBtn.onclick = () => cleanup({ roi, mode: modeInput.value as OcrMode, cancelled: false });
   });
   return result;
 }
@@ -309,7 +308,6 @@ async function runNativeOcr(request: RequestPayload) {
   try {
     const source = request.source === 'camera' ? 'camera' : 'photos';
     const defaultMode = (request.ocrMode || 'blue') as OcrMode;
-    const defaultTemplate = (request.template || 'whiteboard') as OcrTemplate;
     setStatus(source === 'camera' ? '正在開啟相機…' : '正在開啟相簿…');
     const photo = await Camera.getPhoto({
       quality: 90,
@@ -324,7 +322,7 @@ async function runNativeOcr(request: RequestPayload) {
 
     const preview = await imageToDataUrl(previewPath);
     const previewDataUrl = preview.dataUrl;
-    const selection = await chooseRoi(previewDataUrl, defaultMode, defaultTemplate);
+    const selection = await chooseRoi(previewDataUrl, defaultMode);
     if (selection.cancelled) {
       setStatus('已取消辨識');
       return;
@@ -349,7 +347,6 @@ async function runNativeOcr(request: RequestPayload) {
         source,
         requestId: request.requestId || '',
         ocrMode: selection.mode,
-        template: selection.template,
         roi: selection.roi,
         blocks: activeBoxes,
         line_map: lineMap,

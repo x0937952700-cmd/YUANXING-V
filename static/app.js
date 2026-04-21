@@ -25,14 +25,6 @@ const state = {
   lineMap: [],
   nativePreview: null,
   pendingNativeRequestId: '',
-  ocrTextareaAutoFormatting: false,
-  ocrTextareaLastPastedAt: 0,
-  todayUnplacedItems: [],
-  syncSource: null,
-  lastSyncEventId: '',
-  submitInFlight: false,
-  submitLastFingerprint: '',
-  submitLastAt: 0,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -59,19 +51,18 @@ function persistPendingQueue(){ localStorage.setItem(PENDING_SUBMIT_KEY, JSON.st
 function persistOcrHistory(){ localStorage.setItem(OCR_HISTORY_KEY, JSON.stringify(state.ocrHistory.slice(0,20))); }
 function updateOfflineSyncPill(){
   const pill = $('offline-sync-pill');
+  if (!pill) return;
   const count = state.pendingSubmitQueue.length;
-  if (pill) {
-    pill.textContent = count ? `待同步：${count}` : '已同步';
-    pill.classList.toggle('warn', !!count);
-  }
-  renderPendingQueuePanel();
+  pill.textContent = count ? `待同步：${count}` : '即時同步';
+  pill.classList.toggle('warn', !!count);
 }
 function getSelectedOcrMode(){ return ($('ocr-mode-select')?.value || state.nativeOcrMode || 'blue'); }
-function getSelectedTemplate(){ return (state.nativeOcrTemplate || 'whiteboard'); }
+function getSelectedTemplate(){ return ($('ocr-template-select')?.value || state.nativeOcrTemplate || 'whiteboard'); }
 function setSelectedOcrOptions(mode, template){
   state.nativeOcrMode = mode || state.nativeOcrMode || 'blue';
   state.nativeOcrTemplate = template || state.nativeOcrTemplate || 'whiteboard';
   if ($('ocr-mode-select')) $('ocr-mode-select').value = state.nativeOcrMode;
+  if ($('ocr-template-select')) $('ocr-template-select').value = state.nativeOcrTemplate;
 }
 function queuePendingSubmit(entry){
   state.pendingSubmitQueue.push({ ...entry, queued_at: new Date().toISOString() });
@@ -102,7 +93,7 @@ function restoreOcrHistory(index){
   state.lineMap = it.line_map || [];
   state.nativePreview = it.preview || null;
   renderNativePreview();
-  toast('已回填辨識結果', 'ok');
+  toast('已回填最近辨識結果', 'ok');
 }
 function renderLineMap(){
   const box = $('ocr-line-map');
@@ -151,7 +142,7 @@ function applyLocalNativeOcrPreview(payload={}){
   const fallbackText = payload.text || payload.rawText || payload.raw_text || '';
   if ($('ocr-text')) $('ocr-text').value = fallbackText;
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${payload.confidence || 0}%`;
-  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '辨識完成，正在整理格式…';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '手機原生辨識完成，正在整理格式…';
   setPillState($('ocr-warning-pill'), 'warn');
   state.lastOcrOriginalText = fallbackText;
   state.lastOcrItems = parseTextareaItems();
@@ -225,7 +216,7 @@ function setNativeOcrBusy(isBusy, source=''){
   const warningPill = $('ocr-warning-pill');
   if (!warningPill) return;
   if (isBusy) {
-    warningPill.textContent = source === 'camera' ? '拍照辨識中…' : '上傳檔案辨識中…';
+    warningPill.textContent = source === 'camera' ? '手機相機辨識中…' : '手機相簿辨識中…';
     setPillState(warningPill, 'warn');
   }
 }
@@ -251,9 +242,11 @@ async function parseNativeOcrText(payload={}){
   if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || payload.confidence || 0}%`;
   const warningPill = $('ocr-warning-pill');
-  const statusText = data.warning || '辨識完成，可直接修改後送出';
-  if (warningPill) warningPill.textContent = `${statusText}｜原生 ${data.ocr_confidence || payload.confidence || 0}%｜解析 ${data.parse_confidence || 0}%`; renderPendingQueuePanel();
+  const statusText = data.warning || '手機原生辨識完成，可直接修改後送出';
+  if (warningPill) warningPill.textContent = `${statusText}｜原生 ${data.ocr_confidence || payload.confidence || 0}%｜解析 ${data.parse_confidence || 0}%`;
   setPillState(warningPill, data.warning ? 'warn' : 'ok');
+  const detail = $('ocr-status-detail');
+  if (detail) detail.textContent = `辨識引擎：${(data.engines || ['native_device_ocr']).join(' / ')}｜模板：${data.template || 'native_device'}`;
   renderNativePreview();
   saveOcrHistoryEntry({
     text: data.text || payload.text || '',
@@ -263,7 +256,7 @@ async function parseNativeOcrText(payload={}){
     preview: state.nativePreview,
     created_at: new Date().toISOString(),
   });
-  toast(data.warning || '辨識完成', data.warning ? 'warn' : 'ok');
+  toast(data.warning || '手機原生辨識完成', data.warning ? 'warn' : 'ok');
   scrollToOcrFields();
   if (state.module === 'ship') await loadShipPreview();
 }
@@ -276,7 +269,7 @@ async function handleNativeOcrResult(payload={}){
     await parseNativeOcrText(payload);
   } catch (e) {
     const msg = e.message || '原生辨識失敗';
-    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = `${msg}；已保留原始辨識文字，可直接修改或稍後補送`;
+    if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = `${msg}；已保留原始辨識文字，可直接修改或稍後自動同步`;
     setPillState($('ocr-warning-pill'), 'error');
     if (payload && (payload.text || payload.rawText || payload.raw_text)) {
       saveOcrHistoryEntry({
@@ -367,7 +360,6 @@ document.addEventListener('DOMContentLoaded', () => {
   updateOfflineSyncPill();
   renderOcrHistory();
   syncPendingSubmits();
-  connectRealtimeSync();
   if ($('remember-label')) {
     state.rememberLogin = localStorage.getItem('rememberLogin') !== '0';
     $('remember-label').textContent = state.rememberLogin ? '開' : '關';
@@ -376,11 +368,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initLoginPage();
   }
   if ($('old-password')) {
-    if ($('system-status-panel')) loadGoogleOcrStatus();
-    if ($('backup-panel')) loadBackups();
-    loadCorrectionsList();
-    loadCustomerAliasesList();
-    loadAuditTrails();
+    loadGoogleOcrStatus();
+    loadBackups();
   }
   if ($('today-changes-btn') || $('today-summary-cards')) {
     loadTodayChanges();
@@ -535,64 +524,9 @@ async function createBackup(){
   }
 }
 
-
-async function autoFormatOcrTextarea(source='paste'){
-  const area = $('ocr-text');
-  if (!area || state.ocrTextareaAutoFormatting) return;
-  const raw = (area.value || '').trim();
-  if (!raw) return;
-  state.ocrTextareaAutoFormatting = true;
-  try {
-    const data = await requestJSON('/api/native-ocr/parse', {
-      method: 'POST',
-      body: JSON.stringify({
-        raw_text: raw,
-        customer_hint: ($('customer-name')?.value || '').trim(),
-        confidence: 0,
-        blocks: [],
-        ocr_mode: getSelectedOcrMode(),
-        template: getSelectedTemplate(),
-        roi: null,
-      })
-    });
-    if (data.text) area.value = data.text;
-    if ($('customer-name') && data.customer_guess && !$('customer-name').value.trim()) $('customer-name').value = data.customer_guess;
-    state.lastOcrItems = data.items || parseTextareaItems();
-    state.lineMap = data.line_map || [];
-    if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = `信心值：${data.confidence || 0}%`;
-    if ($('ocr-warning-pill')) {
-      $('ocr-warning-pill').textContent = data.warning || (source === 'paste' ? '已自動整理貼上的 OCR 文字' : '已自動整理 OCR 文字');
-      setPillState($('ocr-warning-pill'), data.warning ? 'warn' : 'ok');
-    }
-    renderNativePreview();
-  } catch (e) {
-    if ($('ocr-warning-pill')) {
-      $('ocr-warning-pill').textContent = '文字已貼上，可直接修改後送出';
-      setPillState($('ocr-warning-pill'), 'warn');
-    }
-  } finally {
-    state.ocrTextareaAutoFormatting = false;
-  }
-}
-
-function bindOcrTextareaAutoFormat(){
-  const area = $('ocr-text');
-  if (!area || area.dataset.autoFormatBound === '1') return;
-  area.dataset.autoFormatBound = '1';
-  area.addEventListener('paste', () => {
-    state.ocrTextareaLastPastedAt = Date.now();
-    setTimeout(() => autoFormatOcrTextarea('paste'), 80);
-  });
-  area.addEventListener('drop', () => {
-    state.ocrTextareaLastPastedAt = Date.now();
-    setTimeout(() => autoFormatOcrTextarea('drop'), 80);
-  });
-}
-
 function initModulePage(){
   const module = state.module;
   setupUploadButtons();
-  bindOcrTextareaAutoFormat();
   const album = $('album-input');
   const camera = $('camera-input');
   if (album) album.addEventListener('change', e => handleFiles(e.target.files));
@@ -625,7 +559,7 @@ function resetModuleForm(){
 async function handleFiles(fileList){
   const files = Array.from(fileList || []);
   if (!files.length) return;
-  toast('請改用上傳檔案或拍照；手動框選已整合到原生流程。', 'warn');
+  toast('請改用原生 App 的相機或相簿辨識；手動框選已整合到原生流程。', 'warn');
 }
 
 async function uploadOcrFile(file, useRoi=false){
@@ -691,8 +625,7 @@ function renderTodayChangesFromData(data){
   if ($('today-inbound-list')) $('today-inbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.inbound || []), '今日沒有進貨');
   if ($('today-outbound-list')) $('today-outbound-list').innerHTML = renderTodayLogList(markUnread(data.feed?.outbound || []), '今日沒有出貨');
   if ($('today-order-list')) $('today-order-list').innerHTML = renderTodayLogList(markUnread(data.feed?.new_orders || []), '今日沒有新增訂單');
-  state.todayUnplacedItems = data.unplaced_items || [];
-  if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((state.todayUnplacedItems || []).map((i, idx) => `<button class="chip-item log-chip" onclick="openUnplacedFromToday(${idx})"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></button>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
+  if ($('today-unplaced-list')) $('today-unplaced-list').innerHTML = ((data.unplaced_items || []).map(i => `<div class="chip-item log-chip"><div class="log-main"><strong>未錄入：</strong>${escapeHTML(i.message || `${i.product_text} (${i.qty || i.unplaced_qty || 0})`)}</div></div>`).join('')) || '<div class="small-note">目前沒有未錄入倉庫圖商品</div>';
   if ($('today-anomaly-list')) $('today-anomaly-list').innerHTML = ((data.anomalies || []).map(a => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(a.type || '異常')}</strong>｜${escapeHTML(a.message || a.product_text || '異常')}</div></div>`).join('')) || '<div class="small-note">目前沒有異常</div>';
   applyTodayCategoryFilter();
 }
@@ -820,7 +753,7 @@ function applySuggestedRoiBox(roi){
 }
 
 async function runRoiOcr(){
-  toast('手動框選已改成原生 App 內先框選再辨識，請直接點拍照或上傳檔案。', 'ok');
+  toast('手動框選已改成原生 App 內先框選再辨識，請直接點原生相機或原生相簿。', 'ok');
 }
 
 function clearRoiSelection(){
@@ -905,7 +838,6 @@ async function filterExistingCustomerItems(customerName, items){
 
 async function confirmSubmit(){
   const module = state.module;
-  if (state.submitInFlight) return toast('資料送出中，請稍候', 'warn');
   const customer_name = ($('customer-name')?.value || '').trim();
   const location = ($('location-input')?.value || '').trim();
   const ocr_text = ($('ocr-text')?.value || '').trim();
@@ -915,12 +847,7 @@ async function confirmSubmit(){
   if (module === 'orders') endpoint = '/api/orders';
   if (module === 'master_order') endpoint = '/api/master_orders';
   if (module === 'ship') endpoint = '/api/ship';
-  const fingerprint = JSON.stringify({ module, customer_name, location, items });
-  if (fingerprint === state.submitLastFingerprint && Date.now() - state.submitLastAt < 4000) {
-    return toast('剛剛已送出相同內容，系統已忽略重複點擊', 'warn');
-  }
   try {
-    state.submitInFlight = true;
     const dedupe = await filterExistingCustomerItems(customer_name, items);
     if (dedupe.ignored.length && dedupe.items.length) {
       const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
@@ -933,7 +860,7 @@ async function confirmSubmit(){
       if (ok) toast('已略過重複商品', 'ok');
       return;
     }
-    let payload = { customer_name, location, ocr_text, items, request_key: `${module}-${Date.now()}-${Math.random().toString(36).slice(2,8)}` };
+    let payload = { customer_name, location, ocr_text, items };
     if (module === 'ship') {
       const preview = state.shipPreview || await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
       state.shipPreview = preview;
@@ -952,8 +879,6 @@ async function confirmSubmit(){
     if (module === 'master_order') await loadMasterList();
     if (module === 'ship') await loadShippingRecords();
     if (module === 'warehouse') await renderWarehouse();
-    state.submitLastFingerprint = fingerprint;
-    state.submitLastAt = Date.now();
     toast('送出完成', 'ok');
   } catch (e) {
     const payload = { customer_name, location, ocr_text, items };
@@ -964,8 +889,6 @@ async function confirmSubmit(){
       return;
     }
     showResult(`錯誤：${e.message}`, true);
-  } finally {
-    state.submitInFlight = false;
   }
 }
 
@@ -1073,8 +996,7 @@ async function selectCustomerForModule(name){
     const panel = $('selected-customer-items');
     if (panel) {
       panel.classList.remove('hidden');
-      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>') + `<div id="customer-specs-inline" class="chip-list"></div>`;
-      loadCustomerSpecs(name, 'customer-specs-inline');
+      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>');
     }
     if (state.module === 'ship') await loadShipPreview();
   } catch (e) { toast(e.message, 'error'); }
@@ -1127,13 +1049,8 @@ async function openCustomerModal(name){
           <div class="title">商品</div>
           <div id="customer-modal-items" class="chip-list"></div>
         </div>
-        <div class="card">
-          <div class="title">常用規格</div>
-          <div id="customer-specs-box" class="chip-list"></div>
-        </div>
       </div>`;
     const list = $('customer-modal-items');
-    loadCustomerSpecs(name, 'customer-specs-box');
     (items.items || []).forEach(it => {
       const ch = document.createElement('div');
       ch.className='chip-item';
@@ -1223,17 +1140,7 @@ async function renderWarehouse(){
     } catch (e) {}
     $('warehouse-unplaced-pill') && ($('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`);
     renderWarehouseZones();
-    renderWarehouseUnplacedInline();
     setWarehouseZone(state.warehouse.activeZone || 'A', false);
-    try {
-      const rawQuick = localStorage.getItem('warehouseQuickPlaceProduct');
-      if (rawQuick) {
-        localStorage.removeItem('warehouseQuickPlaceProduct');
-        const item = JSON.parse(rawQuick);
-        const idx = (state.warehouse.availableItems || []).findIndex(it => it.product_text === item.product_text);
-        if (idx >= 0) setTimeout(() => quickPlaceUnplaced(idx), 180);
-      }
-    } catch (e) {}
   } catch (e) {
     console.error(e);
     toast(e.message || '倉庫圖載入失敗', 'error');
@@ -1335,7 +1242,7 @@ function renderWarehouseZones(){
       const col = document.createElement('div');
       col.className = 'vertical-column-card intuitive-column';
       const visibleSlots = getColumnVisibleSlots(zone, c);
-      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn warehouse-plusminus-btn" title="增加格子" aria-label="增加格子" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button><button class="ghost-btn small-btn warehouse-plusminus-btn" title="減少格子" aria-label="減少格子" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button></div>`;
+      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋新增格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－刪除最後一格</button><button class="ghost-btn small-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除整欄</button></div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
       for (let n = 1; n <= visibleSlots; n++) {
@@ -1359,13 +1266,7 @@ function renderWarehouseZones(){
           if (!raw) return;
           const parsed = JSON.parse(raw);
           if (parsed.kind === 'warehouse-item') {
-            let qty = parseInt(parsed.qty || 1, 10) || 1;
-            if (qty > 1) {
-              const input = window.prompt(`要移動幾件？（可拆量移動，最多 ${qty} 件）`, String(qty));
-              if (input === null) return;
-              qty = Math.max(1, Math.min(qty, parseInt(input || '1', 10) || 1));
-            }
-            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, qty);
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty);
           }
         });
         list.appendChild(slot);
@@ -1399,7 +1300,6 @@ async function openWarehouseModal(zone, column, num){
   $('warehouse-note').value = (state.warehouse.cells.find(c => c.zone===zone && parseInt(c.column_index)===parseInt(column) && parseInt(c.slot_number)===parseInt(num)) || {}).note || '';
   renderWarehouseCellItems();
   refreshWarehouseSelect();
-  loadRecentSlots();
   const search = $('warehouse-item-search');
   if (search) search.oninput = refreshWarehouseSelect;
 }
@@ -1504,15 +1404,6 @@ async function moveWarehouseItem(fromKey, toKey, product_text, qty){
 
 async function searchWarehouse(){
   const q = ($('warehouse-search')?.value || '').trim();
-  const jump = q.match(/^([ABab])\s*[- ]\s*(\d{1,2})\s*[- ]\s*(\d{1,2})$/);
-  if (jump) {
-    const zone = String(jump[1] || '').toUpperCase();
-    const column = parseInt(jump[2] || '0', 10) || 0;
-    const num = parseInt(jump[3] || '0', 10) || 0;
-    setWarehouseZone(zone);
-    setTimeout(() => { highlightWarehouseCell(zone, column, num); openWarehouseModal(zone, column, num); }, 120);
-    return;
-  }
   if (!q) {
     state.searchHighlightKeys = new Set();
     $('warehouse-search-results')?.classList.add('hidden');
@@ -1586,199 +1477,10 @@ async function renderCustomers(){
   await loadCustomerBlocks();
 }
 
-async function loadCustomerSpecs(name, targetId='customer-specs-box'){
-  const box = $(targetId);
-  if (!box) return;
-  try {
-    const data = await requestJSON(`/api/customer-specs?name=${encodeURIComponent(name)}`, { method:'GET' });
-    box.innerHTML = (data.items || []).slice(0, 12).map(it => `<div class="chip-item">${escapeHTML(it.product_text || '')}｜總量 ${it.qty_total || 0}</div>`).join('') || '<div class="small-note">尚無規格學習資料</div>';
-  } catch (e) {
-    box.innerHTML = '<div class="small-note">尚無規格學習資料</div>';
-  }
-}
-
 function escapeHTML(str){
   return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 }
 
-
-function renderPendingQueuePanel(){
-  const panel = $('pending-queue-panel');
-  if (!panel) return;
-  const items = state.pendingSubmitQueue || [];
-  if (!items.length) {
-    panel.classList.add('hidden');
-    panel.innerHTML = '';
-    return;
-  }
-  panel.classList.remove('hidden');
-  panel.innerHTML = `<div class="section-head"><div><strong>待同步佇列</strong><div class="small-note">網路恢復後會自動補送，也可手動重送或刪除。</div></div><button class="ghost-btn small-btn" onclick="syncPendingSubmits()">全部補送</button></div>` + items.map((entry, idx) => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(entry.module || '')}</strong>｜${escapeHTML(entry.payload?.customer_name || '未指定客戶')}｜${(entry.payload?.items || []).length} 筆｜${escapeHTML(entry.queued_at || '')}</div><div class="btn-row compact"><button class="ghost-btn tiny-btn" onclick="retryPendingSubmit(${idx})">重送</button><button class="ghost-btn tiny-btn" onclick="removePendingSubmit(${idx})">刪除</button></div></div>`).join('');
-}
-
-async function retryPendingSubmit(index){
-  const entry = state.pendingSubmitQueue[index];
-  if (!entry) return;
-  try {
-    await requestJSON(entry.endpoint, { method:'POST', body: JSON.stringify(entry.payload) });
-    state.pendingSubmitQueue.splice(index, 1);
-    persistPendingQueue();
-    toast('已補送完成', 'ok');
-  } catch (e) {
-    toast(e.message || '補送失敗', 'error');
-  }
-}
-function removePendingSubmit(index){
-  state.pendingSubmitQueue.splice(index, 1);
-  persistPendingQueue();
-}
-
-function connectRealtimeSync(){
-  if (state.syncSource || !window.EventSource) return;
-  try {
-    const es = new EventSource('/api/sync/stream');
-    state.syncSource = es;
-    es.onmessage = (event) => {
-      if (!event?.data) return;
-      let payload = null;
-      try { payload = JSON.parse(event.data); } catch (e) { return; }
-      if (!payload || !payload.id || payload.id === state.lastSyncEventId) return;
-      state.lastSyncEventId = payload.id;
-      const mod = payload.module || 'all';
-      if ($('ocr-warning-pill') && ['inventory','orders','master_order','ship','warehouse','customers','today_changes','all'].includes(mod)) {
-        $('ocr-warning-pill').textContent = payload.message || '資料已同步更新';
-        setPillState($('ocr-warning-pill'), 'ok');
-      }
-      handleRealtimeRefresh(mod);
-    };
-    es.onerror = () => {};
-  } catch (e) {}
-}
-
-async function handleRealtimeRefresh(mod){
-  try {
-    if ($('today-summary-cards')) return await loadTodayChanges();
-    if ($('admin-users')) await loadAuditTrails();
-    if (state.module === 'inventory' && ['inventory','all'].includes(mod)) return await loadInventory();
-    if (state.module === 'orders' && ['orders','customers','all'].includes(mod)) { await loadOrdersList(); return await loadCustomerBlocks(); }
-    if (state.module === 'master_order' && ['master_order','customers','all'].includes(mod)) { await loadMasterList(); return await loadCustomerBlocks(); }
-    if (state.module === 'ship' && ['ship','orders','master_order','inventory','all'].includes(mod)) return await loadShipPreview();
-    if (state.module === 'warehouse' && ['warehouse','inventory','all'].includes(mod)) return await renderWarehouse();
-    if (state.module === 'customers' && ['customers','all'].includes(mod)) return await renderCustomers();
-  } catch (e) {}
-}
-
-async function loadCorrectionsList(){
-  const box = $('corrections-list');
-  if (!box) return;
-  try {
-    const data = await requestJSON('/api/corrections', { method:'GET' });
-    box.innerHTML = (data.items || []).map(item => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(item.wrong_text || '')}</strong> → ${escapeHTML(item.correct_text || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteCorrectionItem('${encodeURIComponent(item.wrong_text || '')}')">刪除</button></div>`).join('') || '<div class="small-note">尚無修正詞</div>';
-  } catch (e) { box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`; }
-}
-async function saveCorrectionItem(){
-  try {
-    await requestJSON('/api/corrections', { method:'POST', body: JSON.stringify({ wrong_text: ($('correction-wrong')?.value || '').trim(), correct_text: ($('correction-correct')?.value || '').trim() }) });
-    if ($('correction-wrong')) $('correction-wrong').value = '';
-    if ($('correction-correct')) $('correction-correct').value = '';
-    toast('修正詞已儲存', 'ok');
-    loadCorrectionsList();
-  } catch (e) { toast(e.message, 'error'); }
-}
-async function deleteCorrectionItem(encoded){
-  try {
-    await requestJSON('/api/corrections', { method:'DELETE', body: JSON.stringify({ wrong_text: decodeURIComponent(encoded) }) });
-    loadCorrectionsList();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function loadCustomerAliasesList(){
-  const box = $('aliases-list');
-  if (!box) return;
-  try {
-    const data = await requestJSON('/api/customer-aliases', { method:'GET' });
-    box.innerHTML = (data.items || []).map(item => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(item.alias || '')}</strong> → ${escapeHTML(item.target_name || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteCustomerAliasItem('${encodeURIComponent(item.alias || '')}')">刪除</button></div>`).join('') || '<div class="small-note">尚無客戶別名</div>';
-  } catch (e) { box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`; }
-}
-async function saveCustomerAliasItem(){
-  try {
-    await requestJSON('/api/customer-aliases', { method:'POST', body: JSON.stringify({ alias: ($('alias-name')?.value || '').trim(), target_name: ($('alias-target')?.value || '').trim() }) });
-    if ($('alias-name')) $('alias-name').value = '';
-    if ($('alias-target')) $('alias-target').value = '';
-    toast('客戶別名已儲存', 'ok');
-    loadCustomerAliasesList();
-  } catch (e) { toast(e.message, 'error'); }
-}
-async function deleteCustomerAliasItem(encoded){
-  try {
-    await requestJSON('/api/customer-aliases', { method:'DELETE', body: JSON.stringify({ alias: decodeURIComponent(encoded) }) });
-    loadCustomerAliasesList();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function loadAuditTrails(){
-  const box = $('audit-trails-list');
-  if (!box) return;
-  try {
-    const data = await requestJSON('/api/audit-trails?limit=80', { method:'GET' });
-    box.innerHTML = (data.items || []).map(item => `<div class="chip-item log-chip"><div class="log-main"><strong>${escapeHTML(item.created_at || '')}</strong>｜${escapeHTML(item.username || '')}｜${escapeHTML(item.entity_type || '')}｜${escapeHTML(item.action_type || '')}｜${escapeHTML(item.entity_key || '')}</div><div class="small-note">前：${escapeHTML(JSON.stringify(item.before_json || {}))}<br>後：${escapeHTML(JSON.stringify(item.after_json || {}))}</div></div>`).join('') || '<div class="small-note">尚無差異紀錄</div>';
-  } catch (e) { box.innerHTML = `<div class="alert">${escapeHTML(e.message || '載入失敗')}</div>`; }
-}
-
-function downloadReport(type){
-  window.location.href = `/api/reports/export?type=${encodeURIComponent(type)}`;
-}
-
-async function loadRecentSlots(){
-  const box = $('warehouse-recent-slots');
-  if (!box) return;
-  try {
-    const customer = (state.currentCellItems.find(it => it.customer_name)?.customer_name || '').trim();
-    const data = await requestJSON(`/api/recent-slots?customer_name=${encodeURIComponent(customer)}`, { method:'GET' });
-    box.innerHTML = `<div class="small-note">最近使用格位</div>` + ((data.items || []).map(item => `<button class="chip-item" onclick="applyRecentSlotToModal('${item.zone}', ${item.column_index}, ${item.slot_number})">${escapeHTML(item.zone)}-${item.column_index}-${String(item.slot_number).padStart(2,'0')}</button>`).join('') || '<span class="small-note">尚無紀錄</span>');
-  } catch (e) { box.innerHTML = ''; }
-}
-function applyRecentSlotToModal(zone, column, slot){
-  closeWarehouseModal();
-  setWarehouseZone(zone);
-  setTimeout(() => openWarehouseModal(zone, column, slot), 120);
-}
-
-function openUnplacedFromToday(index){
-  const item = (state.todayUnplacedItems || [])[index];
-  if (!item) return;
-  localStorage.setItem('warehouseQuickPlaceProduct', JSON.stringify(item));
-  window.location.href = '/warehouse';
-}
-
-function renderWarehouseUnplacedInline(){
-  const box = $('warehouse-unplaced-list-inline');
-  if (!box) return;
-  const items = (state.warehouse.availableItems || []).slice(0, 12);
-  if (!items.length) {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-  box.classList.remove('hidden');
-  box.innerHTML = items.map((item, idx) => `<div class="search-card" onclick="quickPlaceUnplaced(${idx})"><strong>${escapeHTML(item.product_text || '')}</strong><br>${escapeHTML(item.customer_name || '未指定客戶')}｜未錄入 ${item.unplaced_qty || 0}</div>`).join('');
-}
-function quickPlaceUnplaced(index){
-  const item = (state.warehouse.availableItems || [])[index];
-  if (!item) return;
-  state.warehouse.quickPickItem = item;
-  const zone = state.warehouse.activeZone === 'B' ? 'B' : 'A';
-  openWarehouseModal(zone, 1, 1);
-  setTimeout(() => {
-    const sel = $('warehouse-item-select');
-    if (!sel) return;
-    for (const opt of Array.from(sel.options)) {
-      try {
-        const data = JSON.parse(opt.value || '{}');
-        if (data.product_text === item.product_text) { sel.value = opt.value; break; }
-      } catch (e) {}
-    }
-  }, 80);
-}
 // expose globals
 window.openAlbumPicker = openAlbumPicker;
 window.openCameraPicker = openCameraPicker;
