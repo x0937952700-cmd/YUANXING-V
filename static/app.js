@@ -689,7 +689,6 @@ function renderWarehouseZones(){
 async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zone, column); }
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
-
 async function openWarehouseModal(zone, column, num){
   state.currentCell = { zone, column, slot_type: 'direct', slot_number: num };
   state.currentCellItems = getCellItems(zone, column, num);
@@ -1050,35 +1049,6 @@ function openUnplacedFromToday(index){
   window.location.href = '/warehouse';
 }
 
-function renderWarehouseUnplacedInline(){
-  const box = $('warehouse-unplaced-list-inline');
-  if (!box) return;
-  const items = (state.warehouse.availableItems || []).slice(0, 12);
-  if (!items.length) {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-  box.classList.remove('hidden');
-  box.innerHTML = items.map((item, idx) => `<div class="search-card" onclick="quickPlaceUnplaced(${idx})"><strong>${escapeHTML(item.product_text || '')}</strong><br>${escapeHTML(item.customer_name || '未指定客戶')}｜未錄入 ${item.unplaced_qty || 0}</div>`).join('');
-}
-function quickPlaceUnplaced(index){
-  const item = (state.warehouse.availableItems || [])[index];
-  if (!item) return;
-  state.warehouse.quickPickItem = item;
-  const zone = state.warehouse.activeZone === 'B' ? 'B' : 'A';
-  openWarehouseModal(zone, 1, 1);
-  setTimeout(() => {
-    const sel = $('warehouse-item-select');
-    if (!sel) return;
-    for (const opt of Array.from(sel.options)) {
-      try {
-        const data = JSON.parse(opt.value || '{}');
-        if (data.product_text === item.product_text) { sel.value = opt.value; break; }
-      } catch (e) {}
-    }
-  }, 80);
-}
 // expose globals
 window.openAlbumPicker = openAlbumPicker;
 window.openCameraPicker = openCameraPicker;
