@@ -689,15 +689,6 @@ function renderWarehouseZones(){
 async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zone, column); }
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
-async function deleteWarehouseColumn(zone, column){
-  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
-  if (!ok) return;
-  try {
-    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
-    toast('已刪除欄位', 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
-}
 
 async function openWarehouseModal(zone, column, num){
   state.currentCell = { zone, column, slot_type: 'direct', slot_number: num };
@@ -811,15 +802,6 @@ async function moveWarehouseItem(fromKey, toKey, product_text, qty){
 
 async function searchWarehouse(){
   const q = ($('warehouse-search')?.value || '').trim();
-  const jump = q.match(/^([ABab])\s*[- ]\s*(\d{1,2})\s*[- ]\s*(\d{1,2})$/);
-  if (jump) {
-    const zone = String(jump[1] || '').toUpperCase();
-    const column = parseInt(jump[2] || '0', 10) || 0;
-    const num = parseInt(jump[3] || '0', 10) || 0;
-    setWarehouseZone(zone);
-    setTimeout(() => { highlightWarehouseCell(zone, column, num); openWarehouseModal(zone, column, num); }, 120);
-    return;
-  }
   if (!q) {
     state.searchHighlightKeys = new Set();
     $('warehouse-search-results')?.classList.add('hidden');

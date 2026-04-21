@@ -109,7 +109,7 @@
       <span class="muted">直立卡片式排列，六欄縱向顯示，每欄 20 格。</span>
     </div>
     <div class="search-row warehouse-search-toolbar">
-      <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
+      <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113">
       <button class="primary-btn" onclick="searchWarehouse()">搜尋</button>
       <button class="ghost-btn" onclick="renderWarehouse()">清除搜尋</button>
     </div>
@@ -123,18 +123,23 @@
       <button id="zone-switch-ALL" class="chip zone-switch" onclick="setWarehouseZone('ALL')">全部</button>
     </div>
     <div id="warehouse-search-results" class="search-results hidden"></div>
-    <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
     <div class="warehouse-zone-wrap single-zone-mode">
       <div class="zone-card full-zone" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
+          <div class="btn-row compact">
+            <button class="ghost-btn" onclick="jumpToZone('A')">跳到 A 區</button>
+          </div>
         </div>
         <div class="zone-grid six-grid" id="zone-A-grid"></div>
       </div>
       <div class="zone-card full-zone" id="zone-B">
         <div class="zone-titlebar">
           <div class="zone-title">B 區</div>
+          <div class="btn-row compact">
+            <button class="ghost-btn" onclick="jumpToZone('B')">跳到 B 區</button>
+          </div>
         </div>
         <div class="zone-grid six-grid" id="zone-B-grid"></div>
       </div>
