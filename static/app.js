@@ -310,12 +310,11 @@ async function handleFiles(fileList){
   state.lastSelectedFile = file;
   state.roi = null;
   renderOcrPreview(file);
-  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '正在自動套用模板並辨識';
+  if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '請手動框選後，再按下方按鈕開始識別';
   setPillState($('ocr-warning-pill'), 'warn');
-  if ($('ocr-template-pill')) { $('ocr-template-pill').textContent = '模板：自動判斷中'; $('ocr-template-pill').className = 'pill template-auto'; }
-  const detail = $('ocr-status-detail'); if (detail) detail.textContent = '系統會先自動框出建議辨識區，再直接辨識；如果不準可手動微調。';
-  toast('已自動套用模板框選並開始辨識，如不準可再手動微調', 'ok');
-  await uploadOcrFile(file, false);
+  if ($('ocr-template-pill')) { $('ocr-template-pill').textContent = '模板：手動框選'; $('ocr-template-pill').className = 'pill template-auto'; }
+  const detail = $('ocr-status-detail'); if (detail) detail.textContent = '已取消自動框選，請手動框選照片範圍後按「確認送出後開始識別」。';
+  toast('請先手動框選辨識範圍，再按下方按鈕開始識別', 'ok');
 }
 
 async function uploadOcrFile(file, useRoi=false){
@@ -339,10 +338,7 @@ async function uploadOcrFile(file, useRoi=false){
     state.lastOcrItems = (data.items && data.items.length) ? data.items : parseTextareaItems();
     state.lastOcrTemplate = data.template || '';
     if ($('customer-name') && data.customer_guess) $('customer-name').value = data.customer_guess;
-    if (data.suggested_roi) {
-      state.roi = data.suggested_roi;
-      applySuggestedRoiBox(data.suggested_roi);
-    }
+    // 已取消自動框選：只保留使用者手動框選的 ROI
     const tplName = data.template_name || (data.template === 'whiteboard' ? '白板模板' : (data.template === 'shipping_note' ? '出貨單模板' : '自動模式'));
     if ($('ocr-template-pill')) {
       $('ocr-template-pill').textContent = `模板：${tplName}`;
@@ -519,7 +515,7 @@ function renderOcrPreview(file){
   };
   const startSelect = (e) => { const p = point(e); start = p; update(p.x,p.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
   const moveSelect = (e) => { if (!start) return; const p = point(e); update(start.x,start.y,p.x,p.y); if (e.cancelable) e.preventDefault(); };
-  const endSelect = async () => { if (start && state.roi && state.lastSelectedFile) { start = null; await uploadOcrFile(state.lastSelectedFile, true); } };
+  const endSelect = async () => { if (start) { start = null; toast('已框選辨識範圍，請按「確認送出後開始識別」', 'ok'); } };
   wrap.onmousedown = startSelect;
   wrap.onmousemove = moveSelect;
   wrap.ontouchstart = startSelect;
@@ -551,6 +547,7 @@ function applySuggestedRoiBox(roi){
 
 async function runRoiOcr(){
   if (!state.lastSelectedFile) return toast('請先上傳圖片', 'warn');
+  if (!state.roi) return toast('請先手動框選辨識範圍', 'warn');
   await uploadOcrFile(state.lastSelectedFile, true);
 }
 

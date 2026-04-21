@@ -18,12 +18,13 @@
     <input id="album-input" class="hidden" type="file" accept="image/*" multiple>
     <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
     <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
-      <div class="section-head"><h3>區域辨識</h3><span class="muted">上傳後會先自動套用模板框選並直接辨識；若框選不準，再手動拖曳微調，放開後自動重新辨識</span></div>
+      <div class="section-head"><h3>區域辨識</h3><span class="muted">請先手動框選你要辨識的範圍，框好後按下方「確認送出後開始識別」。</span></div>
       <div id="ocr-preview-wrap" class="ocr-preview-wrap">
         <img id="ocr-preview-img" class="ocr-preview-img" alt="OCR預覽">
         <div id="ocr-roi-box" class="ocr-roi-box hidden"></div>
       </div>
       <div class="btn-row compact">
+        <button class="primary-btn small-btn" onclick="runRoiOcr()">確認送出後開始識別</button>
         <button class="ghost-btn small-btn" onclick="clearRoiSelection()">清除框選</button>
       </div>
     </div>
