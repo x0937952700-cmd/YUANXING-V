@@ -26,6 +26,7 @@ const state = {
   nativePreview: null,
   pendingNativeRequestId: '',
   lastCustomerGuess: '',
+  todoSelectedFile: null,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -538,6 +539,13 @@ function initModulePage(){
   if (module === 'shipping_query') loadShippingRecords();
   if (module === 'warehouse') renderWarehouse();
   if (module === 'customers') renderCustomers();
+  if (module === 'todos') {
+    const imageInput = $('todo-image-input');
+    const cameraInput = $('todo-camera-input');
+    imageInput?.addEventListener('change', (e) => handleTodoFiles(e.target.files));
+    cameraInput?.addEventListener('change', (e) => handleTodoFiles(e.target.files));
+    loadTodos();
+  }
 }
 
 function setupUploadButtons(){
@@ -1907,6 +1915,109 @@ function showWarehouseDetail(zone, column, num, items){
 
 
 
+function openTodoAlbumPicker(){ $('todo-image-input')?.click(); }
+function openTodoCameraPicker(){ $('todo-camera-input')?.click(); }
+function handleTodoFiles(fileList){
+  const files = Array.from(fileList || []);
+  state.todoSelectedFile = files[0] || null;
+  renderTodoSelectedPreview();
+}
+function renderTodoSelectedPreview(){
+  const box = $('todo-selected-preview');
+  if (!box) return;
+  if (!state.todoSelectedFile) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const url = URL.createObjectURL(state.todoSelectedFile);
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="todo-preview-card"><img src="${url}" alt="todo preview"><div class="small-note">已選擇：${escapeHTML(state.todoSelectedFile.name || '圖片')}</div></div>`;
+}
+function clearTodoForm(){
+  state.todoSelectedFile = null;
+  if ($('todo-note')) $('todo-note').value = '';
+  if ($('todo-date')) $('todo-date').value = '';
+  if ($('todo-image-input')) $('todo-image-input').value = '';
+  if ($('todo-camera-input')) $('todo-camera-input').value = '';
+  renderTodoSelectedPreview();
+}
+async function saveTodoItem(){
+  if (!state.todoSelectedFile) return toast('請先選擇照片', 'warn');
+  try {
+    const fd = new FormData();
+    fd.append('image', state.todoSelectedFile);
+    fd.append('note', ($('todo-note')?.value || '').trim());
+    fd.append('due_date', ($('todo-date')?.value || '').trim());
+    const res = await fetch('/api/todos', { method:'POST', body: fd, credentials:'same-origin' });
+    const data = await res.json().catch(()=>({success:false,error:'回應解析失敗'}));
+    if (!res.ok || data.success === false) throw new Error(data.error || `HTTP ${res.status}`);
+    toast('代辦事項已新增', 'ok');
+    clearTodoForm();
+    loadTodos();
+  } catch (e) {
+    toast(e.message || '新增失敗', 'error');
+  }
+}
+async function deleteTodoItem(id){
+  const ok = await askConfirm('確認這張備忘照片已完成，要刪除這筆代辦嗎？', '完成代辦', '確認刪除', '取消');
+  if (!ok) return;
+  try {
+    await requestJSON(`/api/todos/${id}`, { method:'DELETE' });
+    toast('代辦事項已刪除', 'ok');
+    loadTodos();
+  } catch (e) {
+    toast(e.message || '刪除失敗', 'error');
+  }
+}
+async function loadTodos(){
+  const box = $('todo-list');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/todos', { method:'GET' });
+    const items = sortTodoItems(data.items || []);
+    if (!items.length) {
+      box.innerHTML = '<div class="empty-state-card"><div class="empty-state-title">目前沒有代辦事項</div><div class="small-note">可拍照或上傳圖片建立備忘，今天到期的會優先顯示</div></div>';
+      return;
+    }
+    let currentDate = '__INIT__';
+    let html = '';
+    items.forEach(item => {
+      const dateLabel = formatTodoDateLabel(item.due_date || '');
+      if (dateLabel !== currentDate) {
+        currentDate = dateLabel;
+        html += `<div class="todo-date-heading">${escapeHTML(dateLabel)}</div>`;
+      }
+      const dateChip = item.due_date ? `<span class="todo-chip todo-chip-date">${escapeHTML(item.due_date)}</span>` : `<span class="todo-chip">未指定日期</span>`;
+      html += `<div class="card todo-card premium-todo-card" onclick="deleteTodoItem(${Number(item.id || 0)})">
+        <div class="todo-card-top">
+          <div class="todo-top-badges">
+            <span class="todo-chip todo-chip-accent">代辦事項</span>
+            ${dateChip}
+          </div>
+          <div class="todo-top-hint">點卡片可刪除</div>
+        </div>
+        <div class="todo-card-main">
+          <div class="todo-thumb-wrap">
+            <img class="todo-thumb" src="/todo-image/${encodeURIComponent(item.image_filename || '')}" alt="todo image">
+          </div>
+          <div class="todo-card-info">
+            <div class="title todo-title">${escapeHTML(item.note || '照片備忘')}</div>
+            <div class="todo-meta-grid">
+              <div class="todo-meta-item"><span class="todo-meta-label">建立者</span><span class="todo-meta-value">${escapeHTML(item.created_by || '未填寫')}</span></div>
+              <div class="todo-meta-item"><span class="todo-meta-label">建立時間</span><span class="todo-meta-value">${escapeHTML(item.created_at || '')}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="btn-row todo-card-actions"><button class="primary-btn small-btn" onclick="event.stopPropagation(); deleteTodoItem(${Number(item.id || 0)})">確認完成並刪除</button></div>
+      </div>`;
+    });
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '代辦事項載入失敗')}</div>`;
+  }
+}
+
 function highlightWarehouseCell(zone, column, num){
   const target = document.querySelector(`.vertical-slot[data-zone="${zone}"][data-column="${column}"][data-num="${num}"]`);
   if (target){
@@ -1983,6 +2094,11 @@ window.addSelectedItemToCell = addSelectedItemToCell;
 window.saveWarehouseCell = saveWarehouseCell;
 window.renderWarehouse = renderWarehouse;
 window.renderCustomers = renderCustomers;
+window.openTodoAlbumPicker = openTodoAlbumPicker;
+window.openTodoCameraPicker = openTodoCameraPicker;
+window.saveTodoItem = saveTodoItem;
+window.clearTodoForm = clearTodoForm;
+window.deleteTodoItem = deleteTodoItem;
 window.toggleTodayChanges = toggleTodayChanges;
 window.markTodayChangesRead = markTodayChangesRead;
 window.toggleTodayUnreadFilter = toggleTodayUnreadFilter;

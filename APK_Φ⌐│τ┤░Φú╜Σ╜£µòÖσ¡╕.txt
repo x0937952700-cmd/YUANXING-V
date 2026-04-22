@@ -1,0 +1,66 @@
+沅興木業 原生 App APK 製作教學（已固定正式網址）
+正式網址：https://yuanxing-v.onrender.com/
+
+一、先安裝工具
+1. 安裝 Node.js LTS 版本
+2. 安裝 Java JDK 17
+3. 安裝 Android Studio
+4. 在 Android Studio 安裝：
+   - Android SDK
+   - Android SDK Platform
+   - Android SDK Build-Tools
+   - Android SDK Command-line Tools
+
+二、解壓這個 ZIP
+把本 ZIP 解壓到一個英文路徑資料夾，例如：
+D:\yuanxing_native_app
+
+三、打開命令列
+在 native_app 資料夾執行以下指令：
+
+npm install
+npm run build
+npx cap sync android
+
+如果 android 資料夾不存在，再先執行：
+npx cap add android
+
+四、用 Android Studio 開啟專案
+1. 開 Android Studio
+2. 選 Open
+3. 選這個資料夾：
+   native_app\android
+
+五、生成 APK
+方法 A：先出測試 APK
+1. 在 Android Studio 上方選單點：
+   Build > Build APK(s)
+2. 完成後點畫面右下角的 locate
+3. APK 通常會在：
+   native_app\android\app\build\outputs\apk\debug\app-debug.apk
+
+方法 B：命令列輸出 debug APK
+1. 進入：
+   native_app\android
+2. 執行：
+   gradlew.bat assembleDebug
+3. APK 位置通常是：
+   app\build\outputs\apk\debug\app-debug.apk
+
+六、安裝到手機
+1. 把 app-debug.apk 傳到 Android 手機
+2. 手機允許安裝未知來源 App
+3. 點 APK 安裝
+
+七、之後如果你有改網頁前端
+每次都要重新跑：
+npm run build
+npx cap sync android
+
+再重新 Build APK
+
+八、這版已改好
+1. 固定網址，不用手動輸入後端
+2. 網址已綁定成：
+   https://yuanxing-v.onrender.com/
+3. 保留原本功能結構

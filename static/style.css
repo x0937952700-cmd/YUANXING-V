@@ -472,3 +472,88 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
   .common-meta-wrap{grid-template-columns:1fr;}
   .ship-picker-row{grid-template-columns:1fr;}
 }
+
+
+.todo-panel{max-width:760px}
+.todo-upload-row .primary-btn,.todo-upload-row .ghost-btn{min-width:140px}
+.todo-selected-preview{margin:12px 0 2px}
+.todo-preview-card{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid rgba(17,24,39,.08);background:#fff;border-radius:18px}
+.todo-preview-card img{width:84px;height:84px;object-fit:cover;border-radius:14px;border:1px solid rgba(17,24,39,.08)}
+.todo-list{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.todo-date-heading{font-size:1rem;font-weight:900;color:#374151;margin-top:8px}
+.todo-card{padding:14px 16px}
+.todo-card-main{display:flex;gap:14px;align-items:flex-start}
+.todo-thumb{width:120px;height:120px;object-fit:cover;border-radius:18px;border:1px solid rgba(17,24,39,.08);cursor:pointer;box-shadow:var(--shadow-soft)}
+.todo-card-info{flex:1;min-width:0}
+.todo-card .btn-row{margin-top:12px}
+.warehouse-col-tools{display:flex;gap:8px;justify-content:center;flex-wrap:nowrap}
+.warehouse-col-tools .warehouse-plusminus-btn{min-width:44px;max-width:44px;padding:8px 0;font-size:1.1rem;border-radius:14px}
+@media (max-width:720px){
+  .ship-picker-grid{grid-template-columns:1fr}
+  .todo-card-main{flex-direction:column}
+  .todo-thumb{width:100%;max-width:280px;height:auto;aspect-ratio:1/1;align-self:flex-start}
+  .warehouse-col-tools{gap:6px}
+  .warehouse-col-tools .warehouse-plusminus-btn{min-width:40px;max-width:40px;padding:6px 0}
+}
+
+
+.inline-material-panel{margin-top:14px;padding:14px;border-radius:20px;background:rgba(255,255,255,.88);border:1px solid rgba(17,24,39,.08);box-shadow:var(--shadow-soft);}
+.compact-head{margin-bottom:10px;}
+.parsed-item-material-list{display:flex;flex-direction:column;gap:10px;}
+.parsed-item-row{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:12px;align-items:center;padding:12px 14px;border-radius:18px;background:#fff;border:1px solid rgba(17,24,39,.08);}
+.parsed-item-main{min-width:0;}
+.parsed-item-title{font-weight:900;word-break:break-word;}
+.parsed-item-material-select{min-width:0;}
+@media (max-width: 720px){
+  .ocr-status-row{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1fr) minmax(0,1.2fr);gap:8px;align-items:stretch;}
+  .ocr-status-row .pill,.ocr-status-row .inline-select{width:100%;min-width:0;justify-content:center;font-size:.76rem;padding:8px 10px;min-height:40px;}
+  .ocr-status-row .pill{display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .ocr-status-row .inline-select{font-size:.76rem;padding-right:24px;}
+  .parsed-item-row{grid-template-columns:1fr;gap:8px;}
+}
+@media (max-width: 430px){
+  .ocr-status-row{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .ocr-status-row .pill,.ocr-status-row .inline-select{font-size:.72rem;padding:7px 8px;}
+}
+
+
+/* premium todo card */
+.premium-todo-card{
+  position:relative;
+  overflow:hidden;
+  padding:16px 16px 14px;
+  border-radius:24px;
+  border:1px solid rgba(255,255,255,.72);
+  background:linear-gradient(180deg, rgba(255,255,255,.96) 0%, rgba(248,248,246,.98) 100%);
+  box-shadow:0 12px 32px rgba(17,24,39,.10), 0 4px 14px rgba(17,24,39,.06);
+  transition:transform .18s ease, box-shadow .18s ease;
+}
+.premium-todo-card::before{
+  content:"";
+  position:absolute;
+  inset:0 0 auto 0;
+  height:5px;
+  background:linear-gradient(90deg,#b78c45 0%,#e7d3a0 52%,#c09a5a 100%);
+}
+.premium-todo-card:active{transform:scale(.993)}
+.todo-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.todo-top-badges{display:flex;flex-wrap:wrap;gap:8px}
+.todo-chip{display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border-radius:999px;font-size:.78rem;font-weight:800;background:#f3f4f6;color:#374151;border:1px solid rgba(17,24,39,.06)}
+.todo-chip-accent{background:linear-gradient(180deg,#f4ead2 0%,#ead7ab 100%);color:#6f4d1e;border-color:rgba(164,121,59,.18)}
+.todo-chip-date{background:#fff;color:#6b7280}
+.todo-top-hint{font-size:.78rem;font-weight:700;color:#9ca3af}
+.todo-thumb-wrap{position:relative;flex:0 0 auto}
+.todo-thumb-wrap::after{content:"完成後點卡片刪除";position:absolute;left:10px;bottom:10px;padding:5px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:rgba(17,24,39,.72);color:#fff;backdrop-filter:blur(4px)}
+.todo-thumb{box-shadow:0 12px 24px rgba(17,24,39,.12)}
+.todo-title{font-size:1.08rem;font-weight:900;line-height:1.45;color:#111827;margin-bottom:10px}
+.todo-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.todo-meta-item{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-radius:16px;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);border:1px solid rgba(17,24,39,.06)}
+.todo-meta-label{font-size:.76rem;font-weight:800;color:#9ca3af}
+.todo-meta-value{font-size:.9rem;font-weight:800;color:#374151;word-break:break-word}
+.todo-card-actions{display:flex;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid rgba(17,24,39,.06)}
+@media (max-width: 768px){
+  .premium-todo-card{padding:14px 14px 12px;border-radius:22px}
+  .todo-card-top{align-items:flex-start;flex-direction:column;margin-bottom:12px}
+  .todo-top-hint{font-size:.74rem}
+  .todo-meta-grid{grid-template-columns:1fr}
+}

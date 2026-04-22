@@ -7,7 +7,7 @@
     <div class="spacer"></div>
   </div>
 
-  {% if module_key not in ['shipping_query','warehouse','customers'] %}
+  {% if module_key not in ['shipping_query','warehouse','customers','todos'] %}
   <div class="glass panel upload-panel compact-upload streamlined manual-entry-panel {% if module_key in ['inventory','orders','master_order','ship'] %}manual-only{% endif %}">
     {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
@@ -171,6 +171,31 @@
   </section>
 
   
+  <section class="subsection" id="todos-section" {% if module_key != 'todos' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>代辦事項</h3>
+      <span class="muted">可拍照 / 上傳相簿圖片，依日期排序，完成後可直接刪除</span>
+    </div>
+    <div class="glass panel todo-panel">
+      <div class="upload-row tight-row todo-upload-row">
+        <button class="primary-btn" onclick="openTodoAlbumPicker()">上傳檔案</button>
+        <button class="ghost-btn" onclick="openTodoCameraPicker()">拍照</button>
+      </div>
+      <input id="todo-image-input" class="hidden" type="file" accept="image/*">
+      <input id="todo-camera-input" class="hidden" type="file" accept="image/*" capture="environment">
+      <div id="todo-selected-preview" class="todo-selected-preview hidden"></div>
+      <label class="field-label">日期</label>
+      <input id="todo-date" class="text-input" type="date">
+      <label class="field-label">備忘內容</label>
+      <textarea id="todo-note" class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea>
+      <div class="btn-row">
+        <button class="primary-btn" onclick="saveTodoItem()">新增代辦</button>
+        <button class="ghost-btn" onclick="clearTodoForm()">清空</button>
+      </div>
+    </div>
+    <div id="todo-list" class="todo-list"></div>
+  </section>
+
   <section class="subsection" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>訂單清單</h3>

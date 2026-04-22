@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
 from functools import wraps
 import os
@@ -8,6 +8,7 @@ import time
 import hashlib
 import json
 from PIL import Image
+from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 
 from db import (
@@ -20,7 +21,8 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
-    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
+    create_todo_item, list_todo_items, get_todo_item, delete_todo_item
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -33,9 +35,11 @@ app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
 UPLOAD_FOLDER = "uploads"
+TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
 MAX_UPLOAD_SIZE = 16 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 init_db()
@@ -101,6 +105,14 @@ def request_key_from_payload(data, endpoint=''):
 
 def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
+
+
+def safe_list_todos(fallback_item=None):
+    try:
+        return list_todo_items()
+    except Exception as e:
+        log_error('safe_list_todos', str(e))
+        return [fallback_item] if fallback_item else []
 
 
 def export_rows_to_xlsx(sheet_name, rows, columns):
@@ -228,9 +240,20 @@ def warehouse_page():
 def customers_page():
     return render_template("module.html", module_key="customers", title="客戶資料", username=current_username())
 
+@app.route("/todos")
+def todos_page():
+    return render_template("module.html", module_key="todos", title="代辦事項", username=current_username())
+
 @app.route("/today-changes")
 def today_changes_page():
     return render_template("today_changes.html", username=current_username(), title="今日異動")
+
+@app.route('/todo-image/<path:filename>')
+def todo_image(filename):
+    if not require_login():
+        return redirect(url_for('login_page'))
+    safe_name = os.path.basename(filename)
+    return send_from_directory(TODO_UPLOAD_FOLDER, safe_name)
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -1058,7 +1081,7 @@ def api_reports_export():
     else:
         return error_response('報表類型不存在')
     buf = export_rows_to_xlsx(report_type, rows, columns)
-    return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return send_file, send_from_directory(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 
@@ -1069,7 +1092,7 @@ def api_backup_download(filename):
     path = os.path.join('backups', safe_name)
     if not os.path.isfile(path):
         return error_response('找不到備份檔', 404)
-    return send_file(path, as_attachment=True, download_name=safe_name)
+    return send_file, send_from_directory(path, as_attachment=True, download_name=safe_name)
 
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
