@@ -17,26 +17,29 @@
     <label class="field-label">倉庫格位 / 預設位置</label>
     <input class="text-input" id="location-input" placeholder="例如：A-1-01">
 
-    <label class="field-label">批量材質</label>
-    <select class="text-input" id="batch-material">
-      <option value="">不指定材質</option>
-      <option value="SPF">SPF</option>
-      <option value="HF">HF</option>
-      <option value="DF">DF</option>
-      <option value="ROT">ROT</option>
-      <option value="SPY">SPY</option>
-      <option value="SP">SP</option>
-      <option value="RP">RP</option>
-      <option value="TD">TD</option>
-      <option value="MLH">MLH</option>
-    </select>
+    <div class="hidden-batch-material" style="display:none">
+      <label class="field-label">批量材質</label>
+      <select class="text-input" id="batch-material">
+        <option value="">不指定材質</option>
+        <option value="SPF">SPF</option>
+        <option value="HF">HF</option>
+        <option value="DF">DF</option>
+        <option value="ROT">ROT</option>
+        <option value="SPY">SPY</option>
+        <option value="SP">SP</option>
+        <option value="RP">RP</option>
+        <option value="TD">TD</option>
+        <option value="MLH">MLH</option>
+      </select>
+    </div>
 
     <label class="field-label">商品資料</label>
     <textarea class="text-area" id="ocr-text" placeholder="把手機辨識好的文字直接貼上，系統會立刻自動整理、刪除句點、承接 _ / - 的寬高數字，並依照你的固定規則排序"></textarea>
     <div class="btn-row">
-      <button class="primary-btn" onclick="confirmSubmit()">確認送出</button>
-      <button class="ghost-btn" onclick="cleanOcrTextarea()">重新整理格式</button>
+      <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
+      {% if module_key == 'ship' %}
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
+      {% endif %}
     </div>
     <div id="duplicate-action-panel" class="result-card hidden"></div>
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>

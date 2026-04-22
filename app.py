@@ -395,6 +395,8 @@ def api_inventory():
         operator = current_username()
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
+        if customer_name:
+            upsert_customer(customer_name, region=(data.get("region") or "北區").strip() or "北區")
         for it in items:
             save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
         log_action(operator, "建立庫存")
@@ -524,9 +526,20 @@ def api_customers():
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
 
-@app.route("/api/customers/<name>", methods=["GET"])
+@app.route("/api/customers/<name>", methods=["GET", "DELETE"])
 @login_required_json
 def api_customer_detail(name):
+    if request.method == "DELETE":
+        try:
+            row = get_customer(name)
+            delete_customer(name)
+            log_action(current_username(), f"刪除客戶 {name}")
+            add_audit_trail(current_username(), 'delete', 'customer_profiles', name, before_json=row or {}, after_json={})
+            notify_sync_event(kind='refresh', module='customers', message=f'客戶已刪除：{name}', extra={'customer_name': name})
+            return jsonify(success=True)
+        except Exception as e:
+            log_error("delete_customer", str(e))
+            return error_response("客戶刪除失敗")
     row = get_customer(name)
     return jsonify(success=True, item=row)
 

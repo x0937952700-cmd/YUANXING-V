@@ -623,6 +623,14 @@ def get_customers():
     conn.close()
     return rows
 
+
+
+def delete_customer(name):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("DELETE FROM customer_profiles WHERE name = ?"), (name,))
+    conn.commit()
+    conn.close()
 def get_customer(name):
     conn = get_db()
     cur = conn.cursor()
