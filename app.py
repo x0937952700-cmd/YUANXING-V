@@ -23,7 +23,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item,
-    set_user_role, dashboard_summary
+    set_user_role, dashboard_summary, get_customer_preferences, get_latest_audit_trail, undo_latest_audit
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -1215,7 +1215,27 @@ def api_audit_trails():
 @login_required_json
 def api_customer_specs():
     name = (request.args.get('name') or '').strip()
-    return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
+    limit = int(request.args.get('limit') or 20)
+    return jsonify(success=True, items=get_customer_spec_stats(name, limit=limit), preferences=get_customer_preferences(name, limit=limit))
+
+@app.route('/api/audit/latest', methods=['GET'])
+@login_required_json
+def api_audit_latest():
+    item = get_latest_audit_trail(current_username())
+    return jsonify(success=True, item=item)
+
+@app.route('/api/audit/undo-last', methods=['POST'])
+@login_required_json
+def api_audit_undo_last():
+    readonly_error = require_write_access_json()
+    if readonly_error:
+        return readonly_error
+    result = undo_latest_audit(current_username())
+    if not result.get('success'):
+        return error_response(result.get('error') or '還原失敗', 400)
+    log_action(current_username(), f"還原最近異動：{(result.get('entry') or {}).get('action_type','')}/{(result.get('entry') or {}).get('entity_type','')}")
+    notify_sync_event(kind='refresh', module='all', message='最近異動已還原', extra={'action': (result.get('entry') or {}).get('action_type'), 'entity_type': (result.get('entry') or {}).get('entity_type')})
+    return jsonify(success=True, message=result.get('message') or '已還原最近一次異動', item=result.get('entry'))
 
 @app.route('/api/reports/export', methods=['GET'])
 @login_required_json

@@ -33,6 +33,8 @@ const state = {
   recentCustomers: [],
   recentProducts: [],
   session: { username: '', role: 'user', read_only: false },
+  selectedCards: new Set(),
+  lastTouchCopyAt: 0,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -132,6 +134,75 @@ function canMutate(showToast=true){
     return false;
   }
   return true;
+}
+
+function haptic(ms=18){
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch(e) {}
+}
+function normalizeTouchPoint(ev){
+  const t = ev.touches?.[0] || ev.changedTouches?.[0];
+  return t ? { x: t.clientX, y: t.clientY } : null;
+}
+function bindSwipeActions(el, actions={}){
+  if (!el || el.dataset.swipeBound === '1') return;
+  el.dataset.swipeBound = '1';
+  let startX = 0, startY = 0, active = false, moved = false, longPressTimer = null;
+  const clearLong = () => { if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; } };
+  const reset = () => { active = false; moved = false; startX = 0; startY = 0; clearLong(); el.style.transform = ''; el.style.transition = ''; };
+  el.addEventListener('touchstart', ev => {
+    const pt = normalizeTouchPoint(ev); if (!pt) return;
+    startX = pt.x; startY = pt.y; active = true; moved = false; el.style.transition = 'none';
+    clearLong();
+    longPressTimer = setTimeout(() => {
+      if (!active || moved) return;
+      haptic(28);
+      if (actions.onLongPress) actions.onLongPress(ev, el);
+    }, 420);
+  }, { passive:true });
+  el.addEventListener('touchmove', ev => {
+    if (!active) return;
+    const pt = normalizeTouchPoint(ev); if (!pt) return;
+    const dx = pt.x - startX; const dy = pt.y - startY;
+    if (Math.abs(dy) > 18) { reset(); return; }
+    if (Math.abs(dx) > 8) moved = true;
+    if (Math.abs(dx) > 12) clearLong();
+    const limited = Math.max(-84, Math.min(84, dx));
+    el.style.transform = `translateX(${limited}px)`;
+  }, { passive:true });
+  el.addEventListener('touchend', ev => {
+    if (!active) return;
+    const pt = normalizeTouchPoint(ev) || { x: startX, y: startY };
+    const dx = pt.x - startX;
+    el.style.transition = 'transform .18s ease';
+    el.style.transform = '';
+    clearLong();
+    if (dx <= -72 && actions.onSwipeLeft) { haptic(); actions.onSwipeLeft(ev, el); }
+    else if (dx >= 72 && actions.onSwipeRight) { haptic(); actions.onSwipeRight(ev, el); }
+    reset();
+  }, { passive:true });
+  el.addEventListener('touchcancel', reset, { passive:true });
+}
+function toggleCardMultiSelect(el, payload={}){
+  if (!el) return;
+  const key = payload.key || el.dataset.cardKey || '';
+  if (!key) return;
+  if (state.selectedCards.has(key)) state.selectedCards.delete(key); else state.selectedCards.add(key);
+  el.classList.toggle('multi-selected', state.selectedCards.has(key));
+  toast(state.selectedCards.size ? `已選 ${state.selectedCards.size} 筆` : '已清除多選', 'ok');
+}
+async function undoLastAction(btn=null){
+  if (!canMutate()) return;
+  return withActionLock('undo-last-action', btn, async () => {
+    try {
+      const data = await requestJSON('/api/audit/undo-last', { method:'POST', body:'{}' });
+      toast(data.message || '已還原最近一次異動', 'ok');
+      if (['inventory','orders','master_order'].includes(state.module)) { if (state.module === 'inventory') await loadInventory(); if (state.module === 'orders') await loadOrdersList(); if (state.module === 'master_order') await loadMasterList(); }
+      if (state.module === 'ship' || state.module === 'shipping_query') await loadShippingRecords();
+      if (state.module === 'warehouse') await renderWarehouse();
+      if (state.module === 'todos') await loadTodos();
+      await loadDashboardSummary();
+    } catch(e) { toast(e.message || '還原失敗', 'error'); }
+  }, '還原中…');
 }
 function loadRecentMemory(){
   state.recentSearches = safeJSONParse(localStorage.getItem(RECENT_SEARCH_KEY), {});
@@ -1133,6 +1204,7 @@ async function loadOrdersList(){
       buttons[0].onclick = (ev) => addOrderToMaster(item, ev.currentTarget);
       buttons[1].onclick = () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); };
       buttons[2].onclick = () => gotoWarehouseForItem(item.product_text || '', item.material || '');
+      bindSwipeActions(card, { onSwipeLeft: () => addOrderToMaster(item), onSwipeRight: () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); }, onLongPress: () => toggleCardMultiSelect(card, { key: `order_${item.id || item.product_text || ''}` }) });
       el.appendChild(card);
     });
   } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
@@ -1162,6 +1234,7 @@ async function loadMasterList(){
       const buttons = card.querySelectorAll('button');
       buttons[0].onclick = () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); };
       buttons[1].onclick = () => gotoWarehouseForItem(item.product_text || '', item.material || '');
+      bindSwipeActions(card, { onSwipeLeft: () => gotoWarehouseForItem(item.product_text || '', item.material || ''), onSwipeRight: () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); }, onLongPress: () => toggleCardMultiSelect(card, { key: `master_${item.id || item.product_text || ''}` }) });
       el.appendChild(card);
     });
   } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
@@ -1276,6 +1349,21 @@ function renderSubmitResult(module, data, customerName=''){
     html += `<div class="section-title">已儲存</div>`;
   }
   box.innerHTML = html;
+  qsa('.todo-card').forEach(card => {
+    bindSwipeActions(card, {
+      onSwipeLeft: () => deleteTodoItem(card.dataset.todoId),
+      onSwipeRight: () => {
+        const id = card.dataset.todoId;
+        const item = (state.todosItems || []).find(it => String(it.id) === String(id));
+        if (!item) return;
+        if ($('todo-note')) $('todo-note').value = item.note || '';
+        if ($('todo-date')) $('todo-date').value = item.due_date || '';
+        ensureTodoFormError('已帶入此代辦內容，可重新上傳圖片後再新增');
+        toast('已帶回表單，可重新編輯', 'ok');
+      },
+      onLongPress: () => toggleCardMultiSelect(card, { key: card.dataset.cardKey })
+    });
+  });
 }
 
 function showResult(msg, isError=false){
@@ -1310,6 +1398,7 @@ async function loadInventory(){
       const buttons = card.querySelectorAll('button');
       buttons[0].onclick = () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); };
       buttons[1].onclick = () => gotoWarehouseForItem(item.product_text || '', item.material || '');
+      bindSwipeActions(card, { onSwipeLeft: () => gotoWarehouseForItem(item.product_text || '', item.material || ''), onSwipeRight: () => { pushRecentProduct(item.product_text || ''); prefillOcrFromProduct(item.product_text || '', item.qty || 1, item.material || '', item.customer_name || ''); }, onLongPress: () => toggleCardMultiSelect(card, { key: `inventory_${item.product_text || ''}_${(item.material || '').toUpperCase()}` }) });
       const hint = safeJSONParse(localStorage.getItem('inventoryHighlightHint'), null);
       if (hint && hint.product_text === (item.product_text || '') && String(hint.material || '').toUpperCase() === String(item.material || '').toUpperCase()) {
         card.classList.add('flash-highlight');
@@ -1337,7 +1426,7 @@ async function loadCustomerBlocks(){
       chip.draggable = true;
       chip.dataset.customer = c.name;
       chip.innerHTML = `<span>${escapeHTML(c.name)}</span>`;
-      chip.addEventListener('dragstart', ev => {
+      chip.addEventListener('dragstart', ev => { haptic(18);
         ev.dataTransfer.setData('text/plain', JSON.stringify({name:c.name, region:c.region || '北區'}));
       });
       chip.addEventListener('click', () => { if (['orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
@@ -1518,20 +1607,30 @@ async function loadShipPreview(){
 async function openCustomerModal(name){
   try {
     state.currentCustomer = name;
-    const detail = await requestJSON(`/api/customers/${encodeURIComponent(name)}`, { method:'GET' });
-    const items = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    const [detail, items, specs] = await Promise.all([
+      requestJSON(`/api/customers/${encodeURIComponent(name)}`, { method:'GET' }),
+      requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' }),
+      requestJSON(`/api/customer-specs?name=${encodeURIComponent(name)}&limit=8`, { method:'GET' }),
+    ]);
     $('customer-modal').classList.remove('hidden');
     const body = $('customer-modal-body');
+    const pref = specs.preferences || {};
     body.innerHTML = `
       <div class="card-list">
-        <div class="card">
+        <div class="card premium-data-card">
           <div class="title">${escapeHTML(name)}</div>
           <div class="sub">電話：${escapeHTML(detail.item?.phone || '')}</div>
           <div class="sub">地址：${escapeHTML(detail.item?.address || '')}</div>
           <div class="sub">特殊要求：${escapeHTML(detail.item?.notes || '')}</div>
           <div class="sub">區域：${escapeHTML(detail.item?.region || '')}</div>
         </div>
-        <div class="card">
+        <div class="card premium-data-card">
+          <div class="title">常用材質</div>
+          <div id="customer-pref-materials" class="chip-list"></div>
+          <div class="title section-gap">常用尺寸</div>
+          <div id="customer-pref-sizes" class="chip-list"></div>
+        </div>
+        <div class="card premium-data-card">
           <div class="title">商品</div>
           <div id="customer-modal-items" class="chip-list"></div>
         </div>
@@ -1543,6 +1642,22 @@ async function openCustomerModal(name){
       ch.textContent = `${it.source}｜${it.product_text || ''}${it.material ? `｜${it.material}` : ''} × ${it.qty || 0}`;
       list.appendChild(ch);
     });
+    const mats = $('customer-pref-materials');
+    (pref.materials || []).forEach(it => {
+      const ch = document.createElement('div');
+      ch.className='chip-item';
+      ch.textContent = `${it.material || '未填材質'} × ${it.qty_total || 0}`;
+      mats.appendChild(ch);
+    });
+    if (!(pref.materials || []).length) mats.innerHTML = '<div class="small-note">尚無常用材質資料</div>';
+    const sizes = $('customer-pref-sizes');
+    (pref.sizes || []).forEach(it => {
+      const ch = document.createElement('div');
+      ch.className='chip-item';
+      ch.textContent = `${it.product_text || ''} × ${it.qty_total || 0}`;
+      sizes.appendChild(ch);
+    });
+    if (!(pref.sizes || []).length) sizes.innerHTML = '<div class="small-note">尚無常用尺寸資料</div>';
     $('cust-name').value = detail.item?.name || name;
     $('cust-phone').value = detail.item?.phone || '';
     $('cust-address').value = detail.item?.address || '';
@@ -1823,7 +1938,7 @@ function renderWarehouseCellItems(){
     chip.dataset.idx = idx;
     chip.innerHTML = `<span>${escapeHTML(it.product_text || '')}${it.material ? ` ｜ ${escapeHTML(it.material)}` : ''} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</span>
       <button class="remove" data-idx="${idx}">刪除</button>`;
-    chip.addEventListener('dragstart', ev => {
+    chip.addEventListener('dragstart', ev => { haptic(18);
       ev.dataTransfer.setData('text/plain', JSON.stringify({
         kind: 'warehouse-item',
         fromKey: buildCellKey(state.currentCell.zone, state.currentCell.column, state.currentCell.slot_number),
@@ -1885,6 +2000,7 @@ async function moveWarehouseItem(fromKey, toKey, product_text, qty, material='')
   if (!canMutate()) return;
   return withActionLock(`warehouse-move-${product_text}-${qty}`, null, async () => {
   try {
+    haptic(24);
     await requestJSON('/api/warehouse/move', {
       method: 'POST',
       body: JSON.stringify({ from_key: fromKey, to_key: toKey, product_text, qty, material })
@@ -2068,7 +2184,7 @@ function renderTodoCards(items=[]){
       html += `<div class="todo-date-heading">${escapeHTML(dateLabel)}</div>`;
     }
     const dateChip = item.due_date ? `<span class="todo-chip todo-chip-date">${escapeHTML(item.due_date)}</span>` : `<span class="todo-chip">未指定日期</span>`;
-    html += `<div class="card todo-card premium-todo-card ${item.is_temp ? 'todo-card-pending' : ''} ${item.failed ? 'todo-card-error' : ''}" data-todo-id="${escapeHTML(item.id)}" onclick='deleteTodoItem(${JSON.stringify(item.id)})'>
+    html += `<div class="card todo-card premium-todo-card swipeable-card ${item.is_temp ? 'todo-card-pending' : ''} ${item.failed ? 'todo-card-error' : ''}" data-card-key="todo_${escapeHTML(item.id)}" data-todo-id="${escapeHTML(item.id)}" onclick='deleteTodoItem(${JSON.stringify(item.id)})'>
       <div class="todo-card-top">
         <div class="todo-top-badges">
           <span class="todo-chip todo-chip-accent">${item.failed ? '待重送' : '代辦事項'}</span>
@@ -2203,6 +2319,7 @@ window.loadAdminUsers = loadAdminUsers;
 window.loadGoogleOcrStatus = loadGoogleOcrStatus;
 window.loadBackups = loadBackups;
 window.createBackup = createBackup;
+window.undoLastAction = undoLastAction;
 window.setTodayCategoryFilter = setTodayCategoryFilter;
 window.setGoogleOcrEnabled = setGoogleOcrEnabled;
 window.openTodoAlbumPicker = openTodoAlbumPicker;

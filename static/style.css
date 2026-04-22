@@ -578,3 +578,13 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
   .compact-mobile-row .primary-btn,.compact-mobile-row .ghost-btn{font-size:.82rem;padding:9px 6px;min-height:42px}
   .home-dashboard-panel{margin-top:14px}
 }
+
+.module-top-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;min-width:120px}
+.swipeable-card{touch-action:pan-y;user-select:none;-webkit-user-select:none;}
+.swipeable-card.multi-selected{outline:2px solid rgba(21,121,76,.45);box-shadow:0 0 0 4px rgba(21,121,76,.12), var(--shadow-soft);}
+.todo-card-removing{opacity:0;transform:translateX(-36px) scale(.98);transition:all .22s ease;}
+.section-gap{margin-top:14px;}
+@media (max-width: 720px){
+  .module-topbar{grid-template-columns:auto 1fr auto;display:grid;align-items:center}
+  .module-top-actions .small-btn{padding:8px 10px;font-size:.82rem}
+}

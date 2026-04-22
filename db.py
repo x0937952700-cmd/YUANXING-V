@@ -1470,6 +1470,204 @@ def list_audit_trails(limit=200):
         out.append(row)
     return out
 
+def dashboard_summary():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        today = now()[:10]
+        out = {
+            'shipping_today_qty': 0,
+            'shipping_today_count': 0,
+            'inventory_total_qty': 0,
+            'warehouse_used_slots': 0,
+            'warehouse_total_slots': 0,
+            'warehouse_usage_rate': 0,
+            'unplaced_count': 0,
+            'material_distribution': [],
+            'top_customers_today': [],
+        }
+        cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM shipping_records WHERE substr(shipped_at,1,10)=?"), (today,))
+        row = fetchone_dict(cur) or {}
+        out['shipping_today_qty'] = int(row.get('total') or 0)
+        cur.execute(sql("SELECT COUNT(*) AS total FROM shipping_records WHERE substr(shipped_at,1,10)=?"), (today,))
+        row = fetchone_dict(cur) or {}
+        out['shipping_today_count'] = int(row.get('total') or 0)
+        cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM inventory"))
+        row = fetchone_dict(cur) or {}
+        out['inventory_total_qty'] = int(row.get('total') or 0)
+        cells = warehouse_get_cells()
+        out['warehouse_total_slots'] = len(cells)
+        used = 0
+        material_counter = Counter()
+        for cell in cells:
+            try:
+                items = json.loads(cell.get('items_json') or '[]')
+            except Exception:
+                items = []
+            if items:
+                used += 1
+            for it in items:
+                mat = normalize_material(it.get('material') or '')
+                if mat:
+                    material_counter[mat] += int(it.get('qty') or 0)
+        out['warehouse_used_slots'] = used
+        out['warehouse_usage_rate'] = round((used / len(cells) * 100), 1) if cells else 0
+        inv = inventory_summary()
+        out['unplaced_count'] = sum(int(r.get('unplaced_qty') or 0) for r in inv)
+        out['material_distribution'] = [
+            {'material': k, 'qty': v} for k, v in material_counter.most_common(6)
+        ]
+        cur.execute(sql("SELECT customer_name, COALESCE(SUM(qty),0) AS qty_total FROM shipping_records WHERE substr(shipped_at,1,10)=? GROUP BY customer_name ORDER BY qty_total DESC, customer_name ASC"), (today,))
+        rows = rows_to_dict(cur)
+        out['top_customers_today'] = rows[:5]
+        return out
+    finally:
+        conn.close()
+
+
+def get_customer_preferences(customer_name='', limit=8):
+    customer_name = (customer_name or '').strip()
+    conn = get_db()
+    cur = conn.cursor()
+    params = []
+    filters = []
+    if customer_name:
+        filters.append('customer_name = ?')
+        params.append(customer_name)
+    where = (' WHERE ' + ' AND '.join(filters)) if filters else ''
+    union_sql = f"SELECT customer_name, product_text, material, qty, 'inventory' AS source FROM inventory {where} UNION ALL SELECT customer_name, product_text, material, qty, 'orders' AS source FROM orders {where} UNION ALL SELECT customer_name, product_text, material, qty, 'master_orders' AS source FROM master_orders {where} UNION ALL SELECT customer_name, product_text, material, qty, 'shipping' AS source FROM shipping_records {where}"
+    cur.execute(sql(union_sql), tuple(params * 4 if customer_name else []))
+    rows = rows_to_dict(cur)
+    conn.close()
+    mat_counter = Counter()
+    size_counter = Counter()
+    for row in rows:
+        product = (row.get('product_text') or '').strip()
+        material = normalize_material(row.get('material') or '')
+        qty = int(row.get('qty') or 0)
+        if product:
+            size_counter[product] += qty if qty > 0 else 1
+        if material:
+            mat_counter[material] += qty if qty > 0 else 1
+    return {
+        'materials': [{'material': k, 'qty_total': v} for k, v in mat_counter.most_common(int(limit or 8))],
+        'sizes': [{'product_text': k, 'qty_total': v} for k, v in size_counter.most_common(int(limit or 8))],
+    }
+
+
+def get_latest_audit_trail(username=''):
+    conn = get_db(); cur = conn.cursor()
+    try:
+        if username:
+            cur.execute(sql('SELECT * FROM audit_trails WHERE username = ? ORDER BY id DESC LIMIT 1'), ((username or '').strip(),))
+        else:
+            cur.execute(sql('SELECT * FROM audit_trails ORDER BY id DESC LIMIT 1'))
+        row = fetchone_dict(cur)
+        if not row:
+            return None
+        for key in ('before_json', 'after_json'):
+            try:
+                row[key] = json.loads(row.get(key) or '{}') if row.get(key) else {}
+            except Exception:
+                row[key] = {}
+        return row
+    finally:
+        conn.close()
+
+
+def _decrease_or_delete(cur, table, where_sql, where_params, qty):
+    qty = int(qty or 0)
+    cur.execute(sql(f"SELECT id, qty FROM {table} WHERE {where_sql} ORDER BY id DESC"), tuple(where_params))
+    rows = cur.fetchall()
+    remain = qty
+    for row in rows:
+        rid = row[0] if USE_POSTGRES else row['id']
+        stock = int(row[1] if USE_POSTGRES else row['qty'])
+        take = min(stock, remain)
+        new_qty = stock - take
+        if new_qty <= 0:
+            cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (rid,))
+        else:
+            cur.execute(sql(f"UPDATE {table} SET qty = ?, updated_at = ? WHERE id = ?"), (new_qty, now(), rid))
+        remain -= take
+        if remain <= 0:
+            break
+    return remain <= 0
+
+
+def undo_latest_audit(username=''):
+    entry = get_latest_audit_trail(username=username)
+    if not entry:
+        return {'success': False, 'error': '目前沒有可還原的異動'}
+    action_type = (entry.get('action_type') or '').strip()
+    entity_type = (entry.get('entity_type') or '').strip()
+    before = entry.get('before_json') or {}
+    after = entry.get('after_json') or {}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        message = ''
+        if action_type == 'move' and entity_type == 'warehouse_cells':
+            from_key = before.get('from_key') or []
+            to_key = after.get('to_key') or []
+            product_text = after.get('product_text') or entry.get('entity_key') or ''
+            qty = int(after.get('qty') or 0)
+            material = normalize_material(after.get('material') or '')
+            conn.commit(); conn.close()
+            result = warehouse_move_item(tuple(to_key), tuple(from_key), product_text, qty, material=material)
+            if not result.get('success'):
+                return result
+            add_audit_trail(username or entry.get('username') or '', 'undo', entity_type, entry.get('entity_key') or '', before_json=after, after_json=before)
+            return {'success': True, 'message': '已還原上一筆倉庫搬移', 'entry': entry}
+        if action_type == 'create' and entity_type == 'inventory':
+            for it in after.get('items') or []:
+                _decrease_or_delete(cur, 'inventory', "product_text = ? AND COALESCE(location,'') = COALESCE(?, '') AND COALESCE(material,'') = COALESCE(?, '')", [it.get('product_text') or '', after.get('location') or '', normalize_material(it.get('material') or '')], int(it.get('qty') or 0))
+            message = '已還原上一筆庫存新增'
+        elif action_type == 'create' and entity_type == 'orders':
+            for it in after.get('items') or []:
+                _decrease_or_delete(cur, 'orders', "customer_name = ? AND product_text = ? AND COALESCE(material,'') = COALESCE(?, '')", [after.get('customer_name') or '', it.get('product_text') or '', normalize_material(it.get('material') or '')], int(it.get('qty') or 0))
+            message = '已還原上一筆訂單新增'
+        elif action_type == 'create' and entity_type == 'master_orders':
+            for it in after.get('items') or []:
+                _decrease_or_delete(cur, 'master_orders', "customer_name = ? AND product_text = ? AND COALESCE(material,'') = COALESCE(?, '')", [after.get('customer_name') or '', it.get('product_text') or '', normalize_material(it.get('material') or '')], int(it.get('qty') or 0))
+            message = '已還原上一筆總單新增'
+        elif action_type == 'ship' and entity_type == 'shipping_records':
+            for b in after.get('breakdown') or []:
+                product_text = b.get('product_text') or ''
+                material = normalize_material(b.get('material') or '')
+                for x in b.get('master_details') or []:
+                    cur.execute(sql('UPDATE master_orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(x.get('qty') or 0), now(), int(x.get('id'))))
+                for x in b.get('order_details') or []:
+                    cur.execute(sql('UPDATE orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(x.get('qty') or 0), now(), int(x.get('id'))))
+                for x in b.get('inventory_details') or []:
+                    cur.execute(sql('UPDATE inventory SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(x.get('qty') or 0), now(), int(x.get('id'))))
+                _decrease_or_delete(cur, 'shipping_records', "customer_name = ? AND product_text = ? AND COALESCE(material,'') = COALESCE(?, '')", [after.get('customer_name') or '', product_text, material], int(b.get('qty') or 0))
+            message = '已還原上一筆出貨'
+        elif action_type == 'delete' and entity_type == 'todo_items':
+            row = before or {}
+            cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((row.get('note') or '').strip(), (row.get('due_date') or '').strip(), (row.get('image_filename') or '').strip(), (row.get('created_by') or '').strip(), row.get('created_at') or now(), now()))
+            message = '已還原上一筆代辦刪除'
+        elif action_type == 'create' and entity_type == 'todo_items':
+            img = (after.get('image_filename') or entry.get('entity_key') or '').strip()
+            if img:
+                cur.execute(sql('DELETE FROM todo_items WHERE image_filename = ?'), (img,))
+                message = '已還原上一筆代辦新增'
+            else:
+                raise ValueError('找不到可還原的代辦資料')
+        else:
+            return {'success': False, 'error': f'目前尚未支援還原：{action_type}/{entity_type}'}
+        conn.commit()
+        add_audit_trail(username or entry.get('username') or '', 'undo', entity_type, entry.get('entity_key') or '', before_json=after, after_json=before)
+        return {'success': True, 'message': message, 'entry': entry}
+    except Exception as e:
+        conn.rollback()
+        log_error('undo_latest_audit', e)
+        return {'success': False, 'error': f'還原失敗：{str(e)}'}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
 def get_customer_spec_stats(customer_name='', limit=20):
     customer_name = (customer_name or '').strip()
     conn = get_db()

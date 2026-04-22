@@ -4,7 +4,7 @@
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
-    <div class="spacer"></div>
+    <div class="module-top-actions"><button class="ghost-btn small-btn" type="button" onclick="undoLastAction(this)">還原上一筆</button></div>
   </div>
 
   {% if module_key not in ['shipping_query','warehouse','customers','todos'] %}
