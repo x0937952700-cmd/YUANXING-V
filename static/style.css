@@ -389,3 +389,32 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 #warehouse-recent-slots{margin:10px 0 4px}
 #warehouse-unplaced-list-inline .search-card{cursor:pointer}
 #audit-trails-list .small-note{white-space:pre-wrap;word-break:break-word}
+
+
+.ship-picker-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0 12px}
+.ship-quick-actions{margin-bottom:10px}
+.ship-source-card .btn-row{margin-top:10px}
+.compact-card-list{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.ship-material-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:#eef2ff;border:1px solid rgba(47,124,246,.15);font-size:.78rem;font-weight:800}
+.vertical-slot .slot-line.material{font-size:12px;color:#8b5a00;font-weight:700}
+.todo-panel{max-width:760px}
+.todo-upload-row .primary-btn,.todo-upload-row .ghost-btn{min-width:140px}
+.todo-selected-preview{margin:12px 0 2px}
+.todo-preview-card{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid rgba(17,24,39,.08);background:#fff;border-radius:18px}
+.todo-preview-card img{width:84px;height:84px;object-fit:cover;border-radius:14px;border:1px solid rgba(17,24,39,.08)}
+.todo-list{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.todo-date-heading{font-size:1rem;font-weight:900;color:#374151;margin-top:8px}
+.todo-card{padding:14px 16px}
+.todo-card-main{display:flex;gap:14px;align-items:flex-start}
+.todo-thumb{width:120px;height:120px;object-fit:cover;border-radius:18px;border:1px solid rgba(17,24,39,.08);cursor:pointer;box-shadow:var(--shadow-soft)}
+.todo-card-info{flex:1;min-width:0}
+.todo-card .btn-row{margin-top:12px}
+.warehouse-col-tools{display:flex;gap:8px;justify-content:center;flex-wrap:nowrap}
+.warehouse-col-tools .warehouse-plusminus-btn{min-width:44px;max-width:44px;padding:8px 0;font-size:1.1rem;border-radius:14px}
+@media (max-width:720px){
+  .ship-picker-grid{grid-template-columns:1fr}
+  .todo-card-main{flex-direction:column}
+  .todo-thumb{width:100%;max-width:280px;height:auto;aspect-ratio:1/1;align-self:flex-start}
+  .warehouse-col-tools{gap:6px}
+  .warehouse-col-tools .warehouse-plusminus-btn{min-width:40px;max-width:40px;padding:6px 0}
+}

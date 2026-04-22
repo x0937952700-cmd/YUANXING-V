@@ -59,6 +59,13 @@ def fetchone_dict(cur):
 
 
 
+def normalize_material(value=''):
+    return (value or '').strip().upper()
+
+def product_material_key(product_text='', material=''):
+    return f"{(product_text or '').strip()}@@{normalize_material(material)}"
+
+
 def _merge_json_item_lists(a_json, b_json):
     merged = {}
     for raw in [a_json, b_json]:
@@ -67,10 +74,11 @@ def _merge_json_item_lists(a_json, b_json):
         except Exception:
             items = []
         for it in items:
-            key = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip())
+            key = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip(), normalize_material(it.get('material') or ''))
             if key not in merged:
                 merged[key] = dict(it)
                 merged[key]['qty'] = int(it.get('qty') or 0)
+                merged[key]['material'] = normalize_material(it.get('material') or '')
             else:
                 merged[key]['qty'] = int(merged[key].get('qty') or 0) + int(it.get('qty') or 0)
     return json.dumps(list(merged.values()), ensure_ascii=False)
@@ -117,6 +125,7 @@ def init_db():
             id {pk},
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             location {text},
             customer_name {text},
@@ -130,6 +139,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             status {text} DEFAULT 'pending',
             operator {text},
@@ -141,6 +151,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             created_at {text},
@@ -151,6 +162,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             shipped_at {text},
@@ -224,6 +236,15 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             value {text},
             updated_at {text}
         )""",
+        f"""CREATE TABLE IF NOT EXISTS todo_items (
+            id {pk},
+            note {text},
+            due_date {text},
+            image_filename {text},
+            created_by {text},
+            created_at {text},
+            updated_at {text}
+        )""",
     ]
     for t in tables:
         cur.execute(t)
@@ -231,6 +252,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     if USE_POSTGRES:
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE inventory ADD COLUMN IF NOT EXISTS material TEXT")
+        cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS material TEXT")
+        cur.execute("ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS material TEXT")
+        cur.execute("ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS material TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
     else:
         cur.execute("PRAGMA table_info(users)")
@@ -239,6 +264,11 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
         if 'is_blocked' not in user_cols:
             cur.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
+        for table_name in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+            cur.execute(f"PRAGMA table_info({table_name})")
+            cols = {r[1] for r in cur.fetchall()}
+            if 'material' not in cols:
+                cur.execute(f"ALTER TABLE {table_name} ADD COLUMN material TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
 
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
@@ -631,26 +661,27 @@ def get_customer(name):
     conn.close()
     return row
 
-def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text=""):
+def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
     conn = get_db()
     cur = conn.cursor()
+    material = normalize_material(material)
     cur.execute(sql("""
         SELECT id, qty FROM inventory
-        WHERE product_text = ? AND COALESCE(location, '') = COALESCE(?, '')
-    """), (product_text, location))
+        WHERE product_text = ? AND COALESCE(location, '') = COALESCE(?, '') AND COALESCE(material, '') = COALESCE(?, '')
+    """), (product_text, location, material))
     row = cur.fetchone()
     if row:
         rid = row[0] if USE_POSTGRES else row["id"]
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, customer_name, operator, source_text, now(), rid))
+        """), (qty, product_code, material, customer_name, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, qty, location, customer_name, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, qty, location, customer_name, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, qty, location, customer_name, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -667,9 +698,9 @@ def save_order(customer_name, items, operator):
     cur = conn.cursor()
     for item in items:
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, product_text, product_code, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, item["product_text"], item.get("product_code", ""), int(item["qty"]), operator, now(), now()))
+            INSERT INTO orders(customer_name, product_text, product_code, material, qty, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, item["product_text"], item.get("product_code", ""), normalize_material(item.get("material", "")), int(item["qty"]), operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -677,21 +708,22 @@ def save_master_order(customer_name, items, operator):
     conn = get_db()
     cur = conn.cursor()
     for item in items:
+        material = normalize_material(item.get("material", ""))
         cur.execute(sql("""
-            SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ?
-        """), (customer_name, item["product_text"]))
+            SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ? AND COALESCE(material, '') = COALESCE(?, '')
+        """), (customer_name, item["product_text"], material))
         row = cur.fetchone()
         if row:
             rid = row[0] if USE_POSTGRES else row["id"]
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_code = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_code = ?, material = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (int(item["qty"]), item.get("product_code", ""), operator, now(), rid))
+            """), (int(item["qty"]), item.get("product_code", ""), material, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, product_text, product_code, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, item["product_text"], item.get("product_code", ""), int(item["qty"]), operator, now(), now()))
+                INSERT INTO master_orders(customer_name, product_text, product_code, material, qty, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, item["product_text"], item.get("product_code", ""), material, int(item["qty"]), operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -711,13 +743,14 @@ def get_master_orders():
     conn.close()
     return rows
 
-def _deduct_from_table(cur, table, customer_name, product_text, qty_needed):
+def _deduct_from_table(cur, table, customer_name, product_text, qty_needed, material=''):
+    material = normalize_material(material)
     cur.execute(sql(f"""
         SELECT id, qty
         FROM {table}
-        WHERE customer_name = ? AND product_text = ? AND qty > 0
+        WHERE customer_name = ? AND product_text = ? AND COALESCE(material, '') = COALESCE(?, '') AND qty > 0
         ORDER BY id ASC
-    """), (customer_name, product_text))
+    """), (customer_name, product_text, material))
     rows = cur.fetchall()
     total = 0
     for row in rows:
@@ -741,13 +774,14 @@ def _deduct_from_table(cur, table, customer_name, product_text, qty_needed):
             break
     return True, used
 
-def _deduct_from_inventory(cur, product_text, qty_needed):
+def _deduct_from_inventory(cur, product_text, qty_needed, material=''):
+    material = normalize_material(material)
     cur.execute(sql("""
         SELECT id, qty
         FROM inventory
-        WHERE product_text = ? AND qty > 0
+        WHERE product_text = ? AND COALESCE(material, '') = COALESCE(?, '') AND qty > 0
         ORDER BY qty DESC, id ASC
-    """), (product_text,))
+    """), (product_text, material))
     rows = cur.fetchall()
     total = sum((r[1] if USE_POSTGRES else r["qty"]) for r in rows)
     if total < qty_needed:
@@ -767,43 +801,47 @@ def _deduct_from_inventory(cur, product_text, qty_needed):
             break
     return True, used
 
-def _sum_available(cur, table, customer_name, product_text):
-    cur.execute(sql(f"SELECT COALESCE(SUM(qty),0) AS total FROM {table} WHERE customer_name = ? AND product_text = ? AND qty > 0"), (customer_name, product_text))
-    row = fetchone_dict(cur)
-    return int((row or {}).get('total') or 0)
+def _sum_available(cur, table, customer_name, product_text, material=''):
+    material = normalize_material(material)
+    cur.execute(sql(f"SELECT COALESCE(SUM(qty),0) AS total FROM {table} WHERE customer_name = ? AND product_text = ? AND COALESCE(material, '') = COALESCE(?, '') AND qty > 0"), (customer_name, product_text, material))
+    row = fetchone_dict(cur) or {}
+    return int(row.get('total') or 0)
 
-def _sum_inventory(cur, product_text):
-    cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM inventory WHERE product_text = ? AND qty > 0"), (product_text,))
-    row = fetchone_dict(cur)
-    return int((row or {}).get('total') or 0)
+def _sum_inventory(cur, product_text, material=''):
+    material = normalize_material(material)
+    cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM inventory WHERE product_text = ? AND COALESCE(material, '') = COALESCE(?, '') AND qty > 0"), (product_text, material))
+    row = fetchone_dict(cur) or {}
+    return int(row.get('total') or 0)
 
-def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_target):
+def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_target, material=''):
     qty_target = int(qty_target or 0)
+    material = normalize_material(material)
     if qty_target <= 0:
         return []
     cur.execute(sql(f"""
         SELECT id, qty
         FROM {table}
-        WHERE customer_name = ? AND product_text = ? AND qty > 0
+        WHERE customer_name = ? AND product_text = ? AND COALESCE(material, '') = COALESCE(?, '') AND qty > 0
         ORDER BY id ASC
-    """), (customer_name, product_text))
+    """), (customer_name, product_text, material))
     rows = cur.fetchall()
     remain = qty_target
     used = []
     for row in rows:
         rid = row[0] if USE_POSTGRES else row["id"]
         stock = row[1] if USE_POSTGRES else row["qty"]
-        if remain <= 0:
-            break
         use_qty = min(int(stock), remain)
         if use_qty <= 0:
             continue
         cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), rid))
         used.append({"id": rid, "qty": use_qty})
         remain -= use_qty
+        if remain <= 0:
+            break
     return used
 
-def _warehouse_locations_for_product(product_text, qty_needed=None):
+def _warehouse_locations_for_product(product_text, qty_needed=None, material=''):
+    material = normalize_material(material)
     cells = warehouse_get_cells()
     out = []
     for cell in cells:
@@ -811,100 +849,87 @@ def _warehouse_locations_for_product(product_text, qty_needed=None):
             items = json.loads(cell.get('items_json') or '[]')
         except Exception:
             items = []
+        visual_num = int(cell.get('slot_number') or 0)
         for it in items:
-            if (it.get('product_text') or '') == product_text and int(it.get('qty') or 0) > 0:
-                visual_num = int(cell.get('slot_number') or 0)
-                out.append({'zone': cell.get('zone'), 'column_index': int(cell.get('column_index') or 0), 'slot_type': 'direct', 'slot_number': visual_num, 'visual_slot': visual_num, 'qty': int(it.get('qty') or 0), 'product_text': it.get('product_text') or ''})
-    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot']))
+            if (it.get('product_text') or '') == product_text and normalize_material(it.get('material') or '') == material and int(it.get('qty') or 0) > 0:
+                out.append({'zone': cell.get('zone'), 'column_index': int(cell.get('column_index') or 0), 'slot_type': 'direct', 'slot_number': visual_num, 'visual_slot': visual_num, 'qty': int(it.get('qty') or 0), 'product_text': it.get('product_text') or '', 'material': normalize_material(it.get('material') or '')})
+                break
+    out.sort(key=lambda r: (r.get('zone') or '', int(r.get('column_index') or 0), int(r.get('slot_number') or 0)))
     if qty_needed is None:
         return out
     remain = int(qty_needed or 0)
     plan = []
     for row in out:
+        if remain <= 0:
+            break
         take = min(int(row.get('qty') or 0), remain)
         plan.append({**row, 'ship_qty': take, 'remain_after': max(0, remain - take)})
         remain -= take
-        if remain <= 0:
-            break
     return plan
 
 def preview_ship_order(customer_name, items):
     conn = get_db()
     cur = conn.cursor()
-    try:
-        preview = []
-        needs_inventory_fallback = False
-        for item in items:
-            product_text = item['product_text']
-            qty_needed = int(item.get('qty') or 0)
-            master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
-            order_available = _sum_available(cur, 'orders', customer_name, product_text)
-            inventory_available = _sum_inventory(cur, product_text)
-            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
-            inventory_only_ok = inventory_available >= qty_needed
-            needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
-            if needs_fallback:
-                needs_inventory_fallback = True
-            shortage_reasons = []
-            if master_available < qty_needed:
-                shortage_reasons.append(f"總單不足 {master_available}/{qty_needed}")
-            if order_available < qty_needed:
-                shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
-            if inventory_available < qty_needed:
-                shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
-            preview.append({
-                'product_text': product_text,
-                'qty': qty_needed,
-                'master_available': master_available,
-                'order_available': order_available,
-                'inventory_available': inventory_available,
-                'strict_ok': strict_ok,
-                'inventory_only_ok': inventory_only_ok,
-                'needs_inventory_fallback': needs_fallback,
-                'shortage_reasons': shortage_reasons,
-                'recommendation': ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存亦不足')),
-                'source_breakdown': [
-                    {'source': '總單', 'available': master_available},
-                    {'source': '訂單', 'available': order_available},
-                    {'source': '庫存', 'available': inventory_available},
-                ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed),
-            })
-        return {
-            'success': True,
-            'items': preview,
-            'needs_inventory_fallback': needs_inventory_fallback,
-            'message': ('客戶總單/訂單不足，可改扣庫存' if needs_inventory_fallback else '可直接出貨')
-        }
-    finally:
-        conn.close()
+    preview_items = []
+    needs_inventory_fallback = False
+    message = '出貨預覽完成'
+    for item in items:
+        product_text = item['product_text']
+        material = normalize_material(item.get('material') or '')
+        qty_needed = int(item.get('qty') or 0)
+        master_available = _sum_available(cur, 'master_orders', customer_name, product_text, material)
+        order_available = _sum_available(cur, 'orders', customer_name, product_text, material)
+        inventory_available = _sum_inventory(cur, product_text, material)
+        strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
+        inventory_only_ok = inventory_available >= qty_needed
+        needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
+        needs_inventory_fallback = needs_inventory_fallback or needs_fallback
+        recommendation = '可正常出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存不足，請確認')
+        shortage_reasons = []
+        if master_available < qty_needed:
+            shortage_reasons.append(f"總單不足 {master_available}/{qty_needed}")
+        if order_available < qty_needed:
+            shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
+        if inventory_available < qty_needed:
+            shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
+        preview_items.append({
+            'product_text': product_text,
+            'material': material,
+            'qty': qty_needed,
+            'master_available': master_available,
+            'order_available': order_available,
+            'inventory_available': inventory_available,
+            'recommendation': recommendation,
+            'shortage_reasons': shortage_reasons,
+            'locations': _warehouse_locations_for_product(product_text, qty_needed, material),
+        })
+    conn.close()
+    return {"success": True, "items": preview_items, "needs_inventory_fallback": needs_inventory_fallback, "message": message}
 
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
     cur = conn.cursor()
+    breakdown = []
     try:
-        breakdown = []
         for item in items:
             product_text = item["product_text"]
+            material = normalize_material(item.get('material') or '')
             qty_needed = int(item["qty"])
-
-            master_available = _sum_available(cur, "master_orders", customer_name, product_text)
-            order_available = _sum_available(cur, "orders", customer_name, product_text)
-            inventory_available = _sum_inventory(cur, product_text)
-
+            master_available = _sum_available(cur, "master_orders", customer_name, product_text, material)
+            order_available = _sum_available(cur, "orders", customer_name, product_text, material)
+            inventory_available = _sum_inventory(cur, product_text, material)
             strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
-
             if strict_ok:
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, qty_needed)
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, qty_needed)
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, qty_needed, material)
+                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, qty_needed, material)
+                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed, material)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
                 note = "已出貨"
+                used_inventory_fallback = False
             else:
                 if not allow_inventory_fallback:
-                    conn.rollback()
                     reasons = []
                     if master_available < qty_needed:
                         reasons.append(f"總單不足({master_available}/{qty_needed})")
@@ -916,45 +941,42 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 if inventory_available < qty_needed:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足，無法改扣庫存"}
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, min(master_available, qty_needed))
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, min(order_available, qty_needed))
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, min(master_available, qty_needed), material)
+                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, min(order_available, qty_needed), material)
+                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed, material)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
                 note = "庫存補扣出貨"
-
+                used_inventory_fallback = True
             cur.execute(sql("""
-                INSERT INTO shipping_records(customer_name, product_text, product_code, qty, operator, shipped_at, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, item.get("product_code", ""), qty_needed, operator, now(), note))
-
+                INSERT INTO shipping_records(customer_name, product_text, product_code, material, qty, operator, shipped_at, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, product_text, item.get("product_code", ""), material, qty_needed, operator, now(), note))
             breakdown.append({
                 "product_text": product_text,
+                "material": material,
                 "qty": qty_needed,
                 "master_deduct": sum(x["qty"] for x in used_master),
                 "order_deduct": sum(x["qty"] for x in used_order),
                 "inventory_deduct": sum(x["qty"] for x in used_inv),
-                "master_available": master_available,
-                "order_available": order_available,
-                "inventory_available": inventory_available,
-                "used_inventory_fallback": (not strict_ok),
                 "master_details": used_master,
                 "order_details": used_order,
                 "inventory_details": used_inv,
+                "used_inventory_fallback": used_inventory_fallback,
                 "note": note,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed),
+                "locations": _warehouse_locations_for_product(product_text, qty_needed, material),
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
                     "order": max(0, order_available - sum(x["qty"] for x in used_order)),
                     "inventory": max(0, inventory_available - sum(x["qty"] for x in used_inv)),
-                },
+                }
             })
         conn.commit()
         return {"success": True, "breakdown": breakdown}
     except Exception as e:
         conn.rollback()
-        log_error("ship_order", e)
+        log_error('ship_order', e)
         return {"success": False, "error": "出貨失敗"}
     finally:
         conn.close()
@@ -1068,10 +1090,11 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
     conn.commit(); conn.close(); return {'success': True}
 
-def warehouse_move_item(from_key, to_key, product_text, qty):
+def warehouse_move_item(from_key, to_key, product_text, qty, material=''):
     conn = get_db()
     cur = conn.cursor()
     try:
+        material = normalize_material(material)
         def _norm(key):
             if len(key) == 4:
                 zone, column_index, _slot_type, slot_number = key
@@ -1085,38 +1108,46 @@ def warehouse_move_item(from_key, to_key, product_text, qty):
                 WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
-        src = _load(from_key); dst = _load(to_key)
+        src = _load(from_key)
+        dst = _load(to_key)
         if not src or not dst:
             return {'success': False, 'error': '找不到來源或目標格位'}
-        src_items = json.loads(src.get('items_json') or '[]'); dst_items = json.loads(dst.get('items_json') or '[]')
-        moved=[]; remain=qty; new_src=[]
+        src_items = json.loads(src.get('items_json') or '[]')
+        dst_items = json.loads(dst.get('items_json') or '[]')
+        moved = []
+        remain = qty
+        new_src = []
         for it in src_items:
-            if it.get('product_text') == product_text and remain > 0:
+            if it.get('product_text') == product_text and normalize_material(it.get('material') or '') == material and remain > 0:
                 take = min(int(it.get('qty', 0)), remain)
                 remain -= take
-                moved.append({**it, 'qty': take})
+                moved.append({**it, 'qty': take, 'material': normalize_material(it.get('material') or '')})
                 leftover = int(it.get('qty', 0)) - take
                 if leftover > 0:
-                    new_src.append({**it, 'qty': leftover})
+                    new_src.append({**it, 'qty': leftover, 'material': normalize_material(it.get('material') or '')})
             else:
                 new_src.append(it)
         if remain > 0:
             return {'success': False, 'error': '來源格位數量不足'}
         merged = {}
         for it in dst_items + moved:
-            k = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip())
+            k = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip(), normalize_material(it.get('material') or ''))
             if k not in merged:
                 merged[k] = dict(it)
                 merged[k]['qty'] = int(it.get('qty') or 0)
+                merged[k]['material'] = normalize_material(it.get('material') or '')
             else:
                 merged[k]['qty'] = int(merged[k].get('qty') or 0) + int(it.get('qty') or 0)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
         cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(new_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
         cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(list(merged.values()), ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
-        conn.commit(); return {'success': True}
+        conn.commit()
+        return {'success': True}
     except Exception as e:
-        conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
+        conn.rollback()
+        log_error('warehouse_move_item', e)
+        return {'success': False, 'error': '拖曳失敗'}
     finally:
         conn.close()
 
@@ -1129,7 +1160,7 @@ def inventory_placements():
         except Exception:
             items = []
         for it in items:
-            key = it.get("product_text") or it.get("product") or ""
+            key = product_material_key(it.get("product_text") or it.get("product") or "", it.get('material') or '')
             placement[key] = placement.get(key, 0) + int(it.get("qty", 0))
     return placement
 
@@ -1138,10 +1169,12 @@ def inventory_summary():
     placement = inventory_placements()
     result = []
     for r in rows:
-        placed = placement.get(r["product_text"], 0)
+        material = normalize_material(r.get('material') or '')
+        placed = placement.get(product_material_key(r["product_text"], material), 0)
         qty = int(r.get("qty", 0))
         result.append({
             **r,
+            'material': material,
             "placed_qty": placed,
             "unplaced_qty": max(0, qty - placed),
             "needs_red": max(0, qty - placed) > 0
@@ -1157,6 +1190,40 @@ def warehouse_summary():
         num = int(cell['slot_number'])
         zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
     return zones
+
+def create_todo_item(note='', due_date='', image_filename='', created_by=''):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now()))
+    conn.commit()
+    conn.close()
+
+
+def list_todo_items():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, "") = "" THEN 1 ELSE 0 END, due_date ASC, created_at DESC, id DESC'))
+    rows = rows_to_dict(cur)
+    conn.close()
+    return rows
+
+
+def get_todo_item(todo_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('SELECT * FROM todo_items WHERE id = ?'), (int(todo_id),))
+    row = fetchone_dict(cur)
+    conn.close()
+    return row
+
+
+def delete_todo_item(todo_id):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql('DELETE FROM todo_items WHERE id = ?'), (int(todo_id),))
+    conn.commit()
+    conn.close()
+
 
 def list_backups():
     import os

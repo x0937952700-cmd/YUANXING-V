@@ -25,6 +25,7 @@ const state = {
   lineMap: [],
   nativePreview: null,
   pendingNativeRequestId: '',
+  todoSelectedFile: null,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -34,6 +35,7 @@ function qsa(sel){ return Array.from(document.querySelectorAll(sel)); }
 const NATIVE_SHELL_ORIGIN_ALLOWLIST = ['capacitor://localhost', 'http://localhost', 'https://localhost', 'ionic://localhost', 'app://localhost', 'null', ''];
 const PENDING_SUBMIT_KEY = 'yuanxingPendingSubmits';
 const OCR_HISTORY_KEY = 'yuanxingOcrHistory';
+const MATERIAL_OPTIONS = ['SPF','HF','DF','ROT','SPY','SP','RP','TD','MLH'];
 
 function getParentTargetOrigin(){ return '*'; }
 function safeJSONParse(raw, fallback){ try { return JSON.parse(raw); } catch(e){ return fallback; } }
@@ -63,6 +65,47 @@ function setSelectedOcrOptions(mode, template){
   state.nativeOcrTemplate = template || state.nativeOcrTemplate || 'whiteboard';
   if ($('ocr-mode-select')) $('ocr-mode-select').value = state.nativeOcrMode;
   if ($('ocr-template-select')) $('ocr-template-select').value = state.nativeOcrTemplate;
+}
+
+function getSelectedMaterial(){
+  return (($('material-select')?.value || '').trim().toUpperCase());
+}
+function materialLabel(material){
+  return material ? `材質：${material}` : '材質：未填';
+}
+function formatMaterialInline(material){
+  return material ? `｜${material}` : '';
+}
+function parseProductParts(productText=''){
+  const raw = String(productText || '').trim();
+  if (!raw.includes('=')) return { left: raw, right: '' };
+  const [left, right] = raw.split('=');
+  return { left: left || '', right: right || '' };
+}
+function formatTodoDateLabel(dateStr=''){
+  if (!dateStr) return '未指定日期';
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0,10);
+  if (dateStr === todayStr) return `今天 ${dateStr}`;
+  return dateStr;
+}
+function sortTodoItems(items=[]){
+  const today = new Date().toISOString().slice(0,10);
+  const bucket = (item) => {
+    const d = item.due_date || '';
+    if (!d) return 3;
+    if (d === today) return 0;
+    if (d > today) return 1;
+    return 2;
+  };
+  return [...(items || [])].sort((a,b) => {
+    const ba = bucket(a), bb = bucket(b);
+    if (ba !== bb) return ba - bb;
+    const da = a.due_date || '';
+    const db = b.due_date || '';
+    if (da !== db) return da.localeCompare(db);
+    return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  });
 }
 function queuePendingSubmit(entry){
   state.pendingSubmitQueue.push({ ...entry, queued_at: new Date().toISOString() });
@@ -531,7 +574,9 @@ function initModulePage(){
   const camera = $('camera-input');
   if (album) album.addEventListener('change', e => handleFiles(e.target.files));
   if (camera) camera.addEventListener('change', e => handleFiles(e.target.files));
-
+  if ($('ocr-text') && module === 'ship') {
+    $('ocr-text').addEventListener('input', () => { loadShipPreview(); });
+  }
   if (module === 'inventory') loadInventory();
   if (module === 'orders' || module === 'master_order' || module === 'ship') loadCustomerBlocks();
   if (module === 'orders') loadOrdersList();
@@ -539,6 +584,13 @@ function initModulePage(){
   if (module === 'shipping_query') loadShippingRecords();
   if (module === 'warehouse') renderWarehouse();
   if (module === 'customers') renderCustomers();
+  if (module === 'todos') {
+    const imageInput = $('todo-image-input');
+    const cameraInput = $('todo-camera-input');
+    if (imageInput) imageInput.addEventListener('change', e => handleTodoFiles(e.target.files));
+    if (cameraInput) cameraInput.addEventListener('change', e => handleTodoFiles(e.target.files));
+    loadTodos();
+  }
 }
 
 function setupUploadButtons(){
@@ -551,9 +603,11 @@ function resetModuleForm(){
   if ($('ocr-text')) $('ocr-text').value = '';
   if ($('customer-name')) $('customer-name').value = '';
   if ($('location-input')) $('location-input').value = '';
+  if ($('material-select')) $('material-select').value = '';
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = '信心值：0%';
   if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '尚未辨識';
   if ($('module-result')) { $('module-result').classList.add('hidden'); $('module-result').innerHTML = ''; }
+  if (state.module === 'ship') loadShipPreview();
 }
 
 async function handleFiles(fileList){
@@ -574,13 +628,16 @@ function normalizeOcrLine(line){
 }
 
 function parseTextareaItems(){
-  const text = ($('ocr-text')?.value || '').trim();
-  if (!text) return [];
-  const lines = text.split(/\n+/).map(s => normalizeOcrLine(s)).filter(Boolean);
+  const textValue = ($('ocr-text')?.value || '').trim();
+  if (!textValue) return [];
+  const lines = textValue.split(/\n+/).map(s => normalizeOcrLine(s)).filter(Boolean);
   const items = [];
   lines.forEach(line => {
-    if (!line.includes('=')) return;
-    const [left, rightRaw] = line.split('=');
+    const materialMatch = String(line).match(/(?:\||｜|材質[:：]?)(SPF|HF|DF|ROT|SPY|SP|RP|TD|MLH)\s*$/i);
+    const material = materialMatch ? String(materialMatch[1] || '').toUpperCase() : '';
+    const pureLine = String(line).replace(/(?:\||｜|材質[:：]?)(SPF|HF|DF|ROT|SPY|SP|RP|TD|MLH)\s*$/i, '').trim();
+    if (!pureLine || !pureLine.includes('=')) return;
+    const [left, rightRaw] = pureLine.split('=');
     const segments = String(rightRaw || '').split(/[+＋]/).map(s => s.trim()).filter(Boolean);
     segments.forEach(seg => {
       const nums = seg.match(/\d+/g) || [];
@@ -590,13 +647,13 @@ function parseTextareaItems(){
       items.push({
         product_text: `${left}=${rhs}`,
         product_code: `${left}=${rhs}`,
-        qty
+        qty,
+        material
       });
     });
   });
   return items;
 }
-
 
 function toggleTodayChanges(){
   window.location.href = '/today-changes';
@@ -787,7 +844,7 @@ async function loadOrdersList(){
     (data.items || []).forEach(item => {
       const card = document.createElement('div');
       card.className = 'card';
-      card.innerHTML = `<div class=\"title\">${escapeHTML(item.customer_name || '')}</div><div class=\"sub\">${escapeHTML(item.product_text || '')} × ${item.qty || 0}</div><div class=\"btn-row\"><button class=\"ghost-btn small-btn to-master-btn\">加入總單</button></div>`;
+      card.innerHTML = `<div class="title">${escapeHTML(item.customer_name || '')}</div><div class="sub">${escapeHTML(item.product_text || '')}${formatMaterialInline((item.material || '').toUpperCase())} × ${item.qty || 0}</div><div class="btn-row"><button class="ghost-btn small-btn to-master-btn">加入總單</button></div>`;
       card.querySelector('button').onclick = () => addOrderToMaster(item);
       el.appendChild(card);
     });
@@ -811,14 +868,14 @@ async function loadMasterList(){
     (data.items || []).forEach(item => {
       const card = document.createElement('div');
       card.className = 'card';
-      card.innerHTML = `<div class="title">${escapeHTML(item.customer_name || '')}</div><div class="sub">${escapeHTML(item.product_text || '')} × ${item.qty || 0}</div>`;
+      card.innerHTML = `<div class="title">${escapeHTML(item.customer_name || '')}</div><div class="sub">${escapeHTML(item.product_text || '')}${formatMaterialInline((item.material || '').toUpperCase())} × ${item.qty || 0}</div>`;
       el.appendChild(card);
     });
   } catch(e){ el.innerHTML = `<div class="alert">${escapeHTML(e.message)}</div>`; }
 }
 
 function itemSignature(it){
-  return `${it.product_text || ''}@@${Number(it.qty || 0)}`;
+  return `${it.product_text || ''}@@${(it.material || '').toUpperCase()}@@${Number(it.qty || 0)}`;
 }
 
 async function filterExistingCustomerItems(customerName, items){
@@ -842,6 +899,10 @@ async function confirmSubmit(){
   const location = ($('location-input')?.value || '').trim();
   const ocr_text = ($('ocr-text')?.value || '').trim();
   let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
+  const selectedMaterial = getSelectedMaterial();
+  if (['inventory','orders','master_order'].includes(module) && selectedMaterial) {
+    items = items.map(it => ({ ...it, material: (it.material || selectedMaterial || '').toUpperCase() }));
+  }
   if (!items.length) return toast('沒有可送出的辨識內容', 'warn');
   let endpoint = '/api/inventory';
   if (module === 'orders') endpoint = '/api/orders';
@@ -850,12 +911,12 @@ async function confirmSubmit(){
   try {
     const dedupe = await filterExistingCustomerItems(customer_name, items);
     if (dedupe.ignored.length && dedupe.items.length) {
-      const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const html = `<div class="dup-modal-list"><div><strong>重複商品</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)}${it.material ? `｜${escapeHTML(it.material)}` : ''} x ${it.qty || 1}</li>`).join('')}</ul><div><strong>將新增</strong></div><ul>${dedupe.items.map(it => `<li>${escapeHTML(it.product_text)}${it.material ? `｜${escapeHTML(it.material)}` : ''} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
       const ok = await askConfirm(html, '重複商品確認', '忽略重複並送出', '取消', {html:true});
       if (!ok) return;
       items = dedupe.items;
     } else if (dedupe.ignored.length && !dedupe.items.length) {
-      const html = `<div class="dup-modal-list"><div><strong>這次辨識的商品都已存在</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
+      const html = `<div class="dup-modal-list"><div><strong>這次辨識的商品都已存在</strong></div><ul>${dedupe.ignored.map(it => `<li>${escapeHTML(it.product_text)}${it.material ? `｜${escapeHTML(it.material)}` : ''} x ${it.qty || 1}</li>`).join('')}</ul></div>`;
       const ok = await askConfirm(html, '重複商品確認', '知道了', '取消', {html:true});
       if (ok) toast('已略過重複商品', 'ok');
       return;
@@ -903,7 +964,7 @@ function renderSubmitResult(module, data, customerName=''){
     html += `<div class="muted">客戶：${escapeHTML(customerName)}</div>`;
     breakdown.forEach(b => {
       const locs = (b.locations || []).map(loc => `${loc.zone}區第${loc.column_index}欄第${String(loc.visual_slot || loc.slot_number).padStart(2,'0')}格`).join('、');
-      html += `<div class="card ship-result-card"><div class="title">${escapeHTML(b.product_text)}</div><div class="sub">本次出貨：${b.qty}</div>`;
+      html += `<div class="card ship-result-card"><div class="title">${escapeHTML(b.product_text)}${formatMaterialInline((b.material || '').toUpperCase())}</div><div class="sub">本次出貨：${b.qty}</div>`;
       html += `<div class="chip-list"><div class="chip-item">總單扣除：${b.master_deduct}</div><div class="chip-item">訂單扣除：${b.order_deduct}</div><div class="chip-item">庫存扣除：${b.inventory_deduct}</div>${b.used_inventory_fallback ? '<div class="chip-item">已啟用庫存補扣</div>' : ''}</div>`;
       if (b.master_details?.length) html += `<div class="small-note">總單明細：${b.master_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
       if (b.order_details?.length) html += `<div class="small-note">訂單明細：${b.order_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
@@ -942,6 +1003,7 @@ async function loadInventory(){
       card.className = `card ${item.needs_red ? 'red' : ''}`;
       card.innerHTML = `
         <div class="title ${item.needs_red ? 'warning-red' : ''}">${escapeHTML(item.product_text || '')}</div>
+        <div class="sub">${materialLabel((item.material || '').toUpperCase())}</div>
         <div class="sub">總數量：${item.qty || 0}</div>
         <div class="sub">已放倉庫：${item.placed_qty || 0}</div>
         <div class="sub">未放倉庫：${item.unplaced_qty || 0}</div>
@@ -993,13 +1055,132 @@ async function selectCustomerForModule(name){
   if ($('customer-name')) $('customer-name').value = name;
   try {
     const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    state.customerItems = data.items || [];
     const panel = $('selected-customer-items');
     if (panel) {
       panel.classList.remove('hidden');
-      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>');
+      if (state.module === 'ship') {
+        const shipItems = (state.customerItems || []).filter(it => ['訂單','總單'].includes(it.source));
+        panel.innerHTML = `
+          <div class="section-title">${escapeHTML(name)} 的可出貨商品</div>
+          <div class="ship-picker-grid">
+            <div>
+              <label class="field-label">商品</label>
+              <select id="ship-product-base" class="text-input" onchange="refreshShipQuickPicker()"></select>
+            </div>
+            <div>
+              <label class="field-label">隻數</label>
+              <select id="ship-stick-select" class="text-input" onchange="refreshShipPieceOptions()"></select>
+            </div>
+            <div>
+              <label class="field-label">件數</label>
+              <select id="ship-piece-select" class="text-input"></select>
+            </div>
+          </div>
+          <div class="btn-row ship-quick-actions">
+            <button class="primary-btn" onclick="addSelectedShipItem()">加入出貨清單</button>
+            <button class="ghost-btn" onclick="clearShipItems()">清空出貨清單</button>
+          </div>
+          <div id="ship-picked-items" class="chip-list"></div>
+          <div class="card-list compact-card-list">${shipItems.map((it, idx) => `<div class="card ship-source-card"><div class="title">${escapeHTML(it.source || '')}</div><div class="sub">${escapeHTML(it.product_text || '')}${formatMaterialInline((it.material || '').toUpperCase())}</div><div class="sub">可出：${it.qty || 0} 件</div><div class="btn-row"><button class="ghost-btn small-btn" onclick="chooseShipItem(${idx})">選這筆</button></div></div>`).join('') || '<div class="small-note">此客戶目前沒有總單 / 訂單商品</div>'}</div>
+        `;
+        refreshShipQuickPicker();
+        renderPickedShipItems();
+      } else {
+        panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')}${formatMaterialInline((it.material || '').toUpperCase())} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>');
+      }
     }
     if (state.module === 'ship') await loadShipPreview();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+function getShipQuickItems(){
+  return (state.customerItems || []).filter(it => ['訂單','總單'].includes(it.source));
+}
+function refreshShipQuickPicker(){
+  const baseSel = $('ship-product-base');
+  const stickSel = $('ship-stick-select');
+  if (!baseSel || !stickSel) return;
+  const items = getShipQuickItems();
+  const groups = new Map();
+  items.forEach((it, idx) => {
+    const parts = parseProductParts(it.product_text || '');
+    const key = `${parts.left}@@${(it.material || '').toUpperCase()}`;
+    if (!groups.has(key)) groups.set(key, { left: parts.left, material: (it.material || '').toUpperCase(), rows: [] });
+    groups.get(key).rows.push({ ...it, __idx: idx, left: parts.left, right: parts.right });
+  });
+  const prev = baseSel.value;
+  baseSel.innerHTML = Array.from(groups.entries()).map(([key, g]) => `<option value="${escapeHTML(key)}">${escapeHTML(g.left || '未指定商品')}${g.material ? `｜${escapeHTML(g.material)}` : ''}</option>`).join('');
+  if (prev && [...groups.keys()].includes(prev)) baseSel.value = prev;
+  const selected = groups.get(baseSel.value) || Array.from(groups.values())[0];
+  const rows = selected ? selected.rows : [];
+  stickSel.innerHTML = rows.map((row, idx) => `<option value="${escapeHTML(row.product_text || '')}@@${idx}">${escapeHTML(row.right || '未指定隻數')}｜可出 ${row.qty || 0} 件</option>`).join('') || '<option value="">沒有可選隻數</option>';
+  refreshShipPieceOptions();
+}
+function refreshShipPieceOptions(){
+  const stickSel = $('ship-stick-select');
+  const pieceSel = $('ship-piece-select');
+  if (!stickSel || !pieceSel) return;
+  const [productText, idxRaw] = String(stickSel.value || '').split('@@');
+  const shipItems = getShipQuickItems();
+  const item = shipItems.find((it, idx) => (it.product_text || '') === productText && String(idx) === String(idxRaw)) || shipItems.find(it => (it.product_text || '') === productText);
+  const maxQty = Math.max(1, parseInt(item?.qty || '1', 10) || 1);
+  pieceSel.innerHTML = Array.from({length:maxQty}, (_,i) => `<option value="${i+1}">${i+1} 件</option>`).join('');
+}
+function chooseShipItem(index){
+  const items = getShipQuickItems();
+  const item = items[index];
+  if (!item) return;
+  const parts = parseProductParts(item.product_text || '');
+  const key = `${parts.left}@@${(item.material || '').toUpperCase()}`;
+  if ($('ship-product-base')) $('ship-product-base').value = key;
+  refreshShipQuickPicker();
+  const stickSel = $('ship-stick-select');
+  if (stickSel) {
+    const opt = Array.from(stickSel.options).find(o => String(o.value || '').startsWith(`${item.product_text || ''}@@`));
+    if (opt) stickSel.value = opt.value;
+  }
+  refreshShipPieceOptions();
+}
+function renderPickedShipItems(){
+  const box = $('ship-picked-items');
+  if (!box) return;
+  const items = parseTextareaItems();
+  if (!items.length) {
+    box.innerHTML = '<div class="small-note">尚未加入出貨清單</div>';
+    return;
+  }
+  box.innerHTML = items.map((it, idx) => `<div class="chip-item">${escapeHTML(it.product_text || '')}${it.material ? `｜${escapeHTML(it.material)}` : ''} × ${it.qty || 0}<button class="remove" onclick="removePickedShipItem(${idx})">刪除</button></div>`).join('');
+}
+function removePickedShipItem(index){
+  const lines = (($('ocr-text')?.value || '').split(/\n+/).map(s=>s.trim()).filter(Boolean));
+  lines.splice(index, 1);
+  if ($('ocr-text')) $('ocr-text').value = lines.join('\n');
+  renderPickedShipItems();
+  loadShipPreview();
+}
+function addSelectedShipItem(){
+  const stickSel = $('ship-stick-select');
+  const pieceSel = $('ship-piece-select');
+  if (!stickSel || !pieceSel || !stickSel.value) return toast('請先選商品', 'warn');
+  const [productText, idxRaw] = String(stickSel.value || '').split('@@');
+  const shipItems = getShipQuickItems();
+  const sourceItem = shipItems.find((it, idx) => (it.product_text || '') === productText && String(idx) === String(idxRaw)) || shipItems.find(it => (it.product_text || '') === productText);
+  if (!sourceItem) return toast('找不到商品資料', 'warn');
+  const parts = parseProductParts(sourceItem.product_text || '');
+  const qty = Math.max(1, parseInt(pieceSel.value || '1', 10) || 1);
+  const material = (sourceItem.material || '').toUpperCase();
+  const newLine = `${parts.left}=${parts.right}x${qty}${material ? `｜${material}` : ''}`;
+  const lines = (($('ocr-text')?.value || '').split(/\n+/).map(s=>s.trim()).filter(Boolean));
+  lines.push(newLine);
+  if ($('ocr-text')) $('ocr-text').value = lines.join('\n');
+  renderPickedShipItems();
+  loadShipPreview();
+}
+function clearShipItems(){
+  if ($('ocr-text')) $('ocr-text').value = '';
+  renderPickedShipItems();
+  loadShipPreview();
 }
 
 async function loadShipPreview(){
@@ -1015,13 +1196,14 @@ async function loadShipPreview(){
   }
   try {
     const data = await requestJSON('/api/ship-preview', { method:'POST', body: JSON.stringify({ customer_name, items }) });
+    state.shipPreview = data;
     panel.classList.remove('hidden');
     panel.innerHTML = `<div class="alert">${escapeHTML(data.message || '出貨預覽完成')}</div>` + (data.items || []).map(item => `
       <div class="ship-breakdown-item">
-        <div><strong>${escapeHTML(item.product_text || '')}</strong>｜需求 ${item.qty || 0}</div>
+        <div><strong>${escapeHTML(item.product_text || '')}</strong>${item.material ? `｜<span class="ship-material-badge">${escapeHTML(item.material)}</span>` : ''}｜需求 ${item.qty || 0}</div>
         <div class="small-note">總單可扣 ${item.master_available || 0}｜訂單可扣 ${item.order_available || 0}｜庫存可扣 ${item.inventory_available || 0}</div>
         <div class="small-note">建議：${escapeHTML(item.recommendation || '')}${item.shortage_reasons?.length ? '｜' + escapeHTML(item.shortage_reasons.join('、')) : ''}</div>
-        <div class="ship-breakdown-list">${(item.locations || []).map(loc => `<span class="ship-location-chip">${escapeHTML(loc.zone)}-${loc.column_index}-${String(loc.visual_slot || loc.slot_number || 0).padStart(2,'0')}｜將出 ${loc.ship_qty || loc.qty || 0}${typeof loc.remain_after !== 'undefined' ? `｜剩 ${loc.remain_after}` : ''}</span>`).join('') || '<span class="small-note">倉庫圖中尚未找到此商品位置</span>'}</div>
+        <div class="ship-breakdown-list">${(item.locations || []).map(loc => `<span class="ship-location-chip">${escapeHTML(loc.zone)}-${loc.column_index}-${String(loc.visual_slot || loc.slot_number || 0).padStart(2,'0')}｜${loc.material ? escapeHTML(loc.material) + '｜' : ''}將出 ${loc.ship_qty || loc.qty || 0}${typeof loc.remain_after !== 'undefined' ? `｜剩 ${loc.remain_after}` : ''}</span>`).join('') || '<span class="small-note">倉庫圖中尚未找到此商品位置</span>'}</div>
       </div>`).join('');
   } catch (e) {
     panel.classList.remove('hidden');
@@ -1054,7 +1236,7 @@ async function openCustomerModal(name){
     (items.items || []).forEach(it => {
       const ch = document.createElement('div');
       ch.className='chip-item';
-      ch.textContent = `${it.source}｜${it.product_text || ''} × ${it.qty || 0}`;
+      ch.textContent = `${it.source}｜${it.product_text || ''}${it.material ? `｜${it.material}` : ''} × ${it.qty || 0}`;
       list.appendChild(ch);
     });
     $('cust-name').value = detail.item?.name || name;
@@ -1092,36 +1274,36 @@ async function loadShippingRecords(){
     let start = $('ship-start')?.value;
     let end = $('ship-end')?.value;
     if (range !== 'custom') {
+      const now = new Date();
       const days = parseInt(range, 10) || 7;
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(endDate.getDate() - days + 1);
-      end = endDate.toISOString().slice(0,10);
-      start = startDate.toISOString().slice(0,10);
+      const startDate = new Date(now.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+      start = startDate.toISOString().slice(0, 10);
+      end = now.toISOString().slice(0, 10);
       if ($('ship-start')) $('ship-start').value = start;
       if ($('ship-end')) $('ship-end').value = end;
     }
-    const qs = new URLSearchParams();
     const keyword = ($('ship-keyword')?.value || '').trim();
+    const qs = new URLSearchParams();
     if (start) qs.set('start_date', start);
     if (end) qs.set('end_date', end);
     if (keyword) qs.set('q', keyword);
     const data = await requestJSON(`/api/shipping_records?${qs.toString()}`, { method:'GET' });
     const el = $('shipping-results');
     if (!el) return;
-    if (!data.records || !data.records.length) {
-      el.innerHTML = '<div class="panel">沒有資料</div>';
+    const rows = data.items || [];
+    if (!rows.length) {
+      el.innerHTML = '<div class="small-note">目前沒有出貨紀錄</div>';
       return;
     }
     let html = '<table><thead><tr><th>客戶</th><th>商品</th><th>數量</th><th>操作人員</th><th>出貨時間</th></tr></thead><tbody>';
-    data.records.forEach(r => {
-      html += `<tr><td>${escapeHTML(r.customer_name || '')}</td><td>${escapeHTML(r.product_text || '')}</td><td>${r.qty || 0}</td><td>${escapeHTML(r.operator || '')}</td><td>${escapeHTML(r.shipped_at || '')}</td></tr>`;
+    rows.forEach(r => {
+      html += `<tr><td>${escapeHTML(r.customer_name || '')}</td><td>${escapeHTML(r.product_text || '')}${r.material ? `｜${escapeHTML((r.material || '').toUpperCase())}` : ''}</td><td>${r.qty || 0}</td><td>${escapeHTML(r.operator || '')}</td><td>${escapeHTML(r.shipped_at || '')}</td></tr>`;
     });
     html += '</tbody></table>';
     el.innerHTML = html;
   } catch (e) {
     const el = $('shipping-results');
-    if (el) el.innerHTML = `<div class="panel warning-red">${e.message}</div>`;
+    if (el) el.innerHTML = `<div class="alert">${escapeHTML(e.message || '查詢失敗')}</div>`;
   }
 }
 
@@ -1242,7 +1424,7 @@ function renderWarehouseZones(){
       const col = document.createElement('div');
       col.className = 'vertical-column-card intuitive-column';
       const visibleSlots = getColumnVisibleSlots(zone, c);
-      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋新增格子</button><button class="ghost-btn small-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－刪除最後一格</button><button class="ghost-btn small-btn" onclick="deleteWarehouseColumn('${zone}', ${c})">刪除整欄</button></div>`;
+      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn warehouse-plusminus-btn" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button><button class="ghost-btn small-btn warehouse-plusminus-btn" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button></div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
       for (let n = 1; n <= visibleSlots; n++) {
@@ -1255,7 +1437,7 @@ function renderWarehouseZones(){
         const key = `${zone}|${c}|direct|${n}`;
         if (items.length) slot.classList.add('filled');
         if (state.searchHighlightKeys.has(key)) slot.classList.add('highlight');
-        const summary = items.length ? items.slice(0,2).map(it => `<div class="slot-line customer">客戶：${escapeHTML(it.customer_name || '未指定客戶')}</div><div class="slot-line product">商品：${escapeHTML(it.product_text || '')}</div><div class="slot-line qty">數量：${it.qty || 0}</div>`).join('<hr class="slot-sep">') : '<div class="slot-line empty">空格</div>';
+        const summary = items.length ? items.slice(0,2).map(it => `<div class="slot-line customer">客戶：${escapeHTML(it.customer_name || '未指定客戶')}</div><div class="slot-line product">商品：${escapeHTML(it.product_text || '')}</div><div class="slot-line material">${escapeHTML(materialLabel((it.material || '').toUpperCase()))}</div><div class="slot-line qty">數量：${it.qty || 0}</div>`).join('<hr class="slot-sep">') : '<div class="slot-line empty">空格</div>';
         slot.innerHTML = `<div class="slot-title">第 ${String(n).padStart(2, '0')} 格</div><div class="slot-count">${summary}</div>`;
         slot.addEventListener('click', () => { showWarehouseDetail(zone, c, n, items); openWarehouseModal(zone, c, n); });
         slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
@@ -1266,7 +1448,7 @@ function renderWarehouseZones(){
           if (!raw) return;
           const parsed = JSON.parse(raw);
           if (parsed.kind === 'warehouse-item') {
-            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty);
+            await moveWarehouseItem(parsed.fromKey, buildCellKey(zone, c, n), parsed.product_text, parsed.qty, parsed.material || '');
           }
         });
         list.appendChild(slot);
@@ -1283,13 +1465,7 @@ async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zon
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
 async function deleteWarehouseColumn(zone, column){
-  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
-  if (!ok) return;
-  try {
-    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
-    toast('已刪除欄位', 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
+  toast('已移除刪除整欄功能', 'warn');
 }
 
 async function openWarehouseModal(zone, column, num){
@@ -1311,10 +1487,10 @@ function refreshWarehouseSelect(){
   if (!sel) return;
   const q = ($('warehouse-item-search')?.value || '').trim().toLowerCase();
   sel.innerHTML = '';
-  state.warehouse.availableItems.filter(it => !q || `${it.product_text} ${it.customer_name || ''}`.toLowerCase().includes(q)).forEach(it => {
+  state.warehouse.availableItems.filter(it => !q || `${it.product_text} ${it.customer_name || ''} ${it.material || ''}`.toLowerCase().includes(q)).forEach(it => {
     const opt = document.createElement('option');
     opt.value = JSON.stringify(it);
-    opt.textContent = `${it.product_text}｜剩餘 ${it.unplaced_qty}`;
+    opt.textContent = `${it.product_text}${it.material ? `｜${it.material}` : ''}｜剩餘 ${it.unplaced_qty}`;
     sel.appendChild(opt);
   });
   if (!sel.options.length) {
@@ -1334,13 +1510,14 @@ function renderWarehouseCellItems(){
     chip.className = 'chip-item';
     chip.draggable = true;
     chip.dataset.idx = idx;
-    chip.innerHTML = `<span>${escapeHTML(it.product_text || '')} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</span>
+    chip.innerHTML = `<span>${escapeHTML(it.product_text || '')}${it.material ? ` ｜ ${escapeHTML(it.material)}` : ''} × ${it.qty || 0}${it.customer_name ? ` ｜ ${escapeHTML(it.customer_name)}` : ''}</span>
       <button class="remove" data-idx="${idx}">刪除</button>`;
     chip.addEventListener('dragstart', ev => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({
         kind: 'warehouse-item',
         fromKey: buildCellKey(state.currentCell.zone, state.currentCell.column, state.currentCell.slot_number),
         product_text: it.product_text || '',
+        material: it.material || '',
         qty: it.qty || 1
       }));
     });
@@ -1360,6 +1537,7 @@ function addSelectedItemToCell(){
   state.currentCellItems.push({
     product_text: item.product_text,
     product_code: item.product_code || '',
+    material: (item.material || '').toUpperCase(),
     qty,
     customer_name: item.customer_name || '',
     source: 'inventory'
@@ -1388,11 +1566,11 @@ async function saveWarehouseCell(){
   }
 }
 
-async function moveWarehouseItem(fromKey, toKey, product_text, qty){
+async function moveWarehouseItem(fromKey, toKey, product_text, qty, material=''){
   try {
     await requestJSON('/api/warehouse/move', {
       method: 'POST',
-      body: JSON.stringify({ from_key: fromKey, to_key: toKey, product_text, qty })
+      body: JSON.stringify({ from_key: fromKey, to_key: toKey, product_text, qty, material })
     });
     toast('已拖曳移動', 'ok');
     await renderWarehouse();
@@ -1428,7 +1606,7 @@ async function searchWarehouse(){
       const div = document.createElement('div');
       div.className = 'search-card';
       const visualNum = parseInt(cell.slot_number || 0);
-      div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 第 ${cell.column_index} 欄 第 ${String(visualNum).padStart(2,'0')} 格</strong><br>${escapeHTML(item.product_text || '')} × ${item.qty || 0}`;
+      div.innerHTML = `<strong>${escapeHTML(cell.zone)}區 第 ${cell.column_index} 欄 第 ${String(visualNum).padStart(2,'0')} 格</strong><br>${escapeHTML(item.product_text || '')}${item.material ? `｜${escapeHTML(item.material)}` : ''} × ${item.qty || 0}`;
       div.addEventListener('click', () => { setWarehouseZone(cell.zone); setTimeout(()=>{ highlightWarehouseCell(cell.zone, cell.column_index, cell.slot_number); openWarehouseModal(cell.zone, cell.column_index, cell.slot_number); }, 120); });
       box.appendChild(div);
     });
@@ -1441,11 +1619,9 @@ function showWarehouseDetail(zone, column, num, items){
   const box = $('warehouse-detail-panel');
   if (!box) return;
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(num).padStart(2,'0')} 格</div>` + (items.length ? items.map(it => `<div class="chip-item"><div><strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong></div><div>${escapeHTML(it.product_text || '')}</div><div>數量：${it.qty || 0}</div></div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
+  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(num).padStart(2,'0')} 格</div>` + (items.length ? items.map(it => `<div class="chip-item"><div><strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong></div><div>${escapeHTML(it.product_text || '')}</div><div>${escapeHTML(materialLabel((it.material || '').toUpperCase()))}</div><div>數量：${it.qty || 0}</div></div>`).join('') : '<div class="small-note">此格目前沒有商品</div>');
   highlightWarehouseCell(zone, column, num);
 }
-
-
 
 function highlightWarehouseCell(zone, column, num){
   const target = document.querySelector(`.vertical-slot[data-zone="${zone}"][data-column="${column}"][data-num="${num}"]`);
@@ -1475,6 +1651,87 @@ async function reverseLookup(){
 async function renderCustomers(){
   if (state.module !== 'customers') return;
   await loadCustomerBlocks();
+}
+
+function openTodoAlbumPicker(){ $('todo-image-input')?.click(); }
+function openTodoCameraPicker(){ $('todo-camera-input')?.click(); }
+function handleTodoFiles(fileList){
+  const files = Array.from(fileList || []);
+  state.todoSelectedFile = files[0] || null;
+  renderTodoSelectedPreview();
+}
+function renderTodoSelectedPreview(){
+  const box = $('todo-selected-preview');
+  if (!box) return;
+  if (!state.todoSelectedFile) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const url = URL.createObjectURL(state.todoSelectedFile);
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="todo-preview-card"><img src="${url}" alt="todo preview"><div class="small-note">已選擇：${escapeHTML(state.todoSelectedFile.name || '圖片')}</div></div>`;
+}
+function clearTodoForm(){
+  state.todoSelectedFile = null;
+  if ($('todo-note')) $('todo-note').value = '';
+  if ($('todo-date')) $('todo-date').value = '';
+  if ($('todo-image-input')) $('todo-image-input').value = '';
+  if ($('todo-camera-input')) $('todo-camera-input').value = '';
+  renderTodoSelectedPreview();
+}
+async function saveTodoItem(){
+  if (!state.todoSelectedFile) return toast('請先選擇照片', 'warn');
+  try {
+    const fd = new FormData();
+    fd.append('image', state.todoSelectedFile);
+    fd.append('note', ($('todo-note')?.value || '').trim());
+    fd.append('due_date', ($('todo-date')?.value || '').trim());
+    const res = await fetch('/api/todos', { method:'POST', body: fd });
+    const data = await res.json().catch(()=>({success:false,error:'回應解析失敗'}));
+    if (!res.ok || data.success === false) throw new Error(data.error || `HTTP ${res.status}`);
+    toast('代辦事項已新增', 'ok');
+    clearTodoForm();
+    loadTodos();
+  } catch (e) {
+    toast(e.message || '新增失敗', 'error');
+  }
+}
+async function deleteTodoItem(id){
+  const ok = await askConfirm('確認這張備忘照片已完成，要刪除這筆代辦嗎？', '完成代辦', '確認刪除', '取消');
+  if (!ok) return;
+  try {
+    await requestJSON(`/api/todos/${id}`, { method:'DELETE' });
+    toast('代辦事項已刪除', 'ok');
+    loadTodos();
+  } catch (e) {
+    toast(e.message || '刪除失敗', 'error');
+  }
+}
+async function loadTodos(){
+  const box = $('todo-list');
+  if (!box) return;
+  try {
+    const data = await requestJSON('/api/todos', { method:'GET' });
+    const items = sortTodoItems(data.items || []);
+    if (!items.length) {
+      box.innerHTML = '<div class="small-note">目前沒有代辦事項</div>';
+      return;
+    }
+    let currentDate = '__INIT__';
+    let html = '';
+    items.forEach(item => {
+      const dateLabel = formatTodoDateLabel(item.due_date || '');
+      if (dateLabel !== currentDate) {
+        currentDate = dateLabel;
+        html += `<div class="todo-date-heading">${escapeHTML(dateLabel)}</div>`;
+      }
+      html += `<div class="card todo-card"><div class="todo-card-main"><img class="todo-thumb" src="/todo-image/${encodeURIComponent(item.image_filename || '')}" alt="todo image" onclick="deleteTodoItem(${Number(item.id || 0)})"><div class="todo-card-info"><div class="title">${escapeHTML(item.note || '照片備忘')}</div><div class="sub">建立者：${escapeHTML(item.created_by || '')}</div><div class="sub">建立時間：${escapeHTML(item.created_at || '')}</div>${item.due_date ? `<div class="sub">日期：${escapeHTML(item.due_date)}</div>` : ''}</div></div><div class="btn-row"><button class="primary-btn small-btn" onclick="deleteTodoItem(${Number(item.id || 0)})">確認完成並刪除</button></div></div>`;
+    });
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = `<div class="alert">${escapeHTML(e.message || '代辦事項載入失敗')}</div>`;
+  }
 }
 
 function escapeHTML(str){
@@ -1525,6 +1782,17 @@ window.loadBackups = loadBackups;
 window.createBackup = createBackup;
 window.setTodayCategoryFilter = setTodayCategoryFilter;
 window.setGoogleOcrEnabled = setGoogleOcrEnabled;
+window.openTodoAlbumPicker = openTodoAlbumPicker;
+window.openTodoCameraPicker = openTodoCameraPicker;
+window.saveTodoItem = saveTodoItem;
+window.clearTodoForm = clearTodoForm;
+window.deleteTodoItem = deleteTodoItem;
+window.refreshShipQuickPicker = refreshShipQuickPicker;
+window.refreshShipPieceOptions = refreshShipPieceOptions;
+window.chooseShipItem = chooseShipItem;
+window.addSelectedShipItem = addSelectedShipItem;
+window.clearShipItems = clearShipItems;
+window.removePickedShipItem = removePickedShipItem;
 window.addWarehouseVisualSlot = addWarehouseVisualSlot;
 window.removeWarehouseVisualSlot = removeWarehouseVisualSlot;
 window.toggleUserBlocked = toggleUserBlocked;

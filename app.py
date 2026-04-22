@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
 from functools import wraps
 import os
@@ -8,6 +8,7 @@ import time
 import hashlib
 import json
 from PIL import Image
+from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 
 from db import (
@@ -20,7 +21,8 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
-    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
+    create_todo_item, list_todo_items, get_todo_item, delete_todo_item
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -33,9 +35,11 @@ app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
 UPLOAD_FOLDER = "uploads"
+TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
 MAX_UPLOAD_SIZE = 16 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 init_db()
@@ -228,9 +232,20 @@ def warehouse_page():
 def customers_page():
     return render_template("module.html", module_key="customers", title="客戶資料", username=current_username())
 
+@app.route("/todos")
+def todos_page():
+    return render_template("module.html", module_key="todos", title="代辦事項", username=current_username())
+
 @app.route("/today-changes")
 def today_changes_page():
     return render_template("today_changes.html", username=current_username(), title="今日異動")
+
+@app.route('/todo-image/<path:filename>')
+def todo_image(filename):
+    if not require_login():
+        return redirect(url_for('login_page'))
+    safe_name = os.path.basename(filename)
+    return send_from_directory(TODO_UPLOAD_FOLDER, safe_name)
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -396,7 +411,7 @@ def api_inventory():
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), material=(it.get('material') or ''))
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -569,7 +584,7 @@ def api_warehouse_move():
         qty = int(data.get("qty", 1))
         if not (from_key and to_key and product_text):
             return error_response("缺少參數")
-        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty)
+        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty, material=(data.get('material') or ''))
         if result.get("success"):
             log_action(current_username(), f"拖曳商品 {product_text}")
             try:
@@ -611,7 +626,7 @@ def api_warehouse_search():
         except Exception:
             items = []
         for it in items:
-            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')}"
+            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')} {it.get('material','')}"
             if not q or q.lower() in hay.lower():
                 matched.append({"cell": cell, "item": it})
                 break
@@ -634,18 +649,74 @@ def api_customer_items():
     masters = get_master_orders()
     items = []
     if name:
-        for row in orders:
-            if row.get("customer_name") == name:
-                items.append({"source": "訂單", **row})
-        for row in masters:
-            if row.get("customer_name") == name:
-                items.append({"source": "總單", **row})
-        for row in inv:
-            if row.get("customer_name") == name:
-                items.append({"source": "庫存", **row})
+        merged = {}
+        for source_name, rows in (("訂單", orders), ("總單", masters), ("庫存", inv)):
+            for row in rows:
+                if row.get("customer_name") != name:
+                    continue
+                key = (source_name, row.get('product_text') or '', (row.get('material') or '').strip().upper())
+                if key not in merged:
+                    merged[key] = {"source": source_name, **row, 'material': (row.get('material') or '').strip().upper()}
+                    merged[key]['qty'] = int(row.get('qty') or 0)
+                else:
+                    merged[key]['qty'] = int(merged[key].get('qty') or 0) + int(row.get('qty') or 0)
+        items = list(merged.values())
+        items.sort(key=lambda r: (r.get('source') or '', r.get('product_text') or '', r.get('material') or ''))
     else:
         items = []
     return jsonify(success=True, items=items)
+
+@app.route('/api/todos', methods=['GET', 'POST'])
+@login_required_json
+def api_todos():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=list_todo_items())
+        note = (request.form.get('note') or '').strip()
+        due_date = (request.form.get('due_date') or '').strip()
+        file = request.files.get('image')
+        if not file or not file.filename:
+            return error_response('請選擇照片')
+        if not allowed_file(file.filename):
+            return error_response('僅支援圖片檔案')
+        original_name = secure_filename(file.filename or 'todo.jpg') or 'todo.jpg'
+        ext = os.path.splitext(original_name)[1].lower() or '.jpg'
+        filename = f"todo_{int(time.time() * 1000)}_{hashlib.md5((original_name + str(time.time())).encode('utf-8')).hexdigest()[:10]}{ext}"
+        save_path = os.path.join(TODO_UPLOAD_FOLDER, filename)
+        file.save(save_path)
+        compress_image(save_path)
+        create_todo_item(note=note, due_date=due_date, image_filename=filename, created_by=current_username())
+        log_action(current_username(), f"新增代辦事項 {due_date or '未指定日期'}")
+        add_audit_trail(current_username(), 'create', 'todo_items', filename, before_json={}, after_json={'note': note, 'due_date': due_date, 'image_filename': filename})
+        notify_sync_event(kind='refresh', module='todos', message='代辦事項已新增', extra={'due_date': due_date, 'image_filename': filename})
+        return jsonify(success=True, items=list_todo_items())
+    except Exception as e:
+        log_error('api_todos', str(e))
+        return error_response('代辦事項儲存失敗')
+
+@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
+@login_required_json
+def api_todo_delete(todo_id):
+    try:
+        row = get_todo_item(todo_id)
+        if not row:
+            return error_response('找不到代辦事項', 404)
+        filename = os.path.basename(row.get('image_filename') or '')
+        if filename:
+            path = os.path.join(TODO_UPLOAD_FOLDER, filename)
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+        delete_todo_item(todo_id)
+        log_action(current_username(), f"完成代辦事項 {todo_id}")
+        add_audit_trail(current_username(), 'delete', 'todo_items', str(todo_id), before_json=row, after_json={})
+        notify_sync_event(kind='refresh', module='todos', message='代辦事項已完成刪除', extra={'todo_id': todo_id})
+        return jsonify(success=True, items=list_todo_items())
+    except Exception as e:
+        log_error('api_todo_delete', str(e))
+        return error_response('刪除代辦事項失敗')
 
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
