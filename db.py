@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
+from collections import Counter
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///warehouse.db")
 USE_POSTGRES = DATABASE_URL.startswith("postgres")
@@ -248,6 +249,22 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     ]
     for t in tables:
         cur.execute(t)
+
+    index_sqls = [
+        "CREATE INDEX IF NOT EXISTS idx_inventory_product_material ON inventory(product_text, material)",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_customer ON inventory(customer_name)",
+        "CREATE INDEX IF NOT EXISTS idx_orders_customer_product_material ON orders(customer_name, product_text, material)",
+        "CREATE INDEX IF NOT EXISTS idx_master_customer_product_material ON master_orders(customer_name, product_text, material)",
+        "CREATE INDEX IF NOT EXISTS idx_shipping_customer_shipped_at ON shipping_records(customer_name, shipped_at)",
+        "CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_todo_due_created ON todo_items(due_date, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_submit_requests_created_at ON submit_requests(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_trails_created_at ON audit_trails(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_trails_entity_type ON audit_trails(entity_type)",
+        "CREATE INDEX IF NOT EXISTS idx_customer_profiles_region ON customer_profiles(region)",
+    ]
+    for stmt in index_sqls:
+        cur.execute(stmt)
 
     if USE_POSTGRES:
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
@@ -501,6 +518,17 @@ def set_user_blocked(username, blocked):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("UPDATE users SET is_blocked = ?, updated_at = ? WHERE username = ?"), (1 if blocked else 0, now(), username))
+    conn.commit()
+    conn.close()
+
+
+def set_user_role(username, role):
+    role = (role or 'user').strip().lower()
+    if role not in ('admin', 'user', 'viewer'):
+        role = 'user'
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("UPDATE users SET role = ?, updated_at = ? WHERE username = ?"), (role, now(), username))
     conn.commit()
     conn.close()
 
@@ -1220,10 +1248,28 @@ def ensure_todo_table(cur):
 def create_todo_item(note='', due_date='', image_filename='', created_by=''):
     conn = get_db()
     cur = conn.cursor()
+    created = None
     try:
         ensure_todo_table(cur)
-        cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now()))
+        created_at = now()
+        cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), created_at, created_at))
+        if USE_POSTGRES:
+            cur.execute("SELECT currval(pg_get_serial_sequence('todo_items', 'id')) AS id")
+            row = fetchone_dict(cur) or {}
+            created_id = row.get('id')
+        else:
+            created_id = cur.lastrowid
         conn.commit()
+        created = {
+            'id': int(created_id or 0),
+            'note': (note or '').strip(),
+            'due_date': (due_date or '').strip(),
+            'image_filename': (image_filename or '').strip(),
+            'created_by': (created_by or '').strip(),
+            'created_at': created_at,
+            'updated_at': created_at,
+        }
+        return created
     except Exception as e:
         conn.rollback()
         log_error('create_todo_item', e)

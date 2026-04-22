@@ -45,18 +45,14 @@
     <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡；也可以直接貼上手機辨識好的文字，系統會自動整理成你要的格式"></textarea>
 
     {% if module_key in ['inventory','orders','master_order'] %}
-    <div class="inline-material-panel">
-      <div class="section-head compact-head">
-        <h3>商品旁材質備註</h3>
-        <span class="muted">逐筆選擇材質，會跟商品一起儲存並同步到倉庫圖</span>
-      </div>
+    <div class="inline-material-panel" id="inline-material-panel">
       <div id="parsed-item-material-list" class="parsed-item-material-list"></div>
     </div>
     {% endif %}
-    <div class="btn-row">
-      <button class="primary-btn" onclick="confirmSubmit()">確認送出</button>
-      <button class="ghost-btn" onclick="cleanOcrTextarea()">一鍵去雜訊</button>
-      <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
+    <div class="btn-row ocr-submit-row compact-mobile-row">
+      <button id="confirm-submit-btn" class="primary-btn" onclick="confirmSubmit(this)">確認送出</button>
+      <button id="clean-ocr-btn" class="ghost-btn" onclick="cleanOcrTextarea()">一鍵去雜訊</button>
+      <button id="reverse-lookup-btn" class="ghost-btn secondary-ghost-btn" onclick="reverseLookup()">反查商品位置</button>
     </div>
     <div id="ocr-diff-preview" class="result-card hidden"></div>
     <div id="module-result" class="result-card hidden"></div>
@@ -91,6 +87,7 @@
       <h3>庫存清單</h3>
       <span class="muted">未放入倉庫圖的商品會以紅色標示</span>
     </div>
+    <div id="inventory-toolbar" class="list-toolbar"></div>
     <div id="inventory-summary" class="card-list"></div>
   </section>
 
@@ -207,8 +204,8 @@
       <label class="field-label">備忘內容</label>
       <textarea id="todo-note" class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea>
       <div class="btn-row">
-        <button class="primary-btn" onclick="saveTodoItem()">新增代辦</button>
-        <button class="ghost-btn" onclick="clearTodoForm()">清空</button>
+        <button id="todo-save-btn" class="primary-btn" onclick="saveTodoItem(this)">新增代辦</button>
+        <button id="todo-clear-btn" class="ghost-btn" onclick="clearTodoForm()">清空</button>
       </div>
     </div>
     <div id="todo-list" class="todo-list"></div>
@@ -219,6 +216,7 @@
       <h3>訂單清單</h3>
       <span class="muted">可直接加入總單</span>
     </div>
+    <div id="orders-toolbar" class="list-toolbar"></div>
     <div id="orders-list" class="card-list"></div>
   </section>
 
@@ -226,6 +224,7 @@
     <div class="section-head">
       <h3>總單清單</h3>
     </div>
+    <div id="master-toolbar" class="list-toolbar"></div>
     <div id="master-list" class="card-list"></div>
   </section>
 

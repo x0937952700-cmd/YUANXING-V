@@ -11,6 +11,15 @@
           </div>
   </div>
 
+  <div id="home-dashboard" class="glass panel home-dashboard-panel">
+    <div class="section-head">
+      <h3>工作台總覽</h3>
+      <span class="muted">今日異動、倉庫使用率、材質分布、異常提醒</span>
+    </div>
+    <div id="home-dashboard-grid" class="card-list home-dashboard-grid"></div>
+    <div id="home-dashboard-extra" class="home-dashboard-extra"></div>
+  </div>
+
   <div class="home-menu vertical">
     <a class="menu-btn" href="{{ url_for('inventory_page') }}" target="_self">庫存</a>
     <a class="menu-btn" href="{{ url_for('orders_page') }}" target="_self">訂單</a>

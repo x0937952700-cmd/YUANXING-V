@@ -22,7 +22,8 @@ from db import (
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
-    create_todo_item, list_todo_items, get_todo_item, delete_todo_item
+    create_todo_item, list_todo_items, get_todo_item, delete_todo_item,
+    set_user_role, dashboard_summary
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -40,6 +41,7 @@ ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
 MAX_UPLOAD_SIZE = 16 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
+os.makedirs('backups', exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 init_db()
@@ -48,8 +50,31 @@ PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
 }
 
+
+@app.errorhandler(413)
+def handle_too_large(_e):
+    msg = '檔案過大，請改成 16MB 以下圖片'
+    if request.path.startswith('/api/'):
+        return jsonify(success=False, error=msg), 413
+    return msg, 413
+
+
 def current_username():
     return session.get("user", "")
+
+
+def current_role():
+    return (session.get('role') or 'user').strip().lower()
+
+
+def require_admin():
+    return current_role() == 'admin' or current_username() == '陳韋廷'
+
+
+def require_write_access_json():
+    if current_role() == 'viewer':
+        return jsonify(success=False, error='此帳號目前是唯讀模式，無法修改資料'), 403
+    return None
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
@@ -410,14 +435,22 @@ def _parse_items_from_request(data):
             if qty <= 0:
                 continue
             cleaned.append({
-                "product_text": it.get("product_text") or it.get("product") or "",
-                "product_code": it.get("product_code") or "",
-                "qty": qty
+                "product_text": (it.get("product_text") or it.get("product") or "").strip(),
+                "product_code": (it.get("product_code") or "").strip(),
+                "qty": qty,
+                "material": (it.get('material') or '').strip().upper(),
+                "customer_name": (it.get('customer_name') or '').strip(),
             })
         return cleaned
     text = data.get("ocr_text") or data.get("text") or ""
     parsed_items, _ = parse_lines_to_items(text)
-    return [{"product_text": it["product_text"], "product_code": it.get("product_code", ""), "qty": int(it["qty"])} for it in parsed_items]
+    return [{
+        "product_text": it["product_text"],
+        "product_code": it.get("product_code", ""),
+        "qty": int(it["qty"]),
+        "material": (it.get('material') or '').strip().upper(),
+        "customer_name": (it.get('customer_name') or '').strip(),
+    } for it in parsed_items]
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
@@ -425,6 +458,9 @@ def api_inventory():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=grouped_inventory())
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
             return duplicate_success('相同庫存送出已忽略')
@@ -440,7 +476,7 @@ def api_inventory():
         return jsonify(success=True, items=grouped_inventory())
     except Exception as e:
         log_error("inventory", str(e))
-        return error_response("建立失敗")
+        return error_response(f"建立失敗：{str(e)}")
 
 @app.route("/api/orders", methods=["GET", "POST"])
 @login_required_json
@@ -448,6 +484,9 @@ def api_orders():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_orders())
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/orders'):
             return duplicate_success('相同訂單送出已忽略')
@@ -463,7 +502,7 @@ def api_orders():
         return jsonify(success=True, items=get_orders())
     except Exception as e:
         log_error("orders", str(e))
-        return error_response("訂單建立失敗")
+        return error_response(f"訂單建立失敗：{str(e)}")
 
 @app.route("/api/master_orders", methods=["GET", "POST"])
 @login_required_json
@@ -471,6 +510,9 @@ def api_master_orders():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_master_orders())
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
             return duplicate_success('相同總單送出已忽略')
@@ -486,12 +528,15 @@ def api_master_orders():
         return jsonify(success=True, items=get_master_orders())
     except Exception as e:
         log_error("master_orders", str(e))
-        return error_response("總單失敗")
+        return error_response(f"總單失敗：{str(e)}")
 
 @app.route("/api/ship", methods=["POST"])
 @login_required_json
 def api_ship():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/ship'):
             return duplicate_success('相同出貨送出已忽略')
@@ -509,7 +554,7 @@ def api_ship():
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
-        return error_response("出貨失敗")
+        return error_response(f"出貨失敗：{str(e)}")
 
 @app.route("/api/shipping_records", methods=["GET"])
 @login_required_json
@@ -518,7 +563,7 @@ def api_shipping_records():
     end_date = request.args.get("end_date")
     q = (request.args.get("q") or '').strip()
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
-    return jsonify(success=True, records=rows)
+    return jsonify(success=True, records=rows, items=rows)
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
@@ -542,6 +587,9 @@ def api_customers():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_customers())
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         if not name:
@@ -559,7 +607,7 @@ def api_customers():
         return jsonify(success=True, items=get_customers())
     except Exception as e:
         log_error("customers", str(e))
-        return error_response("客戶儲存失敗")
+        return error_response(f"客戶儲存失敗：{str(e)}")
 
 @app.route("/api/customers/<name>", methods=["GET"])
 @login_required_json
@@ -576,6 +624,9 @@ def api_warehouse():
 @login_required_json
 def api_warehouse_cell():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = data.get("zone")
         column_index = int(data.get("column_index"))
@@ -593,12 +644,15 @@ def api_warehouse_cell():
         return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
         log_error("warehouse_cell", str(e))
-        return error_response("格位更新失敗")
+        return error_response(f"格位更新失敗：{str(e)}")
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
 def api_warehouse_move():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         from_key = data.get("from_key")
         to_key = data.get("to_key")
@@ -694,8 +748,13 @@ def api_todos():
     try:
         if request.method == 'GET':
             return jsonify(success=True, items=safe_list_todos())
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         note = (request.form.get('note') or '').strip()
         due_date = (request.form.get('due_date') or '').strip()
+        if not request_key_from_payload({'request_key': request.form.get('request_key')}, endpoint='/api/todos'):
+            return duplicate_success('相同代辦送出已忽略')
         os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
         file = request.files.get('image')
         if not file or not file.filename:
@@ -708,28 +767,22 @@ def api_todos():
         save_path = os.path.join(TODO_UPLOAD_FOLDER, filename)
         file.save(save_path)
         compress_image(save_path)
-        create_todo_item(note=note, due_date=due_date, image_filename=filename, created_by=current_username())
-        created_item = {
-            'id': int(time.time() * 1000),
-            'note': note,
-            'due_date': due_date,
-            'image_filename': filename,
-            'created_by': current_username(),
-            'created_at': now(),
-            'updated_at': now(),
-        }
+        created_item = create_todo_item(note=note, due_date=due_date, image_filename=filename, created_by=current_username())
         log_action(current_username(), f"新增代辦事項 {due_date or '未指定日期'}")
         add_audit_trail(current_username(), 'create', 'todo_items', filename, before_json={}, after_json={'note': note, 'due_date': due_date, 'image_filename': filename})
         notify_sync_event(kind='refresh', module='todos', message='代辦事項已新增', extra={'due_date': due_date, 'image_filename': filename})
         return jsonify(success=True, items=safe_list_todos(created_item))
     except Exception as e:
         log_error('api_todos', str(e))
-        return error_response('代辦事項儲存失敗')
+        return error_response(f"代辦事項儲存失敗：{str(e)}")
 
 @app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
 @login_required_json
 def api_todo_delete(todo_id):
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         row = get_todo_item(todo_id)
         if not row:
             return error_response('找不到代辦事項', 404)
@@ -748,7 +801,7 @@ def api_todo_delete(todo_id):
         return jsonify(success=True, items=safe_list_todos())
     except Exception as e:
         log_error('api_todo_delete', str(e))
-        return error_response('刪除代辦事項失敗')
+        return error_response(f"刪除代辦事項失敗：{str(e)}")
 
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
@@ -764,14 +817,14 @@ def api_backups():
 @app.route("/api/admin/users", methods=["GET"])
 @login_required_json
 def api_admin_users():
-    if current_username() != '陳韋廷':
+    if not require_admin():
         return error_response("權限不足", 403)
     return jsonify(success=True, items=list_users())
 
 @app.route("/api/admin/block", methods=["POST"])
 @login_required_json
 def api_admin_block():
-    if current_username() != '陳韋廷':
+    if not require_admin():
         return error_response("權限不足", 403)
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
@@ -783,10 +836,45 @@ def api_admin_block():
     notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
     return jsonify(success=True, items=list_users())
 
+@app.route("/api/admin/role", methods=["POST"])
+@login_required_json
+def api_admin_role():
+    if not require_admin():
+        return error_response("權限不足", 403)
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    role = (data.get('role') or 'user').strip().lower()
+    if not username or username == '陳韋廷':
+        return error_response("不可操作此帳號")
+    if role not in ('admin', 'user', 'viewer'):
+        return error_response('角色不存在')
+    set_user_role(username, role)
+    log_action(current_username(), f"調整帳號角色 {username} → {role}")
+    notify_sync_event(kind='refresh', module='settings', message='帳號角色已更新', extra={'username': username, 'role': role})
+    return jsonify(success=True, items=list_users())
+
+@app.route('/api/dashboard-summary', methods=['GET'])
+@login_required_json
+def api_dashboard_summary():
+    try:
+        summary = dashboard_summary()
+        anomalies = _build_anomalies(inventory_summary(), get_orders(), get_master_orders())
+        summary['anomaly_count'] = sum(len(v or []) for v in anomalies.values())
+        summary['read_only'] = current_role() == 'viewer'
+        summary['role'] = current_role()
+        summary['username'] = current_username()
+        return jsonify(success=True, **summary)
+    except Exception as e:
+        log_error('dashboard_summary', str(e))
+        return error_response(f'儀表板載入失敗：{str(e)}')
+
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
 def api_warehouse_add_slot():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
@@ -803,6 +891,9 @@ def api_warehouse_add_slot():
 @login_required_json
 def api_warehouse_remove_slot():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
@@ -823,6 +914,9 @@ def api_warehouse_remove_slot():
 @login_required_json
 def api_orders_to_master():
     try:
+        readonly_error = require_write_access_json()
+        if readonly_error:
+            return readonly_error
         data = request.get_json(silent=True) or {}
         customer_name = (data.get("customer_name") or "").strip()
         product_text = (data.get("product_text") or "").strip()
@@ -1164,7 +1258,7 @@ def api_backup_download(filename):
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
 def api_backup_restore():
-    if current_username() != '陳韋廷':
+    if not require_admin():
         return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
     filename = os.path.basename((data.get('filename') or '').strip())
@@ -1204,7 +1298,7 @@ def api_backup_restore():
 @app.route('/api/session/config', methods=['GET'])
 @login_required_json
 def api_session_config():
-    return jsonify(success=True, idle_timeout_seconds=1800)
+    return jsonify(success=True, idle_timeout_seconds=1800, username=current_username(), role=current_role(), read_only=current_role() == 'viewer')
 
 @app.route("/health")
 def health():
