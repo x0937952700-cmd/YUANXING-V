@@ -594,10 +594,11 @@ function formatManualEntryText(rawText=''){
     if (!line) return;
     line = normalizeOcrLine(line);
     if (!line.includes('=')) {
-      if (!customerGuess && /[^0-9x=_\-]/.test(line)) customerGuess = line;
+      if (!customerGuess && /[^0-9x=_\-+]/.test(line)) customerGuess = line;
       return;
     }
-    const [leftRaw, rightRaw] = line.split('=');
+    const [leftRaw, ...rightParts] = line.split('=');
+    const rightRaw = rightParts.join('=').trim();
     const leftParts = String(leftRaw || '').split(/x/i).map(s => s.trim());
     const dims = [0,1,2].map(i => {
       const v = leftParts[i] || '';
@@ -608,34 +609,27 @@ function formatManualEntryText(rawText=''){
     if (!dims[2]) dims[2] = lastDims[2] || '';
     lastDims = dims.slice();
     const left = dims.join('x');
-    String(rightRaw || '').split(/[+＋]/).map(s => s.trim()).filter(Boolean).forEach(seg => {
-      const nums = seg.match(/\d+/g) || [];
-      if (!nums.length) return;
-      const piece = nums[0];
-      const qty = parseInt(nums[1] || '1', 10) || 1;
-      const product_text = batchMaterial ? `${left}=${piece}｜${batchMaterial}` : `${left}=${piece}`;
-      parsed.push({ product_text, product_code: product_text, qty, material: batchMaterial, _dims: dims.map(v => parseInt(v || 0, 10) || 0) });
-    });
+    const cleanRight = String(rightRaw || '').replace(/\./g, '').trim();
+    if (!cleanRight) return;
+    const nums = cleanRight.match(/\d+/g) || [];
+    const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
+    const baseText = `${left}=${cleanRight}`;
+    const product_text = batchMaterial ? `${baseText}｜${batchMaterial}` : baseText;
+    parsed.push({ product_text, product_code: product_text, qty, material: batchMaterial, _dims: dims.map(v => parseInt(v || 0, 10) || 0) });
   });
   const items = sortParsedItems(parsed);
   return {
     customerGuess,
     items,
-    formattedText: items.map(it => `${it.product_text}x${it.qty}`).join('\n')
+    formattedText: items.map(it => `${it.product_text}`).join('\n')
   };
 }
 
 function renderParsedPreview(){
   const box = $('ocr-diff-preview');
   if (!box) return;
-  const items = state.lastOcrItems || [];
-  if (!items.length) {
-    box.classList.add('hidden');
-    box.innerHTML = '';
-    return;
-  }
-  box.classList.remove('hidden');
-  box.innerHTML = `<div class="section-title">整理後商品</div><div class="chip-list">${items.map(it => `<div class="chip-item"><strong>${escapeHTML(it.product_text || '')}</strong><span>件數：${it.qty || 0}</span></div>`).join('')}</div>`;
+  box.classList.add('hidden');
+  box.innerHTML = '';
 }
 
 function applyFormattedTextarea(force=false){
@@ -676,7 +670,6 @@ function parseTextareaItems(){
 
 function cleanOcrTextarea(){
   applyFormattedTextarea(true);
-  toast('已重新整理商品資料', 'ok');
 }
 
 function toggleTodayChanges(){
@@ -954,9 +947,14 @@ async function confirmSubmit(){
       }
     }
     const data = await requestJSON(endpoint, { method: 'POST', body: JSON.stringify(payload) });
+    if (customer_name) {
+      try {
+        await requestJSON('/api/customers', { method:'POST', body: JSON.stringify({ name: customer_name, region: '北區' }) });
+      } catch (_e) {}
+    }
     renderSubmitResult(module, data, customer_name);
-    loadCustomerBlocks();
-    if (customer_name) selectCustomerForModule(customer_name);
+    await loadCustomerBlocks();
+    if (customer_name) await selectCustomerForModule(customer_name);
     state.lastOcrItems = items;
     saveOcrHistoryEntry({ text: ocr_text, customer_name, items, line_map: state.lineMap, preview: state.nativePreview, created_at: new Date().toISOString() });
     if (module === 'inventory') await loadInventory();
@@ -964,7 +962,6 @@ async function confirmSubmit(){
     if (module === 'master_order') await loadMasterList();
     if (module === 'ship') await loadShippingRecords();
     if (module === 'warehouse') await renderWarehouse();
-    toast('送出完成', 'ok');
   } catch (e) {
     const payload = { customer_name, location, ocr_text, items, duplicate_mode: '' };
     if (isLikelyNetworkError(e)) {
@@ -980,40 +977,16 @@ async function confirmSubmit(){
 function renderSubmitResult(module, data, customerName=''){
   const box = $('module-result');
   if (!box) return;
-  box.classList.remove('hidden');
-  let html = '';
-  if (module === 'ship') {
-    const breakdown = data.breakdown || [];
-    html += `<div class="section-title">出貨結果</div>`;
-    html += `<div class="muted">客戶：${escapeHTML(customerName)}</div>`;
-    breakdown.forEach(b => {
-      const locs = (b.locations || []).map(loc => `${loc.zone}區第${loc.column_index}欄第${String(loc.visual_slot || loc.slot_number).padStart(2,'0')}格`).join('、');
-      html += `<div class="card ship-result-card"><div class="title">${escapeHTML(b.product_text)}</div><div class="sub">本次出貨：${b.qty}</div>`;
-      html += `<div class="chip-list"><div class="chip-item">總單扣除：${b.master_deduct}</div><div class="chip-item">訂單扣除：${b.order_deduct}</div><div class="chip-item">庫存扣除：${b.inventory_deduct}</div>${b.used_inventory_fallback ? '<div class="chip-item">已啟用庫存補扣</div>' : ''}</div>`;
-      if (b.master_details?.length) html += `<div class="small-note">總單明細：${b.master_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
-      if (b.order_details?.length) html += `<div class="small-note">訂單明細：${b.order_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
-      if (b.inventory_details?.length) html += `<div class="small-note">庫存明細：${b.inventory_details.map(x=>`#${x.id}(${x.qty})`).join('、')}</div>`;
-      if (b.remaining_after) html += `<div class="small-note">扣減後剩餘：總單 ${b.remaining_after.master}｜訂單 ${b.remaining_after.order}｜庫存 ${b.remaining_after.inventory}</div>`;
-      if (locs) html += `<div class="small-note">倉庫位置：${escapeHTML(locs)}</div>`;
-      html += `</div>`;
-    });
-  } else if (module === 'orders') {
-    html += `<div class="section-title">訂單已建立</div><div class="muted">客戶：${escapeHTML(customerName)}｜狀態：pending</div>`;
-  } else if (module === 'master_order') {
-    html += `<div class="section-title">總單已更新</div><div class="muted">客戶：${escapeHTML(customerName)}</div>`;
-  } else if (module === 'inventory') {
-    html += `<div class="section-title">庫存已更新</div>`;
-  } else {
-    html += `<div class="section-title">已儲存</div>`;
-  }
-  box.innerHTML = html;
+  box.classList.add('hidden');
+  box.innerHTML = '';
 }
 
 function showResult(msg, isError=false){
   const box = $('module-result');
   if (!box) return;
-  box.classList.remove('hidden');
-  box.innerHTML = `<div class="${isError ? 'warning-red' : ''}">${msg}</div>`;
+  box.classList.add('hidden');
+  box.innerHTML = '';
+  if (msg && isError) toast(String(msg).replace(/^錯誤：/, ''), 'error');
 }
 
 async function loadInventory(){
@@ -1088,7 +1061,7 @@ async function loadCustomerBlocks(){
       chip.addEventListener('dragstart', ev => {
         ev.dataTransfer.setData('text/plain', JSON.stringify({name:c.name, region:c.region || '北區'}));
       });
-      chip.addEventListener('click', () => { if (['orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
+      chip.addEventListener('click', () => { if (['inventory','orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
       const target = groups[c.region || '北區'] || groups['北區'];
       target?.appendChild(chip);
     });
