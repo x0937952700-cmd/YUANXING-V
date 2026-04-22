@@ -395,3 +395,17 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 #duplicate-action-panel{background:#fff8ea;border-color:rgba(179,119,0,.18);}
 .customer-list .chip{cursor:grab;}
 .customer-list .chip:active{cursor:grabbing;}
+
+.customer-list{display:flex;flex-direction:column;gap:12px;min-height:60px}
+.customer-region-card{width:100%;text-align:left;background:#f4f6fb;border:2px solid rgba(70,120,220,.16);border-radius:22px;padding:18px 20px;box-shadow:var(--shadow-soft);cursor:pointer}
+.customer-card-main{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.customer-card-name{font-size:1.8rem;font-weight:900;color:#0f172a;line-height:1.1}
+.customer-card-count{font-size:1rem;color:#4b5563;margin-top:8px}
+.customer-card-arrow{font-size:3rem;line-height:1;color:#2563eb;font-weight:300}
+.customer-detail-card{display:flex;flex-direction:column;gap:14px}
+.customer-detail-header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.customer-detail-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.small-inline{min-width:120px;padding:10px 12px;border-radius:14px}
+.customer-note-inline,.batch-material-inline{display:flex;align-items:center;gap:8px;font-weight:800;color:#111827}
+.customer-table-wrap table td,.customer-table-wrap table th{text-align:left}
+@media (max-width: 720px){.customer-card-name{font-size:1.5rem}.customer-card-arrow{font-size:2.4rem}.customer-detail-tools{width:100%}.small-inline{flex:1;min-width:0}}

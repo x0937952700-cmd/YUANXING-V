@@ -25,6 +25,7 @@ const state = {
   lineMap: [],
   nativePreview: null,
   pendingNativeRequestId: '',
+  lastCustomerGuess: '',
 };
 
 function $(id){ return document.getElementById(id); }
@@ -636,6 +637,7 @@ function applyFormattedTextarea(force=false){
   const box = $('ocr-text');
   if (!box) return;
   const parsed = formatManualEntryText(box.value || '');
+  state.lastCustomerGuess = parsed.customerGuess || '';
   if (parsed.customerGuess && $('customer-name') && !$('customer-name').value.trim()) $('customer-name').value = parsed.customerGuess;
   state.lastOcrItems = parsed.items || [];
   const nextText = (parsed.formattedText || '').trim();
@@ -914,7 +916,7 @@ async function filterExistingCustomerItems(customerName, items){
 
 async function confirmSubmit(){
   const module = state.module;
-  const customer_name = ($('customer-name')?.value || '').trim();
+  let customer_name = ($('customer-name')?.value || '').trim() || (state.lastCustomerGuess || '').trim();
   const location = ($('location-input')?.value || '').trim();
   const ocr_text = ($('ocr-text')?.value || '').trim();
   let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
@@ -954,7 +956,12 @@ async function confirmSubmit(){
     }
     renderSubmitResult(module, data, customer_name);
     await loadCustomerBlocks();
-    if (customer_name) await selectCustomerForModule(customer_name);
+    if (customer_name) {
+      const north = $('region-north') || $('customers-north');
+      const existing = north ? Array.from(north.querySelectorAll('.chip')).find(el => (el.dataset.customer || '').trim() === customer_name) : null;
+      existing?.scrollIntoView({behavior:'smooth', block:'center'});
+      await selectCustomerForModule(customer_name);
+    }
     state.lastOcrItems = items;
     saveOcrHistoryEntry({ text: ocr_text, customer_name, items, line_map: state.lineMap, preview: state.nativePreview, created_at: new Date().toISOString() });
     if (module === 'inventory') await loadInventory();
@@ -1043,6 +1050,43 @@ function setupCustomerDropZones(){
   });
 }
 
+function formatCustomerProductRow(raw=''){
+  const txt = String(raw || '').trim();
+  const [left, right=''] = txt.split('=');
+  return {
+    size: left || txt,
+    qtyText: right || '',
+    material: (txt.split('｜')[1] || '').trim()
+  };
+}
+
+function buildCustomerRegionCard(customerName, itemCount){
+  return `
+    <div class="customer-card-main">
+      <div>
+        <div class="customer-card-name">${escapeHTML(customerName)}</div>
+        <div class="customer-card-count">${itemCount}筆商品</div>
+      </div>
+      <div class="customer-card-arrow">›</div>
+    </div>`;
+}
+
+async function saveCustomerTradeNote(name, tradeNote=''){
+  if (!name) return;
+  const detail = await requestJSON(`/api/customers/${encodeURIComponent(name)}`, { method:'GET' });
+  const item = detail.item || {};
+  await requestJSON('/api/customers', {
+    method:'POST',
+    body: JSON.stringify({
+      name,
+      phone: item.phone || '',
+      address: item.address || '',
+      notes: tradeNote,
+      region: item.region || '北區'
+    })
+  });
+}
+
 async function loadCustomerBlocks(){
   try {
     const data = await requestJSON('/api/customers', { method:'GET' });
@@ -1052,25 +1096,34 @@ async function loadCustomerBlocks(){
     if ($('customers-south')) groups['南區'] = $('customers-south');
     Object.values(groups).forEach(el => { if (el) el.innerHTML=''; });
     const q = ($('customer-search')?.value || '').trim().toLowerCase();
+    const customerItemsMap = {};
+    try {
+      const allItems = await requestJSON('/api/customer-items', { method:'GET' });
+      (allItems.items || []).forEach(it => {
+        const key = (it.customer_name || '').trim();
+        if (!key) return;
+        customerItemsMap[key] = customerItemsMap[key] || [];
+        customerItemsMap[key].push(it);
+      });
+    } catch (_e) {}
     (data.items || []).filter(c => !q || (c.name || '').toLowerCase().includes(q)).forEach(c => {
-      const chip = document.createElement('div');
-      chip.className = 'chip';
-      chip.draggable = true;
-      chip.dataset.customer = c.name;
-      chip.innerHTML = `<span>${escapeHTML(c.name)}</span>`;
-      chip.addEventListener('dragstart', ev => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'customer-region-card';
+      card.draggable = true;
+      card.dataset.customer = c.name;
+      card.innerHTML = buildCustomerRegionCard(c.name, (customerItemsMap[c.name] || []).length || 0);
+      card.addEventListener('dragstart', ev => {
         ev.dataTransfer.setData('text/plain', JSON.stringify({name:c.name, region:c.region || '北區'}));
       });
-      chip.addEventListener('click', () => { if (['inventory','orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
+      card.addEventListener('click', () => { if (['inventory','orders','master_order','ship'].includes(state.module)) selectCustomerForModule(c.name); else openCustomerModal(c.name); });
       const target = groups[c.region || '北區'] || groups['北區'];
-      target?.appendChild(chip);
+      target?.appendChild(card);
     });
     setupCustomerDropZones();
     if (state.module === 'customers') {
       $('cust-region').value = '北區';
-      if (! $('cust-name').value) {
-        $('cust-name').placeholder = '點選客戶可自動帶入';
-      }
+      if (!$('cust-name').value) $('cust-name').placeholder = '點選客戶可自動帶入';
     }
   } catch (e) {
     console.error(e);
@@ -1081,11 +1134,75 @@ async function loadCustomerBlocks(){
 async function selectCustomerForModule(name){
   if ($('customer-name')) $('customer-name').value = name;
   try {
-    const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' });
+    const [data, detail] = await Promise.all([
+      requestJSON(`/api/customer-items?name=${encodeURIComponent(name)}`, { method:'GET' }),
+      requestJSON(`/api/customers/${encodeURIComponent(name)}`, { method:'GET' })
+    ]);
     const panel = $('selected-customer-items');
     if (panel) {
       panel.classList.remove('hidden');
-      panel.innerHTML = `<div class="section-title">${escapeHTML(name)} 的商品</div>` + (((data.items || []).map(it => `<div class="chip-item">${escapeHTML(it.source || '')}｜${escapeHTML(it.product_text || '')} × ${it.qty || 0}</div>`).join('')) || '<div class="small-note">此客戶目前沒有商品</div>');
+      const tradeNote = (detail.item?.notes || '').trim();
+      const tableRows = (data.items || []).map(it => {
+        const row = formatCustomerProductRow(it.product_text || '');
+        return `<tr><td>${escapeHTML(row.size)}</td><td>${escapeHTML(row.qtyText || '-')}</td><td>${escapeHTML(it.material || row.material || '')}</td></tr>`;
+      }).join('') || '<tr><td colspan="3" class="muted">此客戶目前沒有商品</td></tr>';
+      panel.innerHTML = `
+        <div class="customer-detail-card">
+          <div class="customer-detail-header">
+            <div>
+              <div class="section-title">${escapeHTML(name)}</div>
+              <div class="muted">${(data.items || []).length}筆商品</div>
+            </div>
+            <div class="customer-detail-tools">
+              <label class="customer-note-inline">備註
+                <select id="customer-trade-note" class="text-input small-inline">
+                  <option value="">未設定</option>
+                  <option value="FOB" ${tradeNote === 'FOB' ? 'selected' : ''}>FOB</option>
+                  <option value="FOB代付" ${tradeNote === 'FOB代付' ? 'selected' : ''}>FOB代付</option>
+                  <option value="CNF" ${tradeNote === 'CNF' ? 'selected' : ''}>CNF</option>
+                </select>
+              </label>
+              <label class="batch-material-inline">
+                <input type="checkbox" id="customer-batch-material-toggle"> 批量添加材質
+              </label>
+              <select id="customer-batch-material" class="text-input small-inline">
+                <option value="">不指定材質</option>
+                <option value="SPF">SPF</option><option value="HF">HF</option><option value="DF">DF</option>
+                <option value="ROT">ROT</option><option value="SPY">SPY</option><option value="SP">SP</option>
+                <option value="RP">RP</option><option value="TD">TD</option><option value="MLH">MLH</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-card customer-table-wrap">
+            <table>
+              <thead><tr><th>尺寸</th><th>支數 x 件數</th><th>材質</th></tr></thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>
+        </div>`;
+      const noteSelect = $('customer-trade-note');
+      if (noteSelect) noteSelect.onchange = async () => {
+        try {
+          await saveCustomerTradeNote(name, noteSelect.value || '');
+          toast('備註已儲存', 'ok');
+        } catch (e) { toast(e.message || '備註儲存失敗', 'error'); }
+      };
+      const batchToggle = $('customer-batch-material-toggle');
+      const batchSelect = $('customer-batch-material');
+      if (batchSelect) batchSelect.value = $('batch-material')?.value || '';
+      if (batchToggle) batchToggle.onchange = () => {
+        if (batchToggle.checked && $('batch-material') && batchSelect) {
+          $('batch-material').value = batchSelect.value || '';
+          applyFormattedTextarea(true);
+          toast('已啟用批量添加材質', 'ok');
+        }
+      };
+      if (batchSelect) batchSelect.onchange = () => {
+        if (batchToggle?.checked && $('batch-material')) {
+          $('batch-material').value = batchSelect.value || '';
+          applyFormattedTextarea(true);
+        }
+      };
     }
     if (state.module === 'ship') await loadShipPreview();
   } catch (e) { toast(e.message, 'error'); }
@@ -1143,7 +1260,8 @@ async function openCustomerModal(name){
     (items.items || []).forEach(it => {
       const ch = document.createElement('div');
       ch.className='chip-item';
-      ch.textContent = `${it.source}｜${it.product_text || ''} × ${it.qty || 0}`;
+      const raw = String(it.product_text || '').trim();
+      ch.textContent = raw.includes('=') ? raw.replace(/=/g, ' = ') : raw;
       list.appendChild(ch);
     });
     $('cust-name').value = detail.item?.name || name;
