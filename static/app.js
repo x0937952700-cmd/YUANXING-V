@@ -885,8 +885,8 @@ function buildMaterialFilterToolbar(module, title='快速篩選'){
 }
 function injectModuleToolbars(){
   if ($('inventory-toolbar')) $('inventory-toolbar').innerHTML = buildMaterialFilterToolbar('inventory', '材質快速篩選') + '<div id="recent-product-chips" class="recent-chip-row"></div>';
-  if ($('orders-toolbar')) $('orders-toolbar').innerHTML = buildMaterialFilterToolbar('orders', '材質快速篩選');
-  if ($('master-toolbar')) $('master-toolbar').innerHTML = buildMaterialFilterToolbar('master_order', '材質快速篩選');
+  if ($('orders-toolbar')) $('orders-toolbar').innerHTML = '';
+  if ($('master-toolbar')) $('master-toolbar').innerHTML = '';
   const customerSearch = $('customer-search');
   if (customerSearch && !$('customers-recent-searches')) customerSearch.insertAdjacentHTML('afterend', '<div id="customers-recent-searches" class="recent-chip-row"></div>');
   const warehouseSearch = $('warehouse-search');
