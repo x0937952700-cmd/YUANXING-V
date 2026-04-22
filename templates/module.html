@@ -4,63 +4,47 @@
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
-    <div class="module-top-actions"><button class="ghost-btn small-btn" type="button" onclick="undoLastAction(this)">還原上一筆</button></div>
+    <div class="spacer"></div>
   </div>
 
-  {% if module_key not in ['shipping_query','warehouse','customers','todos'] %}
-  <div class="glass panel upload-panel engine-upgraded compact-upload {% if module_key in ['inventory','orders','master_order','ship'] %}streamlined{% endif %}">
-    <div class="upload-row tight-row ocr-action-row">
-      <button class="primary-btn ocr-main-btn" onclick="openAlbumPicker()">上傳檔案</button>
-      <button class="ghost-btn ocr-main-btn" onclick="openCameraPicker()">拍照</button>
-    </div>
-    <div id="pending-queue-panel" class="queue-panel hidden"></div>
-    <div class="upload-row tight-row ocr-option-row ocr-status-row">
-      <span class="pill" id="ocr-confidence-pill">信心值：0%</span>
-      <span class="pill warn" id="ocr-warning-pill">尚未辨識</span>
-      <select id="ocr-mode-select" class="text-input small inline-select">
-        <option value="blue">優先選項：藍字優先</option>
-        <option value="general">優先選項：一般模式</option>
-        <option value="handwriting">優先選項：手寫優先</option>
-      </select>
-    </div>
-    <div id="ocr-preview-panel" class="ocr-preview-panel hidden">
-      <div class="section-head"><h3>辨識來源定位</h3><span class="muted">可點下方每一行內容，反查原圖位置。</span></div>
-      <div id="ocr-preview-wrap" class="ocr-preview-wrap">
-        <img id="ocr-preview-img" class="ocr-preview-img" alt="OCR預覽">
-        <div id="ocr-roi-box" class="ocr-roi-box hidden"></div>
-        <div id="ocr-highlight-box" class="ocr-highlight-box hidden"></div>
-      </div>
-      <div id="ocr-line-map" class="chip-list ocr-line-map"></div>
-    </div>
-
+  {% if module_key not in ['shipping_query','warehouse','customers'] %}
+  <div class="glass panel upload-panel compact-upload streamlined manual-entry-panel {% if module_key in ['inventory','orders','master_order','ship'] %}manual-only{% endif %}">
     {% if module_key != 'inventory' %}
     <label class="field-label">客戶名稱</label>
-    <input class="text-input" id="customer-name" placeholder="請輸入或點選客戶">
+    <input class="text-input" id="customer-name" placeholder="可直接輸入，或貼上商品資料後自動帶入客戶名稱">
     {% endif %}
 
     <label class="field-label">倉庫格位 / 預設位置</label>
     <input class="text-input" id="location-input" placeholder="例如：A-1-01">
 
-    <label class="field-label">OCR 文字框（可直接修改 / 可貼上文字自動整理）</label>
-    <textarea class="text-area" id="ocr-text" placeholder="辨識後文字會出現在這裡；也可以直接貼上手機辨識好的文字，系統會自動整理成你要的格式"></textarea>
+    <label class="field-label">批量材質</label>
+    <select class="text-input" id="batch-material">
+      <option value="">不指定材質</option>
+      <option value="SPF">SPF</option>
+      <option value="HF">HF</option>
+      <option value="DF">DF</option>
+      <option value="ROT">ROT</option>
+      <option value="SPY">SPY</option>
+      <option value="SP">SP</option>
+      <option value="RP">RP</option>
+      <option value="TD">TD</option>
+      <option value="MLH">MLH</option>
+    </select>
 
-    {% if module_key in ['inventory','orders','master_order'] %}
-    <div class="inline-material-panel" id="inline-material-panel">
-      <div id="parsed-item-material-list" class="parsed-item-material-list"></div>
+    <label class="field-label">商品資料</label>
+    <textarea class="text-area" id="ocr-text" placeholder="把手機辨識好的文字直接貼上，系統會立刻自動整理、刪除句點、承接 _ / - 的寬高數字，並依照你的固定規則排序"></textarea>
+    <div class="btn-row">
+      <button class="primary-btn" onclick="confirmSubmit()">確認送出</button>
+      <button class="ghost-btn" onclick="cleanOcrTextarea()">重新整理格式</button>
+      <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
     </div>
-    {% endif %}
-    <div class="btn-row ocr-submit-row compact-mobile-row">
-      <button id="confirm-submit-btn" class="primary-btn" onclick="confirmSubmit(this)">確認送出</button>
-      <button id="clean-ocr-btn" class="ghost-btn" onclick="cleanOcrTextarea()">一鍵去雜訊</button>
-      <button id="reverse-lookup-btn" class="ghost-btn secondary-ghost-btn" onclick="reverseLookup()">反查商品位置</button>
-    </div>
+    <div id="duplicate-action-panel" class="result-card hidden"></div>
     <div id="ocr-diff-preview" class="result-card hidden"></div>
     <div id="module-result" class="result-card hidden"></div>
   </div>
   {% endif %}
 
-  
-  <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
+  <section class="subsection" id="region-picker-section" {% if module_key not in ['inventory','orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>北中南客戶</h3>
       <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
@@ -87,7 +71,6 @@
       <h3>庫存清單</h3>
       <span class="muted">未放入倉庫圖的商品會以紅色標示</span>
     </div>
-    <div id="inventory-toolbar" class="list-toolbar"></div>
     <div id="inventory-summary" class="card-list"></div>
   </section>
 
@@ -185,38 +168,11 @@
   </section>
 
   
-
-  <section class="subsection" id="todos-section" {% if module_key != 'todos' %}style="display:none"{% endif %}>
-    <div class="section-head">
-      <h3>代辦事項</h3>
-      <span class="muted">可拍照 / 上傳相簿圖片，依日期排序，完成後可直接刪除</span>
-    </div>
-    <div class="glass panel todo-panel">
-      <div class="upload-row tight-row todo-upload-row">
-        <button class="primary-btn" onclick="openTodoAlbumPicker()">上傳檔案</button>
-        <button class="ghost-btn" onclick="openTodoCameraPicker()">拍照</button>
-      </div>
-      <input id="todo-image-input" class="hidden" type="file" accept="image/*">
-      <input id="todo-camera-input" class="hidden" type="file" accept="image/*" capture="environment">
-      <div id="todo-selected-preview" class="todo-selected-preview hidden"></div>
-      <label class="field-label">日期</label>
-      <input id="todo-date" class="text-input" type="date">
-      <label class="field-label">備忘內容</label>
-      <textarea id="todo-note" class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea>
-      <div class="btn-row">
-        <button id="todo-save-btn" class="primary-btn" onclick="saveTodoItem(this)">新增代辦</button>
-        <button id="todo-clear-btn" class="ghost-btn" onclick="clearTodoForm()">清空</button>
-      </div>
-    </div>
-    <div id="todo-list" class="todo-list"></div>
-  </section>
-
   <section class="subsection" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>訂單清單</h3>
       <span class="muted">可直接加入總單</span>
     </div>
-    <div id="orders-toolbar" class="list-toolbar"></div>
     <div id="orders-list" class="card-list"></div>
   </section>
 
@@ -224,21 +180,7 @@
     <div class="section-head">
       <h3>總單清單</h3>
     </div>
-    <div id="master-toolbar" class="list-toolbar"></div>
     <div id="master-list" class="card-list"></div>
-  </section>
-
-  <section class="subsection" id="default-module-info" {% if module_key in ['warehouse','customers','inventory','shipping_query'] %}style="display:none"{% endif %}>
-    <div class="glass panel">
-      <div class="section-title">流程</div>
-      <div class="steps">
-        <div class="step">上傳 / 拍照</div>
-        <div class="step">OCR</div>
-        <div class="step">人工修正</div>
-        <div class="step">確認送出</div>
-      </div>
-      <div class="muted">依你目前需求：頁面要新分頁、版面垂直置中、功能只保留必要項目。</div>
-    </div>
   </section>
 
   <input id="selected-item-json" type="hidden">

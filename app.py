@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file
 from datetime import timedelta, datetime
 from functools import wraps
 import os
@@ -8,7 +8,6 @@ import time
 import hashlib
 import json
 from PIL import Image
-from werkzeug.utils import secure_filename
 from openpyxl import Workbook
 
 from db import (
@@ -21,9 +20,7 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
-    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
-    create_todo_item, list_todo_items, get_todo_item, delete_todo_item,
-    set_user_role, dashboard_summary, get_customer_preferences, get_latest_audit_trail, undo_latest_audit
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -36,12 +33,9 @@ app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
 UPLOAD_FOLDER = "uploads"
-TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
 MAX_UPLOAD_SIZE = 16 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
-os.makedirs('backups', exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 init_db()
@@ -50,41 +44,13 @@ PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
 }
 
-
-@app.errorhandler(413)
-def handle_too_large(_e):
-    msg = '檔案過大，請改成 16MB 以下圖片'
-    if request.path.startswith('/api/'):
-        return jsonify(success=False, error=msg), 413
-    return msg, 413
-
-
 def current_username():
     return session.get("user", "")
-
-
-def current_role():
-    return (session.get('role') or 'user').strip().lower()
-
-
-def require_admin():
-    return current_role() == 'admin' or current_username() == '陳韋廷'
-
-
-def require_write_access_json():
-    if current_role() == 'viewer':
-        return jsonify(success=False, error='此帳號目前是唯讀模式，無法修改資料'), 403
-    return None
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
-
-
-def _today_changes_read_key(username=''):
-    uname = ''.join(ch if ch.isalnum() or ch in ('_', '-', '.') else '_' for ch in (username or '').strip()) or 'guest'
-    return f'today_changes_read_at::{uname}'
 
 _db_log_action = log_action
 
@@ -135,14 +101,6 @@ def request_key_from_payload(data, endpoint=''):
 
 def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
-
-
-def safe_list_todos(fallback_item=None):
-    try:
-        return list_todo_items()
-    except Exception as e:
-        log_error('safe_list_todos', str(e))
-        return [fallback_item] if fallback_item else []
 
 
 def export_rows_to_xlsx(sheet_name, rows, columns):
@@ -198,27 +156,13 @@ def error_response(msg, code=400):
 
 def compress_image(path):
     try:
-        ext = os.path.splitext(path)[1].lower()
         img = Image.open(path)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
         if img.width > 1800:
             ratio = 1800 / float(img.width)
             img = img.resize((1800, int(img.height * ratio)))
-        if ext == '.png':
-            if img.mode not in ('RGB', 'RGBA'):
-                img = img.convert('RGBA' if 'A' in img.mode else 'RGB')
-            img.save(path, 'PNG', optimize=True)
-        elif ext == '.webp':
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
-            img.save(path, 'WEBP', quality=80, method=6)
-        elif ext == '.gif':
-            img.save(path, 'GIF', optimize=True)
-        elif ext == '.heic':
-            return
-        else:
-            if img.mode in ('RGBA', 'P'):
-                img = img.convert('RGB')
-            img.save(path, 'JPEG', quality=78, optimize=True)
+        img.save(path, "JPEG", quality=78, optimize=True)
     except Exception as e:
         log_error("compress_image", str(e))
 
@@ -284,20 +228,9 @@ def warehouse_page():
 def customers_page():
     return render_template("module.html", module_key="customers", title="客戶資料", username=current_username())
 
-@app.route("/todos")
-def todos_page():
-    return render_template("module.html", module_key="todos", title="代辦事項", username=current_username())
-
 @app.route("/today-changes")
 def today_changes_page():
     return render_template("today_changes.html", username=current_username(), title="今日異動")
-
-@app.route('/todo-image/<path:filename>')
-def todo_image(filename):
-    if not require_login():
-        return redirect(url_for('login_page'))
-    safe_name = os.path.basename(filename)
-    return send_from_directory(TODO_UPLOAD_FOLDER, safe_name)
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -440,22 +373,14 @@ def _parse_items_from_request(data):
             if qty <= 0:
                 continue
             cleaned.append({
-                "product_text": (it.get("product_text") or it.get("product") or "").strip(),
-                "product_code": (it.get("product_code") or "").strip(),
-                "qty": qty,
-                "material": (it.get('material') or '').strip().upper(),
-                "customer_name": (it.get('customer_name') or '').strip(),
+                "product_text": it.get("product_text") or it.get("product") or "",
+                "product_code": it.get("product_code") or "",
+                "qty": qty
             })
         return cleaned
     text = data.get("ocr_text") or data.get("text") or ""
     parsed_items, _ = parse_lines_to_items(text)
-    return [{
-        "product_text": it["product_text"],
-        "product_code": it.get("product_code", ""),
-        "qty": int(it["qty"]),
-        "material": (it.get('material') or '').strip().upper(),
-        "customer_name": (it.get('customer_name') or '').strip(),
-    } for it in parsed_items]
+    return [{"product_text": it["product_text"], "product_code": it.get("product_code", ""), "qty": int(it["qty"])} for it in parsed_items]
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
@@ -463,9 +388,6 @@ def api_inventory():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=grouped_inventory())
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
             return duplicate_success('相同庫存送出已忽略')
@@ -474,14 +396,14 @@ def api_inventory():
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), material=(it.get('material') or ''))
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=grouped_inventory())
     except Exception as e:
         log_error("inventory", str(e))
-        return error_response(f"建立失敗：{str(e)}")
+        return error_response("建立失敗")
 
 @app.route("/api/orders", methods=["GET", "POST"])
 @login_required_json
@@ -489,9 +411,6 @@ def api_orders():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_orders())
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/orders'):
             return duplicate_success('相同訂單送出已忽略')
@@ -500,14 +419,14 @@ def api_orders():
         if not customer_name:
             return error_response("請輸入客戶名稱")
         upsert_customer(customer_name)
-        save_order(customer_name, items, current_username())
+        save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         log_action(current_username(), "建立訂單")
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=get_orders())
     except Exception as e:
         log_error("orders", str(e))
-        return error_response(f"訂單建立失敗：{str(e)}")
+        return error_response("訂單建立失敗")
 
 @app.route("/api/master_orders", methods=["GET", "POST"])
 @login_required_json
@@ -515,9 +434,6 @@ def api_master_orders():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_master_orders())
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
             return duplicate_success('相同總單送出已忽略')
@@ -526,22 +442,19 @@ def api_master_orders():
         if not customer_name:
             return error_response("請輸入客戶名稱")
         upsert_customer(customer_name)
-        save_master_order(customer_name, items, current_username())
+        save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         log_action(current_username(), "更新總單")
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         return jsonify(success=True, items=get_master_orders())
     except Exception as e:
         log_error("master_orders", str(e))
-        return error_response(f"總單失敗：{str(e)}")
+        return error_response("總單失敗")
 
 @app.route("/api/ship", methods=["POST"])
 @login_required_json
 def api_ship():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/ship'):
             return duplicate_success('相同出貨送出已忽略')
@@ -559,7 +472,7 @@ def api_ship():
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
-        return error_response(f"出貨失敗：{str(e)}")
+        return error_response("出貨失敗")
 
 @app.route("/api/shipping_records", methods=["GET"])
 @login_required_json
@@ -568,7 +481,7 @@ def api_shipping_records():
     end_date = request.args.get("end_date")
     q = (request.args.get("q") or '').strip()
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
-    return jsonify(success=True, records=rows, items=rows)
+    return jsonify(success=True, records=rows)
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
@@ -592,9 +505,6 @@ def api_customers():
     try:
         if request.method == "GET":
             return jsonify(success=True, items=get_customers())
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         if not name:
@@ -612,7 +522,7 @@ def api_customers():
         return jsonify(success=True, items=get_customers())
     except Exception as e:
         log_error("customers", str(e))
-        return error_response(f"客戶儲存失敗：{str(e)}")
+        return error_response("客戶儲存失敗")
 
 @app.route("/api/customers/<name>", methods=["GET"])
 @login_required_json
@@ -629,9 +539,6 @@ def api_warehouse():
 @login_required_json
 def api_warehouse_cell():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = data.get("zone")
         column_index = int(data.get("column_index"))
@@ -649,15 +556,12 @@ def api_warehouse_cell():
         return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
         log_error("warehouse_cell", str(e))
-        return error_response(f"格位更新失敗：{str(e)}")
+        return error_response("格位更新失敗")
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
 def api_warehouse_move():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         from_key = data.get("from_key")
         to_key = data.get("to_key")
@@ -665,7 +569,7 @@ def api_warehouse_move():
         qty = int(data.get("qty", 1))
         if not (from_key and to_key and product_text):
             return error_response("缺少參數")
-        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty, material=(data.get('material') or ''))
+        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty)
         if result.get("success"):
             log_action(current_username(), f"拖曳商品 {product_text}")
             try:
@@ -707,7 +611,7 @@ def api_warehouse_search():
         except Exception:
             items = []
         for it in items:
-            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')} {it.get('material','')}"
+            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')}"
             if not q or q.lower() in hay.lower():
                 matched.append({"cell": cell, "item": it})
                 break
@@ -730,83 +634,18 @@ def api_customer_items():
     masters = get_master_orders()
     items = []
     if name:
-        merged = {}
-        for source_name, rows in (("訂單", orders), ("總單", masters), ("庫存", inv)):
-            for row in rows:
-                if row.get("customer_name") != name:
-                    continue
-                key = (source_name, row.get('product_text') or '', (row.get('material') or '').strip().upper())
-                if key not in merged:
-                    merged[key] = {"source": source_name, **row, 'material': (row.get('material') or '').strip().upper()}
-                    merged[key]['qty'] = int(row.get('qty') or 0)
-                else:
-                    merged[key]['qty'] = int(merged[key].get('qty') or 0) + int(row.get('qty') or 0)
-        items = list(merged.values())
-        items.sort(key=lambda r: (r.get('source') or '', r.get('product_text') or '', r.get('material') or ''))
+        for row in orders:
+            if row.get("customer_name") == name:
+                items.append({"source": "訂單", **row})
+        for row in masters:
+            if row.get("customer_name") == name:
+                items.append({"source": "總單", **row})
+        for row in inv:
+            if row.get("customer_name") == name:
+                items.append({"source": "庫存", **row})
     else:
         items = []
     return jsonify(success=True, items=items)
-
-@app.route('/api/todos', methods=['GET', 'POST'])
-@login_required_json
-def api_todos():
-    try:
-        if request.method == 'GET':
-            return jsonify(success=True, items=safe_list_todos())
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
-        note = (request.form.get('note') or '').strip()
-        due_date = (request.form.get('due_date') or '').strip()
-        if not request_key_from_payload({'request_key': request.form.get('request_key')}, endpoint='/api/todos'):
-            return duplicate_success('相同代辦送出已忽略')
-        os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
-        file = request.files.get('image')
-        if not file or not file.filename:
-            return error_response('請選擇照片')
-        if not allowed_file(file.filename):
-            return error_response('僅支援圖片檔案')
-        original_name = secure_filename(file.filename or 'todo.jpg') or 'todo.jpg'
-        ext = os.path.splitext(original_name)[1].lower() or '.jpg'
-        filename = f"todo_{int(time.time() * 1000)}_{hashlib.md5((original_name + str(time.time())).encode('utf-8')).hexdigest()[:10]}{ext}"
-        save_path = os.path.join(TODO_UPLOAD_FOLDER, filename)
-        file.save(save_path)
-        compress_image(save_path)
-        created_item = create_todo_item(note=note, due_date=due_date, image_filename=filename, created_by=current_username())
-        log_action(current_username(), f"新增代辦事項 {due_date or '未指定日期'}")
-        add_audit_trail(current_username(), 'create', 'todo_items', filename, before_json={}, after_json={'note': note, 'due_date': due_date, 'image_filename': filename})
-        notify_sync_event(kind='refresh', module='todos', message='代辦事項已新增', extra={'due_date': due_date, 'image_filename': filename})
-        return jsonify(success=True, items=safe_list_todos(created_item))
-    except Exception as e:
-        log_error('api_todos', str(e))
-        return error_response(f"代辦事項儲存失敗：{str(e)}")
-
-@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
-@login_required_json
-def api_todo_delete(todo_id):
-    try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
-        row = get_todo_item(todo_id)
-        if not row:
-            return error_response('找不到代辦事項', 404)
-        filename = os.path.basename(row.get('image_filename') or '')
-        if filename:
-            path = os.path.join(TODO_UPLOAD_FOLDER, filename)
-            if os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
-        delete_todo_item(todo_id)
-        log_action(current_username(), f"完成代辦事項 {todo_id}")
-        add_audit_trail(current_username(), 'delete', 'todo_items', str(todo_id), before_json=row, after_json={})
-        notify_sync_event(kind='refresh', module='todos', message='代辦事項已完成刪除', extra={'todo_id': todo_id})
-        return jsonify(success=True, items=safe_list_todos())
-    except Exception as e:
-        log_error('api_todo_delete', str(e))
-        return error_response(f"刪除代辦事項失敗：{str(e)}")
 
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
@@ -822,14 +661,14 @@ def api_backups():
 @app.route("/api/admin/users", methods=["GET"])
 @login_required_json
 def api_admin_users():
-    if not require_admin():
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     return jsonify(success=True, items=list_users())
 
 @app.route("/api/admin/block", methods=["POST"])
 @login_required_json
 def api_admin_block():
-    if not require_admin():
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
@@ -841,45 +680,10 @@ def api_admin_block():
     notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
     return jsonify(success=True, items=list_users())
 
-@app.route("/api/admin/role", methods=["POST"])
-@login_required_json
-def api_admin_role():
-    if not require_admin():
-        return error_response("權限不足", 403)
-    data = request.get_json(silent=True) or {}
-    username = (data.get('username') or '').strip()
-    role = (data.get('role') or 'user').strip().lower()
-    if not username or username == '陳韋廷':
-        return error_response("不可操作此帳號")
-    if role not in ('admin', 'user', 'viewer'):
-        return error_response('角色不存在')
-    set_user_role(username, role)
-    log_action(current_username(), f"調整帳號角色 {username} → {role}")
-    notify_sync_event(kind='refresh', module='settings', message='帳號角色已更新', extra={'username': username, 'role': role})
-    return jsonify(success=True, items=list_users())
-
-@app.route('/api/dashboard-summary', methods=['GET'])
-@login_required_json
-def api_dashboard_summary():
-    try:
-        summary = dashboard_summary()
-        anomalies = _build_anomalies(inventory_summary(), get_orders(), get_master_orders())
-        summary['anomaly_count'] = sum(len(v or []) for v in anomalies.values())
-        summary['read_only'] = current_role() == 'viewer'
-        summary['role'] = current_role()
-        summary['username'] = current_username()
-        return jsonify(success=True, **summary)
-    except Exception as e:
-        log_error('dashboard_summary', str(e))
-        return error_response(f'儀表板載入失敗：{str(e)}')
-
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
 def api_warehouse_add_slot():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
@@ -896,9 +700,6 @@ def api_warehouse_add_slot():
 @login_required_json
 def api_warehouse_remove_slot():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index"))
@@ -919,9 +720,6 @@ def api_warehouse_remove_slot():
 @login_required_json
 def api_orders_to_master():
     try:
-        readonly_error = require_write_access_json()
-        if readonly_error:
-            return readonly_error
         data = request.get_json(silent=True) or {}
         customer_name = (data.get("customer_name") or "").strip()
         product_text = (data.get("product_text") or "").strip()
@@ -1027,8 +825,7 @@ def _build_anomalies(inv_rows, order_rows, master_rows):
     return anomalies
 
 
-def _today_changes_payload(username=''):
-    username = (username or current_username() or '').strip()
+def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1059,7 +856,7 @@ def _today_changes_payload(username=''):
     for key in ['negative_inventory', 'orders_over_master', 'master_over_inventory', 'duplicate_products', 'shipping_deduction', 'ocr_errors', 'blocked_logins']:
         anomaly_list.extend(anomalies.get(key, []))
     unplaced = anomalies['unplaced']
-    read_at = get_setting(_today_changes_read_key(username), '') or ''
+    read_at = get_setting('today_changes_read_at', '') or ''
     unread_count = len([r for r in logs if not read_at or (r.get('created_at') or '') > read_at])
 
     return {
@@ -1081,52 +878,23 @@ def _today_changes_payload(username=''):
         'anomalies': anomaly_list[:120],
         'anomaly_groups': anomalies,
         'read_at': read_at,
-        'read_scope': 'user',
-        'read_username': username,
     }
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload(current_username()))
+    return jsonify(success=True, **_today_changes_payload())
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
 def api_today_changes_mark_read():
     try:
-        set_setting(_today_changes_read_key(current_username()), now())
-        return jsonify(success=True, read_scope='user', read_username=current_username(), read_at=get_setting(_today_changes_read_key(current_username()), '') or '')
+        set_setting('today_changes_read_at', now())
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已讀已更新')
+        return jsonify(success=True)
     except Exception as e:
         log_error('today_changes_mark_read', str(e))
         return error_response('清除已讀失敗')
-
-@app.route('/api/today-changes/<int:log_id>', methods=['PUT'])
-@login_required_json
-def api_today_change_update(log_id):
-    readonly_error = require_write_access_json()
-    if readonly_error:
-        return readonly_error
-    try:
-        data = request.get_json(silent=True) or {}
-        action = (data.get('action') or '').strip()
-        if not action:
-            return error_response('異動內容不可空白')
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(sql('SELECT id, username, action, created_at FROM logs WHERE id = ?'), (log_id,))
-        row = fetchone_dict(cur)
-        if not row:
-            conn.close()
-            return error_response('找不到這筆異動', 404)
-        cur.execute(sql('UPDATE logs SET action = ? WHERE id = ?'), (action, log_id))
-        conn.commit()
-        conn.close()
-        add_audit_trail(current_username(), 'update', 'logs', str(log_id), before_json=row, after_json={**row, 'action': action})
-        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已更新', extra={'log_id': log_id})
-        return jsonify(success=True, item={'id': log_id, 'username': row.get('username') or '', 'action': action, 'created_at': row.get('created_at') or ''}, **_today_changes_payload(current_username()))
-    except Exception as e:
-        log_error('today_change_update', str(e))
-        return error_response('編輯異動失敗')
 
 @app.route('/api/today-changes/<int:log_id>', methods=['DELETE'])
 @login_required_json
@@ -1138,7 +906,7 @@ def api_today_change_delete(log_id):
         conn.commit()
         conn.close()
         notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
-        return jsonify(success=True, **_today_changes_payload(current_username()))
+        return jsonify(success=True, **_today_changes_payload())
     except Exception as e:
         log_error('today_change_delete', str(e))
         return error_response('刪除異動失敗')
@@ -1250,27 +1018,7 @@ def api_audit_trails():
 @login_required_json
 def api_customer_specs():
     name = (request.args.get('name') or '').strip()
-    limit = int(request.args.get('limit') or 20)
-    return jsonify(success=True, items=get_customer_spec_stats(name, limit=limit), preferences=get_customer_preferences(name, limit=limit))
-
-@app.route('/api/audit/latest', methods=['GET'])
-@login_required_json
-def api_audit_latest():
-    item = get_latest_audit_trail(current_username())
-    return jsonify(success=True, item=item)
-
-@app.route('/api/audit/undo-last', methods=['POST'])
-@login_required_json
-def api_audit_undo_last():
-    readonly_error = require_write_access_json()
-    if readonly_error:
-        return readonly_error
-    result = undo_latest_audit(current_username())
-    if not result.get('success'):
-        return error_response(result.get('error') or '還原失敗', 400)
-    log_action(current_username(), f"還原最近異動：{(result.get('entry') or {}).get('action_type','')}/{(result.get('entry') or {}).get('entity_type','')}")
-    notify_sync_event(kind='refresh', module='all', message='最近異動已還原', extra={'action': (result.get('entry') or {}).get('action_type'), 'entity_type': (result.get('entry') or {}).get('entity_type')})
-    return jsonify(success=True, message=result.get('message') or '已還原最近一次異動', item=result.get('entry'))
+    return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
 
 @app.route('/api/reports/export', methods=['GET'])
 @login_required_json
@@ -1313,7 +1061,7 @@ def api_backup_download(filename):
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
 def api_backup_restore():
-    if not require_admin():
+    if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
     filename = os.path.basename((data.get('filename') or '').strip())
@@ -1353,7 +1101,7 @@ def api_backup_restore():
 @app.route('/api/session/config', methods=['GET'])
 @login_required_json
 def api_session_config():
-    return jsonify(success=True, idle_timeout_seconds=1800, username=current_username(), role=current_role(), read_only=current_role() == 'viewer')
+    return jsonify(success=True, idle_timeout_seconds=1800)
 
 @app.route("/health")
 def health():
