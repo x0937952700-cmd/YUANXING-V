@@ -107,6 +107,14 @@ def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
 
 
+def safe_list_todos(fallback_item=None):
+    try:
+        return list_todo_items()
+    except Exception as e:
+        log_error('safe_list_todos', str(e))
+        return [fallback_item] if fallback_item else []
+
+
 def export_rows_to_xlsx(sheet_name, rows, columns):
     wb = Workbook()
     ws = wb.active
@@ -685,7 +693,7 @@ def api_customer_items():
 def api_todos():
     try:
         if request.method == 'GET':
-            return jsonify(success=True, items=list_todo_items())
+            return jsonify(success=True, items=safe_list_todos())
         note = (request.form.get('note') or '').strip()
         due_date = (request.form.get('due_date') or '').strip()
         os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
@@ -701,10 +709,19 @@ def api_todos():
         file.save(save_path)
         compress_image(save_path)
         create_todo_item(note=note, due_date=due_date, image_filename=filename, created_by=current_username())
+        created_item = {
+            'id': int(time.time() * 1000),
+            'note': note,
+            'due_date': due_date,
+            'image_filename': filename,
+            'created_by': current_username(),
+            'created_at': now(),
+            'updated_at': now(),
+        }
         log_action(current_username(), f"新增代辦事項 {due_date or '未指定日期'}")
         add_audit_trail(current_username(), 'create', 'todo_items', filename, before_json={}, after_json={'note': note, 'due_date': due_date, 'image_filename': filename})
         notify_sync_event(kind='refresh', module='todos', message='代辦事項已新增', extra={'due_date': due_date, 'image_filename': filename})
-        return jsonify(success=True, items=list_todo_items())
+        return jsonify(success=True, items=safe_list_todos(created_item))
     except Exception as e:
         log_error('api_todos', str(e))
         return error_response('代辦事項儲存失敗')
@@ -728,7 +745,7 @@ def api_todo_delete(todo_id):
         log_action(current_username(), f"完成代辦事項 {todo_id}")
         add_audit_trail(current_username(), 'delete', 'todo_items', str(todo_id), before_json=row, after_json={})
         notify_sync_event(kind='refresh', module='todos', message='代辦事項已完成刪除', extra={'todo_id': todo_id})
-        return jsonify(success=True, items=list_todo_items())
+        return jsonify(success=True, items=safe_list_todos())
     except Exception as e:
         log_error('api_todo_delete', str(e))
         return error_response('刪除代辦事項失敗')

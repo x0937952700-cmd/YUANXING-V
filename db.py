@@ -1238,7 +1238,7 @@ def list_todo_items():
     try:
         ensure_todo_table(cur)
         today = now()[:10]
-        cur.execute(sql('SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, "") = "" THEN 3 WHEN due_date = ? THEN 0 WHEN due_date > ? THEN 1 ELSE 2 END, due_date ASC, created_at DESC, id DESC'), (today, today))
+        cur.execute(sql("SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, '') = '' THEN 3 WHEN due_date = ? THEN 0 WHEN due_date > ? THEN 1 ELSE 2 END, due_date ASC, created_at DESC, id DESC"), (today, today))
         rows = rows_to_dict(cur)
         conn.commit()
         return rows

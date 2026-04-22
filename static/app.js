@@ -1781,7 +1781,29 @@ async function loadTodos(){
         currentDate = dateLabel;
         html += `<div class="todo-date-heading">${escapeHTML(dateLabel)}</div>`;
       }
-      html += `<div class="card todo-card"><div class="todo-card-main"><img class="todo-thumb" src="/todo-image/${encodeURIComponent(item.image_filename || '')}" alt="todo image" onclick="deleteTodoItem(${Number(item.id || 0)})"><div class="todo-card-info"><div class="title">${escapeHTML(item.note || '照片備忘')}</div><div class="sub">建立者：${escapeHTML(item.created_by || '')}</div><div class="sub">建立時間：${escapeHTML(item.created_at || '')}</div>${item.due_date ? `<div class="sub">日期：${escapeHTML(item.due_date)}</div>` : ''}</div></div><div class="btn-row"><button class="primary-btn small-btn" onclick="deleteTodoItem(${Number(item.id || 0)})">確認完成並刪除</button></div></div>`;
+      const dateChip = item.due_date ? `<span class="todo-chip todo-chip-date">${escapeHTML(item.due_date)}</span>` : `<span class="todo-chip">未指定日期</span>`;
+      html += `<div class="card todo-card premium-todo-card" onclick="deleteTodoItem(${Number(item.id || 0)})">
+        <div class="todo-card-top">
+          <div class="todo-top-badges">
+            <span class="todo-chip todo-chip-accent">代辦事項</span>
+            ${dateChip}
+          </div>
+          <div class="todo-top-hint">點卡片可刪除</div>
+        </div>
+        <div class="todo-card-main">
+          <div class="todo-thumb-wrap">
+            <img class="todo-thumb" src="/todo-image/${encodeURIComponent(item.image_filename || '')}" alt="todo image">
+          </div>
+          <div class="todo-card-info">
+            <div class="title todo-title">${escapeHTML(item.note || '照片備忘')}</div>
+            <div class="todo-meta-grid">
+              <div class="todo-meta-item"><span class="todo-meta-label">建立者</span><span class="todo-meta-value">${escapeHTML(item.created_by || '未填寫')}</span></div>
+              <div class="todo-meta-item"><span class="todo-meta-label">建立時間</span><span class="todo-meta-value">${escapeHTML(item.created_at || '')}</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="btn-row todo-card-actions"><button class="primary-btn small-btn" onclick="event.stopPropagation(); deleteTodoItem(${Number(item.id || 0)})">確認完成並刪除</button></div>
+      </div>`;
     });
     box.innerHTML = html;
   } catch (e) {
