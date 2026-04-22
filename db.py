@@ -102,6 +102,7 @@ def init_db():
     cur = conn.cursor()
     pk = "SERIAL PRIMARY KEY" if USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
     text = "TEXT"
+
     tables = [
         f"""CREATE TABLE IF NOT EXISTS users (
             id {pk},
@@ -124,7 +125,7 @@ def init_db():
         )""",
         f"""CREATE TABLE IF NOT EXISTS inventory (
             id {pk},
-            product_text {text} NOT NULL,
+            product_text {text},
             product_code {text},
             material {text},
             qty INTEGER DEFAULT 0,
@@ -137,8 +138,8 @@ def init_db():
         )""",
         f"""CREATE TABLE IF NOT EXISTS orders (
             id {pk},
-            customer_name {text} NOT NULL,
-            product_text {text} NOT NULL,
+            customer_name {text},
+            product_text {text},
             product_code {text},
             material {text},
             qty INTEGER DEFAULT 0,
@@ -149,8 +150,8 @@ def init_db():
         )""",
         f"""CREATE TABLE IF NOT EXISTS master_orders (
             id {pk},
-            customer_name {text} NOT NULL,
-            product_text {text} NOT NULL,
+            customer_name {text},
+            product_text {text},
             product_code {text},
             material {text},
             qty INTEGER DEFAULT 0,
@@ -160,8 +161,8 @@ def init_db():
         )""",
         f"""CREATE TABLE IF NOT EXISTS shipping_records (
             id {pk},
-            customer_name {text} NOT NULL,
-            product_text {text} NOT NULL,
+            customer_name {text},
+            product_text {text},
             product_code {text},
             material {text},
             qty INTEGER DEFAULT 0,
@@ -199,38 +200,37 @@ def init_db():
             count INTEGER DEFAULT 0,
             updated_at {text}
         )""",
-
-f"""CREATE TABLE IF NOT EXISTS submit_requests (
-    id {pk},
-    request_key {text} UNIQUE NOT NULL,
-    endpoint {text},
-    created_at {text}
-)""",
-f"""CREATE TABLE IF NOT EXISTS customer_aliases (
-    id {pk},
-    alias {text} UNIQUE NOT NULL,
-    target_name {text} NOT NULL,
-    updated_at {text}
-)""",
-f"""CREATE TABLE IF NOT EXISTS warehouse_recent_slots (
-    id {pk},
-    username {text},
-    customer_name {text},
-    zone {text},
-    column_index INTEGER,
-    slot_number INTEGER,
-    used_at {text}
-)""",
-f"""CREATE TABLE IF NOT EXISTS audit_trails (
-    id {pk},
-    username {text},
-    action_type {text},
-    entity_type {text},
-    entity_key {text},
-    before_json {text},
-    after_json {text},
-    created_at {text}
-)""",
+        f"""CREATE TABLE IF NOT EXISTS submit_requests (
+            id {pk},
+            request_key {text} UNIQUE NOT NULL,
+            endpoint {text},
+            created_at {text}
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS customer_aliases (
+            id {pk},
+            alias {text} UNIQUE NOT NULL,
+            target_name {text} NOT NULL,
+            updated_at {text}
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS warehouse_recent_slots (
+            id {pk},
+            username {text},
+            customer_name {text},
+            zone {text},
+            column_index INTEGER,
+            slot_number INTEGER,
+            used_at {text}
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS audit_trails (
+            id {pk},
+            username {text},
+            action_type {text},
+            entity_type {text},
+            entity_key {text},
+            before_json {text},
+            after_json {text},
+            created_at {text}
+        )""",
         f"""CREATE TABLE IF NOT EXISTS app_settings (
             id {pk},
             key {text} UNIQUE NOT NULL,
@@ -247,8 +247,135 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             updated_at {text}
         )""",
     ]
-    for t in tables:
-        cur.execute(t)
+    for stmt in tables:
+        cur.execute(stmt)
+
+    def pg_columns(table_name):
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+        """, (table_name,))
+        return {r[0] for r in cur.fetchall()}
+
+    def sqlite_columns(table_name):
+        cur.execute(f"PRAGMA table_info({table_name})")
+        return {r[1] for r in cur.fetchall()}
+
+    def ensure_col(table_name, column_name, definition_sql):
+        cols = pg_columns(table_name) if USE_POSTGRES else sqlite_columns(table_name)
+        if column_name not in cols:
+            cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition_sql}")
+
+    # Make legacy databases compatible before creating indexes.
+    ensure_specs = {
+        'users': {
+            'role': "TEXT DEFAULT 'user'",
+            'is_blocked': "INTEGER DEFAULT 0",
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'customer_profiles': {
+            'phone': 'TEXT',
+            'address': 'TEXT',
+            'notes': 'TEXT',
+            'region': 'TEXT',
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'inventory': {
+            'product_text': 'TEXT',
+            'product_code': 'TEXT',
+            'material': 'TEXT',
+            'qty': 'INTEGER DEFAULT 0',
+            'location': 'TEXT',
+            'customer_name': 'TEXT',
+            'operator': 'TEXT',
+            'source_text': 'TEXT',
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'orders': {
+            'customer_name': 'TEXT',
+            'product_text': 'TEXT',
+            'product_code': 'TEXT',
+            'material': 'TEXT',
+            'qty': 'INTEGER DEFAULT 0',
+            'status': "TEXT DEFAULT 'pending'",
+            'operator': 'TEXT',
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'master_orders': {
+            'customer_name': 'TEXT',
+            'product_text': 'TEXT',
+            'product_code': 'TEXT',
+            'material': 'TEXT',
+            'qty': 'INTEGER DEFAULT 0',
+            'operator': 'TEXT',
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'shipping_records': {
+            'customer_name': 'TEXT',
+            'product_text': 'TEXT',
+            'product_code': 'TEXT',
+            'material': 'TEXT',
+            'qty': 'INTEGER DEFAULT 0',
+            'operator': 'TEXT',
+            'shipped_at': 'TEXT',
+            'note': 'TEXT',
+        },
+        'ocr_usage': {
+            'engine': 'TEXT',
+            'period': 'TEXT',
+            'count': 'INTEGER DEFAULT 0',
+            'updated_at': 'TEXT',
+        },
+        'submit_requests': {
+            'request_key': 'TEXT',
+            'endpoint': 'TEXT',
+            'created_at': 'TEXT',
+        },
+        'customer_aliases': {
+            'alias': 'TEXT',
+            'target_name': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'warehouse_recent_slots': {
+            'username': 'TEXT',
+            'customer_name': 'TEXT',
+            'zone': 'TEXT',
+            'column_index': 'INTEGER',
+            'slot_number': 'INTEGER',
+            'used_at': 'TEXT',
+        },
+        'audit_trails': {
+            'username': 'TEXT',
+            'action_type': 'TEXT',
+            'entity_type': 'TEXT',
+            'entity_key': 'TEXT',
+            'before_json': 'TEXT',
+            'after_json': 'TEXT',
+            'created_at': 'TEXT',
+        },
+        'app_settings': {
+            'key': 'TEXT',
+            'value': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'todo_items': {
+            'note': 'TEXT',
+            'due_date': 'TEXT',
+            'image_filename': 'TEXT',
+            'created_by': 'TEXT',
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+    }
+    for table_name, columns in ensure_specs.items():
+        for col_name, col_def in columns.items():
+            ensure_col(table_name, col_name, col_def)
 
     index_sqls = [
         "CREATE INDEX IF NOT EXISTS idx_inventory_product_material ON inventory(product_text, material)",
@@ -262,35 +389,13 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         "CREATE INDEX IF NOT EXISTS idx_audit_trails_created_at ON audit_trails(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_audit_trails_entity_type ON audit_trails(entity_type)",
         "CREATE INDEX IF NOT EXISTS idx_customer_profiles_region ON customer_profiles(region)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)",
     ]
     for stmt in index_sqls:
         cur.execute(stmt)
 
-    if USE_POSTGRES:
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
-        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0")
-        cur.execute("ALTER TABLE inventory ADD COLUMN IF NOT EXISTS material TEXT")
-        cur.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS material TEXT")
-        cur.execute("ALTER TABLE master_orders ADD COLUMN IF NOT EXISTS material TEXT")
-        cur.execute("ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS material TEXT")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
-    else:
-        cur.execute("PRAGMA table_info(users)")
-        user_cols = {r[1] for r in cur.fetchall()}
-        if 'role' not in user_cols:
-            cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
-        if 'is_blocked' not in user_cols:
-            cur.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
-        for table_name in ('inventory', 'orders', 'master_orders', 'shipping_records'):
-            cur.execute(f"PRAGMA table_info({table_name})")
-            cols = {r[1] for r in cur.fetchall()}
-            if 'material' not in cols:
-                cur.execute(f"ALTER TABLE {table_name} ADD COLUMN material TEXT")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
-
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
 
-    # default settings
     if USE_POSTGRES:
         cur.execute("""
             INSERT INTO app_settings(key, value, updated_at)
@@ -308,13 +413,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         table_exists = cur.fetchone()[0] is not None
 
         if table_exists:
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'warehouse_cells'
-                ORDER BY ordinal_position
-            """)
-            existing_cols = {r[0] for r in cur.fetchall()}
+            existing_cols = pg_columns('warehouse_cells')
         else:
             existing_cols = set()
 
@@ -337,13 +436,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
 
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'warehouse_cells_legacy'
-                ORDER BY ordinal_position
-            """)
-            legacy_cols = {r[0] for r in cur.fetchall()}
+            legacy_cols = pg_columns('warehouse_cells_legacy')
 
             def pick(*names, default_sql=None):
                 for name in names:
@@ -384,29 +477,16 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 updated_at {text},
                 UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT")
-            cur.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot
-                ON warehouse_cells(zone, column_index, slot_type, slot_number)
-            """)
-
-        for zone in ('A', 'B'):
-            for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        SELECT %s, %s, %s, %s, %s, %s, %s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM warehouse_cells
-                            WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
-                        )
-                    """, (zone, col, 'direct', num, '[]', '', now(), zone, col, 'direct', num))
+            for c, d in {
+                'zone': 'TEXT',
+                'column_index': 'INTEGER',
+                'slot_type': 'TEXT',
+                'slot_number': 'INTEGER',
+                'items_json': 'TEXT',
+                'note': 'TEXT',
+                'updated_at': 'TEXT',
+            }.items():
+                ensure_col('warehouse_cells', c, d)
     else:
         cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
             id {pk},
@@ -419,51 +499,25 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             updated_at {text},
             UNIQUE(zone, column_index, slot_type, slot_number)
         )""")
-        for zone in ('A', 'B'):
-            for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (zone, col, 'direct', num, '[]', '', now()))
+        for c, d in {
+            'zone': 'TEXT',
+            'column_index': 'INTEGER',
+            'slot_type': 'TEXT',
+            'slot_number': 'INTEGER',
+            'items_json': 'TEXT',
+            'note': 'TEXT',
+            'updated_at': 'TEXT',
+        }.items():
+            ensure_col('warehouse_cells', c, d)
 
-    # normalize warehouse to direct 1-20 model
-    try:
-        cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
-        raw_cells = rows_to_dict(cur)
-        direct_map = {}
-        for cell in raw_cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            col = int(cell.get('column_index') or 1)
-            slot_type = (cell.get('slot_type') or 'direct').strip().lower()
-            slot_no = int(cell.get('slot_number') or 1)
-            if slot_type == 'back':
-                slot_no += 10
-            elif slot_type == 'front':
-                slot_no = slot_no
-            key = (zone, col, slot_no)
-            prev = direct_map.get(key)
-            if prev:
-                prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
-                prev['note'] = prev.get('note') or cell.get('note') or ''
-                prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
-            else:
-                direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
-        cur.execute(sql("DELETE FROM warehouse_cells"))
-        for zone in ('A','B'):
-            for col in range(1, 7):
-                max_slot = max([20] + [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col])
-                for num in range(1, max_slot + 1):
-                    row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
-                    cur.execute(sql("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
-    except Exception as e:
-        log_error('warehouse_normalize_direct_model', str(e))
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_warehouse_cells_key ON warehouse_cells(zone, column_index, slot_type, slot_number)")
 
     conn.commit()
     conn.close()
+
+    os.makedirs('uploads', exist_ok=True)
+    os.makedirs(os.path.join('uploads', 'todo'), exist_ok=True)
+    os.makedirs('backups', exist_ok=True)
 
 def get_user(username):
     conn = get_db()
