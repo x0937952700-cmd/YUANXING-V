@@ -160,13 +160,27 @@ def error_response(msg, code=400):
 
 def compress_image(path):
     try:
+        ext = os.path.splitext(path)[1].lower()
         img = Image.open(path)
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
         if img.width > 1800:
             ratio = 1800 / float(img.width)
             img = img.resize((1800, int(img.height * ratio)))
-        img.save(path, "JPEG", quality=78, optimize=True)
+        if ext == '.png':
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGBA' if 'A' in img.mode else 'RGB')
+            img.save(path, 'PNG', optimize=True)
+        elif ext == '.webp':
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            img.save(path, 'WEBP', quality=80, method=6)
+        elif ext == '.gif':
+            img.save(path, 'GIF', optimize=True)
+        elif ext == '.heic':
+            return
+        else:
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+            img.save(path, 'JPEG', quality=78, optimize=True)
     except Exception as e:
         log_error("compress_image", str(e))
 
@@ -674,6 +688,7 @@ def api_todos():
             return jsonify(success=True, items=list_todo_items())
         note = (request.form.get('note') or '').strip()
         due_date = (request.form.get('due_date') or '').strip()
+        os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
         file = request.files.get('image')
         if not file or not file.filename:
             return error_response('請選擇照片')

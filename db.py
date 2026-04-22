@@ -1191,38 +1191,83 @@ def warehouse_summary():
         zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
     return zones
 
+def ensure_todo_table(cur):
+    pk = 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+    text_type = 'TEXT'
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS todo_items (
+        id {pk},
+        note {text_type},
+        due_date {text_type},
+        image_filename {text_type},
+        created_by {text_type},
+        created_at {text_type},
+        updated_at {text_type}
+    )""")
+    if USE_POSTGRES:
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS note TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS due_date TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS image_filename TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS created_by TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS created_at TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS updated_at TEXT')
+    else:
+        cur.execute('PRAGMA table_info(todo_items)')
+        cols = {r[1] for r in cur.fetchall()}
+        for col in ('note','due_date','image_filename','created_by','created_at','updated_at'):
+            if col not in cols:
+                cur.execute(f'ALTER TABLE todo_items ADD COLUMN {col} TEXT')
+
 def create_todo_item(note='', due_date='', image_filename='', created_by=''):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now()))
-    conn.commit()
-    conn.close()
+    try:
+        ensure_todo_table(cur)
+        cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now()))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log_error('create_todo_item', e)
+        raise
+    finally:
+        conn.close()
 
 
 def list_todo_items():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql('SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, "") = "" THEN 1 ELSE 0 END, due_date ASC, created_at DESC, id DESC'))
-    rows = rows_to_dict(cur)
-    conn.close()
-    return rows
+    try:
+        ensure_todo_table(cur)
+        today = now()[:10]
+        cur.execute(sql('SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, "") = "" THEN 3 WHEN due_date = ? THEN 0 WHEN due_date > ? THEN 1 ELSE 2 END, due_date ASC, created_at DESC, id DESC'), (today, today))
+        rows = rows_to_dict(cur)
+        conn.commit()
+        return rows
+    finally:
+        conn.close()
 
 
 def get_todo_item(todo_id):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql('SELECT * FROM todo_items WHERE id = ?'), (int(todo_id),))
-    row = fetchone_dict(cur)
-    conn.close()
-    return row
+    try:
+        ensure_todo_table(cur)
+        cur.execute(sql('SELECT * FROM todo_items WHERE id = ?'), (int(todo_id),))
+        row = fetchone_dict(cur)
+        conn.commit()
+        return row
+    finally:
+        conn.close()
 
 
 def delete_todo_item(todo_id):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql('DELETE FROM todo_items WHERE id = ?'), (int(todo_id),))
-    conn.commit()
-    conn.close()
+    try:
+        ensure_todo_table(cur)
+        cur.execute(sql('DELETE FROM todo_items WHERE id = ?'), (int(todo_id),))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def list_backups():

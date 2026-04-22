@@ -26,6 +26,7 @@ const state = {
   nativePreview: null,
   pendingNativeRequestId: '',
   todoSelectedFile: null,
+  parsedMaterialOverrides: {},
 };
 
 function $(id){ return document.getElementById(id); }
@@ -36,6 +37,18 @@ const NATIVE_SHELL_ORIGIN_ALLOWLIST = ['capacitor://localhost', 'http://localhos
 const PENDING_SUBMIT_KEY = 'yuanxingPendingSubmits';
 const OCR_HISTORY_KEY = 'yuanxingOcrHistory';
 const MATERIAL_OPTIONS = ['SPF','HF','DF','ROT','SPY','SP','RP','TD','MLH'];
+
+function materialOptionsHtml(selected=''){
+  const current = String(selected || '').trim().toUpperCase();
+  return [''].concat(MATERIAL_OPTIONS).map(opt => `<option value="${opt}" ${opt === current ? 'selected' : ''}>${opt || '未填材質'}</option>`).join('');
+}
+function seedParsedMaterialOverrides(items=[]){
+  state.parsedMaterialOverrides = {};
+  (items || []).forEach((it, idx) => {
+    const material = String(it?.material || '').trim().toUpperCase();
+    if (material) state.parsedMaterialOverrides[idx] = material;
+  });
+}
 
 function getParentTargetOrigin(){ return '*'; }
 function safeJSONParse(raw, fallback){ try { return JSON.parse(raw); } catch(e){ return fallback; } }
@@ -67,9 +80,6 @@ function setSelectedOcrOptions(mode, template){
   if ($('ocr-template-select')) $('ocr-template-select').value = state.nativeOcrTemplate;
 }
 
-function getSelectedMaterial(){
-  return (($('material-select')?.value || '').trim().toUpperCase());
-}
 function materialLabel(material){
   return material ? `材質：${material}` : '材質：未填';
 }
@@ -132,10 +142,12 @@ function restoreOcrHistory(index){
   if (!it) return;
   if ($('ocr-text')) $('ocr-text').value = it.text || '';
   if ($('customer-name') && it.customer_name) $('customer-name').value = it.customer_name;
+  seedParsedMaterialOverrides(it.items || []);
   state.lastOcrItems = it.items || parseTextareaItems();
   state.lineMap = it.line_map || [];
   state.nativePreview = it.preview || null;
   renderNativePreview();
+  syncParsedItemViews({ triggerShipPreview: true });
   toast('已回填最近辨識結果', 'ok');
 }
 function renderLineMap(){
@@ -189,11 +201,13 @@ function applyLocalNativeOcrPreview(payload={}){
   setPillState($('ocr-warning-pill'), 'warn');
   state.lastOcrOriginalText = fallbackText;
   state.lastOcrItems = parseTextareaItems();
+  seedParsedMaterialOverrides(state.lastOcrItems);
   state.lineMap = payload.line_map || payload.lineMap || payload.blocks || [];
   if (payload.previewDataUrl || payload.preview_data_url) {
     state.nativePreview = { image: payload.previewDataUrl || payload.preview_data_url, roi: payload.roi || null };
   }
   renderNativePreview();
+  syncParsedItemViews({ triggerShipPreview: true });
 }
 async function syncPendingSubmits(){
   if (!state.pendingSubmitQueue.length) return;
@@ -574,8 +588,8 @@ function initModulePage(){
   const camera = $('camera-input');
   if (album) album.addEventListener('change', e => handleFiles(e.target.files));
   if (camera) camera.addEventListener('change', e => handleFiles(e.target.files));
-  if ($('ocr-text') && module === 'ship') {
-    $('ocr-text').addEventListener('input', () => { loadShipPreview(); });
+  if ($('ocr-text')) {
+    $('ocr-text').addEventListener('input', () => { syncParsedItemViews({ triggerShipPreview: module === 'ship' }); });
   }
   if (module === 'inventory') loadInventory();
   if (module === 'orders' || module === 'master_order' || module === 'ship') loadCustomerBlocks();
@@ -591,6 +605,7 @@ function initModulePage(){
     if (cameraInput) cameraInput.addEventListener('change', e => handleTodoFiles(e.target.files));
     loadTodos();
   }
+  syncParsedItemViews({ triggerShipPreview: false });
 }
 
 function setupUploadButtons(){
@@ -603,7 +618,7 @@ function resetModuleForm(){
   if ($('ocr-text')) $('ocr-text').value = '';
   if ($('customer-name')) $('customer-name').value = '';
   if ($('location-input')) $('location-input').value = '';
-  if ($('material-select')) $('material-select').value = '';
+  state.parsedMaterialOverrides = {};
   if ($('ocr-confidence-pill')) $('ocr-confidence-pill').textContent = '信心值：0%';
   if ($('ocr-warning-pill')) $('ocr-warning-pill').textContent = '尚未辨識';
   if ($('module-result')) { $('module-result').classList.add('hidden'); $('module-result').innerHTML = ''; }
@@ -632,9 +647,10 @@ function parseTextareaItems(){
   if (!textValue) return [];
   const lines = textValue.split(/\n+/).map(s => normalizeOcrLine(s)).filter(Boolean);
   const items = [];
+  let itemIndex = 0;
   lines.forEach(line => {
     const materialMatch = String(line).match(/(?:\||｜|材質[:：]?)(SPF|HF|DF|ROT|SPY|SP|RP|TD|MLH)\s*$/i);
-    const material = materialMatch ? String(materialMatch[1] || '').toUpperCase() : '';
+    const lineMaterial = materialMatch ? String(materialMatch[1] || '').toUpperCase() : '';
     const pureLine = String(line).replace(/(?:\||｜|材質[:：]?)(SPF|HF|DF|ROT|SPY|SP|RP|TD|MLH)\s*$/i, '').trim();
     if (!pureLine || !pureLine.includes('=')) return;
     const [left, rightRaw] = pureLine.split('=');
@@ -644,15 +660,58 @@ function parseTextareaItems(){
       if (!nums.length) return;
       const rhs = nums[0];
       const qty = parseInt(nums[1] || '1', 10) || 1;
+      const overrideMaterial = String(state.parsedMaterialOverrides?.[itemIndex] || '').trim().toUpperCase();
       items.push({
         product_text: `${left}=${rhs}`,
         product_code: `${left}=${rhs}`,
         qty,
-        material
+        material: lineMaterial || overrideMaterial || ''
       });
+      itemIndex += 1;
     });
   });
   return items;
+}
+
+function renderParsedMaterialEditor(items = parseTextareaItems()){
+  const box = $('parsed-item-material-list');
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = '<div class="small-note">辨識出商品後，會在這裡逐筆選擇材質。</div>';
+    return;
+  }
+  const nextOverrides = {};
+  items.forEach((it, idx) => {
+    const material = String(it.material || state.parsedMaterialOverrides?.[idx] || '').trim().toUpperCase();
+    if (material) nextOverrides[idx] = material;
+  });
+  state.parsedMaterialOverrides = nextOverrides;
+  box.innerHTML = items.map((it, idx) => `
+    <div class="parsed-item-row">
+      <div class="parsed-item-main">
+        <div class="parsed-item-title">${escapeHTML(it.product_text || '')}</div>
+        <div class="small-note">件數：${Number(it.qty || 0)}${it.material ? `｜目前材質：${escapeHTML(it.material)}` : '｜尚未選材質'}</div>
+      </div>
+      <select class="text-input parsed-item-material-select" onchange="setParsedItemMaterial(${idx}, this.value)">
+        ${materialOptionsHtml(it.material || '')}
+      </select>
+    </div>
+  `).join('');
+}
+
+function setParsedItemMaterial(index, material){
+  state.parsedMaterialOverrides[index] = String(material || '').trim().toUpperCase();
+  state.lastOcrItems = parseTextareaItems();
+  renderParsedMaterialEditor(state.lastOcrItems);
+}
+
+function syncParsedItemViews(opts={}){
+  state.lastOcrItems = parseTextareaItems();
+  renderParsedMaterialEditor(state.lastOcrItems);
+  if (state.module === 'ship') {
+    renderPickedShipItems();
+    if (opts.triggerShipPreview !== false) loadShipPreview();
+  }
 }
 
 function toggleTodayChanges(){
@@ -899,10 +958,6 @@ async function confirmSubmit(){
   const location = ($('location-input')?.value || '').trim();
   const ocr_text = ($('ocr-text')?.value || '').trim();
   let items = ocr_text ? parseTextareaItems() : (state.lastOcrItems || []);
-  const selectedMaterial = getSelectedMaterial();
-  if (['inventory','orders','master_order'].includes(module) && selectedMaterial) {
-    items = items.map(it => ({ ...it, material: (it.material || selectedMaterial || '').toUpperCase() }));
-  }
   if (!items.length) return toast('沒有可送出的辨識內容', 'warn');
   let endpoint = '/api/inventory';
   if (module === 'orders') endpoint = '/api/orders';
@@ -1687,7 +1742,7 @@ async function saveTodoItem(){
     fd.append('image', state.todoSelectedFile);
     fd.append('note', ($('todo-note')?.value || '').trim());
     fd.append('due_date', ($('todo-date')?.value || '').trim());
-    const res = await fetch('/api/todos', { method:'POST', body: fd });
+    const res = await fetch('/api/todos', { method:'POST', body: fd, credentials:'same-origin' });
     const data = await res.json().catch(()=>({success:false,error:'回應解析失敗'}));
     if (!res.ok || data.success === false) throw new Error(data.error || `HTTP ${res.status}`);
     toast('代辦事項已新增', 'ok');
