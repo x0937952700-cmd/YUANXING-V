@@ -81,6 +81,11 @@ SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
 
+
+def _today_changes_read_key(username=''):
+    uname = ''.join(ch if ch.isalnum() or ch in ('_', '-', '.') else '_' for ch in (username or '').strip()) or 'guest'
+    return f'today_changes_read_at::{uname}'
+
 _db_log_action = log_action
 
 def notify_sync_event(kind='refresh', module='all', message='', extra=None):
@@ -1022,7 +1027,8 @@ def _build_anomalies(inv_rows, order_rows, master_rows):
     return anomalies
 
 
-def _today_changes_payload():
+def _today_changes_payload(username=''):
+    username = (username or current_username() or '').strip()
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1053,7 +1059,7 @@ def _today_changes_payload():
     for key in ['negative_inventory', 'orders_over_master', 'master_over_inventory', 'duplicate_products', 'shipping_deduction', 'ocr_errors', 'blocked_logins']:
         anomaly_list.extend(anomalies.get(key, []))
     unplaced = anomalies['unplaced']
-    read_at = get_setting('today_changes_read_at', '') or ''
+    read_at = get_setting(_today_changes_read_key(username), '') or ''
     unread_count = len([r for r in logs if not read_at or (r.get('created_at') or '') > read_at])
 
     return {
@@ -1075,23 +1081,52 @@ def _today_changes_payload():
         'anomalies': anomaly_list[:120],
         'anomaly_groups': anomalies,
         'read_at': read_at,
+        'read_scope': 'user',
+        'read_username': username,
     }
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    return jsonify(success=True, **_today_changes_payload(current_username()))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
 def api_today_changes_mark_read():
     try:
-        set_setting('today_changes_read_at', now())
-        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已讀已更新')
-        return jsonify(success=True)
+        set_setting(_today_changes_read_key(current_username()), now())
+        return jsonify(success=True, read_scope='user', read_username=current_username(), read_at=get_setting(_today_changes_read_key(current_username()), '') or '')
     except Exception as e:
         log_error('today_changes_mark_read', str(e))
         return error_response('清除已讀失敗')
+
+@app.route('/api/today-changes/<int:log_id>', methods=['PUT'])
+@login_required_json
+def api_today_change_update(log_id):
+    readonly_error = require_write_access_json()
+    if readonly_error:
+        return readonly_error
+    try:
+        data = request.get_json(silent=True) or {}
+        action = (data.get('action') or '').strip()
+        if not action:
+            return error_response('異動內容不可空白')
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql('SELECT id, username, action, created_at FROM logs WHERE id = ?'), (log_id,))
+        row = fetchone_dict(cur)
+        if not row:
+            conn.close()
+            return error_response('找不到這筆異動', 404)
+        cur.execute(sql('UPDATE logs SET action = ? WHERE id = ?'), (action, log_id))
+        conn.commit()
+        conn.close()
+        add_audit_trail(current_username(), 'update', 'logs', str(log_id), before_json=row, after_json={**row, 'action': action})
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已更新', extra={'log_id': log_id})
+        return jsonify(success=True, item={'id': log_id, 'username': row.get('username') or '', 'action': action, 'created_at': row.get('created_at') or ''}, **_today_changes_payload(current_username()))
+    except Exception as e:
+        log_error('today_change_update', str(e))
+        return error_response('編輯異動失敗')
 
 @app.route('/api/today-changes/<int:log_id>', methods=['DELETE'])
 @login_required_json
@@ -1103,7 +1138,7 @@ def api_today_change_delete(log_id):
         conn.commit()
         conn.close()
         notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
-        return jsonify(success=True, **_today_changes_payload())
+        return jsonify(success=True, **_today_changes_payload(current_username()))
     except Exception as e:
         log_error('today_change_delete', str(e))
         return error_response('刪除異動失敗')

@@ -1014,7 +1014,14 @@ function toggleTodayChanges(){
 function renderTodayLogList(items, emptyText){
   const filtered = state.todayOnlyUnread ? (items || []).filter(r => r.__unread) : (items || []);
   if (!filtered || !filtered.length) return `<div class="small-note">${emptyText}</div>`;
-  return filtered.map(r => `<div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}" data-log-id="${Number(r.id||0)}"><div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜${escapeHTML(r.action || '')}</div><button class="ghost-btn tiny-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button></div>`).join('');
+  return filtered.map(r => `
+    <div class="chip-item log-chip ${r.__unread ? 'unread-item' : ''}" data-log-id="${Number(r.id||0)}">
+      <div class="log-main">${escapeHTML(r.created_at || '')}｜${escapeHTML(r.username || '')}｜<span class="today-log-action">${escapeHTML(r.action || '')}</span></div>
+      <div class="btn-row compact" style="justify-content:flex-end; gap:6px; margin-top:6px;">
+        <button class="ghost-btn tiny-btn" onclick="editTodayChange(${Number(r.id||0)})">編輯</button>
+        <button class="ghost-btn tiny-btn danger-btn" onclick="deleteTodayChange(${Number(r.id||0)})">刪除</button>
+      </div>
+    </div>`).join('');
 }
 
 function renderTodayChangesFromData(data){
@@ -1044,14 +1051,58 @@ async function deleteTodayChange(id){
   const ok = await askConfirm('確定刪除這筆今日異動？', '刪除異動', '刪除', '取消');
   if (!ok) return;
   const row = document.querySelector(`[data-log-id="${Number(id)}"]`);
-  if (row) row.style.opacity = '0.35';
+  if (row) {
+    row.style.transition = 'opacity .22s ease, transform .22s ease, height .22s ease, margin .22s ease';
+    row.style.opacity = '0.55';
+  }
   try {
-    const data = await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
+    await requestJSON(`/api/today-changes/${id}`, { method:'DELETE' });
+    if (row) {
+      row.style.opacity = '0';
+      row.style.transform = 'translateX(-12px)';
+      row.style.height = '0px';
+      row.style.margin = '0';
+      row.style.overflow = 'hidden';
+      setTimeout(() => row.remove(), 220);
+    }
     toast('已刪除異動', 'ok');
-    renderTodayChangesFromData(data);
+    setTimeout(() => loadTodayChanges(), 240);
+  } catch (e) {
+    if (row) {
+      row.style.opacity = '1';
+      row.style.transform = '';
+      row.style.height = '';
+      row.style.margin = '';
+      row.style.overflow = '';
+    }
+    toast(e.message || '刪除失敗', 'error');
+  }
+}
+
+async function editTodayChange(id){
+  if (!id) return;
+  const row = document.querySelector(`[data-log-id="${Number(id)}"]`);
+  const actionEl = row ? row.querySelector('.today-log-action') : null;
+  const current = actionEl ? actionEl.textContent.trim() : '';
+  const next = window.prompt('請輸入新的異動內容', current);
+  if (next === null) return;
+  const value = String(next || '').trim();
+  if (!value) { toast('異動內容不可空白', 'error'); return; }
+  if (value === current) return;
+  if (row) row.style.opacity = '0.55';
+  try {
+    await requestJSON(`/api/today-changes/${id}`, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action: value })
+    });
+    if (actionEl) actionEl.textContent = value;
+    if (row) row.style.opacity = '1';
+    toast('已更新異動', 'ok');
+    setTimeout(() => loadTodayChanges(), 120);
   } catch (e) {
     if (row) row.style.opacity = '1';
-    toast(e.message || '刪除失敗', 'error');
+    toast(e.message || '編輯失敗', 'error');
   }
 }
 
@@ -2300,6 +2351,7 @@ window.renderCustomers = renderCustomers;
 window.toggleTodayChanges = toggleTodayChanges;
 window.markTodayChangesRead = markTodayChangesRead;
 window.toggleTodayUnreadFilter = toggleTodayUnreadFilter;
+window.editTodayChange = editTodayChange;
 window.deleteTodayChange = deleteTodayChange;
 window.runRoiOcr = runRoiOcr;
 window.clearRoiSelection = clearRoiSelection;
