@@ -1,4 +1,12 @@
 
+function getFixedWarehouseColumns(){
+  return [1,2,3,4,5,6];
+}
+function getFixedWarehouseSlots(){
+  return 20;
+}
+
+
 const state = {
   module: null,
   rememberLogin: true,
@@ -1845,25 +1853,11 @@ function getColumnVisibleSlots(zone, column){
 }
 
 async function addWarehouseVisualSlot(zone, column){
-  try {
-    const next = getColumnVisibleSlots(zone, column) + 1;
-    await requestJSON('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_number: next }) });
-    toast(`已新增第 ${next} 格`, 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
+  toast('固定 20 格版本，暫不再增加', 'warn');
 }
 
 async function removeWarehouseVisualSlot(zone, column){
-  const current = getColumnVisibleSlots(zone, column);
-  const items = getCellItems(zone, column, current);
-  if (items.length) return toast('最後一格仍有商品，無法刪除', 'warn');
-  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄最後一格（第 ${current} 格）？`, '刪除格子', '刪除', '取消');
-  if (!ok) return;
-  try {
-    await requestJSON('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: column, slot_number: current }) });
-    toast(`已刪除第 ${current} 格`, 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
+  toast('固定 20 格版本，暫不再減少', 'warn');
 }
 
 
