@@ -672,3 +672,24 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .warehouse-search-hit .small-note{font-weight:700}
 .customer-batch-toolbar .ship-add-btn{background:#eefbf3;border-color:rgba(22,121,76,.18);color:#135d3c}
 .recent-activity-item strong{display:inline-block;min-width:64px}
+
+
+/* warehouse restore tweak */
+.warehouse-shell,.warehouse-layout,.warehouse-stage,.warehouse-map-wrap,
+#zone-A-grid,#zone-B-grid,.vertical-card-grid{
+  display:block;
+}
+.warehouse-col-tools{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  justify-content:flex-end;
+}
+.warehouse-mini-btn{
+  min-width:36px;
+  min-height:36px;
+  padding:0 10px;
+  font-size:20px;
+  line-height:1;
+  font-weight:800;
+}

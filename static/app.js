@@ -1870,13 +1870,7 @@ async function addWarehouseSlot(zone, column){ return addWarehouseVisualSlot(zon
 async function removeWarehouseSlot(zone, column){ return removeWarehouseVisualSlot(zone, column); }
 
 async function deleteWarehouseColumn(zone, column){
-  const ok = await askConfirm(`確定刪除 ${zone} 區第 ${column} 欄？欄內需為空。`, '刪除欄位', '刪除', '取消');
-  if (!ok) return;
-  try {
-    await requestJSON('/api/warehouse/delete-column', { method:'POST', body: JSON.stringify({ zone, column_index: column }) });
-    toast('已刪除欄位', 'ok');
-    await renderWarehouse();
-  } catch (e) { toast(e.message, 'error'); }
+  toast('已取消整欄刪除功能', 'warn');
 }
 
 async function openWarehouseModal(zone, column, num){
