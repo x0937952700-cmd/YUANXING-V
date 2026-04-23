@@ -744,3 +744,65 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .vertical-slot.filled{background:linear-gradient(180deg,#ffffff,#f5f7fb);border-color:rgba(47,124,246,.18)}
 .vertical-slot.highlight{outline:3px solid rgba(47,124,246,.35);background:#eef6ff;animation:pulseHighlight 1.2s ease-in-out infinite alternate}
 .vertical-slot .slot-sep{border:none;border-top:1px dashed rgba(0,0,0,.08);margin:7px 0}
+
+
+/* v23 warehouse restore hard-fix */
+.zone-grid.six-grid.vertical-card-grid{
+  display:grid !important;
+  grid-template-columns:repeat(6,minmax(150px,1fr)) !important;
+  gap:14px !important;
+  overflow:visible !important;
+  padding-bottom:0 !important;
+}
+.vertical-column-card{
+  display:block !important;
+  min-width:0;
+  padding:14px;
+  border-radius:22px;
+  background:#fff;
+  border:1px solid rgba(17,24,39,.08);
+  box-shadow:0 8px 18px rgba(15,23,42,.06);
+}
+.vertical-slot-list{
+  display:flex !important;
+  flex-direction:column !important;
+  gap:8px !important;
+}
+.vertical-slot{
+  display:flex !important;
+  flex-direction:column !important;
+  min-height:58px;
+  border:1px solid rgba(17,24,39,.08);
+  background:#fafafa;
+  border-radius:14px;
+  padding:8px 10px;
+}
+.vertical-slot.filled{background:linear-gradient(180deg,#ffffff,#f4f7fb);}
+.vertical-slot.highlight{
+  box-shadow:0 0 0 3px rgba(59,130,246,.20);
+  border-color:#60a5fa;
+  background:#f8fbff;
+}
+.warehouse-col-tools{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-bottom:10px;
+}
+.warehouse-mini-btn{
+  min-width:36px;
+  min-height:36px;
+  padding:0 10px;
+  font-size:20px;
+  font-weight:800;
+  line-height:1;
+}
+
+
+/* warehouse hard fallback */
+.zone-card.full-zone{overflow:visible !important;}
+.zone-grid.six-grid.vertical-card-grid{display:grid !important;grid-template-columns:repeat(6,minmax(150px,1fr)) !important;gap:14px !important;min-height:200px;}
+.vertical-column-card.intuitive-column{display:block !important;opacity:1 !important;visibility:visible !important;}
+.vertical-slot{opacity:1 !important;visibility:visible !important;}
+@media (max-width:1200px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(3,minmax(160px,1fr)) !important;}}
+@media (max-width:720px){.zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(2,minmax(150px,1fr)) !important;}}
