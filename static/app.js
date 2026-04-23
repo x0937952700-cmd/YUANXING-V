@@ -1,4 +1,92 @@
 
+/* ==== realfix bootstrap start ==== */
+window.state = window.state || { warehouse: { cells: [], zones: {A:{}, B:{}}, availableItems: [], activeZone: 'A' }, searchHighlightKeys: new Set() };
+window.$ = window.$ || function(id){ return document.getElementById(id); };
+window.currentModule = window.currentModule || function(){
+  const p = location.pathname;
+  if (p.includes('/master-order')) return 'master_order';
+  if (p.includes('/orders')) return 'orders';
+  if (p.includes('/inventory')) return 'inventory';
+  if (p.includes('/ship')) return 'ship';
+  if (p.includes('/warehouse')) return 'warehouse';
+  if (p.includes('/customers')) return 'customers';
+  if (p.includes('/todos')) return 'todos';
+  return '';
+};
+window.escapeHTML = window.escapeHTML || function(str){
+  return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+};
+window.toast = window.toast || function(message, level='ok'){
+  let box = document.getElementById('global-toast-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'global-toast-box';
+    box.style.cssText = 'position:fixed;right:16px;top:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(box);
+  }
+  const el = document.createElement('div');
+  const color = level === 'error' ? '#fee2e2' : level === 'warn' ? '#fef3c7' : '#dcfce7';
+  const border = level === 'error' ? '#ef4444' : level === 'warn' ? '#f59e0b' : '#22c55e';
+  el.style.cssText = `padding:10px 14px;border-radius:12px;background:${color};border:1px solid ${border};color:#111827;box-shadow:0 10px 20px rgba(0,0,0,.08);max-width:320px;`;
+  el.textContent = message || '';
+  box.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+};
+window.requestJSON = window.requestJSON || async function(url, options={}){
+  const opts = { credentials: 'same-origin', ...options };
+  opts.headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const res = await fetch(url, opts);
+  let data = {};
+  try { data = await res.json(); } catch (_e) {}
+  if (!res.ok || data.success === False || data.success === false) {
+    throw new Error(data.error || data.message || `請求失敗：${res.status}`);
+  }
+  return data;
+};
+window.getFixedWarehouseColumns = function(){ return [1,2,3,4,5,6]; };
+window.getFixedWarehouseSlots = function(){ return 20; };
+window.getCellItems = function(zone, column, num){
+  const cells = (window.state?.warehouse?.cells || []);
+  const found = cells.find(c => String(c.zone)===String(zone) && Number(c.column_index)===Number(column) && Number(c.slot_number)===Number(num));
+  if (!found) return [];
+  try { return Array.isArray(found.items_json) ? found.items_json : JSON.parse(found.items_json || '[]'); } catch(_e){ return []; }
+};
+window.buildCellKey = function(zone, column, num){ return [zone, Number(column), 'direct', Number(num)]; };
+window.parseTextareaItems = function(){
+  const text = (document.getElementById('ocr-text')?.value || '').replace(/[。．]/g,'').trim();
+  if (!text) return [];
+  let last = ['', '', ''];
+  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const out = [];
+  for (let line of lines) {
+    line = line.replace(/\s+/g,' ');
+    const matches = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})=[0-9x+]+/ig) || [];
+    for (const token of matches) {
+      const [left, right] = token.split('=');
+      const dimsRaw = left.split(/x/i).map(s => s.trim());
+      const dims = [0,1,2].map(i => {
+        const v = dimsRaw[i] || '';
+        if (!v || /^[_-]+$/.test(v)) return last[i] || '';
+        return v;
+      });
+      if (dims[0]) last = dims.slice();
+      const nums = (right || '').match(/\d+/g) || [];
+      const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
+      out.push({ product_text: `${dims.join('x')}=${right}`, product_code: `${dims.join('x')}=${right}`, qty });
+    }
+  }
+  return out;
+};
+window.normalizeCustomerItems = function(items){
+  return (items || []).map(it => {
+    const txt = String(it.product_text || '');
+    const parts = txt.split('=');
+    return { ...it, _size: parts[0] || txt, _qtyText: parts[1] || String(it.qty || '') };
+  });
+};
+/* ==== realfix bootstrap end ==== */
+
+
 
 function getFixedWarehouseColumns(){ return [1,2,3,4,5,6]; }
 function getFixedWarehouseSlots(){ return 20; }
@@ -568,71 +656,7 @@ function escapeHTML(str){
   return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 }
 
-// expose globals
-window.openAlbumPicker = openAlbumPicker;
-window.openCameraPicker = openCameraPicker;
-window.resetModuleForm = resetModuleForm;
-window.confirmSubmit = confirmSubmit;
-window.reverseLookup = reverseLookup;
-window.logout = logout;
-window.submitLogin = submitLogin;
-window.toggleLoginSave = toggleLoginSave;
-window.changePassword = changePassword;
-window.openCustomerModal = openCustomerModal;
-window.closeCustomerModal = closeCustomerModal;
-window.saveCustomer = saveCustomer;
-window.removeShipItemAt = removeShipItemAt;
-window.batchDeleteCustomerItems = batchDeleteCustomerItems;
-window.batchApplyCustomerMaterial = batchApplyCustomerMaterial;
-window.loadShippingRecords = loadShippingRecords;
-window.searchWarehouse = searchWarehouse;
-window.closeWarehouseModal = closeWarehouseModal;
-window.addSelectedItemToCell = addSelectedItemToCell;
-window.saveWarehouseCell = saveWarehouseCell;
-window.renderWarehouse = renderWarehouse;
-window.renderCustomers = renderCustomers;
-window.openTodoAlbumPicker = openTodoAlbumPicker;
-window.openTodoCameraPicker = openTodoCameraPicker;
-window.saveTodoItem = saveTodoItem;
-window.clearTodoForm = clearTodoForm;
-window.deleteTodoItem = deleteTodoItem;
-window.completeTodoItem = completeTodoItem;
-window.restoreTodoItem = restoreTodoItem;
-window.openTodoImagePreview = openTodoImagePreview;
-window.toggleTodayChanges = toggleTodayChanges;
-window.markTodayChangesRead = markTodayChangesRead;
-window.toggleTodayUnreadFilter = toggleTodayUnreadFilter;
-window.deleteTodayChange = deleteTodayChange;
-window.runRoiOcr = runRoiOcr;
-window.clearRoiSelection = clearRoiSelection;
-window.learnOcrCorrection = learnOcrCorrection;
-window.loadShipPreview = loadShipPreview;
-window.restoreOcrHistory = restoreOcrHistory;
-window.highlightOcrLine = highlightOcrLine;
-window.selectCustomerForModule = selectCustomerForModule;
-window.addOrderToMaster = addOrderToMaster;
-
-window.setWarehouseZone = setWarehouseZone;
-window.highlightWarehouseSameCustomer = highlightWarehouseSameCustomer;
-window.toggleWarehouseUnplacedHighlight = toggleWarehouseUnplacedHighlight;
-window.clearWarehouseHighlights = clearWarehouseHighlights;
-window.jumpToZone = jumpToZone;
-window.addWarehouseSlot = addWarehouseSlot;
-window.removeWarehouseSlot = removeWarehouseSlot;
-window.deleteWarehouseColumn = deleteWarehouseColumn;
-window.loadAdminUsers = loadAdminUsers;
-window.loadGoogleOcrStatus = loadGoogleOcrStatus;
-window.loadBackups = loadBackups;
-window.restoreBackupFile = restoreBackupFile;
-window.undoLastAction = undoLastAction;
-window.moveShipItem = moveShipItem;
-window.clearShipSelectedItems = clearShipSelectedItems;
-window.createBackup = createBackup;
-window.setTodayCategoryFilter = setTodayCategoryFilter;
-window.setGoogleOcrEnabled = setGoogleOcrEnabled;
-window.addWarehouseVisualSlot = addWarehouseVisualSlot;
-window.removeWarehouseVisualSlot = removeWarehouseVisualSlot;
-window.toggleUserBlocked = toggleUserBlocked;
+/* expose globals block removed for realfix */
 /* ===== 第十包覆寫強化 ===== */
 
 function splitManualCompoundLine(line=''){
@@ -1541,3 +1565,304 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   });
 })();
 /* ==== end fix ==== */
+
+
+/* ==== realfix override start ==== */
+(function(){
+  function customerCardHTML(name, count){
+    return `<div class="customer-card-main"><div class="customer-card-name">${escapeHTML(name)}</div><div class="customer-card-meta">${count}筆商品</div></div><div class="customer-card-arrow">→</div>`;
+  }
+
+  function repaintWarehouse(){
+    ['A','B'].forEach(zone => {
+      const wrap = $('zone-' + zone + '-grid');
+      if (!wrap) return;
+      wrap.querySelectorAll('.vertical-slot').forEach(slot => {
+        const c = Number(slot.dataset.column || 0);
+        const n = Number(slot.dataset.num || 0);
+        const items = getCellItems(zone, c, n);
+        const key = `${zone}|${c}|direct|${n}`;
+        const highlighted = !!(state.searchHighlightKeys && state.searchHighlightKeys.has(key));
+        slot.classList.toggle('filled', items.length > 0);
+        slot.classList.toggle('highlight', highlighted);
+        slot.innerHTML = `<div class="slot-title">第 ${String(n).padStart(2,'0')} 格</div><div class="slot-count">${
+          items.length
+            ? items.slice(0,2).map(it => `<div class="slot-line customer">客戶：${escapeHTML(it.customer_name || '未指定客戶')}</div><div class="slot-line product">商品：${escapeHTML(it.product_text || '')}</div><div class="slot-line qty">數量：${it.qty || 0}</div>`).join('<hr class="slot-sep">')
+            : '<div class="slot-line empty">空格</div>'
+        }</div>`;
+      });
+    });
+  }
+
+  window.setWarehouseZone = function(zone, doScroll=true){
+    const mode = zone || 'A';
+    state.warehouse.activeZone = mode;
+    const zoneA = $('zone-A');
+    const zoneB = $('zone-B');
+    if (mode === 'A') {
+      if (zoneA) zoneA.style.display = '';
+      if (zoneB) zoneB.style.display = 'none';
+    } else if (mode === 'B') {
+      if (zoneA) zoneA.style.display = 'none';
+      if (zoneB) zoneB.style.display = '';
+    } else {
+      if (zoneA) zoneA.style.display = '';
+      if (zoneB) zoneB.style.display = '';
+    }
+    ['A','B','ALL'].forEach(z => {
+      const btn = $('zone-switch-' + z);
+      if (btn) btn.classList.toggle('active', z === mode);
+    });
+    const pill = $('warehouse-selection-pill');
+    if (pill) pill.textContent = `目前區域：${mode === 'ALL' ? '全部' : mode + ' 區'}`;
+    try { localStorage.setItem('warehouseActiveZone', mode); } catch (_e) {}
+    if (doScroll) {
+      const target = mode === 'B' ? zoneB : zoneA;
+      (mode === 'ALL' ? zoneA : target)?.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+  };
+
+  window.renderWarehouse = async function(){
+    try {
+      const [warehouseRes, availRes] = await Promise.allSettled([
+        requestJSON('/api/warehouse', { method:'GET' }),
+        requestJSON('/api/warehouse/available-items', { method:'GET' })
+      ]);
+      const data = warehouseRes.status === 'fulfilled' ? warehouseRes.value : { cells: [], zones: {A:{}, B:{}} };
+      const avail = availRes.status === 'fulfilled' ? availRes.value : { items: [] };
+      state.warehouse.cells = Array.isArray(data.cells) ? data.cells : [];
+      state.warehouse.zones = data.zones || {A:{}, B:{}};
+      state.warehouse.availableItems = Array.isArray(avail.items) ? avail.items : [];
+      if ($('warehouse-unplaced-pill')) $('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`;
+      repaintWarehouse();
+      setWarehouseZone(localStorage.getItem('warehouseActiveZone') || 'A', false);
+    } catch (e) {
+      console.error(e);
+      toast(e.message || '倉庫圖載入失敗', 'error');
+    }
+  };
+
+  window.searchWarehouse = async function(){
+    const q = ($('warehouse-search')?.value || '').trim();
+    const box = $('warehouse-search-results');
+    if (!q) {
+      state.searchHighlightKeys = new Set();
+      box?.classList.add('hidden');
+      repaintWarehouse();
+      return;
+    }
+    try {
+      const data = await requestJSON(`/api/warehouse/search?q=${encodeURIComponent(q)}`, { method:'GET' });
+      state.searchHighlightKeys = new Set((data.items || []).map(r => `${r.cell.zone}|${r.cell.column_index}|direct|${r.cell.slot_number}`));
+      repaintWarehouse();
+      if (!box) return;
+      box.classList.remove('hidden');
+      box.innerHTML = '';
+      if (!data.items || !data.items.length) {
+        box.innerHTML = '<div class="search-card">沒有找到資料</div>';
+        return;
+      }
+      const first = data.items[0];
+      setWarehouseZone(first.cell.zone, false);
+      data.items.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'search-card';
+        div.innerHTML = `<strong>${escapeHTML(r.cell.zone)}區 第 ${r.cell.column_index} 欄 第 ${String(r.cell.slot_number).padStart(2,'0')} 格</strong><br>${escapeHTML(r.item.product_text || '')} × ${r.item.qty || 0}`;
+        div.onclick = () => {
+          setWarehouseZone(r.cell.zone);
+          try { openWarehouseModal(r.cell.zone, r.cell.column_index, r.cell.slot_number); } catch(_e){}
+        };
+        box.appendChild(div);
+      });
+    } catch (e) {
+      toast(e.message || '搜尋失敗', 'error');
+    }
+  };
+
+  window.clearWarehouseHighlights = function(){
+    state.searchHighlightKeys = new Set();
+    $('warehouse-search-results')?.classList.add('hidden');
+    $('warehouse-unplaced-list-inline')?.classList.add('hidden');
+    repaintWarehouse();
+  };
+
+  window.toggleWarehouseUnplacedHighlight = function(){
+    const box = $('warehouse-unplaced-list-inline');
+    const items = state.warehouse.availableItems || [];
+    if (!box) return;
+    box.classList.remove('hidden');
+    box.innerHTML = '';
+    if (!items.length) {
+      box.innerHTML = '<div class="search-card">目前沒有未錄入倉庫圖商品</div>';
+      return;
+    }
+    items.forEach(it => {
+      const div = document.createElement('div');
+      div.className = 'search-card';
+      div.innerHTML = `<strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong><br>${escapeHTML(it.product_text || '')}｜未錄入數量 ${it.unplaced_qty || 0}`;
+      div.onclick = async () => {
+        if ($('warehouse-search')) $('warehouse-search').value = it.product_text || '';
+        await window.searchWarehouse();
+      };
+      box.appendChild(div);
+    });
+  };
+
+  window.highlightWarehouseSameCustomer = function(){
+    const q = ($('warehouse-search')?.value || '').trim();
+    if (!q) return toast('請先在搜尋框輸入客戶名', 'warn');
+    const keys = new Set();
+    (state.warehouse.cells || []).forEach(cell => {
+      let items = [];
+      try { items = JSON.parse(cell.items_json || '[]'); } catch(_e){}
+      if (items.some(it => String(it.customer_name || '').includes(q))) keys.add(`${cell.zone}|${cell.column_index}|direct|${cell.slot_number}`);
+    });
+    state.searchHighlightKeys = keys;
+    repaintWarehouse();
+  };
+
+  window.loadCustomerBlocks = async function(){
+    try {
+      const data = await requestJSON('/api/customers', { method:'GET' });
+      const regions = {'北區': $('region-north'), '中區': $('region-center'), '南區': $('region-south')};
+      Object.values(regions).forEach(el => { if (el) el.innerHTML = ''; });
+      const list = Array.isArray(data.items) ? data.items : [];
+      list.forEach(cust => {
+        const target = regions[cust.region || '北區'] || regions['北區'];
+        if (!target) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'customer-region-card';
+        btn.dataset.customer = cust.name || '';
+        btn.innerHTML = customerCardHTML(cust.name || '', cust.item_count || 0);
+        btn.onclick = () => window.selectCustomerForModule(cust.name || '');
+        target.appendChild(btn);
+      });
+      Object.values(regions).forEach(el => {
+        if (el && !el.children.length) el.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>';
+      });
+    } catch (e) {
+      toast(e.message || '客戶區塊載入失敗', 'error');
+    }
+  };
+
+  window.selectCustomerForModule = async function(name){
+    const input = $('customer-name');
+    if (input) input.value = name || '';
+    const panel = $('selected-customer-items');
+    if (!panel) return;
+    try {
+      const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name || '')}`, { method:'GET' });
+      const items = normalizeCustomerItems(data.items || []);
+      panel.classList.remove('hidden');
+      const rows = items.map(it => `<tr><td>${escapeHTML(it._size)}</td><td>${escapeHTML(it._qtyText)}</td><td>${escapeHTML(it.source || '')}</td></tr>`).join('');
+      panel.innerHTML = items.length
+        ? `<div class="customer-detail-card"><div class="customer-detail-header"><div><div class="section-title">${escapeHTML(name || '')}</div><div class="muted">${items.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>尺寸</th><th>支數 x 件數</th><th>來源</th></tr></thead><tbody>${rows}</tbody></table></div></div>`
+        : `<div class="customer-detail-card"><div class="section-title">${escapeHTML(name || '')}</div><div class="empty-state-card compact-empty">此客戶目前沒有商品</div></div>`;
+    } catch (e) {
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="empty-state-card compact-empty">${escapeHTML(e.message || '載入失敗')}</div>`;
+    }
+  };
+
+  function optimisticNorth(customerName, items, sourceLabel){
+    const north = $('region-north');
+    if (!north) return;
+    north.querySelector('.empty-state-card')?.remove();
+    let card = Array.from(north.querySelectorAll('.customer-region-card')).find(el => el.dataset.customer === customerName);
+    if (!card) {
+      card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'customer-region-card';
+      card.dataset.customer = customerName;
+      north.prepend(card);
+    }
+    card.innerHTML = customerCardHTML(customerName, items.length);
+    card.onclick = () => {
+      const panel = $('selected-customer-items');
+      if (!panel) return;
+      const rows = normalizeCustomerItems(items.map(it => ({...it, source: sourceLabel}))).map(it => `<tr><td>${escapeHTML(it._size)}</td><td>${escapeHTML(it._qtyText)}</td><td>${escapeHTML(it.source || '')}</td></tr>`).join('');
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="customer-detail-card"><div class="customer-detail-header"><div><div class="section-title">${escapeHTML(customerName)}</div><div class="muted">${items.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>尺寸</th><th>支數 x 件數</th><th>來源</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    };
+  }
+
+  window.confirmSubmit = async function(){
+    const btn = $('submit-btn');
+    if (btn?.dataset.busy === '1') return;
+    const module = currentModule();
+    const customerName = (($('customer-name')?.value || '').trim());
+    const ocrText = ($('ocr-text')?.value || '').trim();
+    const location = ($('location-input')?.value || '').trim();
+    const items = parseTextareaItems();
+
+    if (!items.length) return toast('沒有可送出的商品資料', 'warn');
+    if (!customerName) return toast('請先輸入客戶名稱', 'warn');
+
+    const endpoint = module === 'orders' ? '/api/orders' :
+                     module === 'master_order' ? '/api/master_orders' :
+                     module === 'ship' ? '/api/ship' : '/api/inventory';
+
+    const sourceLabel = module === 'orders' ? '訂單' : module === 'master_order' ? '總單' : module === 'ship' ? '出貨' : '庫存';
+
+    try {
+      if (btn) {
+        btn.dataset.busy = '1';
+        btn.disabled = true;
+        btn.textContent = '送出中…';
+      }
+
+      if (module !== 'ship') optimisticNorth(customerName, items, sourceLabel);
+
+      try {
+        await requestJSON('/api/customers', { method:'POST', body: JSON.stringify({ name: customerName, region: '北區' }) });
+      } catch (_e) {}
+
+      const res = await requestJSON(endpoint, {
+        method:'POST',
+        body: JSON.stringify({ customer_name: customerName, location, ocr_text: ocrText, items, region: '北區' })
+      });
+
+      if (module === 'ship') {
+        const box = $('module-result');
+        if (box) {
+          const breakdown = Array.isArray(res.breakdown) ? res.breakdown : [];
+          box.classList.remove('hidden');
+          box.style.display = '';
+          box.innerHTML = `<div class="section-title">本次扣除摘要</div>` + (breakdown.length
+            ? breakdown.map(r => `<div class="deduct-card"><div><strong>${escapeHTML(r.product_text || '')}</strong></div><div>扣總單：${r.master_deduct || 0}</div><div>扣訂單：${r.order_deduct || 0}</div><div>扣庫存：${r.inventory_deduct || 0}</div></div>`).join('')
+            : '<div class="empty-state-card compact-empty">已送出，但沒有扣除摘要</div>');
+        }
+      } else {
+        await window.loadCustomerBlocks();
+        await window.selectCustomerForModule(customerName);
+      }
+
+      toast('已建立商品資料', 'ok');
+    } catch (e) {
+      toast(e.message || '送出失敗', 'error');
+    } finally {
+      if (btn) {
+        btn.dataset.busy = '0';
+        btn.disabled = false;
+        btn.textContent = '確認送出';
+      }
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const mod = currentModule();
+    if (mod === 'warehouse') {
+      const saved = localStorage.getItem('warehouseActiveZone') || 'A';
+      setTimeout(() => { renderWarehouse(); setWarehouseZone(saved, false); }, 80);
+      const btnA = $('zone-switch-A'); const btnB = $('zone-switch-B'); const btnAll = $('zone-switch-ALL');
+      if (btnA) btnA.onclick = () => setWarehouseZone('A');
+      if (btnB) btnB.onclick = () => setWarehouseZone('B');
+      if (btnAll) btnAll.onclick = () => setWarehouseZone('ALL');
+    }
+    if (['inventory','orders','master_order'].includes(mod)) {
+      setTimeout(() => window.loadCustomerBlocks(), 80);
+    }
+  });
+})();
+/* ==== realfix override end ==== */
