@@ -680,9 +680,47 @@ def api_customers():
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
 
-@app.route("/api/customers/<name>", methods=["GET", "DELETE"])
+@app.route("/api/customers/move", methods=["POST"])
+@login_required_json
+def api_customers_move():
+    try:
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        region = (data.get("region") or "").strip()
+        if not name or region not in ["北區", "中區", "南區"]:
+            return error_response("缺少客戶或區域")
+        row = get_customer(name) or {}
+        upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), region=region)
+        log_action(current_username(), f"移動客戶 {name} 到 {region}")
+        notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
+        return jsonify(success=True, items=get_customers())
+    except Exception as e:
+        log_error("move_customer", str(e))
+        return error_response("移動客戶失敗")
+
+
+@app.route("/api/customers/<name>", methods=["GET", "DELETE", "PUT"])
 @login_required_json
 def api_customer_detail(name):
+    if request.method == "PUT":
+        try:
+            data = request.get_json(silent=True) or {}
+            new_name = (data.get("new_name") or "").strip()
+            if not new_name:
+                return error_response("請輸入新的客戶名稱")
+            conn = get_db()
+            cur = conn.cursor()
+            tables = ["customer_profiles", "inventory", "orders", "master_orders", "shipping_records"]
+            for table in tables:
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ? WHERE customer_name = ?"), (new_name, name)) if table != "customer_profiles" else cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
+            conn.commit()
+            conn.close()
+            log_action(current_username(), f"修改客戶名稱 {name} -> {new_name}")
+            notify_sync_event(kind="refresh", module="customers", message=f"客戶已改名：{name} -> {new_name}", extra={"customer_name": new_name})
+            return jsonify(success=True, item=get_customer(new_name))
+        except Exception as e:
+            log_error("rename_customer", str(e))
+            return error_response("客戶名稱更新失敗")
     if request.method == "DELETE":
         try:
             row = get_customer(name)

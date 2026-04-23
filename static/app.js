@@ -2203,3 +2203,146 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   });
 })();
 /* ==== final hard patch end ==== */
+
+
+/* ==== customer drag/edit + tolerant submit parsing patch ==== */
+(function(){
+  function parseFlexibleSubmitItems(raw){
+    const text = String(raw || '').replace(/[。．]/g,'').trim();
+    if (!text) return [];
+    let last = ['', '', ''];
+    const out = [];
+    const seen = new Set();
+    const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    lines.forEach(line => {
+      line = line.replace(/\s+/g, ' ');
+      const fullTokens = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*=\s*[0-9x+]+/ig) || [];
+      fullTokens.forEach(token => {
+        const [left, rightRaw] = token.split('=');
+        const dimsRaw = String(left || '').split(/x/i).map(s => s.trim());
+        const dims = [0,1,2].map(i => {
+          const v = dimsRaw[i] || '';
+          if (!v || /^[_-]+$/.test(v)) return last[i] || '';
+          return v;
+        });
+        if (dims[0]) last = dims.slice();
+        const right = String(rightRaw || '').replace(/\s+/g, '');
+        const nums = right.match(/\d+/g) || [];
+        const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
+        const product_text = `${dims.join('x')}=${right || '1x1'}`;
+        const key = `${product_text}__${qty}`;
+        if (!seen.has(key)) {
+          out.push({ product_text, product_code: product_text, qty });
+          seen.add(key);
+        }
+      });
+      const bareTokens = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?!\s*=)/ig) || [];
+      bareTokens.forEach(token => {
+        const dimsRaw = String(token || '').split(/x/i).map(s => s.trim());
+        const dims = [0,1,2].map(i => {
+          const v = dimsRaw[i] || '';
+          if (!v || /^[_-]+$/.test(v)) return last[i] || '';
+          return v;
+        });
+        if (dims[0]) last = dims.slice();
+        const product_text = `${dims.join('x')}=1x1`;
+        const key = `${product_text}__1`;
+        if (!seen.has(key)) {
+          out.push({ product_text, product_code: product_text, qty: 1 });
+          seen.add(key);
+        }
+      });
+    });
+    return out;
+  }
+
+  window.parseTextareaItems = parseFlexibleSubmitItems;
+  window.parseSubmitItems = parseFlexibleSubmitItems;
+
+  function bindCustomerCardInteractions(card, customerName){
+    if (!card) return;
+    card.draggable = true;
+    card.dataset.customer = customerName || '';
+    card.addEventListener('dragstart', ev => {
+      ev.dataTransfer.setData('text/plain', card.dataset.customer || '');
+      ev.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+
+    let holdTimer = null;
+    const clearHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
+    const openMenu = async () => {
+      const action = window.prompt(`客戶：${customerName}\n輸入 1 編輯名稱\n輸入 2 刪除客戶\n其餘取消`, '');
+      if (action === '1') {
+        const nextName = window.prompt('請輸入新的客戶名稱', customerName || '');
+        if (!nextName || nextName.trim() === customerName) return;
+        try {
+          await requestJSON(`/api/customers/${encodeURIComponent(customerName)}`, {
+            method:'PUT',
+            body: JSON.stringify({ new_name: nextName.trim() })
+          });
+          toast('客戶名稱已更新', 'ok');
+          await window.loadCustomerBlocks();
+          if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(nextName.trim());
+        } catch (e) {
+          toast(e?.message || '客戶名稱更新失敗', 'error');
+        }
+      } else if (action === '2') {
+        if (!window.confirm(`確定刪除客戶「${customerName}」？`)) return;
+        try {
+          await requestJSON(`/api/customers/${encodeURIComponent(customerName)}`, { method:'DELETE' });
+          toast('客戶已刪除', 'ok');
+          const panel = $('selected-customer-items');
+          if (panel) panel.innerHTML = '';
+          await window.loadCustomerBlocks();
+        } catch (e) {
+          toast(e?.message || '刪除失敗', 'error');
+        }
+      }
+    };
+    card.addEventListener('contextmenu', ev => { ev.preventDefault(); openMenu(); });
+    card.addEventListener('touchstart', () => {
+      clearHold();
+      holdTimer = setTimeout(openMenu, 650);
+    }, { passive:true });
+    ['touchend','touchmove','touchcancel','pointerup','pointerleave'].forEach(evt => card.addEventListener(evt, clearHold, { passive:true }));
+  }
+
+  async function moveCustomerRegion(customerName, region){
+    if (!customerName || !region) return;
+    await requestJSON('/api/customers/move', {
+      method:'POST',
+      body: JSON.stringify({ name: customerName, region })
+    });
+    toast(`${customerName} 已移到${region}`, 'ok');
+    await window.loadCustomerBlocks();
+    if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customerName);
+  }
+
+  function bindRegionDropzones(){
+    [['region-north','北區'],['region-center','中區'],['region-south','南區']].forEach(([id, region]) => {
+      const el = $(id);
+      if (!el) return;
+      el.dataset.region = region;
+      el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('drag-over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+      el.addEventListener('drop', async ev => {
+        ev.preventDefault();
+        el.classList.remove('drag-over');
+        const customerName = ev.dataTransfer.getData('text/plain');
+        if (!customerName) return;
+        try { await moveCustomerRegion(customerName, region); } catch (e) { toast(e?.message || '移動失敗', 'error'); }
+      });
+    });
+  }
+
+  const oldLoadCustomerBlocks = window.loadCustomerBlocks;
+  window.loadCustomerBlocks = async function(){
+    if (typeof oldLoadCustomerBlocks === 'function') {
+      await oldLoadCustomerBlocks();
+    }
+    bindRegionDropzones();
+    document.querySelectorAll('.customer-region-card').forEach(card => bindCustomerCardInteractions(card, card.dataset.customer || ''));
+  };
+})();

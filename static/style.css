@@ -1005,3 +1005,7 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .customer-card-name{font-size:1rem;font-weight:800;color:#111827;}
 .customer-card-meta{font-size:.85rem;color:#6b7280;margin-top:2px;}
 .customer-card-arrow{font-size:1.1rem;font-weight:800;color:#374151;}
+
+
+.customer-list.drag-over,.customer-list.drag-over .empty-state-card{background:rgba(37,99,235,.06);border-radius:18px}
+.customer-region-card.dragging{opacity:.5;transform:scale(.98)}
