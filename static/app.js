@@ -1255,3 +1255,289 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   });
 })();
 /* ==== warehouse reconnect override end ==== */
+
+
+/* ==== v23 customer + warehouse action fix ==== */
+(function(){
+  function ensureState(){
+    state.warehouse = state.warehouse || { cells: [], zones: {A:{},B:{}}, availableItems: [], activeZone: 'A' };
+    state.searchHighlightKeys = state.searchHighlightKeys || new Set();
+  }
+
+  window.setWarehouseZone = function(zone, doScroll=true){
+    ensureState();
+    const mode = zone || 'A';
+    state.warehouse.activeZone = mode;
+    const zoneA = $('zone-A');
+    const zoneB = $('zone-B');
+
+    if (mode === 'A') {
+      if (zoneA) zoneA.style.display = '';
+      if (zoneB) zoneB.style.display = 'none';
+    } else if (mode === 'B') {
+      if (zoneA) zoneA.style.display = 'none';
+      if (zoneB) zoneB.style.display = '';
+    } else {
+      if (zoneA) zoneA.style.display = '';
+      if (zoneB) zoneB.style.display = '';
+    }
+
+    ['A','B','ALL'].forEach(z => {
+      const btn = $('zone-switch-' + z);
+      if (btn) btn.classList.toggle('active', z === mode);
+    });
+
+    const pill = $('warehouse-selection-pill');
+    if (pill) pill.textContent = `目前區域：${mode === 'ALL' ? '全部' : mode + ' 區'}`;
+
+    try { localStorage.setItem('warehouseActiveZone', mode); } catch (_e) {}
+
+    if (doScroll) {
+      const target = mode === 'B' ? zoneB : zoneA;
+      (mode === 'ALL' ? zoneA : target)?.scrollIntoView({behavior:'smooth', block:'start'});
+    }
+  };
+
+  function buildCustomerCard(name, count){
+    return `
+      <div class="customer-card-main">
+        <div class="customer-card-name">${escapeHTML(name)}</div>
+        <div class="customer-card-meta">${count || 0}筆商品</div>
+      </div>
+      <div class="customer-card-arrow">→</div>
+    `;
+  }
+
+  function normalizeCustomerItems(items){
+    return (items || []).map(it => {
+      const row = (typeof formatCustomerProductRow === 'function') ? formatCustomerProductRow(it.product_text || '') : { size: it.product_text || '', qtyText: String(it.qty || '') };
+      return { ...it, _size: row.size || it.product_text || '', _qtyText: row.qtyText || String(it.qty || '') };
+    });
+  }
+
+  window.loadCustomerBlocks = async function(){
+    try {
+      const data = await requestJSON('/api/customers', { method:'GET' });
+      const regions = {
+        '北區': $('region-north'),
+        '中區': $('region-center'),
+        '南區': $('region-south')
+      };
+      Object.values(regions).forEach(el => { if (el) el.innerHTML = ''; });
+
+      const items = Array.isArray(data.items) ? data.items : [];
+      items.forEach(cust => {
+        const region = cust.region || '北區';
+        const target = regions[region] || regions['北區'];
+        if (!target) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'customer-region-card';
+        btn.dataset.customer = cust.name || '';
+        btn.innerHTML = buildCustomerCard(cust.name || '', cust.item_count || 0);
+        btn.onclick = () => window.selectCustomerForModule(cust.name || '');
+        target.appendChild(btn);
+      });
+
+      Object.entries(regions).forEach(([region, el]) => {
+        if (el && !el.children.length) {
+          el.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>';
+        }
+      });
+    } catch (e) {
+      toast(e.message || '客戶區塊載入失敗', 'error');
+    }
+  };
+
+  window.selectCustomerForModule = async function(name){
+    if ($('customer-name')) $('customer-name').value = name || '';
+    const panel = $('selected-customer-items');
+    if (!panel) return;
+    try {
+      const data = await requestJSON(`/api/customer-items?name=${encodeURIComponent(name || '')}`, { method:'GET' });
+      const items = normalizeCustomerItems(data.items || []);
+      panel.classList.remove('hidden');
+      if (!items.length) {
+        panel.innerHTML = `<div class="customer-detail-card"><div class="section-title">${escapeHTML(name || '')}</div><div class="empty-state-card compact-empty">此客戶目前沒有商品</div></div>`;
+        return;
+      }
+      const rows = items.map(it => `<tr><td>${escapeHTML(it._size)}</td><td>${escapeHTML(it._qtyText)}</td><td>${escapeHTML(it.source || '')}</td></tr>`).join('');
+      panel.innerHTML = `
+        <div class="customer-detail-card">
+          <div class="customer-detail-header">
+            <div>
+              <div class="section-title">${escapeHTML(name || '')}</div>
+              <div class="muted">${items.length}筆商品</div>
+            </div>
+          </div>
+          <div class="table-card customer-table-wrap">
+            <table>
+              <thead><tr><th>尺寸</th><th>支數 x 件數</th><th>來源</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    } catch (e) {
+      panel.classList.remove('hidden');
+      panel.innerHTML = `<div class="empty-state-card compact-empty">${escapeHTML(e.message || '載入客戶商品失敗')}</div>`;
+    }
+  };
+
+  function optimisticRenderNorthCustomer(customerName, items){
+    const north = $('region-north');
+    if (!north || !customerName) return;
+    north.querySelector('.empty-state-card')?.remove();
+    let card = Array.from(north.querySelectorAll('.customer-region-card')).find(el => (el.dataset.customer || '') === customerName);
+    if (!card) {
+      card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'customer-region-card';
+      card.dataset.customer = customerName;
+      card.onclick = () => {
+        const panel = $('selected-customer-items');
+        if (!panel) return;
+        const rows = normalizeCustomerItems(items).map(it => `<tr><td>${escapeHTML(it._size)}</td><td>${escapeHTML(it._qtyText)}</td><td>${escapeHTML(it.source || '')}</td></tr>`).join('');
+        panel.classList.remove('hidden');
+        panel.innerHTML = `
+          <div class="customer-detail-card">
+            <div class="customer-detail-header">
+              <div>
+                <div class="section-title">${escapeHTML(customerName)}</div>
+                <div class="muted">${items.length}筆商品</div>
+              </div>
+            </div>
+            <div class="table-card customer-table-wrap">
+              <table>
+                <thead><tr><th>尺寸</th><th>支數 x 件數</th><th>來源</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          </div>`;
+      };
+      north.prepend(card);
+    }
+    card.innerHTML = buildCustomerCard(customerName, items.length);
+  }
+
+  window.confirmSubmit = async function(){
+    const btn = $('submit-btn');
+    if (btn?.dataset.busy === '1') return;
+
+    const module = (typeof currentModule === 'function' ? currentModule() : (state.module || 'inventory'));
+    const customerName = ($('customer-name')?.value || '').trim() || (state.lastCustomerGuess || '').trim();
+    const ocrText = ($('ocr-text')?.value || '').trim();
+    const location = ($('location-input')?.value || '').trim();
+
+    let items = [];
+    try {
+      items = (typeof parseTextareaItems === 'function') ? parseTextareaItems() : [];
+    } catch (_e) {}
+
+    if (!items.length && ocrText && typeof formatManualEntryText === 'function') {
+      try {
+        const formatted = formatManualEntryText(ocrText);
+        if (formatted?.items?.length) {
+          items = formatted.items;
+          if (!customerName && formatted.customer_name && $('customer-name')) $('customer-name').value = formatted.customer_name;
+        }
+      } catch (_e) {}
+    }
+
+    const finalCustomer = ($('customer-name')?.value || customerName || '').trim();
+    if (!items.length) {
+      toast('沒有可送出的商品資料', 'warn');
+      return;
+    }
+    if (!finalCustomer) {
+      toast('請先輸入客戶名稱', 'warn');
+      return;
+    }
+
+    const endpointMap = {
+      inventory: '/api/inventory',
+      orders: '/api/orders',
+      master_order: '/api/master_orders',
+      ship: '/api/ship'
+    };
+    const endpoint = endpointMap[module] || '/api/inventory';
+
+    try {
+      if (btn) {
+        btn.dataset.busy = '1';
+        btn.disabled = true;
+        btn.textContent = '送出中…';
+      }
+
+      optimisticRenderNorthCustomer(finalCustomer, items.map(it => ({...it, source: module === 'orders' ? '訂單' : module === 'master_order' ? '總單' : module === 'ship' ? '出貨' : '庫存'})));
+
+      try {
+        await requestJSON('/api/customers', {
+          method:'POST',
+          body: JSON.stringify({ name: finalCustomer, region: '北區' })
+        });
+      } catch (_e) {}
+
+      const payload = {
+        customer_name: finalCustomer,
+        location,
+        ocr_text: ocrText,
+        items,
+        region: '北區'
+      };
+
+      let response = await requestJSON(endpoint, {
+        method:'POST',
+        body: JSON.stringify(payload)
+      });
+
+      if (module === 'ship') {
+        const breakdown = Array.isArray(response.breakdown) ? response.breakdown : [];
+        const panel = $('module-result');
+        if (panel) {
+          panel.classList.remove('hidden');
+          panel.style.display = '';
+          panel.innerHTML = `<div class="section-title">本次扣除摘要</div>` + (breakdown.length
+            ? breakdown.map(r => `<div class="deduct-card"><div><strong>${escapeHTML(r.product_text || '')}</strong></div><div>扣總單：${r.master_deduct || 0}</div><div>扣訂單：${r.order_deduct || 0}</div><div>扣庫存：${r.inventory_deduct || 0}</div></div>`).join('')
+            : '<div class="empty-state-card compact-empty">已送出，但沒有扣除摘要</div>');
+        }
+      }
+
+      if (module === 'orders' || module === 'master_order' || module === 'inventory') {
+        await window.loadCustomerBlocks();
+        await window.selectCustomerForModule(finalCustomer);
+      }
+      toast('已建立商品資料', 'ok');
+    } catch (e) {
+      toast(e.message || '送出失敗', 'error');
+    } finally {
+      if (btn) {
+        btn.dataset.busy = '0';
+        btn.disabled = false;
+        btn.textContent = '確認送出';
+      }
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const btnA = $('zone-switch-A');
+    const btnB = $('zone-switch-B');
+    const btnAll = $('zone-switch-ALL');
+    if (btnA) btnA.onclick = () => window.setWarehouseZone('A');
+    if (btnB) btnB.onclick = () => window.setWarehouseZone('B');
+    if (btnAll) btnAll.onclick = () => window.setWarehouseZone('ALL');
+
+    if (typeof currentModule === 'function') {
+      const mod = currentModule();
+      if (mod === 'orders' || mod === 'master_order') {
+        setTimeout(() => {
+          try { window.loadCustomerBlocks(); } catch (_e) {}
+        }, 60);
+      }
+      if (mod === 'warehouse') {
+        const saved = localStorage.getItem('warehouseActiveZone') || 'A';
+        setTimeout(() => window.setWarehouseZone(saved, false), 80);
+      }
+    }
+  });
+})();
+/* ==== end fix ==== */
