@@ -47,7 +47,7 @@
   </div>
   {% endif %}
 
-  <section class="subsection" id="region-picker-section" {% if module_key not in ['inventory','orders','master_order'] %}style="display:none"{% endif %}>
+  <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order'] %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>北中南客戶</h3>
       <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
@@ -108,46 +108,102 @@
     <div id="shipping-results" class="table-card"></div>
   </section>
 
-  <section class="subsection" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
-    <div class="section-head">
-      <h3>倉庫圖</h3>
-      <span class="muted">直立卡片式排列，六欄縱向顯示，每欄 20 格。</span>
+  
+  <section class="subsection warehouse-page-shell" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+    <div class="section-head warehouse-head">
+      <div>
+        <h3>倉庫圖</h3>
+        <span class="muted">固定顯示 A / B 倉，各 6 欄、每欄 20 格；保留搜尋、高亮、反查、點格資訊與編輯功能。</span>
+      </div>
     </div>
-    <div class="search-row warehouse-search-toolbar">
-      <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
-      <button class="primary-btn" onclick="searchWarehouse()">搜尋</button>
-      <button class="ghost-btn" onclick="renderWarehouse()">清除搜尋</button>
+
+    <div class="glass panel warehouse-toolbar-panel">
+      <div class="search-row warehouse-search-toolbar">
+        <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
+        <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
+        <button class="ghost-btn" type="button" onclick="renderWarehouse()">清除搜尋</button>
+      </div>
+
+      <div class="query-bar warehouse-meta-bar">
+        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" onclick="toggleWarehouseUnplacedHighlight()">未錄入倉庫圖：0</span>
+        <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
+        <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶一鍵高亮</button>
+        <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉商品高亮</button>
+        <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
+      </div>
+
+      <div class="warehouse-zone-nav">
+        <button id="zone-switch-A" class="chip zone-switch active" type="button" onclick="setWarehouseZone('A')">A 區</button>
+        <button id="zone-switch-B" class="chip zone-switch" type="button" onclick="setWarehouseZone('B')">B 區</button>
+        <button id="zone-switch-ALL" class="chip zone-switch" type="button" onclick="setWarehouseZone('ALL')">全部</button>
+      </div>
     </div>
-    <div class="query-bar warehouse-meta-bar">
-      <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" onclick="toggleWarehouseUnplacedHighlight()">未錄入倉庫圖：0</span>
-      <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
-      <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶一鍵高亮</button>
-      <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉商品高亮</button>
-      <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
-    </div>
-    <div class="warehouse-zone-nav">
-      <button id="zone-switch-A" class="chip zone-switch active" onclick="setWarehouseZone('A')">A 區</button>
-      <button id="zone-switch-B" class="chip zone-switch" onclick="setWarehouseZone('B')">B 區</button>
-      <button id="zone-switch-ALL" class="chip zone-switch" onclick="setWarehouseZone('ALL')">全部</button>
-    </div>
+
     <div id="warehouse-search-results" class="search-results hidden"></div>
     <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
-    <div class="warehouse-zone-wrap single-zone-mode">
-      <div class="zone-card full-zone" id="zone-A">
+
+    <div class="warehouse-zone-wrap warehouse-fixed-layout">
+      <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
+          <div class="small-note">6 欄 × 20 格</div>
         </div>
-        <div class="zone-grid six-grid" id="zone-A-grid"></div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
+          {% for col in range(1, 7) %}
+          <div class="vertical-column-card intuitive-column">
+            <div class="column-head-row">
+              <div class="column-head">A 區第 {{ col }} 欄</div>
+              <div class="small-note">20 格</div>
+            </div>
+            <div class="btn-row compact warehouse-col-tools">
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('A', {{ col }})">＋</button>
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('A', {{ col }})">－</button>
+            </div>
+            <div class="vertical-slot-list">
+              {% for num in range(1, 21) %}
+              <div class="vertical-slot" data-zone="A" data-column="{{ col }}" data-num="{{ num }}" onclick="showWarehouseDetail('A', {{ col }}, {{ num }}, []); openWarehouseModal('A', {{ col }}, {{ num }})">
+                <div class="slot-title">第 {{ '%02d' % num }} 格</div>
+                <div class="slot-count"><div class="slot-line empty">空格</div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
-      <div class="zone-card full-zone" id="zone-B">
+
+      <div class="zone-card full-zone warehouse-zone-card" id="zone-B">
         <div class="zone-titlebar">
           <div class="zone-title">B 區</div>
+          <div class="small-note">6 欄 × 20 格</div>
         </div>
-        <div class="zone-grid six-grid" id="zone-B-grid"></div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
+          {% for col in range(1, 7) %}
+          <div class="vertical-column-card intuitive-column">
+            <div class="column-head-row">
+              <div class="column-head">B 區第 {{ col }} 欄</div>
+              <div class="small-note">20 格</div>
+            </div>
+            <div class="btn-row compact warehouse-col-tools">
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('B', {{ col }})">＋</button>
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('B', {{ col }})">－</button>
+            </div>
+            <div class="vertical-slot-list">
+              {% for num in range(1, 21) %}
+              <div class="vertical-slot" data-zone="B" data-column="{{ col }}" data-num="{{ num }}" onclick="showWarehouseDetail('B', {{ col }}, {{ num }}, []); openWarehouseModal('B', {{ col }}, {{ num }})">
+                <div class="slot-title">第 {{ '%02d' % num }} 格</div>
+                <div class="slot-count"><div class="slot-line empty">空格</div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </section>
+
 
   <section class="subsection" id="customers-section" {% if module_key != 'customers' %}style="display:none"{% endif %}>
     <div class="section-head">
