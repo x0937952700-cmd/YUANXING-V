@@ -149,7 +149,28 @@
           <div class="zone-title">A 區</div>
           <div class="small-note">6 欄 × 20 格</div>
         </div>
-        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid"></div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
+          {% for col in range(1, 7) %}
+          <div class="vertical-column-card intuitive-column">
+            <div class="column-head-row">
+              <div class="column-head">A 區第 {{ col }} 欄</div>
+              <div class="small-note">20 格</div>
+            </div>
+            <div class="btn-row compact warehouse-col-tools">
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('A', {{ col }})">＋</button>
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('A', {{ col }})">－</button>
+            </div>
+            <div class="vertical-slot-list">
+              {% for num in range(1, 21) %}
+              <div class="vertical-slot" data-zone="A" data-column="{{ col }}" data-num="{{ num }}" onclick="showWarehouseDetail('A', {{ col }}, {{ num }}, []); openWarehouseModal('A', {{ col }}, {{ num }})">
+                <div class="slot-title">第 {{ '%02d' % num }} 格</div>
+                <div class="slot-count"><div class="slot-line empty">空格</div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
 
       <div class="zone-card full-zone warehouse-zone-card" id="zone-B">
@@ -157,7 +178,28 @@
           <div class="zone-title">B 區</div>
           <div class="small-note">6 欄 × 20 格</div>
         </div>
-        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid"></div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
+          {% for col in range(1, 7) %}
+          <div class="vertical-column-card intuitive-column">
+            <div class="column-head-row">
+              <div class="column-head">B 區第 {{ col }} 欄</div>
+              <div class="small-note">20 格</div>
+            </div>
+            <div class="btn-row compact warehouse-col-tools">
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('B', {{ col }})">＋</button>
+              <button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('B', {{ col }})">－</button>
+            </div>
+            <div class="vertical-slot-list">
+              {% for num in range(1, 21) %}
+              <div class="vertical-slot" data-zone="B" data-column="{{ col }}" data-num="{{ num }}" onclick="showWarehouseDetail('B', {{ col }}, {{ num }}, []); openWarehouseModal('B', {{ col }}, {{ num }})">
+                <div class="slot-title">第 {{ '%02d' % num }} 格</div>
+                <div class="slot-count"><div class="slot-line empty">空格</div></div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
   </section>

@@ -894,14 +894,14 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
   .zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(2,minmax(145px,1fr)) !important;}
 }
 
-.warehouse-zone-card.hidden-zone{display:none !important;}
-.zone-grid.six-grid.vertical-card-grid{
+
+/* server-rendered warehouse skeleton fallback */
+.warehouse-zone-card .zone-grid.six-grid.vertical-card-grid{
   display:grid !important;
   grid-template-columns:repeat(6,minmax(150px,1fr)) !important;
   gap:14px !important;
-  min-height:240px;
 }
-.vertical-column-card.intuitive-column{
+.warehouse-zone-card .vertical-column-card{
   display:block !important;
   padding:14px;
   border-radius:20px;
@@ -909,6 +909,31 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
   border:1px solid rgba(15,23,42,.08);
   box-shadow:0 10px 22px rgba(15,23,42,.06);
 }
+.warehouse-zone-card .vertical-slot-list{
+  display:flex !important;
+  flex-direction:column !important;
+  gap:8px !important;
+}
+.warehouse-zone-card .vertical-slot{
+  display:flex !important;
+  flex-direction:column !important;
+  min-height:58px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:14px;
+  padding:8px 10px;
+  background:#fafafa;
+}
+.warehouse-zone-card.hidden-zone{display:none !important;}
+@media (max-width:1200px){
+  .warehouse-zone-card .zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(3,minmax(150px,1fr)) !important;}
+}
+@media (max-width:720px){
+  .warehouse-zone-card .zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(2,minmax(145px,1fr)) !important;}
+}
+
+.warehouse-zone-card.hidden-zone{display:none !important;}
+.zone-grid.six-grid.vertical-card-grid{display:grid !important;grid-template-columns:repeat(6,minmax(150px,1fr)) !important;gap:14px !important;min-height:240px;}
+.vertical-column-card.intuitive-column{display:block !important;padding:14px;border-radius:20px;background:#fff;border:1px solid rgba(15,23,42,.08);box-shadow:0 10px 22px rgba(15,23,42,.06);}
 .vertical-slot-list{display:flex !important;flex-direction:column !important;gap:8px !important;}
 .vertical-slot{display:flex !important;flex-direction:column !important;min-height:58px;border:1px solid rgba(15,23,42,.08);border-radius:14px;padding:8px 10px;background:#fafafa;}
 .vertical-slot.filled{background:linear-gradient(180deg,#ffffff,#f3f7fb);}
