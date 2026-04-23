@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="home-shell">
+  <div class="home-header glass">
+    <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
+    <h1 class="brand center">今日異動</h1>
+    <div></div>
+  </div>
+  <div class="glass feature-card">
+    <div class="btn-row compact" style="justify-content:flex-end; margin-bottom:10px; gap:8px;">
+      <span class="pill" id="today-unread-badge">0</span>
+      <button id="today-unread-toggle" class="ghost-btn small-btn" onclick="toggleTodayUnreadFilter()">只看未讀</button>
+      <button class="ghost-btn small-btn" onclick="markTodayChangesRead()">清除已讀</button>
+    </div>
+    <div class="section-head">
+      <h3>今日異動</h3>
+      <span class="muted">進貨、出貨、新增訂單、未錄入倉庫圖、異常比對</span>
+    </div>
+    <div class="today-filter-bar">
+      <button class="chip active" id="today-filter-all" onclick="setTodayCategoryFilter('all')">全部</button>
+      <button class="chip" id="today-filter-inbound" onclick="setTodayCategoryFilter('inbound')">進貨</button>
+      <button class="chip" id="today-filter-outbound" onclick="setTodayCategoryFilter('outbound')">出貨</button>
+      <button class="chip" id="today-filter-orders" onclick="setTodayCategoryFilter('orders')">新增訂單</button>
+      <button class="chip" id="today-filter-unplaced" onclick="setTodayCategoryFilter('unplaced')">未錄入</button>
+      <button class="chip" id="today-filter-anomaly" onclick="setTodayCategoryFilter('anomaly')">異常比對</button>
+    </div>
+    <div id="today-summary-cards" class="card-list"></div>
+    <div class="today-columns today-columns-5">
+      <div class="glass panel"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel"><div class="section-title">新增訂單</div><div id="today-order-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel"><div class="section-title">未錄入倉庫圖</div><div id="today-unplaced-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel"><div class="section-title">異常比對</div><div id="today-anomaly-list" class="chip-list stacked-list"></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

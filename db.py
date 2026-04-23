@@ -1364,6 +1364,38 @@ def get_customer_spec_stats(customer_name='', limit=20):
     return out[:int(limit or 20)]
 
 
+
+
+def update_customer_item(source, item_id, product_text, qty, operator=''):
+    table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
+    table = table_map.get(source)
+    if not table:
+        raise ValueError('不支援的來源')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql(f"SELECT id FROM {table} WHERE id = ?"), (item_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise ValueError('找不到商品')
+    qty = int(qty or 0)
+    if qty < 0:
+        qty = 0
+    cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, product_text, qty, now(), item_id))
+    conn.commit()
+    conn.close()
+
+def delete_customer_item(source, item_id):
+    table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
+    table = table_map.get(source)
+    if not table:
+        raise ValueError('不支援的來源')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (item_id,))
+    conn.commit()
+    conn.close()
+
 def ensure_todo_table(cur):
     pk = 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
     text_type = 'TEXT'
@@ -1374,7 +1406,10 @@ def ensure_todo_table(cur):
         image_filename {text_type},
         created_by {text_type},
         created_at {text_type},
-        updated_at {text_type}
+        updated_at {text_type},
+        completed_at {text_type},
+        is_done INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0
     )""")
     if USE_POSTGRES:
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS note TEXT')
@@ -1383,19 +1418,31 @@ def ensure_todo_table(cur):
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS created_by TEXT')
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS created_at TEXT')
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS updated_at TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS completed_at TEXT')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS is_done INTEGER DEFAULT 0')
+        cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0')
     else:
         cur.execute('PRAGMA table_info(todo_items)')
         cols = {r[1] for r in cur.fetchall()}
-        for col in ('note','due_date','image_filename','created_by','created_at','updated_at'):
+        for col in ('note','due_date','image_filename','created_by','created_at','updated_at','completed_at'):
             if col not in cols:
                 cur.execute(f'ALTER TABLE todo_items ADD COLUMN {col} TEXT')
+        if 'is_done' not in cols:
+            cur.execute('ALTER TABLE todo_items ADD COLUMN is_done INTEGER DEFAULT 0')
+        if 'sort_order' not in cols:
+            cur.execute('ALTER TABLE todo_items ADD COLUMN sort_order INTEGER DEFAULT 0')
+
 
 def create_todo_item(note='', due_date='', image_filename='', created_by=''):
     conn = get_db()
     cur = conn.cursor()
     try:
         ensure_todo_table(cur)
-        cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'), ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now()))
+        cur.execute(sql('SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM todo_items WHERE COALESCE(is_done,0)=0'))
+        row = fetchone_dict(cur) or {}
+        next_order = int(row.get('max_order') or 0) + 1
+        cur.execute(sql('INSERT INTO todo_items(note, due_date, image_filename, created_by, created_at, updated_at, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+                    ((note or '').strip(), (due_date or '').strip(), (image_filename or '').strip(), (created_by or '').strip(), now(), now(), next_order))
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1410,8 +1457,7 @@ def list_todo_items():
     cur = conn.cursor()
     try:
         ensure_todo_table(cur)
-        today = now()[:10]
-        cur.execute(sql("SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(due_date, '') = '' THEN 3 WHEN due_date = ? THEN 0 WHEN due_date > ? THEN 1 ELSE 2 END, due_date ASC, created_at DESC, id DESC"), (today, today))
+        cur.execute(sql("SELECT * FROM todo_items ORDER BY CASE WHEN COALESCE(is_done,0)=1 THEN 1 ELSE 0 END ASC, CASE WHEN COALESCE(is_done,0)=1 THEN COALESCE(completed_at, updated_at, created_at) ELSE CASE WHEN COALESCE(due_date,'')='' THEN '9999-99-99' ELSE due_date END END ASC, COALESCE(sort_order,0) ASC, created_at DESC, id DESC"))
         rows = rows_to_dict(cur)
         conn.commit()
         return rows
@@ -1443,3 +1489,43 @@ def delete_todo_item(todo_id):
         conn.close()
 
 
+
+
+def complete_todo_item(todo_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        ensure_todo_table(cur)
+        cur.execute(sql('UPDATE todo_items SET is_done = 1, completed_at = ?, updated_at = ? WHERE id = ?'), (now(), now(), int(todo_id)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def restore_todo_item(todo_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        ensure_todo_table(cur)
+        cur.execute(sql('SELECT COALESCE(MAX(sort_order), 0) AS max_order FROM todo_items WHERE COALESCE(is_done,0)=0'))
+        row = fetchone_dict(cur) or {}
+        next_order = int(row.get('max_order') or 0) + 1
+        cur.execute(sql('UPDATE todo_items SET is_done = 0, completed_at = NULL, updated_at = ?, sort_order = ? WHERE id = ?'), (now(), next_order, int(todo_id)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def reorder_todo_items(todo_ids, done_flag=0):
+    ids = [int(i) for i in (todo_ids or []) if str(i).isdigit()]
+    if not ids:
+        return
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        ensure_todo_table(cur)
+        for idx, todo_id in enumerate(ids, start=1):
+            cur.execute(sql('UPDATE todo_items SET sort_order = ?, updated_at = ? WHERE id = ? AND COALESCE(is_done,0) = ?'), (idx, now(), todo_id, int(done_flag or 0)))
+        conn.commit()
+    finally:
+        conn.close()

@@ -21,8 +21,9 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
-    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats,
-    create_todo_item, list_todo_items, get_todo_item, delete_todo_item
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, delete_customer_item,
+    create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
+    delete_customer
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -42,7 +43,32 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
+def run_startup_self_check():
+    checks = {"uploads": False, "todo_uploads": False, "backups": False, "todos": False}
+    try:
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        checks["uploads"] = True
+        os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
+        checks["todo_uploads"] = True
+        os.makedirs("backups", exist_ok=True)
+        checks["backups"] = True
+    except Exception as e:
+        try:
+            log_error("startup_self_check_dirs", str(e))
+        except Exception:
+            pass
+    try:
+        list_todo_items()
+        checks["todos"] = True
+    except Exception as e:
+        try:
+            log_error("startup_self_check_todos", str(e))
+        except Exception:
+            pass
+    return checks
+
 init_db()
+STARTUP_CHECKS = run_startup_self_check()
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
@@ -254,6 +280,111 @@ def todo_image(filename):
         return redirect(url_for('login_page'))
     safe_name = os.path.basename(filename)
     return send_from_directory(TODO_UPLOAD_FOLDER, safe_name)
+
+
+
+@app.route('/api/todos', methods=['GET', 'POST'])
+@login_required_json
+def api_todos():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=safe_list_todos())
+        files = []
+        for key in ('images', 'image'):
+            files.extend([f for f in request.files.getlist(key) if f and (f.filename or '').strip()])
+        if not files:
+            return error_response('請先選擇照片')
+        save_names = []
+        for file in files:
+            if not allowed_file(file.filename):
+                return error_response('圖片格式不支援')
+            filename = secure_filename(file.filename or '')
+            ext = (filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg') or 'jpg'
+            save_name = f"todo_{int(time.time()*1000)}_{hashlib.md5((filename+str(time.time())).encode('utf-8')).hexdigest()[:10]}.{ext}"
+            save_path = os.path.join(TODO_UPLOAD_FOLDER, save_name)
+            file.save(save_path)
+            compress_image(save_path)
+            save_names.append(save_name)
+        note = (request.form.get('note') or '').strip()
+        due_date = (request.form.get('due_date') or '').strip()
+        created_by = current_username()
+        image_payload = json.dumps(save_names, ensure_ascii=False)
+        create_todo_item(note=note, due_date=due_date, image_filename=image_payload, created_by=created_by)
+        fallback = {'note': note, 'due_date': due_date, 'image_filename': image_payload, 'created_by': created_by, 'created_at': now()}
+        log_action(created_by, f"新增代辦 {note or ','.join(save_names)}")
+        add_audit_trail(created_by, 'create', 'todo_items', note or 'todo', before_json={}, after_json={'note': note, 'due_date': due_date, 'images': save_names})
+        return jsonify(success=True, items=safe_list_todos(fallback_item=fallback))
+    except Exception as e:
+        log_error('api_todos', str(e))
+        return error_response('代辦事項儲存失敗')
+
+
+@app.route('/api/todos/<int:todo_id>/complete', methods=['POST'])
+@login_required_json
+def api_todo_complete(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        complete_todo_item(todo_id)
+        log_action(current_username(), f"完成代辦 {todo_id}")
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_complete', str(e))
+        return error_response('代辦事項完成失敗')
+
+@app.route('/api/todos/<int:todo_id>/restore', methods=['POST'])
+@login_required_json
+def api_todo_restore(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        restore_todo_item(todo_id)
+        log_action(current_username(), f"還原代辦 {todo_id}")
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_restore', str(e))
+        return error_response('代辦事項還原失敗')
+
+@app.route('/api/todos/reorder', methods=['POST'])
+@login_required_json
+def api_todo_reorder():
+    try:
+        data = request.get_json(silent=True) or {}
+        reorder_todo_items(data.get('ids') or [], done_flag=int(data.get('done_flag') or 0))
+        log_action(current_username(), '拖拉排序代辦')
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_reorder', str(e))
+        return error_response('代辦排序失敗')
+
+@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
+@login_required_json
+def api_todo_delete(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        delete_todo_item(todo_id)
+        image_raw = item.get('image_filename') or ''
+        try:
+            image_names = json.loads(image_raw) if str(image_raw).strip().startswith('[') else [image_raw]
+        except Exception:
+            image_names = [image_raw]
+        for image_filename in [os.path.basename(v or '') for v in image_names if v]:
+            if image_filename:
+                path = os.path.join(TODO_UPLOAD_FOLDER, image_filename)
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+        log_action(current_username(), f"刪除代辦 {todo_id}")
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('api_todo_delete', str(e))
+        return error_response('代辦事項刪除失敗')
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -683,6 +814,33 @@ def api_customer_items():
         items = []
     return jsonify(success=True, items=items)
 
+
+@app.route("/api/customer-item", methods=["POST", "DELETE"])
+@login_required_json
+def api_customer_item_modify():
+    try:
+        data = request.get_json(silent=True) or {}
+        source = (data.get("source") or "").strip()
+        item_id = int(data.get("id") or 0)
+        if not source or not item_id:
+            return error_response("缺少商品參數")
+        if request.method == "DELETE":
+            delete_customer_item(source, item_id)
+            log_action(current_username(), f"刪除客戶商品 {source}#{item_id}")
+            notify_sync_event(kind='refresh', module='customers', message='客戶商品已刪除', extra={'source': source, 'id': item_id})
+            return jsonify(success=True)
+        product_text = (data.get("product_text") or "").strip()
+        qty = int(data.get("qty") or 0)
+        if not product_text:
+            return error_response("請輸入商品資料")
+        update_customer_item(source, item_id, product_text, qty, current_username())
+        log_action(current_username(), f"更新客戶商品 {source}#{item_id}")
+        notify_sync_event(kind='refresh', module='customers', message='客戶商品已更新', extra={'source': source, 'id': item_id})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error("customer_item_modify", str(e))
+        return error_response("客戶商品修改失敗")
+
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
 def api_backup():
@@ -1081,7 +1239,7 @@ def api_reports_export():
     else:
         return error_response('報表類型不存在')
     buf = export_rows_to_xlsx(report_type, rows, columns)
-    return send_file, send_from_directory(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 
@@ -1092,7 +1250,7 @@ def api_backup_download(filename):
     path = os.path.join('backups', safe_name)
     if not os.path.isfile(path):
         return error_response('找不到備份檔', 404)
-    return send_file, send_from_directory(path, as_attachment=True, download_name=safe_name)
+    return send_file(path, as_attachment=True, download_name=safe_name)
 
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
@@ -1109,7 +1267,7 @@ def api_backup_restore():
     if filename.endswith('.json'):
         payload = json.load(open(path, 'r', encoding='utf-8'))
         conn = get_db(); cur = conn.cursor()
-        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','settings','customer_aliases','warehouse_recent_slots','audit_trails']
+        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','app_settings','customer_aliases','warehouse_recent_slots','audit_trails','todo_items']
         try:
             for table in tables:
                 if table not in payload:
@@ -1134,10 +1292,98 @@ def api_backup_restore():
         return jsonify(success=True)
     return error_response('目前只支援 JSON 備份還原')
 
+
+@app.route('/api/undo-last', methods=['POST'])
+@login_required_json
+def api_undo_last():
+    try:
+        trails = list_audit_trails(limit=120)
+        target = None
+        for item in trails:
+            if (item.get('username') or '') != current_username():
+                continue
+            if item.get('entity_type') == 'undo':
+                continue
+            if item.get('action_type') not in ('create','ship','move'):
+                continue
+            target = item
+            break
+        if not target:
+            return error_response('目前沒有可還原的最近操作')
+        conn = get_db()
+        cur = conn.cursor()
+        action_type = target.get('action_type')
+        entity_type = target.get('entity_type')
+        after_json = target.get('after_json') or {}
+        entity_key = target.get('entity_key') or ''
+        summary = ''
+        if action_type == 'create' and entity_type == 'inventory':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id, qty FROM inventory WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM inventory WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立庫存'
+        elif action_type == 'create' and entity_type == 'orders':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id FROM orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM orders WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立訂單'
+        elif action_type == 'create' and entity_type == 'master_orders':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM master_orders WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立總單'
+        elif action_type == 'ship':
+            for item in after_json.get('breakdown') or []:
+                for d in item.get('master_details') or []:
+                    cur.execute(sql('UPDATE master_orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                for d in item.get('order_details') or []:
+                    cur.execute(sql('UPDATE orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                for d in item.get('inventory_details') or []:
+                    cur.execute(sql('UPDATE inventory SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                cur.execute(sql('SELECT id FROM shipping_records WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (item.get('product_text') or '').strip()))
+                ship_row = fetchone_dict(cur)
+                if ship_row:
+                    cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (int(ship_row.get('id')),))
+            summary = '已還原最近一次出貨'
+        elif action_type == 'move' and entity_type == 'warehouse_cells':
+            before_key = tuple((target.get('before_json') or {}).get('from_key') or [])
+            to_key = tuple((target.get('after_json') or {}).get('to_key') or [])
+            product_text = (target.get('after_json') or {}).get('product_text') or entity_key
+            qty = int((target.get('after_json') or {}).get('qty') or 1)
+            result = warehouse_move_item(to_key, before_key, product_text, qty)
+            if not result.get('success'):
+                conn.close()
+                return error_response(result.get('error') or '還原倉庫移動失敗')
+            summary = '已還原最近一次倉庫搬移'
+        else:
+            conn.close()
+            return error_response('這筆操作暫不支援還原')
+        conn.commit()
+        conn.close()
+        add_audit_trail(current_username(), 'undo', 'undo', entity_type, before_json=target, after_json={'message': summary})
+        notify_sync_event(kind='refresh', module='all', message=summary)
+        log_action(current_username(), summary)
+        return jsonify(success=True, message=summary)
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        log_error('undo_last', str(e))
+        return error_response('還原上一筆失敗')
+
+
 @app.route('/api/session/config', methods=['GET'])
 @login_required_json
 def api_session_config():
-    return jsonify(success=True, idle_timeout_seconds=1800)
+    return jsonify(success=True, idle_timeout_seconds=1800, startup_checks=STARTUP_CHECKS)
 
 @app.route("/health")
 def health():

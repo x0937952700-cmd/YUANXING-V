@@ -40,7 +40,8 @@ def backup_postgres():
         cur = conn.cursor()
         tables = [
             "users", "customer_profiles", "inventory", "orders", "master_orders",
-            "shipping_records", "corrections", "image_hashes", "logs", "errors", "warehouse_cells"
+            "shipping_records", "corrections", "image_hashes", "logs", "errors", "warehouse_cells",
+            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails"
         ]
         backup_data = {}
         for table in tables:
