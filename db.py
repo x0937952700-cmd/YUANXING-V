@@ -747,7 +747,7 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
     phone_v = choose('phone', phone, '')
     address_v = choose('address', address, '')
     notes_v = choose('notes', notes, '')
-    region_v = choose('region', region, '北區') or '北區'
+    region_v = choose('region', region, '')
     created_at_v = existing.get('created_at') or now()
     customer_uid = existing.get('customer_uid') or _new_customer_uid(name, created_at_v)
 
@@ -810,6 +810,26 @@ def delete_customer(name):
     conn.commit()
     conn.close()
     return {'mode': mode, 'counts': counts, 'item': row}
+
+
+
+def get_customer_by_uid(customer_uid, include_archived=False):
+    uid = (customer_uid or '').strip()
+    if not uid:
+        return None
+    conn = get_db()
+    cur = conn.cursor()
+    query = "SELECT * FROM customer_profiles WHERE customer_uid = ?"
+    if not include_archived:
+        query += " AND COALESCE(is_archived, 0) = 0"
+    cur.execute(sql(query), (uid,))
+    row = fetchone_dict(cur)
+    conn.close()
+    if row:
+        row['relation_counts'] = get_customer_relation_counts(row.get('name') or '')
+        row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(row.get('name') or '', row.get('created_at') or '')
+        row['is_archived'] = int(row.get('is_archived') or 0)
+    return row
 
 def get_customer(name, include_archived=False):
     conn = get_db()
@@ -1721,3 +1741,18 @@ def reorder_todo_items(todo_ids, done_flag=0):
         conn.commit()
     finally:
         conn.close()
+
+
+def restore_customer(name):
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('客戶名稱不可空白')
+    row = get_customer(name, include_archived=True)
+    if not row:
+        raise ValueError('找不到客戶')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("UPDATE customer_profiles SET is_archived = 0, archived_at = NULL, updated_at = ? WHERE name = ?"), (now(), name))
+    conn.commit()
+    conn.close()
+    return get_customer(name, include_archived=True)

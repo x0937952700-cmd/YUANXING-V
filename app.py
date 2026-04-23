@@ -23,7 +23,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts
+    delete_customer, get_customer_relation_counts, get_customer_by_uid
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -142,7 +142,7 @@ def resolve_customer_region(customer_name='', requested_region=''):
         row = get_customer(customer_name, include_archived=True)
         if row and (row.get('region') or '').strip() in ['北區', '中區', '南區']:
             return (row.get('region') or '').strip()
-    return '北區'
+    return ''
 
 
 def build_customer_payload_snapshot(customer_name=''):
@@ -230,13 +230,27 @@ def parse_lines_to_items(text):
 def grouped_inventory():
     return inventory_summary()
 
+
+def resolve_customer_identity(customer_name='', customer_uid='', include_archived=True):
+    uid = (customer_uid or '').strip()
+    name = (customer_name or '').strip()
+    row = None
+    if uid:
+        row = get_customer_by_uid(uid, include_archived=include_archived)
+    if not row and name:
+        row = get_customer(name, include_archived=include_archived)
+    resolved_name = (row.get('name') if row else name) or ''
+    resolved_uid = (row.get('customer_uid') if row else uid) or ''
+    return row, resolved_name, resolved_uid
+
+
 def customer_groups():
     customers = get_customers()
-    groups = {"北區": [], "中區": [], "南區": []}
+    groups = {"北區": [], "中區": [], "南區": [], "未分區": []}
     for c in customers:
-        region = c.get("region") or "北區"
+        region = (c.get("region") or '').strip()
         if region not in groups:
-            region = "北區"
+            region = "未分區"
         groups[region].append(c)
     return groups
 
@@ -687,6 +701,10 @@ def api_customers():
             return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
+        name = name or resolved_name
+        if resolved_name and resolved_name != name and not (data.get('force_new') or False):
+            name = resolved_name
         if not name:
             return error_response("請輸入客戶名稱")
         item = upsert_customer(
@@ -698,12 +716,39 @@ def api_customers():
             preserve_existing=bool(data.get('preserve_existing', False))
         )
         log_action(current_username(), f"儲存客戶 {name}")
-        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json={}, after_json=data)
+        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=data)
         notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
         return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
+
+
+@app.route("/api/customers/archived", methods=["GET"])
+@login_required_json
+def api_customers_archived():
+    try:
+        items = [c for c in get_customers(active_only=False) if int(c.get('is_archived') or 0) == 1]
+        return jsonify(success=True, items=items)
+    except Exception as e:
+        log_error("customers_archived", str(e))
+        return error_response("封存客戶讀取失敗")
+
+@app.route("/api/customers/<name>/restore", methods=["POST"])
+@login_required_json
+def api_customer_restore(name):
+    try:
+        data = request.get_json(silent=True) or {}
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
+        target_name = resolved_name or name
+        item = restore_customer(target_name)
+        log_action(current_username(), f"復原客戶 {target_name}")
+        add_audit_trail(current_username(), 'restore', 'customer_profiles', target_name, before_json={'name': target_name}, after_json={'name': target_name, 'restored': True})
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已復原：{target_name}', extra={'customer_name': target_name})
+        return jsonify(success=True, item=item, items=get_customers())
+    except Exception as e:
+        log_error("restore_customer", str(e))
+        return error_response(f"客戶復原失敗：{str(e)}")
 
 @app.route("/api/customers/move", methods=["POST"])
 @login_required_json
@@ -712,9 +757,12 @@ def api_customers_move():
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         region = (data.get("region") or "").strip()
-        if not name or region not in ["北區", "中區", "南區"]:
+        if region not in ["北區", "中區", "南區"]:
             return error_response("缺少客戶或區域")
-        row = get_customer(name, include_archived=True) or {}
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or '', include_archived=True)
+        name = resolved_name or name
+        if not name or not row:
+            return error_response("找不到客戶資料")
         before_region = (row.get("region") or "").strip()
         item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), region=region, preserve_existing=True)
         log_action(current_username(), f"移動客戶 {name} 到 {region}")
@@ -726,7 +774,6 @@ def api_customers_move():
         return error_response("移動客戶失敗")
 
 
-
 @app.route("/api/customers/<name>", methods=["GET", "DELETE", "PUT"])
 @login_required_json
 def api_customer_detail(name):
@@ -736,7 +783,8 @@ def api_customer_detail(name):
             new_name = (data.get("new_name") or "").strip()
             if not new_name:
                 return error_response("請輸入新的客戶名稱")
-            source = get_customer(name, include_archived=True)
+            source, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
+            name = resolved_name or name
             if not source:
                 return error_response("找不到原客戶資料")
             if new_name == name:
@@ -768,6 +816,9 @@ def api_customer_detail(name):
             return error_response(f"客戶名稱更新失敗：{str(e)}")
     if request.method == "DELETE":
         try:
+            data = request.get_json(silent=True) or {}
+            _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
+            name = resolved_name or name
             result = delete_customer(name)
             mode = result.get('mode') or 'deleted'
             counts = result.get('counts') or {}
@@ -779,7 +830,8 @@ def api_customer_detail(name):
         except Exception as e:
             log_error("delete_customer", str(e))
             return error_response(f"客戶刪除失敗：{str(e)}")
-    row = get_customer(name, include_archived=True)
+    row, resolved_name, _resolved_uid = resolve_customer_identity(name, request.args.get('customer_uid') or '', include_archived=True)
+    name = resolved_name or name
     if not row:
         return error_response("找不到客戶", 404)
     return jsonify(success=True, item=row, counts=get_customer_relation_counts(name))
