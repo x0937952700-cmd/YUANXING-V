@@ -681,6 +681,17 @@ def get_customers():
     cur = conn.cursor()
     cur.execute(sql("SELECT * FROM customer_profiles ORDER BY region, name"))
     rows = rows_to_dict(cur)
+    for row in rows:
+        name = (row.get("name") or "").strip()
+        item_count = 0
+        if name:
+            cur.execute(sql("SELECT COUNT(*) AS c FROM inventory WHERE customer_name = ?"), (name,))
+            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
+            cur.execute(sql("SELECT COUNT(*) AS c FROM orders WHERE customer_name = ?"), (name,))
+            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
+            cur.execute(sql("SELECT COUNT(*) AS c FROM master_orders WHERE customer_name = ?"), (name,))
+            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
+        row['item_count'] = item_count
     conn.close()
     return rows
 
