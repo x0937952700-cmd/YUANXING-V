@@ -700,12 +700,7 @@ def api_customer_detail(name):
 @app.route("/api/warehouse", methods=["GET"])
 @login_required_json
 def api_warehouse():
-    try:
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
-    except Exception as e:
-        log_error("api_warehouse", str(e))
-        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
-
+    return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
 
 @app.route("/api/warehouse/cell", methods=["POST"])
 @login_required_json
@@ -792,14 +787,7 @@ def api_warehouse_search():
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    try:
-        inv = inventory_summary()
-        options = [r for r in inv if int(r.get("unplaced_qty", 0)) > 0]
-        return jsonify(success=True, items=options)
-    except Exception as e:
-        log_error("api_warehouse_available_items", str(e))
-        return jsonify(success=True, items=[])
-
+    inv = inventory_summary()
     options = [r for r in inv if int(r.get("unplaced_qty", 0)) > 0]
     return jsonify(success=True, items=options)
 

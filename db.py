@@ -88,66 +88,6 @@ def log_error(source, message):
     except Exception:
         pass
 
-
-def ensure_fixed_warehouse_grid(conn=None, cur=None):
-    own_conn = False
-    if conn is None or cur is None:
-        conn = get_db()
-        cur = conn.cursor()
-        own_conn = True
-    try:
-        if USE_POSTGRES:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS warehouse_cells (
-                    id SERIAL PRIMARY KEY,
-                    zone TEXT NOT NULL,
-                    column_index INTEGER NOT NULL,
-                    slot_type TEXT NOT NULL,
-                    slot_number INTEGER NOT NULL,
-                    items_json TEXT,
-                    note TEXT,
-                    updated_at TEXT,
-                    UNIQUE(zone, column_index, slot_type, slot_number)
-                )
-            """)
-            for zone in ('A', 'B'):
-                for col in range(1, 7):
-                    for num in range(1, 21):
-                        cur.execute("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            SELECT %s, %s, %s, %s, %s, %s, %s
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM warehouse_cells
-                                WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
-                            )
-                        """, (zone, col, 'direct', num, '[]', '', now(), zone, col, 'direct', num))
-        else:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS warehouse_cells (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    zone TEXT NOT NULL,
-                    column_index INTEGER NOT NULL,
-                    slot_type TEXT NOT NULL,
-                    slot_number INTEGER NOT NULL,
-                    items_json TEXT,
-                    note TEXT,
-                    updated_at TEXT,
-                    UNIQUE(zone, column_index, slot_type, slot_number)
-                )
-            """)
-            for zone in ('A', 'B'):
-                for col in range(1, 7):
-                    for num in range(1, 21):
-                        cur.execute("""
-                            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (zone, col, 'direct', num, '[]', '', now()))
-        if own_conn:
-            conn.commit()
-    finally:
-        if own_conn:
-            conn.close()
-
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -475,7 +415,6 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('warehouse_normalize_direct_model', str(e))
 
-    ensure_fixed_warehouse_grid(conn, cur)
     conn.commit()
     conn.close()
 
@@ -1065,7 +1004,6 @@ def get_shipping_records(start_date=None, end_date=None, q=""):
 def warehouse_get_cells():
     conn = get_db()
     cur = conn.cursor()
-    ensure_fixed_warehouse_grid(conn, cur)
     cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
     rows = rows_to_dict(cur)
     conn.close()
