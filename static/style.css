@@ -693,3 +693,37 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
   line-height:1;
   font-weight:800;
 }
+
+
+/* v11-like warehouse map restore while keeping v22 features */
+.warehouse-v11-column{padding:12px;}
+.warehouse-v11-list{display:grid;grid-template-columns:1fr;gap:8px;}
+.warehouse-v11-slot{
+  min-height:78px;
+  border-radius:16px;
+  padding:10px 8px;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+}
+.warehouse-v11-slot .slot-title{
+  font-size:13px;
+  font-weight:800;
+  margin-bottom:6px;
+}
+.warehouse-v11-slot .slot-count{
+  font-size:12px;
+  line-height:1.35;
+  word-break:break-word;
+}
+.warehouse-v11-slot.filled{
+  background:linear-gradient(180deg,#fff 0%,#f6f7f9 100%);
+}
+.warehouse-v11-slot.highlight{
+  box-shadow:0 0 0 2px rgba(21,121,76,.28), 0 10px 24px rgba(21,121,76,.18);
+  animation:warehouseFlash 1.2s ease-in-out 0s 4 alternate;
+}
+@keyframes warehouseFlash{
+  from{transform:scale(1); box-shadow:0 0 0 2px rgba(21,121,76,.18), 0 8px 18px rgba(21,121,76,.10);}
+  to{transform:scale(1.02); box-shadow:0 0 0 3px rgba(21,121,76,.35), 0 12px 28px rgba(21,121,76,.20);}
+}

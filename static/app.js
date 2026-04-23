@@ -1772,6 +1772,17 @@ function buildCellKey(zone, column_index, slot_number){
   return [zone, column_index, slot_number];
 }
 
+function visualSlotToCell(n){
+  const num = parseInt(n, 10);
+  if (num <= 10) return { side: 'front', slot: num };
+  return { side: 'back', slot: num - 10 };
+}
+
+function cellToVisualSlot(side, slot){
+  const n = parseInt(slot, 10);
+  return side === 'back' ? n + 10 : n;
+}
+
 function getCellItems(zone, column_index, slot_number){
   const cell = state.warehouse.cells.find(c => c.zone === zone && parseInt(c.column_index) === parseInt(column_index) && parseInt(c.slot_number) === parseInt(slot_number));
   if (!cell) return [];
@@ -1827,28 +1838,32 @@ function renderWarehouseZones(){
     const columns = getVisibleZoneColumns(zone);
     columns.forEach(c => {
       const col = document.createElement('div');
-      col.className = 'vertical-column-card intuitive-column';
+      col.className = 'vertical-column-card warehouse-v11-column';
       const visibleSlots = getColumnVisibleSlots(zone, c);
-      col.innerHTML = `<div class="column-head-row"><div class="column-head">${zone} 第 ${c} 欄</div><div class="small-note">目前 ${visibleSlots} 格</div></div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button><button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button></div>`;
+      col.innerHTML = `<div class="column-head">${zone} 第 ${c} 欄</div><div class="btn-row compact warehouse-col-tools"><button class="ghost-btn small-btn warehouse-plusminus-btn" title="增加格子" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button><button class="ghost-btn small-btn warehouse-plusminus-btn" title="減少格子" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button></div>`;
       const list = document.createElement('div');
-      list.className = 'vertical-slot-list';
+      list.className = 'vertical-slot-list warehouse-v11-list';
       for (let n = 1; n <= visibleSlots; n++) {
+        const mapped = visualSlotToCell(n);
         const items = getCellItems(zone, c, n);
         const slot = document.createElement('div');
-        slot.className = 'vertical-slot';
+        slot.className = 'vertical-slot warehouse-v11-slot';
         slot.dataset.zone = zone;
         slot.dataset.column = c;
-        slot.dataset.num = n;
-        const key = `${zone}|${c}|direct|${n}`;
+        slot.dataset.side = mapped.side;
+        slot.dataset.num = mapped.slot;
+        const names = items.slice(0, 2).map(it => `${escapeHTML(it.product_text || '')}×${it.qty || 0}`).join('<br>');
+        slot.innerHTML = `<div class="slot-title">${String(n).padStart(2, '0')}</div><div class="slot-count">${items.length ? names : '空格'}</div>`;
+        const directKey = `${zone}|${c}|direct|${n}`;
+        const legacyKey = `${zone}|${c}|${mapped.side}|${mapped.slot}`;
         if (items.length) slot.classList.add('filled');
-        if (state.searchHighlightKeys.has(key)) slot.classList.add('highlight');
-        const summary = items.length ? items.slice(0,2).map(it => `<div class="slot-line customer">客戶：${escapeHTML(it.customer_name || '未指定客戶')}</div><div class="slot-line product">商品：${escapeHTML(it.product_text || '')}</div><div class="slot-line qty">數量：${it.qty || 0}</div>`).join('<hr class="slot-sep">') : '<div class="slot-line empty">空格</div>';
-        slot.innerHTML = `<div class="slot-title">第 ${String(n).padStart(2, '0')} 格</div><div class="slot-count">${summary}</div>`;
+        if (state.searchHighlightKeys.has(directKey) || state.searchHighlightKeys.has(legacyKey)) slot.classList.add('highlight');
         slot.addEventListener('click', () => { showWarehouseDetail(zone, c, n, items); openWarehouseModal(zone, c, n); });
         slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
         slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
         slot.addEventListener('drop', async ev => {
-          ev.preventDefault(); slot.classList.remove('drag-over');
+          ev.preventDefault();
+          slot.classList.remove('drag-over');
           const raw = ev.dataTransfer.getData('text/plain');
           if (!raw) return;
           const parsed = JSON.parse(raw);
@@ -2043,12 +2058,11 @@ async function searchWarehouse(){
 function showWarehouseDetail(zone, column, num, items){
   const box = $('warehouse-detail-panel');
   if (!box) return;
+  const mapped = visualSlotToCell(num);
   box.classList.remove('hidden');
-  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(num).padStart(2,'0')} 格</div><div class="btn-row compact-row"><button class="ghost-btn tiny-btn" onclick="openWarehouseModal('${zone}', ${column}, ${num})">直接編輯此格</button></div>` + (items.length ? items.map(it => { const row = formatCustomerProductRow(it.product_text || ''); return `<div class="deduct-card"><div><strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong></div><div>${escapeHTML(it.product_text || '')}</div><div>尺寸：${escapeHTML(row.size || '')}</div><div>材質：${escapeHTML((it.material || row.material || '未填'))}</div><div>數量：${it.qty || 0}</div><div class="small-note">格位：${zone}-${column}-${String(num).padStart(2,'0')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此格目前沒有商品</div>');
+  box.innerHTML = `<div class="section-title">${zone} 區第 ${column} 欄 第 ${String(num).padStart(2,'0')} 格</div><div class="small-note">${mapped.side === 'front' ? '前排' : '後排'}</div><div class="btn-row compact-row"><button class="ghost-btn tiny-btn" onclick="openWarehouseModal('${zone}', ${column}, ${num})">直接編輯此格</button></div>` + (items.length ? items.map(it => { const row = formatCustomerProductRow(it.product_text || ''); return `<div class="deduct-card"><div><strong>${escapeHTML(it.customer_name || '未指定客戶')}</strong></div><div>${escapeHTML(it.product_text || '')}</div><div>尺寸：${escapeHTML(row.size || '')}</div><div>材質：${escapeHTML((it.material || row.material || '未填'))}</div><div>數量：${it.qty || 0}</div><div class="small-note">格位：${zone}-${column}-${String(num).padStart(2,'0')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此格目前沒有商品</div>');
   highlightWarehouseCell(zone, column, num);
 }
-
-
 
 function openTodoAlbumPicker(){ $('todo-image-input')?.click(); }
 function openTodoCameraPicker(){ $('todo-camera-input')?.click(); }
