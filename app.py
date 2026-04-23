@@ -23,7 +23,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer
+    delete_customer, get_customer_relation_counts
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -131,6 +131,25 @@ def request_key_from_payload(data, endpoint=''):
 
 def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
+
+
+
+def resolve_customer_region(customer_name='', requested_region=''):
+    requested = (requested_region or '').strip()
+    if requested in ['北區', '中區', '南區']:
+        return requested
+    if customer_name:
+        row = get_customer(customer_name, include_archived=True)
+        if row and (row.get('region') or '').strip() in ['北區', '中區', '南區']:
+            return (row.get('region') or '').strip()
+    return '北區'
+
+
+def build_customer_payload_snapshot(customer_name=''):
+    customer_name = (customer_name or '').strip()
+    customer = get_customer(customer_name, include_archived=True) if customer_name else None
+    counts = get_customer_relation_counts(customer_name) if customer_name else {}
+    return {'customer': customer, 'relation_counts': counts}
 
 
 def safe_list_todos(fallback_item=None):
@@ -550,13 +569,14 @@ def api_inventory():
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
-            upsert_customer(customer_name, region=(data.get("region") or "北區").strip() or "北區")
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         for it in items:
             save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        return jsonify(success=True, items=grouped_inventory())
+        snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
+        return jsonify(success=True, items=grouped_inventory(), **snap)
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
@@ -574,12 +594,13 @@ def api_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(customer_name)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         log_action(current_username(), "建立訂單")
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        return jsonify(success=True, items=get_orders())
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_orders(), **snap)
     except Exception as e:
         log_error("orders", str(e))
         return error_response("訂單建立失敗")
@@ -597,12 +618,13 @@ def api_master_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(customer_name)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         log_action(current_username(), "更新總單")
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        return jsonify(success=True, items=get_master_orders())
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_master_orders(), **snap)
     except Exception as e:
         log_error("master_orders", str(e))
         return error_response("總單失敗")
@@ -618,13 +640,15 @@ def api_ship():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(customer_name)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        if isinstance(result, dict) and customer_name:
+            result.update(build_customer_payload_snapshot(customer_name))
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
@@ -665,17 +689,18 @@ def api_customers():
         name = (data.get("name") or "").strip()
         if not name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(
+        item = upsert_customer(
             name,
             phone=(data.get("phone") or "").strip(),
             address=(data.get("address") or "").strip(),
             notes=(data.get("notes") or "").strip(),
-            region=(data.get("region") or "北區").strip()
+            region=resolve_customer_region(name, data.get("region")),
+            preserve_existing=bool(data.get('preserve_existing', False))
         )
         log_action(current_username(), f"儲存客戶 {name}")
         add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json={}, after_json=data)
         notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
-        return jsonify(success=True, items=get_customers())
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
@@ -689,14 +714,17 @@ def api_customers_move():
         region = (data.get("region") or "").strip()
         if not name or region not in ["北區", "中區", "南區"]:
             return error_response("缺少客戶或區域")
-        row = get_customer(name) or {}
-        upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), region=region)
+        row = get_customer(name, include_archived=True) or {}
+        before_region = (row.get("region") or "").strip()
+        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), region=region, preserve_existing=True)
         log_action(current_username(), f"移動客戶 {name} 到 {region}")
+        add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
-        return jsonify(success=True, items=get_customers())
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("move_customer", str(e))
         return error_response("移動客戶失敗")
+
 
 
 @app.route("/api/customers/<name>", methods=["GET", "DELETE", "PUT"])
@@ -708,32 +736,53 @@ def api_customer_detail(name):
             new_name = (data.get("new_name") or "").strip()
             if not new_name:
                 return error_response("請輸入新的客戶名稱")
+            source = get_customer(name, include_archived=True)
+            if not source:
+                return error_response("找不到原客戶資料")
+            if new_name == name:
+                return jsonify(success=True, item=source, counts=get_customer_relation_counts(name))
+            existed = get_customer(new_name, include_archived=True)
+            if existed:
+                return error_response("新的客戶名稱已存在，請換一個名稱")
             conn = get_db()
             cur = conn.cursor()
-            tables = ["customer_profiles", "inventory", "orders", "master_orders", "shipping_records"]
-            for table in tables:
-                cur.execute(sql(f"UPDATE {table} SET customer_name = ? WHERE customer_name = ?"), (new_name, name)) if table != "customer_profiles" else cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
-            conn.commit()
-            conn.close()
+            try:
+                cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE inventory SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE orders SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE master_orders SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE shipping_records SET customer_name = ? WHERE customer_name = ?"), (new_name, name))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+            item = get_customer(new_name, include_archived=True)
             log_action(current_username(), f"修改客戶名稱 {name} -> {new_name}")
+            add_audit_trail(current_username(), 'rename', 'customer_profiles', name, before_json={'name': name}, after_json={'name': new_name})
             notify_sync_event(kind="refresh", module="customers", message=f"客戶已改名：{name} -> {new_name}", extra={"customer_name": new_name})
-            return jsonify(success=True, item=get_customer(new_name))
+            return jsonify(success=True, item=item, counts=get_customer_relation_counts(new_name))
         except Exception as e:
             log_error("rename_customer", str(e))
-            return error_response("客戶名稱更新失敗")
+            return error_response(f"客戶名稱更新失敗：{str(e)}")
     if request.method == "DELETE":
         try:
-            row = get_customer(name)
-            delete_customer(name)
-            log_action(current_username(), f"刪除客戶 {name}")
-            add_audit_trail(current_username(), 'delete', 'customer_profiles', name, before_json=row or {}, after_json={})
-            notify_sync_event(kind='refresh', module='customers', message=f'客戶已刪除：{name}', extra={'customer_name': name})
-            return jsonify(success=True)
+            result = delete_customer(name)
+            mode = result.get('mode') or 'deleted'
+            counts = result.get('counts') or {}
+            log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
+            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
+            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            return jsonify(success=True, mode=mode, counts=counts, message=message)
         except Exception as e:
             log_error("delete_customer", str(e))
-            return error_response("客戶刪除失敗")
-    row = get_customer(name)
-    return jsonify(success=True, item=row)
+            return error_response(f"客戶刪除失敗：{str(e)}")
+    row = get_customer(name, include_archived=True)
+    if not row:
+        return error_response("找不到客戶", 404)
+    return jsonify(success=True, item=row, counts=get_customer_relation_counts(name))
 
 @app.route("/api/warehouse", methods=["GET"])
 @login_required_json
@@ -837,9 +886,6 @@ def api_warehouse_available_items():
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
         return jsonify(success=True, items=[])
-
-    options = [r for r in inv if int(r.get("unplaced_qty", 0)) > 0]
-    return jsonify(success=True, items=options)
 
 
 @app.route("/api/customer-items", methods=["GET"])
@@ -971,7 +1017,7 @@ def api_orders_to_master():
         qty = int(data.get("qty") or 0)
         if not customer_name or not product_text or qty <= 0:
             return error_response("參數不足")
-        upsert_customer(customer_name)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
         log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
         notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})

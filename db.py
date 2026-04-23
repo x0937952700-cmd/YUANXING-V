@@ -2,6 +2,7 @@
 import os
 import json
 import sqlite3
+import hashlib
 from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -291,7 +292,11 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     if USE_POSTGRES:
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS customer_uid TEXT")
+        cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS is_archived INTEGER DEFAULT 0")
+        cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS archived_at TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
     else:
         cur.execute("PRAGMA table_info(users)")
         user_cols = {r[1] for r in cur.fetchall()}
@@ -299,9 +304,28 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
         if 'is_blocked' not in user_cols:
             cur.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
+        cur.execute("PRAGMA table_info(customer_profiles)")
+        customer_cols = {r[1] for r in cur.fetchall()}
+        if 'customer_uid' not in customer_cols:
+            cur.execute("ALTER TABLE customer_profiles ADD COLUMN customer_uid TEXT")
+        if 'is_archived' not in customer_cols:
+            cur.execute("ALTER TABLE customer_profiles ADD COLUMN is_archived INTEGER DEFAULT 0")
+        if 'archived_at' not in customer_cols:
+            cur.execute("ALTER TABLE customer_profiles ADD COLUMN archived_at TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
 
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
+
+    try:
+        cur.execute(sql("SELECT id, name, created_at FROM customer_profiles WHERE COALESCE(customer_uid, '') = ''"))
+        missing_uid_rows = rows_to_dict(cur)
+        for row in missing_uid_rows:
+            seed = f"{row.get('name') or ''}|{row.get('created_at') or ''}|{row.get('id') or ''}|customer"
+            uid = 'CUST-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper()
+            cur.execute(sql("UPDATE customer_profiles SET customer_uid = ?, updated_at = COALESCE(updated_at, ?) WHERE id = ?"), (uid, now(), row.get('id')))
+    except Exception:
+        pass
 
     # default settings
     if USE_POSTGRES:
@@ -658,66 +682,160 @@ def set_setting(key, value):
     conn.close()
 
 
-def upsert_customer(name, phone="", address="", notes="", region="北區"):
+
+
+def _new_customer_uid(name, created_at=''):
+    seed = f"{name}|{created_at}|{now()}|customer"
+    return 'CUST-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper()
+
+
+def get_customer_relation_counts(name):
+    name = (name or '').strip()
+    counts = {
+        'inventory_rows': 0,
+        'order_rows': 0,
+        'master_rows': 0,
+        'shipping_rows': 0,
+        'inventory_qty': 0,
+        'order_qty': 0,
+        'master_qty': 0,
+        'shipping_qty': 0,
+        'active_rows': 0,
+        'total_rows': 0,
+        'active_qty_total': 0,
+        'history_qty_total': 0,
+    }
+    if not name:
+        return counts
     conn = get_db()
     cur = conn.cursor()
-    if USE_POSTGRES:
-        cur.execute("""
-            INSERT INTO customer_profiles(name, phone, address, notes, region, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT(name) DO UPDATE SET phone=EXCLUDED.phone, address=EXCLUDED.address, notes=EXCLUDED.notes, region=EXCLUDED.region, updated_at=EXCLUDED.updated_at
-        """, (name, phone, address, notes, region, now(), now()))
+    for table, prefix, ts_col in [
+        ('inventory', 'inventory', 'updated_at'),
+        ('orders', 'order', 'updated_at'),
+        ('master_orders', 'master', 'updated_at'),
+        ('shipping_records', 'shipping', 'shipped_at'),
+    ]:
+        cur.execute(sql(f"SELECT COUNT(*) AS rows, COALESCE(SUM(qty),0) AS qty FROM {table} WHERE customer_name = ?"), (name,))
+        row = fetchone_dict(cur) or {}
+        counts[f'{prefix}_rows'] = int(row.get('rows') or 0)
+        counts[f'{prefix}_qty'] = int(row.get('qty') or 0)
+    counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
+    counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
+    counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
+    counts['history_qty_total'] = counts['shipping_qty']
+    conn.close()
+    return counts
+
+
+def upsert_customer(name, phone=None, address=None, notes=None, region=None, preserve_existing=True):
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('客戶名稱不可空白')
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM customer_profiles WHERE name = ?"), (name,))
+    existing = fetchone_dict(cur) or {}
+
+    def choose(field_name, incoming, default=''):
+        if preserve_existing:
+            if incoming is None or incoming == '':
+                return (existing.get(field_name) or default)
+        if incoming is None:
+            return (existing.get(field_name) or default) if preserve_existing else default
+        return incoming
+
+    phone_v = choose('phone', phone, '')
+    address_v = choose('address', address, '')
+    notes_v = choose('notes', notes, '')
+    region_v = choose('region', region, '北區') or '北區'
+    created_at_v = existing.get('created_at') or now()
+    customer_uid = existing.get('customer_uid') or _new_customer_uid(name, created_at_v)
+
+    if existing:
+        cur.execute(sql("""
+            UPDATE customer_profiles
+            SET phone = ?, address = ?, notes = ?, region = ?, customer_uid = ?, is_archived = 0, archived_at = NULL, updated_at = ?
+            WHERE name = ?
+        """), (phone_v, address_v, notes_v, region_v, customer_uid, now(), name))
     else:
-        cur.execute("""
-            INSERT INTO customer_profiles(name, phone, address, notes, region, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET phone=excluded.phone, address=excluded.address, notes=excluded.notes, region=excluded.region, updated_at=excluded.updated_at
-        """, (name, phone, address, notes, region, now(), now()))
+        cur.execute(sql("""
+            INSERT INTO customer_profiles(name, phone, address, notes, region, customer_uid, is_archived, archived_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)
+        """), (name, phone_v, address_v, notes_v, region_v, customer_uid, created_at_v, now()))
     conn.commit()
     conn.close()
+    return get_customer(name, include_archived=True)
 
-def get_customers():
+
+def get_customers(active_only=True):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM customer_profiles ORDER BY region, name"))
+    query = "SELECT * FROM customer_profiles"
+    params = []
+    if active_only:
+        query += " WHERE COALESCE(is_archived, 0) = 0"
+    query += " ORDER BY CASE region WHEN '北區' THEN 1 WHEN '中區' THEN 2 WHEN '南區' THEN 3 ELSE 9 END, name"
+    cur.execute(sql(query), tuple(params))
     rows = rows_to_dict(cur)
     for row in rows:
         name = (row.get("name") or "").strip()
-        item_count = 0
-        if name:
-            cur.execute(sql("SELECT COUNT(*) AS c FROM inventory WHERE customer_name = ?"), (name,))
-            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
-            cur.execute(sql("SELECT COUNT(*) AS c FROM orders WHERE customer_name = ?"), (name,))
-            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
-            cur.execute(sql("SELECT COUNT(*) AS c FROM master_orders WHERE customer_name = ?"), (name,))
-            item_count += int((fetchone_dict(cur) or {}).get('c') or 0)
-        row['item_count'] = item_count
+        counts = get_customer_relation_counts(name)
+        row['relation_counts'] = counts
+        row['row_count'] = counts.get('active_rows', 0)
+        row['item_count'] = counts.get('active_qty_total', 0)
+        row['history_count'] = counts.get('shipping_qty', 0)
+        row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(name, row.get('created_at') or '')
+        row['is_archived'] = int(row.get('is_archived') or 0)
     conn.close()
     return rows
 
 
 
 def delete_customer(name):
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('客戶名稱不可空白')
+    row = get_customer(name, include_archived=True)
+    if not row:
+        raise ValueError('找不到客戶')
+    counts = get_customer_relation_counts(name)
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql("DELETE FROM customer_profiles WHERE name = ?"), (name,))
+    if int(counts.get('total_rows') or 0) > 0:
+        cur.execute(sql("UPDATE customer_profiles SET is_archived = 1, archived_at = ?, updated_at = ? WHERE name = ?"), (now(), now(), name))
+        mode = 'archived'
+    else:
+        cur.execute(sql("DELETE FROM customer_profiles WHERE name = ?"), (name,))
+        mode = 'deleted'
     conn.commit()
     conn.close()
-def get_customer(name):
+    return {'mode': mode, 'counts': counts, 'item': row}
+
+def get_customer(name, include_archived=False):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM customer_profiles WHERE name = ?"), (name,))
+    query = "SELECT * FROM customer_profiles WHERE name = ?"
+    if not include_archived:
+        query += " AND COALESCE(is_archived, 0) = 0"
+    cur.execute(sql(query), (name,))
     row = fetchone_dict(cur)
     conn.close()
+    if row:
+        row['relation_counts'] = get_customer_relation_counts(name)
+        row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(name, row.get('created_at') or '')
+        row['is_archived'] = int(row.get('is_archived') or 0)
     return row
+
 
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text=""):
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT id, qty FROM inventory
-        WHERE product_text = ? AND COALESCE(location, '') = COALESCE(?, '')
-    """), (product_text, location))
+        WHERE product_text = ?
+          AND COALESCE(location, '') = COALESCE(?, '')
+          AND COALESCE(customer_name, '') = COALESCE(?, '')
+    """), (product_text, location, customer_name))
     row = cur.fetchone()
     if row:
         rid = row[0] if USE_POSTGRES else row["id"]
@@ -735,6 +853,7 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
     conn.close()
 
 def list_inventory():
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("SELECT * FROM inventory ORDER BY updated_at DESC, id DESC"))
