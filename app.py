@@ -1617,9 +1617,137 @@ def api_recent_slots():
     customer_name = (request.args.get('customer_name') or '').strip()
     return jsonify(success=True, items=get_recent_slots(current_username(), customer_name=customer_name, limit=8))
 
+
+# ==== FIX30：操作紀錄中文化 / 陳韋廷權限 / 批量刪除 ====
+def _is_admin_user():
+    return current_username() == '陳韋廷'
+
+def _parse_maybe_json(value):
+    if isinstance(value, (dict, list)):
+        return value
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+def _audit_action_label(action_type=''):
+    action_type = (action_type or '').strip()
+    return {
+        'create': '新增', 'update': '修改', 'delete': '刪除', 'move': '搬移',
+        'ship': '出貨', 'transfer': '互通移動', 'upsert': '儲存 / 更新',
+        'undo': '還原', 'restore': '還原', 'archive': '封存'
+    }.get(action_type, action_type or '操作')
+
+def _audit_entity_label(entity_type=''):
+    entity_type = (entity_type or '').strip()
+    return {
+        'inventory': '庫存', 'orders': '訂單', 'master_orders': '總單',
+        'shipping_records': '出貨紀錄', 'warehouse_cells': '倉庫格位',
+        'customer_profiles': '客戶資料', 'customer_aliases': '客戶別名',
+        'corrections': 'OCR修正詞', 'todo_items': '代辦事項', 'undo': '還原紀錄'
+    }.get(entity_type, entity_type or '資料')
+
+def _audit_field_label(key=''):
+    return {
+        'customer_name': '客戶', 'name': '客戶名稱', 'new_name': '新客戶名稱',
+        'product_text': '商品資料', 'product_code': '材質 / 代碼', 'qty': '數量',
+        'quantity': '數量', 'location': '倉庫位置', 'operator': '操作人',
+        'target': '目標', 'source': '來源', 'source_label': '來源', 'target_label': '目標',
+        'zone': '區域', 'column_index': '欄位', 'slot_number': '格號',
+        'from_key': '原格位', 'to_key': '新格位', 'note': '備註',
+        'items': '商品', 'breakdown': '出貨扣除明細', 'message': '訊息',
+        'region': '區域', 'phone': '電話', 'address': '地址', 'notes': '特殊要求',
+        'wrong_text': '錯誤字', 'correct_text': '正確字', 'alias': '別名', 'target_name': '正式客戶'
+    }.get(key, key)
+
+def _fmt_audit_value(value):
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                parts.append(_audit_dict_to_text(item).replace('\n', '，'))
+            else:
+                parts.append(str(item))
+        return '；'.join([p for p in parts if p]) or '無'
+    if isinstance(value, dict):
+        return _audit_dict_to_text(value).replace('\n', '，') or '無'
+    if value is None or value == '':
+        return '無'
+    return str(value)
+
+def _audit_dict_to_text(data):
+    data = _parse_maybe_json(data)
+    if not data:
+        return '無資料'
+    if isinstance(data, list):
+        return _fmt_audit_value(data)
+    if not isinstance(data, dict):
+        return str(data)
+    preferred = ['source', 'target', 'customer_name', 'name', 'product_text', 'qty', 'location', 'zone', 'column_index', 'slot_number', 'from_key', 'to_key', 'message', 'note']
+    lines = []
+    used = set()
+    for key in preferred:
+        if key in data:
+            lines.append(f"{_audit_field_label(key)}：{_fmt_audit_value(data.get(key))}")
+            used.add(key)
+    for key, value in data.items():
+        if key in used or key in ('id', 'created_at', 'updated_at', 'customer_uid'):
+            continue
+        lines.append(f"{_audit_field_label(key)}：{_fmt_audit_value(value)}")
+    return '\n'.join(lines) if lines else '無資料'
+
+def _audit_summary_text(item):
+    action = _audit_action_label(item.get('action_type'))
+    entity = _audit_entity_label(item.get('entity_type'))
+    after = _parse_maybe_json(item.get('after_json'))
+    before = _parse_maybe_json(item.get('before_json'))
+    data = after if isinstance(after, dict) and after else before if isinstance(before, dict) else {}
+    customer = (data.get('customer_name') or data.get('name') or '') if isinstance(data, dict) else ''
+    product = (data.get('product_text') or '') if isinstance(data, dict) else ''
+    qty = (data.get('qty') or data.get('quantity') or '') if isinstance(data, dict) else ''
+    target = (data.get('target') or '') if isinstance(data, dict) else ''
+    bits = [f"{action}{entity}"]
+    if target:
+        bits.append(f"目標：{target}")
+    if customer:
+        bits.append(f"客戶：{customer}")
+    if product:
+        bits.append(f"商品：{product}")
+    if qty != '':
+        bits.append(f"數量：{qty}")
+    if len(bits) == 1 and item.get('entity_key'):
+        bits.append(f"編號：{item.get('entity_key')}")
+    return '｜'.join(bits)
+
+def _decorate_audit_item(item):
+    before = _parse_maybe_json(item.get('before_json'))
+    after = _parse_maybe_json(item.get('after_json'))
+    out = dict(item)
+    out['action_label'] = _audit_action_label(item.get('action_type'))
+    out['entity_label'] = _audit_entity_label(item.get('entity_type'))
+    out['summary_text'] = _audit_summary_text(item)
+    out['before_text'] = _audit_dict_to_text(before)
+    out['after_text'] = _audit_dict_to_text(after)
+    return out
+
+def _delete_rows_by_ids(table, ids):
+    ids = [int(x) for x in (ids or []) if str(x).isdigit()]
+    if not ids:
+        return 0
+    conn = get_db(); cur = conn.cursor()
+    holders = ','.join(['?'] * len(ids))
+    cur.execute(sql(f'DELETE FROM {table} WHERE id IN ({holders})'), tuple(ids))
+    count = cur.rowcount if cur.rowcount is not None else len(ids)
+    conn.commit(); conn.close()
+    return count
+
 @app.route('/api/audit-trails', methods=['GET'])
 @login_required_json
 def api_audit_trails():
+    if not _is_admin_user():
+        return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
     limit = int(request.args.get('limit') or 200)
     username = (request.args.get('username') or '').strip()
     entity_type = (request.args.get('entity_type') or '').strip()
@@ -1629,6 +1757,7 @@ def api_audit_trails():
     items = list_audit_trails(limit=max(limit * 4, 200))
     filtered = []
     for item in items:
+        item = _decorate_audit_item(item)
         if username and username not in (item.get('username') or ''):
             continue
         if entity_type and entity_type not in (item.get('entity_type') or ''):
@@ -1645,6 +1774,28 @@ def api_audit_trails():
         if len(filtered) >= limit:
             break
     return jsonify(success=True, items=filtered)
+
+@app.route('/api/audit-trails/bulk-delete', methods=['POST'])
+@login_required_json
+def api_audit_trails_bulk_delete():
+    if not _is_admin_user():
+        return error_response('只有陳韋廷可以批量刪除操作紀錄', 403)
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    count = _delete_rows_by_ids('audit_trails', ids)
+    notify_sync_event(kind='refresh', module='today_changes', message='操作紀錄已批量刪除', extra={'count': count})
+    return jsonify(success=True, deleted=count)
+
+@app.route('/api/today-changes/bulk-delete', methods=['POST'])
+@login_required_json
+def api_today_changes_bulk_delete():
+    if not _is_admin_user():
+        return error_response('只有陳韋廷可以批量刪除今日異動', 403)
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    count = _delete_rows_by_ids('logs', ids)
+    notify_sync_event(kind='refresh', module='today_changes', message='今日異動已批量刪除', extra={'count': count})
+    return jsonify(success=True, deleted=count, **_today_changes_payload())
 
 @app.route('/api/customer-specs', methods=['GET'])
 @login_required_json

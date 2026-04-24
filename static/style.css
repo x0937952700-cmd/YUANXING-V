@@ -1222,3 +1222,106 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 @media (max-width: 640px){
   .pwa-install-btn{ right:14px; bottom:calc(14px + env(safe-area-inset-bottom)); padding:11px 14px; font-size:14px; }
 }
+
+/* FIX30：批量刪除 / 操作數量 / 中文操作紀錄 */
+.fix30-bulk-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:10px 0 14px;
+}
+.fix30-check-label,.fix30-card-check{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  color:#1f2937;
+  user-select:none;
+}
+.fix30-card-check{
+  margin-bottom:8px;
+  padding:5px 8px;
+  border-radius:999px;
+  background:rgba(255,255,255,.72);
+  border:1px solid rgba(17,24,39,.08);
+}
+.fix30-action-qty-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:10px 0 8px;
+  padding:8px 10px;
+  border-radius:14px;
+  background:rgba(248,250,252,.88);
+  border:1px solid rgba(17,24,39,.08);
+}
+.fix30-action-qty-row label{
+  font-size:13px;
+  color:#475569;
+  white-space:nowrap;
+}
+.tiny-qty-input{
+  max-width:110px;
+  height:34px;
+  padding:6px 10px;
+  font-size:15px;
+}
+.fix30-cn-box{
+  white-space:normal;
+  line-height:1.7;
+  border:1px solid rgba(17,24,39,.08);
+  background:rgba(248,250,252,.94);
+  border-radius:14px;
+  padding:10px 12px;
+  margin:6px 0 12px;
+  color:#111827;
+}
+@media (max-width: 640px){
+  .fix30-bulk-toolbar{justify-content:flex-start;}
+  .fix30-action-qty-row{align-items:stretch; flex-direction:column;}
+  .tiny-qty-input{max-width:100%; width:100%;}
+}
+
+/* ==== FIX31 batch operations for inventory / orders / master ==== */
+.fix31-bulk-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:10px;
+  padding:12px;
+  margin:10px 0 14px;
+  border:1px solid rgba(31,41,55,.08);
+  border-radius:18px;
+  background:rgba(255,255,255,.78);
+  box-shadow:0 10px 24px rgba(15,23,42,.06);
+}
+.fix31-bulk-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.fix31-select-all,.fix31-card-check{
+  display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#1f2937;
+  user-select:none;
+}
+.fix31-card-check{
+  position:absolute;top:10px;right:12px;z-index:2;background:rgba(255,255,255,.92);
+  border:1px solid rgba(17,24,39,.08);border-radius:999px;padding:5px 9px;
+}
+.fix28-action-card{padding-top:42px;}
+.fix28-action-card.fix31-selected{outline:2px solid rgba(34,197,94,.45);background:rgba(236,253,245,.72);}
+.fix31-bulk-qty-row,.fix30-action-qty-row{
+  display:flex;align-items:center;gap:10px;margin:10px 0 8px;padding:8px 10px;border-radius:14px;
+  background:rgba(248,250,252,.9);border:1px solid rgba(148,163,184,.16);
+}
+.fix31-bulk-qty-row label,.fix30-action-qty-row label{font-size:13px;font-weight:800;color:#374151;white-space:nowrap;}
+.tiny-qty-input{width:92px;min-width:92px;padding:8px 10px;text-align:center;}
+.fix31-bulk-note{flex-basis:100%;}
+.fix31-confirm-list{display:grid;gap:6px;margin-top:10px;max-height:280px;overflow:auto;}
+.fix31-confirm-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(248,250,252,.9);}
+.fix31-confirm-row span{font-weight:800;}
+.fix31-confirm-row em{font-style:normal;color:#6b7280;font-size:12px;}
+@media (max-width: 720px){
+  .fix31-bulk-toolbar{align-items:stretch;}
+  .fix31-bulk-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;}
+  .fix31-bulk-actions .ghost-btn{width:100%;}
+  .fix31-confirm-row{grid-template-columns:1fr;gap:2px;}
+}
