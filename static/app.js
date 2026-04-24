@@ -3272,3 +3272,128 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 /* ==== FIX12 end ==== */
+
+/* ==== FIX13 inventory submit clear + render submitted rows ==== */
+(function(){
+  const $id = (id) => document.getElementById(id);
+  const esc = (v) => window.escapeHTML ? window.escapeHTML(v) : String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const api = (url, options={}) => window.requestJSON ? window.requestJSON(url, options) : fetch(url, {credentials:'same-origin', headers:{'Content-Type':'application/json'}, ...options}).then(async r => { const d = await r.json().catch(()=>({})); if(!r.ok || d.success===false) throw new Error(d.error || d.message || '請求失敗'); return d; });
+  const toast = (m,t='ok') => window.toast ? window.toast(m,t) : alert(m);
+  const isInv = () => { try { return (typeof window.currentModule === 'function' && window.currentModule() === 'inventory') || location.pathname.includes('/inventory'); } catch(_){ return location.pathname.includes('/inventory'); } };
+  function invBoxes(){
+    const boxes = [];
+    const panel = $id('inventory-inline-panel'); if (panel) panel.style.display = '';
+    const section = $id('inventory-summary-section'); if (section) section.style.display = '';
+    const inline = $id('inventory-inline-list'); if (inline) boxes.push(inline);
+    const summary = $id('inventory-summary'); if (summary && summary !== inline) boxes.push(summary);
+    return boxes;
+  }
+  function parseItems(){
+    let items = [];
+    try { items = typeof window.parseTextareaItems === 'function' ? window.parseTextareaItems() : []; } catch(_e) { items = []; }
+    if (!items.length) {
+      const text = ($id('ocr-text')?.value || '').replace(/[。．]/g,'').trim();
+      const tokens = text.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*=\s*[0-9x+ ]+/ig) || [];
+      items = tokens.map(t => {
+        const right = (t.split('=')[1] || '').trim();
+        const nums = right.match(/\d+/g) || [];
+        return {product_text:t.replace(/\s+/g,''), product_code:t.replace(/\s+/g,''), qty: parseInt(nums[1] || nums[0] || '1', 10) || 1};
+      });
+    }
+    return items.filter(x => x.product_text && Number(x.qty || 0) > 0);
+  }
+  function qtyText(row){ const s=String(row.product_text||''); const i=s.indexOf('='); return i>=0 ? s.slice(i+1) : String(row.qty||''); }
+  function sizeText(row){ const s=String(row.product_text||''); const i=s.indexOf('='); return i>=0 ? s.slice(0,i) : s; }
+  function card(row){
+    const id = Number(row.id || 0);
+    const disabled = id ? '' : 'disabled';
+    const unplaced = Number(row.unplaced_qty || 0) > 0 || row.needs_red;
+    return `<div class="card inventory-action-card ${unplaced ? 'inventory-unplaced-card' : ''}" data-inventory-id="${id}">
+      <div class="title">${esc(sizeText(row))}</div>
+      <div class="sub">${esc(qtyText(row))}｜數量 ${Number(row.qty || 0)}${row.location ? `｜格位 ${esc(row.location)}` : '｜未設定格位'}${row.customer_name ? `｜${esc(row.customer_name)}` : ''}</div>
+      ${unplaced ? `<div class="small-note danger-text">未錄入倉庫圖：${Number(row.unplaced_qty || row.qty || 0)}</div>` : ''}
+      <div class="btn-row compact-row" style="margin-top:10px;justify-content:flex-end;">
+        <button class="ghost-btn tiny-btn" type="button" data-inv13-act="edit" data-id="${id}" ${disabled}>編輯</button>
+        <button class="ghost-btn tiny-btn" type="button" data-inv13-act="orders" data-id="${id}" ${disabled}>移到訂單</button>
+        <button class="ghost-btn tiny-btn" type="button" data-inv13-act="master_order" data-id="${id}" ${disabled}>移到總單</button>
+      </div>
+    </div>`;
+  }
+  function bind(box, rows){
+    box.querySelectorAll('[data-inv13-act]').forEach(btn => {
+      btn.onclick = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const row = rows.find(r => Number(r.id||0) === Number(btn.dataset.id||0));
+        if (!row) return;
+        if (btn.dataset.inv13Act === 'edit') edit(row); else move(row, btn.dataset.inv13Act);
+      };
+    });
+    box.querySelectorAll('.inventory-action-card').forEach(el => {
+      el.onclick = () => { const row = rows.find(r => Number(r.id||0) === Number(el.dataset.inventoryId||0)); if (row) edit(row); };
+    });
+  }
+  function renderRows(rows){
+    const boxes = invBoxes();
+    const html = rows.length ? rows.map(card).join('') : '<div class="empty-state-card compact-empty">目前沒有庫存資料</div>';
+    boxes.forEach(b => { b.innerHTML = html; bind(b, rows); });
+  }
+  async function load(){
+    if (!isInv()) return;
+    const boxes = invBoxes();
+    boxes.forEach(b => b.innerHTML = '<div class="empty-state-card compact-empty">庫存載入中…</div>');
+    try { const data = await api('/api/inventory', {method:'GET'}); renderRows(Array.isArray(data.items) ? data.items : []); }
+    catch(e){ boxes.forEach(b => b.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message || '庫存清單載入失敗')}</div>`); }
+  }
+  function modal(id,title){
+    let m=$id(id); if(!m){ m=document.createElement('div'); m.id=id; m.className='modal hidden'; m.innerHTML=`<div class="modal-card glass" style="max-width:560px;width:min(94vw,560px);"><div class="modal-head"><div class="section-title">${esc(title)}</div><button type="button" class="icon-btn fix13-close">✕</button></div><div class="fix13-body"></div></div>`; document.body.appendChild(m); m.querySelector('.fix13-close').onclick=()=>m.classList.add('hidden'); m.onclick=e=>{ if(e.target===m) m.classList.add('hidden'); }; } return m;
+  }
+  function edit(row){
+    if(!row.id) return;
+    const m=modal('inventory-edit-modal-fix13','編輯庫存商品');
+    m.querySelector('.fix13-body').innerHTML=`<label class="field-label">商品資料</label><textarea id="fix13-text" class="text-area" style="min-height:110px;">${esc(row.product_text||'')}</textarea><label class="field-label">數量</label><input id="fix13-qty" class="text-input" type="number" min="0" value="${Number(row.qty||0)}"><label class="field-label">倉庫格位 / 預設位置</label><input id="fix13-loc" class="text-input" value="${esc(row.location||'')}"><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="fix13-cancel" type="button">取消</button><button class="primary-btn" id="fix13-save" type="button">儲存</button></div>`;
+    $id('fix13-cancel').onclick=()=>m.classList.add('hidden');
+    $id('fix13-save').onclick=async()=>{ try{ await api(`/api/inventory/${Number(row.id)}`, {method:'PUT', body:JSON.stringify({product_text:$id('fix13-text').value.trim(), qty:Number($id('fix13-qty').value||0), location:$id('fix13-loc').value.trim()})}); m.classList.add('hidden'); toast('庫存已更新','ok'); load(); }catch(e){ toast(e.message||'庫存更新失敗','error'); } };
+    m.classList.remove('hidden');
+  }
+  async function chooseCustomer(){
+    const m=modal('inventory-customer-modal-fix13','選擇客戶');
+    m.querySelector('.fix13-body').innerHTML=`<input id="fix13-customer" class="text-input" placeholder="輸入或搜尋客戶名稱"><div id="fix13-customers" class="card-list" style="max-height:42vh;overflow:auto;margin-top:12px;"></div><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="fix13-cust-cancel" type="button">取消</button><button class="primary-btn" id="fix13-cust-use" type="button">使用輸入名稱</button></div>`;
+    m.classList.remove('hidden');
+    return new Promise(async resolve=>{
+      let done=false; const close=v=>{ if(done) return; done=true; m.classList.add('hidden'); resolve((v||'').trim()); };
+      $id('fix13-cust-cancel').onclick=()=>close(''); $id('fix13-cust-use').onclick=()=>close($id('fix13-customer').value);
+      let list=[]; try{ const data=await api('/api/customers',{method:'GET'}); list=Array.isArray(data.items)?data.items:[]; }catch(_e){}
+      const draw=()=>{ const q=($id('fix13-customer').value||'').trim().toLowerCase(); const rows=list.filter(c=>!q||String(c.name||'').toLowerCase().includes(q)).slice(0,80); $id('fix13-customers').innerHTML=rows.length?rows.map(c=>`<button class="card" type="button" data-name="${esc(c.name||'')}"><div class="title">${esc(c.name||'')}</div><div class="sub">${esc(c.region||'未分區')}</div></button>`).join(''):'<div class="empty-state-card compact-empty">沒有符合客戶，可按「使用輸入名稱」</div>'; $id('fix13-customers').querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>close(b.dataset.name||'')); };
+      $id('fix13-customer').oninput=draw; draw(); setTimeout(()=>$id('fix13-customer')?.focus(),50);
+    });
+  }
+  async function move(row,target){
+    const label=target==='orders'?'訂單':'總單'; const customer=await chooseCustomer(); if(!customer) return;
+    try{ await api(`/api/inventory/${Number(row.id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer, qty:Number(row.qty||0)})}); toast(`已移到${label}：${customer}`,'ok'); load(); }catch(e){ toast(e.message||`移到${label}失敗`,'error'); }
+  }
+  const prev = window.confirmSubmit;
+  window.confirmSubmit = async function(){
+    if (!isInv()) return typeof prev === 'function' ? prev.apply(this, arguments) : undefined;
+    const btn=$id('submit-btn'); if(!btn || btn.dataset.busy==='1') return;
+    const textEl=$id('ocr-text'); const locEl=$id('location-input'); const result=$id('module-result');
+    const raw=(textEl?.value||'').trim(); const location=(locEl?.value||'').trim(); const items=parseItems();
+    if(!items.length){ toast('沒有可送出的商品資料','warn'); if(result){ result.classList.remove('hidden'); result.style.display=''; result.innerHTML='<div class="section-title">送出失敗</div><div class="muted">請確認商品格式，例如 112x12x01=112x12+114。</div>'; } return; }
+    try{
+      btn.dataset.busy='1'; btn.disabled=true; btn.textContent='送出中…';
+      const response=await api('/api/inventory', {method:'POST', body:JSON.stringify({customer_name:'', location, ocr_text:raw, items, request_key:`inventory_${Date.now()}_${Math.random().toString(36).slice(2)}`})});
+      if(result){ result.classList.remove('hidden'); result.style.display=''; result.innerHTML=`<div class="section-title">送出完成</div><div class="muted">已建立 ${items.length} 筆庫存資料。</div>`; }
+      if(textEl) textEl.value='';
+      const rows=Array.isArray(response.items) ? response.items : [];
+      if(rows.length) renderRows(rows); else await load();
+      setTimeout(load, 300);
+      toast('庫存送出成功','ok');
+    }catch(e){
+      if(result){ result.classList.remove('hidden'); result.style.display=''; result.innerHTML=`<div class="section-title">送出失敗</div><div class="muted">${esc(e.message||'建立失敗')}</div>`; }
+      toast(e.message||'建立失敗','error');
+    }finally{ btn.dataset.busy='0'; btn.disabled=false; btn.textContent='確認送出'; }
+  };
+  globalThis.confirmSubmit = window.confirmSubmit;
+  window.loadInventory = load; window.loadInventoryFix12 = load; window.loadInventoryHard = load; window.loadInventoryFix13 = load;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { if(isInv()) setTimeout(load,80); }); else if(isInv()) setTimeout(load,80);
+})();
+/* ==== FIX13 end ==== */
