@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix56-send-login-batch-customer-delete';
+  const PWA_VERSION = 'fix57-final-hard-patch';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

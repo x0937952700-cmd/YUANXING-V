@@ -1754,3 +1754,35 @@ body{ padding-top:var(--safe-top); padding-bottom:calc(var(--safe-bottom) + 10px
 .fix56-item-customer{grid-column:1/-1;color:#475569;font-size:13px;}
 .fix56-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
 @media(max-width:760px){.fix56-item-grid{grid-template-columns:1fr 1fr}.fix56-toolbar{gap:8px}.fix56-toolbar .text-input{min-width:0;flex:1 1 160px}.fix56-summary-table{min-width:620px}}
+
+/* ==== FIX57 final UI patch ==== */
+.fix57-toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:12px 0 14px;
+}
+.fix57-toolbar .text-input{ min-width:180px; }
+.fix57-toolbar input[type="text"], .fix57-toolbar input:not([type]){ flex:1; }
+.fix57-checkline{ display:flex; align-items:center; gap:6px; color:#1f2937; font-size:14px; white-space:nowrap; }
+.fix57-summary-panel{ margin:12px 0 18px; overflow:auto; }
+.fix57-summary-title{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin:0 0 12px; color:#111827; }
+.fix57-summary-title span{ color:#64748b; font-size:13px; }
+.fix57-summary-table{ width:100%; border-collapse:collapse; min-width:680px; }
+.fix57-summary-table th,.fix57-summary-table td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; vertical-align:top; }
+.fix57-summary-table th{ background:#f8fafc; color:#0f172a; font-weight:700; }
+.fix57-summary-table .check-col{ width:56px; }
+.fix57-item-card{ padding:14px; }
+.fix57-item-grid{ display:grid; grid-template-columns:repeat(4,minmax(110px,1fr)); gap:10px 14px; align-items:start; }
+.fix57-item-label{ display:block; color:#64748b; font-size:12px; margin-bottom:3px; }
+.fix57-item-customer{ grid-column:1/-1; color:#475569; font-size:13px; }
+.fix57-card-actions{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+.fix57-toolbar .danger-btn,.fix57-card-actions .danger-btn{ color:#dc2626; border-color:#fecaca; background:#fff5f5; }
+.customer-detail #fix52-left-customer-items,
+.customer-detail .fix52-left-customer-items{ display:none !important; }
+@media(max-width:720px){
+  .fix57-toolbar{ align-items:stretch; }
+  .fix57-toolbar .text-input,.fix57-toolbar button,.fix57-toolbar select{ width:100%; min-width:0; }
+  .fix57-item-grid{ grid-template-columns:1fr 1fr; }
+}
