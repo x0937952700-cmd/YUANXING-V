@@ -3096,3 +3096,16 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if ($('shipping-results')) window.loadShippingRecords();
   });
 })();
+
+
+function calcVolume(expr){
+    let total = 0;
+    expr.split('+').forEach(p=>{
+        p = p.trim();
+        let m = p.match(/(\d+)x(\d+)/);
+        if(m){
+            total += parseInt(m[1]) * parseInt(m[2]);
+        }
+    });
+    return total;
+}

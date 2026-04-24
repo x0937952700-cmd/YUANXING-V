@@ -180,3 +180,25 @@
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
+
+
+function calcVolume(expr){
+    let total = 0;
+    expr.split('+').forEach(p=>{
+        p = p.trim();
+        let m = p.match(/(\d+)x(\d+)/);
+        if(m){
+            total += parseInt(m[1]) * parseInt(m[2]);
+        }
+    });
+    return total;
+}
+
+
+function highlightWarehouse(cellId){
+    const el = document.getElementById(cellId);
+    if(!el) return;
+    el.style.transition = "0.3s";
+    el.style.background = "#ffeb3b";
+    setTimeout(()=>{ el.style.background = ""; }, 1500);
+}
