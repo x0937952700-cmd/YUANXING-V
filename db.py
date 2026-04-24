@@ -1352,17 +1352,28 @@ def _normalize_size_key(text):
     return left
 
 def _normalize_product_key(text):
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip().lower()
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip().lower()
     if '=' not in raw:
         return _normalize_size_key(raw)
     left, right = raw.split('=', 1)
     size = _normalize_size_key(left)
-    # 括號備註例如 (-1永松) 只做顯示，不參與商品比對，避免出貨/移動找不到同尺寸商品。
-    right_for_key = __import__('re').sub(r'[\(（][^\)）]*[\)）]', '', right).replace('件', '').replace('片', '')
-    # 右側保留材積/支數資訊，但清掉空白與前導 0，讓 05 和 5 可比對。
-    nums = [str(int(n)) for n in __import__('re').findall(r'\d+', right_for_key)]
-    if nums:
-        return size + '=' + 'x'.join(nums)
+    # 括號備註只做顯示，不參與商品比對；讓 97 和 97x1 可視為同一支數，避免預覽誤判不足 1。
+    right_for_key = re.sub(r'[\(（][^\)）]*[\)）]', '', right).replace('件', '').replace('片', '')
+    right_for_key = re.sub(r'\s+', '', right_for_key).replace('＋', '+').replace('，', '+').replace(',', '+').replace('；', '+').replace(';', '+')
+    parts = [part for part in right_for_key.split('+') if part]
+    keys = []
+    for part in parts:
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', part, flags=re.I)
+        if m:
+            main = str(int(float(m.group(1))))
+            mult = int(m.group(2) or 1)
+            keys.append(main if mult == 1 else f'{main}x{mult}')
+            continue
+        nums = re.findall(r'\d+(?:\.\d+)?', part)
+        if nums:
+            keys.append(str(int(float(nums[0]))))
+    if keys:
+        return size + '=' + '+'.join(keys)
     return size + '=' + right_for_key.strip()
 
 def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):

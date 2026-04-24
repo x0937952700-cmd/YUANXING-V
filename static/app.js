@@ -107,7 +107,7 @@ window.requestJSON = window.requestJSON || async function(url, options={}){
   return data;
 };
 window.getFixedWarehouseColumns = function(){ return [1,2,3,4,5,6]; };
-window.getFixedWarehouseSlots = function(){ return 20; };
+window.getFixedWarehouseSlots = function(zone, column){ try { return window.yx59WarehouseSlotCount ? window.yx59WarehouseSlotCount(zone, column) : 20; } catch(_e){ return 20; } };
 window.getCellItems = function(zone, column, num){
   const cells = (window.state?.warehouse?.cells || []);
   const found = cells.find(c => String(c.zone)===String(zone) && Number(c.column_index)===Number(column) && Number(c.slot_number)===Number(num));
@@ -168,7 +168,7 @@ window.normalizeCustomerItems = function(items){
 
 
 function getFixedWarehouseColumns(){ return [1,2,3,4,5,6]; }
-function getFixedWarehouseSlots(){ return 20; }
+function getFixedWarehouseSlots(zone, column){ try { return window.yx59WarehouseSlotCount ? window.yx59WarehouseSlotCount(zone, column) : 20; } catch(_e){ return 20; } }
 
 function normalizeRegion(value, fallback=''){
   const v = String(value || '').trim();
@@ -196,7 +196,7 @@ function renderWarehouseBaseGrid(){
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
 
-      for (let n = 1; n <= getFixedWarehouseSlots(); n++) {
+      for (let n = 1; n <= getFixedWarehouseSlots(zone, c); n++) {
         const slot = document.createElement('div');
         slot.className = 'vertical-slot';
         slot.dataset.zone = zone;
@@ -3200,3 +3200,166 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot58); else boot58();
   setInterval(cleanupDuplicatePanels,1500);
 })();
+
+
+/* ==== FIX59: material toolbar layout + stable summaries + ship availability + dynamic warehouse slots ==== */
+(function(){
+  const VERSION = 'fix59-material-summary-warehouse-slots';
+  const $ = (id)=>document.getElementById(id);
+  const clean = (v)=>String(v ?? '').trim();
+  function toast(msg, kind='ok'){
+    try { (window.toast || window.showToast || alert)(msg, kind); } catch(_e){ alert(msg); }
+  }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})}});
+    const txt = await res.text(); let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_e){ data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false) throw Object.assign(new Error(data.error || data.message || ('請求失敗 '+res.status)), {payload:data});
+    return data;
+  }
+  function moduleKey(){
+    const m = document.querySelector('.module-screen')?.dataset.module || '';
+    if(m) return m;
+    const p = location.pathname;
+    if(p.includes('master')) return 'master_order';
+    if(p.includes('orders')) return 'orders';
+    if(p.includes('inventory')) return 'inventory';
+    if(p.includes('warehouse')) return 'warehouse';
+    if(p.includes('ship')) return 'ship';
+    return '';
+  }
+  window.yx59WarehouseSlotCount = function(zone, column){
+    zone = clean(zone || '').toUpperCase(); column = Number(column || 0);
+    const cells = Array.isArray(window.state?.warehouse?.cells) ? window.state.warehouse.cells : [];
+    let max = 20;
+    cells.forEach(c=>{
+      if(clean(c.zone).toUpperCase() === zone && Number(c.column_index) === column){
+        max = Math.max(max, Number(c.slot_number || c.visual_slot || 0));
+      }
+    });
+    return max;
+  };
+  window.getFixedWarehouseSlots = function(zone, column){ return window.yx59WarehouseSlotCount(zone, column); };
+
+  async function reloadWarehouse(){
+    try{
+      const data = await api('/api/warehouse');
+      window.state = window.state || {};
+      window.state.warehouse = window.state.warehouse || {cells:[], zones:{A:{},B:{}}, availableItems:[], activeZone:'A'};
+      window.state.warehouse.cells = Array.isArray(data.cells) ? data.cells : [];
+      window.state.warehouse.zones = data.zones || window.state.warehouse.zones || {A:{},B:{}};
+    }catch(e){ console.warn('reload warehouse failed', e); }
+    try { if(typeof window.renderWarehouseZones === 'function') window.renderWarehouseZones(); } catch(_e){}
+    try { if(typeof window.renderWarehouseCellItems === 'function') window.renderWarehouseCellItems(); } catch(_e){}
+    setTimeout(installSlotTools, 30);
+  }
+
+  window.addWarehouseVisualSlot = async function(zone, column, insertAfter){
+    zone = clean(zone || '').toUpperCase(); column = Number(column || 0);
+    const payload = {zone, column_index: column};
+    if(insertAfter !== undefined && insertAfter !== null) payload.insert_after = Number(insertAfter || 0);
+    try{
+      const data = await api('/api/warehouse/add-slot', {method:'POST', body:JSON.stringify(payload)});
+      if(data.cells) {
+        window.state.warehouse.cells = data.cells;
+        window.state.warehouse.zones = data.zones || window.state.warehouse.zones;
+      }
+      toast(`已新增 ${zone} 區第 ${column} 欄格子`, 'ok');
+      await reloadWarehouse();
+    }catch(e){ toast(e.message || '新增格子失敗', 'error'); }
+  };
+  window.insertWarehouseSlotAfter = async function(zone, column, slotNumber){
+    return window.addWarehouseVisualSlot(zone, column, Number(slotNumber || 0));
+  };
+  window.removeWarehouseVisualSlot = async function(zone, column, slotNumber){
+    zone = clean(zone || '').toUpperCase(); column = Number(column || 0); slotNumber = Number(slotNumber || 0);
+    if(!slotNumber){ slotNumber = window.yx59WarehouseSlotCount(zone, column); }
+    if(!confirm(`確定刪除 ${zone} 區第 ${column} 欄第 ${String(slotNumber).padStart(2,'0')} 格？\n格子內有商品時不會刪除。`)) return;
+    try{
+      const data = await api('/api/warehouse/remove-slot', {method:'POST', body:JSON.stringify({zone, column_index: column, slot_number: slotNumber})});
+      if(data.cells){
+        window.state.warehouse.cells = data.cells;
+        window.state.warehouse.zones = data.zones || window.state.warehouse.zones;
+      }
+      toast('已刪除格子', 'ok');
+      await reloadWarehouse();
+    }catch(e){ toast(e.message || '刪除格子失敗', 'error'); }
+  };
+  window.deleteWarehouseSlotAt = window.removeWarehouseVisualSlot;
+
+  function installSlotTools(){
+    if(moduleKey() !== 'warehouse') return;
+    document.querySelectorAll('.vertical-slot').forEach(slot=>{
+      if(slot.querySelector('.yx59-slot-tools')) return;
+      const zone = clean(slot.dataset.zone || '').toUpperCase();
+      const column = Number(slot.dataset.column || 0);
+      const num = Number(slot.dataset.num || 0);
+      if(!zone || !column || !num) return;
+      const tools = document.createElement('div');
+      tools.className = 'yx59-slot-tools';
+      tools.innerHTML = `<button type="button" class="yx59-slot-btn" data-yx59-insert>插入下方</button><button type="button" class="yx59-slot-btn danger" data-yx59-delete>刪除此格</button>`;
+      tools.addEventListener('click', e=>e.stopPropagation());
+      tools.querySelector('[data-yx59-insert]')?.addEventListener('click', e=>{ e.stopPropagation(); window.insertWarehouseSlotAfter(zone, column, num); });
+      tools.querySelector('[data-yx59-delete]')?.addEventListener('click', e=>{ e.stopPropagation(); window.deleteWarehouseSlotAt(zone, column, num); });
+      slot.appendChild(tools);
+    });
+    document.querySelectorAll('.vertical-column-card').forEach(col=>{
+      const firstSlot = col.querySelector('.vertical-slot');
+      if(!firstSlot) return;
+      const zone = clean(firstSlot.dataset.zone || '').toUpperCase();
+      const column = Number(firstSlot.dataset.column || 0);
+      const note = col.querySelector('.small-note');
+      if(note) note.textContent = `${window.yx59WarehouseSlotCount(zone, column)} 格`;
+    });
+  }
+
+  function normalizeToolbars(){
+    ['inventory','orders','master_order'].forEach(source=>{
+      const bar = $(`fix57-${source}-toolbar`);
+      if(!bar) return;
+      bar.classList.add('yx59-toolbar-normalized');
+      const select = $(`fix57-${source}-material`);
+      const apply = $(`fix57-${source}-apply-material`);
+      if(select && apply && select.nextElementSibling !== apply) bar.insertBefore(select, apply);
+      const search = $(`fix57-${source}-search`);
+      if(search) search.classList.add('yx59-search-input');
+    });
+  }
+  function stabilizeSummaryTables(){
+    ['inventory','orders','master_order'].forEach(source=>{
+      const host = $(`fix57-${source}-summary`);
+      if(host){
+        host.classList.add('yx59-stable-summary');
+        const title = host.querySelector('.fix57-summary-title');
+        if(title) title.classList.add('yx59-summary-title-centered');
+      }
+    });
+  }
+  function boot59(){
+    document.documentElement.dataset.yxFix59 = VERSION;
+    normalizeToolbars();
+    stabilizeSummaryTables();
+    installSlotTools();
+  }
+  const oldRenderCell = window.renderWarehouseCellItems;
+  if(typeof oldRenderCell === 'function' && !oldRenderCell.__yx59Wrapped){
+    window.renderWarehouseCellItems = function(){
+      const ret = oldRenderCell.apply(this, arguments);
+      setTimeout(installSlotTools, 20);
+      return ret;
+    };
+    window.renderWarehouseCellItems.__yx59Wrapped = true;
+  }
+  const oldRenderZones = window.renderWarehouseZones;
+  if(typeof oldRenderZones === 'function' && !oldRenderZones.__yx59Wrapped){
+    window.renderWarehouseZones = function(){
+      const ret = oldRenderZones.apply(this, arguments);
+      setTimeout(installSlotTools, 20);
+      return ret;
+    };
+    window.renderWarehouseZones.__yx59Wrapped = true;
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot59); else setTimeout(boot59, 0);
+  setInterval(()=>{ normalizeToolbars(); stabilizeSummaryTables(); installSlotTools(); }, 900);
+})();
+/* ==== FIX59 end ==== */
