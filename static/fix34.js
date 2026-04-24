@@ -99,6 +99,9 @@
   }
 
   function ensureMasterMaterialToolbar(){
+    const old = document.getElementById('fix34-master-material-toolbar');
+    if(old) old.remove();
+    return;
     if(moduleKey() !== 'master_order') return;
     const section = $('master-list-section');
     if(!section || $('fix34-master-material-toolbar')) return;

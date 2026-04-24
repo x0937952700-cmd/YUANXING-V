@@ -1720,6 +1720,14 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
     let last = ['', '', ''];
 
+    const pushPallet = (line) => {
+      const m = String(line || '').replace(/\s+/g,'').match(/^(棧板|栈板|木棧板|木栈板)(\d+)片?$/);
+      if(!m) return false;
+      const qty = Number(m[2] || 0) || 0;
+      if(qty > 0) out.push({ product_text: '棧板=' + qty, product_code: '棧板', qty });
+      return true;
+    };
+
     const pushEntry = (leftRaw, rightRaw) => {
       const dimsRaw = String(leftRaw || '').split(/x/i).map(s => s.trim());
       const dims = [0,1,2].map(i => {
@@ -1750,7 +1758,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     lines.forEach(line => {
       const normalized = normalizeX(line).replace(/\s+/g, ' ').trim();
       if (!normalized) return;
-      const tokens = normalized.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?:\s*(?:=|:)\s*[^\n]+)?/ig) || [];
+      if (pushPallet(normalized)) return;
+      const compact = normalized.replace(/\s+/g, '');
+      const tokens = compact.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?:\s*(?:=|:)\s*[^\n]+)?/ig) || [];
       if (tokens.length) {
         tokens.forEach(token => {
           const parts = token.split(/=|:/);
@@ -1758,7 +1768,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         });
         return;
       }
-      const whole = normalized.match(/^((?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4}))(?:\s*(?:=|:)\s*(.+))?$/i);
+      const whole = compact.match(/^((?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4}))(?:\s*(?:=|:)\s*(.+))?$/i);
       if (whole) pushEntry(whole[1], whole[2] || '');
     });
 
@@ -1766,7 +1776,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
 
   function collectSubmitItems(){
-    const rawText = ($('ocr-text')?.value || '').trim();
+    const ocrBox = $('ocr-text');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    const rawText = (ocrBox?.value || '').trim();
     let items = [];
     try { items = parseSubmitItemsRobust(rawText); } catch (_e) { items = []; }
     if (!items.length) {
@@ -2274,7 +2286,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const btn = $('submit-btn');
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
-    const rawText = ($('ocr-text')?.value || '').trim();
+    const ocrBox = $('ocr-text');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();
     const customerName = ($('customer-name')?.value || '').trim();
@@ -2778,7 +2792,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const btn = $('submit-btn');
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
-    const rawText = ($('ocr-text')?.value || '').trim();
+    const ocrBox = $('ocr-text');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();
     const customerName = ($('customer-name')?.value || '').trim();

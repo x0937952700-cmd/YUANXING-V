@@ -31,28 +31,13 @@
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
-    <label class="field-label">倉庫格位 / 預設位置</label>
-    <input class="text-input" id="location-input" placeholder="例如：A-1-01">
+    <input type="hidden" id="location-input" value="">
     {% endif %}
 
     {% if module_key == 'master_order' %}
-    <div class="batch-material-panel">
-      <label class="field-label">總單批量材質</label>
-      <select class="text-input" id="batch-material">
-        <option value="">不指定材質</option>
-        <option value="SPF">SPF</option>
-        <option value="HF">HF</option>
-        <option value="DF">DF</option>
-        <option value="RDT">RDT</option>
-        <option value="SPY">SPY</option>
-        <option value="SP">SP</option>
-        <option value="RP">RP</option>
-        <option value="TD">TD</option>
-        <option value="MKJ">MKJ</option>
-        <option value="LVL">LVL</option>
-      </select>
-      <div class="small-note">送出總單時，會把這個材質套用到本次輸入的所有商品；下方總單清單也可勾選後批量套用材質。</div>
-    </div>
+    <select class="text-input" id="batch-material" style="display:none">
+      <option value="">不指定材質</option>
+    </select>
     {% endif %}
 
     <label class="field-label">商品資料</label>

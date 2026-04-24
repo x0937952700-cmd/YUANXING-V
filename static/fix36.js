@@ -1,7 +1,7 @@
 /* ==== FIX36：出貨客戶商品下拉 + 材積/長度/重量預覽後確認出貨 ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix36-ship-customer-picker-preview-volume';
+  const VERSION = 'fix37-ship-parser-ui-cleanup';
   window.__YUANXING_FIX_VERSION__ = VERSION;
   document.documentElement.dataset.yxVersion = VERSION;
 
@@ -66,6 +66,13 @@
     if(!raw) return [];
     const out = [];
     let last = ['', '', ''];
+    const pushPallet = (line) => {
+      const m = String(line || '').replace(/\s+/g,'').match(/^(棧板|栈板|木棧板|木栈板)(\d+)片?$/);
+      if(!m) return false;
+      const qty = Number(m[2] || 0) || 0;
+      if(qty > 0) out.push({ product_text:'棧板=' + qty, product_code:'棧板', qty });
+      return true;
+    };
     const pushToken = (token) => {
       const parts = String(token || '').split(/=|:/);
       const left = parts.shift() || '';
@@ -83,7 +90,9 @@
       const product_text = `${size}=${right}`;
       out.push({ product_text, product_code: product_text, qty: calcPieces(right) });
     };
-    raw.split(/\n+/).map(s => normalizeX(s).replace(/\s+/g,'')).filter(Boolean).forEach(line => {
+    raw.split(/\n+/).map(s => normalizeX(s).trim()).filter(Boolean).forEach(line0 => {
+      if(pushPallet(line0)) return;
+      const line = line0.replace(/\s+/g,'');
       const tokens = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*(?:=|:)\s*[^\n]+/ig) || [];
       if(tokens.length) tokens.forEach(pushToken);
       else if(line.includes('=') && /x/i.test(line)) pushToken(line);
@@ -95,6 +104,13 @@
       else merged.get(key).qty += Number(it.qty || 0) || 0;
     });
     return Array.from(merged.values()).filter(it => it.product_text && Number(it.qty || 0) > 0);
+  }
+
+  function cleanTextareaSpaces(){
+    const box = $('ocr-text');
+    if(!box) return;
+    const cleaned = normalizeX(box.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g,'')).filter(Boolean).join('\n');
+    if(cleaned !== box.value) box.value = cleaned;
   }
 
   function appendProductsToTextarea(products, replace=false){
@@ -289,6 +305,7 @@
     const btn = $('submit-btn');
     const resultPanel = $('module-result');
     const customer = ($('customer-name')?.value || '').trim();
+    cleanTextareaSpaces();
     const items = parseShipItems();
     if(!customer){ say('請先輸入客戶名稱', 'warn'); return; }
     if(!items.length){
@@ -357,6 +374,7 @@
       appendProductsToTextarea(items || []);
     });
     $('ocr-text')?.addEventListener('input', renderSelectedListQuick);
+    $('ocr-text')?.addEventListener('blur', cleanTextareaSpaces);
     setTimeout(loadCustomerProducts, 250);
     setTimeout(renderSelectedListQuick, 300);
   }

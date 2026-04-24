@@ -168,6 +168,9 @@
   }
 
   function ensureListFilters(){
+    const old = document.getElementById('fix32-list-filters');
+    if(old) old.remove();
+    return;
     const source = moduleKey();
     if(!['inventory','orders','master_order'].includes(source)) return;
     const host = source === 'inventory' ? $('inventory-inline-panel') : (source === 'orders' ? $('orders-list-section') : $('master-list-section'));
