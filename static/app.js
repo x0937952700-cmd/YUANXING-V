@@ -3817,3 +3817,588 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 })();
 
 /* ==== FIX60 end ==== */
+
+
+
+/* ==== FIX62: layout stability + single toolbar + final quantity logic ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix62-stable-final-quantity';
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+  const notify = (msg, kind='ok') => {
+    try { (window.toast || window.showToast || function(m){ console.log(m); })(msg, kind); }
+    catch(_){ try{ alert(msg); }catch(__){} }
+  };
+  async function api(url, opt={}){
+    const headers = {'Content-Type':'application/json', ...(opt.headers||{})};
+    const res = await fetch(url, {credentials:'same-origin', ...opt, headers});
+    const txt = await res.text();
+    let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_){ data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false){
+      const err = new Error(data.error || data.message || ('請求失敗 ' + res.status));
+      err.payload = data; err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+  window.yxApi = api;
+
+  function normalizeX(v){
+    return clean(v)
+      .replace(/[Ｘ×✕＊*X]/g,'x')
+      .replace(/[＝]/g,'=')
+      .replace(/[＋，,；;]/g,'+')
+      .replace(/\s+/g,'');
+  }
+  function splitProductText(text){
+    const raw = normalizeX(text);
+    const i = raw.indexOf('=');
+    return {size: i >= 0 ? raw.slice(0,i) : raw, support: i >= 0 ? raw.slice(i+1) : ''};
+  }
+  function qtyFromExpression(expr, fallback=0){
+    const raw = normalizeX(expr);
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
+    if(!right) return Number(fallback || 0) || 0;
+    const parts = right.split('+').map(clean).filter(Boolean);
+
+    /* FIX62：100x30x63=504x5+588+...+174 這類超長長度清單。
+       第一段 504x5 是長度標記，不當 5 件；後面每個單獨長度算 1 件。 */
+    const xParts = parts.filter(p => /x\s*\d+\s*$/i.test(p));
+    const bareParts = parts.filter(p => !/x\s*\d+\s*$/i.test(p) && /\d/.test(p));
+    if(parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] &&
+       /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8){
+      return bareParts.length;
+    }
+
+    let total = 0, hit = false;
+    parts.forEach(seg => {
+      const explicit = seg.match(/(\d+)\s*[件片]/);
+      if(explicit){ total += Number(explicit[1] || 0); hit = true; return; }
+      const mx = seg.match(/x\s*(\d+)\s*$/i);
+      if(mx){ total += Number(mx[1] || 0); hit = true; return; }
+      if(/\d/.test(seg)){ total += 1; hit = true; }
+    });
+    return hit ? total : (Number(fallback || 0) || 0);
+  }
+  window.yxEffectiveQty = qtyFromExpression;
+
+  function rowQty(row){
+    return qtyFromExpression(row?.product_text || row?.support || '', row?.qty || 0);
+  }
+  function rowSize(row){
+    return splitProductText(row?.product_text || row?.size || '').size;
+  }
+  function rowSupport(row){
+    const s = splitProductText(row?.product_text || '').support;
+    return s || clean(row?.support || row?.support_text || row?.qty || '');
+  }
+  function looksLikeProduct(v, productText=''){
+    const s = normalizeX(v), p = normalizeX(productText);
+    if(!s) return false;
+    if(p && s === p) return true;
+    if(s.includes('=')) return true;
+    return /^\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?$/i.test(s) || /^\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)+$/.test(s);
+  }
+  function rowMaterial(row){
+    const v = clean(row?.material || row?.product_code || '');
+    return looksLikeProduct(v, row?.product_text || '') ? '' : v;
+  }
+  function sourceTitle(source){ return source === 'inventory' ? '庫存' : source === 'orders' ? '訂單' : '總單'; }
+  function sourceEndpoint(source){ return source === 'inventory' ? '/api/inventory' : source === 'orders' ? '/api/orders' : '/api/master_orders'; }
+  function itemEndpoint(source,id){ return source === 'inventory' ? `/api/inventory/${id}` : source === 'orders' ? `/api/orders/${id}` : `/api/master_orders/${id}`; }
+  function apiSource(source){ return source === 'master_order' ? 'master_orders' : source; }
+  function sectionFor(source){
+    if(source === 'inventory') return $('inventory-inline-panel') || $('inventory-summary-section') || document.querySelector('#inventory-inline-list')?.closest('.panel,.subsection');
+    if(source === 'orders') return $('orders-list-section');
+    return $('master-list-section');
+  }
+  function listFor(source){ return source === 'inventory' ? $('inventory-inline-list') : source === 'orders' ? $('orders-list') : $('master-list'); }
+  function selectedCustomer(){
+    return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || window.state?.currentCustomer || '');
+  }
+  function rowText(row){
+    return `${rowMaterial(row)} ${rowSize(row)} ${rowSupport(row)} ${row.customer_name || ''}`.toLowerCase();
+  }
+  function setRows(source, rows){
+    window.__yx62Rows = window.__yx62Rows || {inventory:[], orders:[], master_order:[]};
+    window.__yx62Rows[source] = Array.isArray(rows) ? rows : [];
+    if(source === 'inventory') window.__yxInventoryRows = window.__yx62Rows[source];
+    if(source === 'orders') window.__yxOrderRows = window.__yx62Rows[source];
+    if(source === 'master_order') window.__yxMasterRows = window.__yx62Rows[source];
+  }
+  function getRows(source){
+    return (window.__yx62Rows && window.__yx62Rows[source]) ||
+      (source === 'inventory' ? window.__yxInventoryRows : source === 'orders' ? window.__yxOrderRows : window.__yxMasterRows) || [];
+  }
+  function filteredRows(source){
+    let rows = [...getRows(source)];
+    if(source === 'master_order'){
+      const c = selectedCustomer();
+      rows = c ? rows.filter(r => clean(r.customer_name) === c) : [];
+    }
+    const q = clean($(`yx62-${source}-search`)?.value || '').toLowerCase();
+    if(q) rows = rows.filter(r => rowText(r).includes(q));
+    return rows.sort((a,b) => rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant') ||
+      rowSize(a).localeCompare(rowSize(b),'zh-Hant',{numeric:true}) ||
+      rowSupport(a).localeCompare(rowSupport(b),'zh-Hant',{numeric:true}));
+  }
+
+  function removeLegacyUI(){
+    const legacy = [
+      '.fix52-list-toolbar','.fix55-list-toolbar','.fix56-toolbar','.fix57-toolbar','.yx59-toolbar-normalized',
+      '.fix55-summary-panel','.fix56-summary-panel','.fix57-summary-panel','.yx60-toolbar','.yx60-summary',
+      '#fix52-inventory-summary','#fix55-inventory-summary',
+      '[id^="fix52-"][id$="-summary"]','[id^="fix55-"][id$="-summary"]','[id^="fix56-"][id$="-summary"]','[id^="fix57-"][id$="-summary"]',
+      '[id^="yx60-"][id$="-toolbar"]','[id^="yx60-"][id$="-summary"]'
+    ];
+    document.querySelectorAll(legacy.join(',')).forEach(el => el.remove());
+  }
+  function materialOptions(){
+    return `<option value="">批量加材質</option>` + MATERIALS.map(m => `<option value="${m}">${m}</option>`).join('');
+  }
+  function ensureToolbar(source){
+    const sec = sectionFor(source); if(!sec) return null;
+    removeLegacyUI();
+    let bar = $(`yx62-${source}-toolbar`);
+    if(!bar){
+      bar = document.createElement('div');
+      bar.id = `yx62-${source}-toolbar`;
+      bar.className = 'yx62-toolbar';
+      bar.innerHTML = `
+        <label class="yx62-select-all"><input type="checkbox" id="yx62-${source}-selectall"> 全選目前清單</label>
+        <input id="yx62-${source}-search" class="text-input yx62-search" placeholder="搜尋商品 / 客戶 / 材質">
+        <select id="yx62-${source}-material" class="text-input yx62-material">${materialOptions()}</select>
+        <button id="yx62-${source}-apply" class="ghost-btn small-btn" type="button">套用材質</button>
+        <button id="yx62-${source}-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button>
+        <button id="yx62-${source}-refresh" class="ghost-btn small-btn" type="button">重新整理</button>`;
+      const head = sec.querySelector('.section-head') || sec.firstElementChild || sec;
+      head.insertAdjacentElement('afterend', bar);
+      $(`yx62-${source}-search`)?.addEventListener('input', () => { renderSummary(source); renderCards(source); });
+      $(`yx62-${source}-selectall`)?.addEventListener('change', e => {
+        document.querySelectorAll(`.yx62-row-check[data-source="${source}"]`).forEach(ch => ch.checked = e.target.checked);
+      });
+      $(`yx62-${source}-apply`)?.addEventListener('click', () => bulkMaterial(source));
+      $(`yx62-${source}-delete`)?.addEventListener('click', () => bulkDelete(source));
+      $(`yx62-${source}-refresh`)?.addEventListener('click', () => refreshSource(source, false));
+    }
+    return bar;
+  }
+  function ensureSummary(source){
+    const sec = sectionFor(source); if(!sec) return null;
+    ensureToolbar(source);
+    let host = $(`yx62-${source}-summary`);
+    if(!host){
+      host = document.createElement('div');
+      host.id = `yx62-${source}-summary`;
+      host.className = 'yx62-summary table-card';
+      const list = listFor(source);
+      if(list) list.insertAdjacentElement('beforebegin', host);
+      else sec.appendChild(host);
+    }
+    return host;
+  }
+  function renderSummary(source){
+    const host = ensureSummary(source); if(!host) return;
+    removeLegacyUI();
+    const rows = filteredRows(source);
+    const total = rows.reduce((s,r) => s + rowQty(r), 0);
+    const title = sourceTitle(source);
+    if(source === 'master_order' && !selectedCustomer()){
+      host.innerHTML = `<div class="yx62-summary-head"><strong>${title}統整</strong><span>請先點選客戶，只顯示該客戶的總單清單。</span></div>`;
+      return;
+    }
+    const expanded = localStorage.getItem(`yx62-${source}-expanded`) === '1';
+    const shown = expanded ? rows : rows.slice(0, 120);
+    const cols = source === 'inventory' ? 6 : 5;
+    host.innerHTML = `
+      <div class="yx62-summary-head"><strong>${total}件 / ${rows.length}筆商品</strong><span>${title}統整</span></div>
+      <div class="yx62-table-wrap">
+        <table class="yx62-summary-table">
+          <thead><tr><th class="check-col">選取</th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${source==='inventory' ? '<th>客戶</th>' : ''}</tr></thead>
+          <tbody>${shown.length ? shown.map(r => `<tr>
+            <td><input class="yx62-row-check" type="checkbox" data-source="${source}" data-id="${Number(r.id||0)}"></td>
+            <td>${esc(rowMaterial(r))}</td><td>${esc(rowSize(r))}</td><td>${esc(rowSupport(r))}</td><td>${rowQty(r)}</td>${source==='inventory' ? `<td>${esc(r.customer_name||'')}</td>` : ''}
+          </tr>`).join('') : `<tr><td colspan="${cols}">目前沒有資料</td></tr>`}</tbody>
+        </table>
+      </div>
+      ${rows.length > 120 ? `<button class="ghost-btn small-btn yx62-toggle" type="button" id="yx62-${source}-toggle">${expanded?'收合':'顯示全部'}</button>` : ''}`;
+    $(`yx62-${source}-toggle`)?.addEventListener('click', () => {
+      localStorage.setItem(`yx62-${source}-expanded`, expanded ? '0' : '1');
+      renderSummary(source);
+    });
+  }
+  function cardHTML(row, source){
+    const id = Number(row.id || 0);
+    return `<div class="card inventory-action-card yx62-item-card" data-source="${source}" data-id="${id}">
+      <div class="yx62-item-grid">
+        <div><span>材質</span><b>${esc(rowMaterial(row))}</b></div>
+        <div><span>尺寸</span><b>${esc(rowSize(row))}</b></div>
+        <div><span>支數 x 件數</span><b>${esc(rowSupport(row))}</b></div>
+        <div><span>數量</span><b>${rowQty(row)}</b></div>
+        ${row.customer_name ? `<div class="yx62-item-customer">客戶：${esc(row.customer_name)}</div>` : ''}
+      </div>
+      <div class="yx62-card-actions">
+        <button class="ghost-btn tiny-btn" type="button" data-yx62-action="edit">編輯</button>
+        <button class="ghost-btn tiny-btn" type="button" data-yx62-action="ship">直接出貨</button>
+        <button class="ghost-btn tiny-btn danger-btn" type="button" data-yx62-action="delete">刪除</button>
+      </div>
+    </div>`;
+  }
+  function renderCards(source){
+    const list = listFor(source); if(!list) return;
+    const rows = filteredRows(source);
+    if(source === 'master_order' && !selectedCustomer()){
+      list.innerHTML = '<div class="empty-state-card compact-empty">請先點選客戶，只顯示該客戶的總單清單。</div>';
+      return;
+    }
+    list.innerHTML = rows.length ? rows.map(r => cardHTML(r, source)).join('') : '<div class="empty-state-card compact-empty">目前沒有資料</div>';
+  }
+  async function refreshSource(source, silent=true){
+    ensureToolbar(source);
+    try{
+      const data = await api(sourceEndpoint(source) + '?ts=' + Date.now());
+      setRows(source, data.items || []);
+      renderSummary(source);
+      renderCards(source);
+      if(!silent) notify(sourceTitle(source) + '已刷新', 'ok');
+      return data.items || [];
+    }catch(e){
+      renderSummary(source);
+      renderCards(source);
+      if(!silent) notify(e.message || (sourceTitle(source) + '讀取失敗'), 'error');
+      return getRows(source);
+    }
+  }
+  window.loadInventory = () => refreshSource('inventory', true);
+  window.loadOrdersList = () => refreshSource('orders', true);
+  window.loadMasterList = () => refreshSource('master_order', true);
+
+  function selectedItems(source){
+    return [...document.querySelectorAll(`.yx62-row-check[data-source="${source}"]:checked`)]
+      .map(ch => ({source, id:Number(ch.dataset.id || 0)})).filter(x => x.id > 0);
+  }
+  function allVisibleItems(source){
+    return filteredRows(source).map(r => ({source, id:Number(r.id || 0)})).filter(x => x.id > 0);
+  }
+  async function bulkMaterial(source){
+    const material = clean($(`yx62-${source}-material`)?.value || '').toUpperCase();
+    if(!material) return notify('請先選擇材質', 'warn');
+    let items = selectedItems(source);
+    if(!items.length){
+      if(!confirm('沒有勾選商品，是否套用到目前清單全部商品？')) return;
+      items = allVisibleItems(source);
+    }
+    if(!items.length) return notify('目前沒有可套用的商品', 'warn');
+    try{
+      const data = await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
+      notify(`已套用材質 ${material}：${data.count || items.length} 筆`, 'ok');
+      await refreshSource(source, true);
+    }catch(e){ notify(e.message || '批量加材質失敗', 'error'); }
+  }
+  async function bulkDelete(source){
+    let items = selectedItems(source);
+    if(!items.length){
+      if(!confirm('沒有勾選商品，是否刪除目前清單全部商品？')) return;
+      items = allVisibleItems(source);
+    }
+    if(!items.length) return notify('目前沒有可刪除的商品', 'warn');
+    if(!confirm(`確定刪除 ${items.length} 筆商品？`)) return;
+    try{
+      const data = await api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})});
+      notify(`已刪除 ${data.count || items.length} 筆`, 'ok');
+      await refreshSource(source, true);
+    }catch(e){ notify(e.message || '批量刪除失敗', 'error'); }
+  }
+  async function handleCardAction(card, action){
+    const source = card.dataset.source || moduleKey();
+    const id = Number(card.dataset.id || 0);
+    if(!id) return;
+    const row = getRows(source).find(r => Number(r.id || 0) === id) || {};
+    if(action === 'delete'){
+      if(!confirm('確定刪除此商品？')) return;
+      try{ await api(itemEndpoint(source,id), {method:'DELETE'}); notify('已刪除','ok'); await refreshSource(source,true); }
+      catch(e){ notify(e.message || '刪除失敗','error'); }
+      return;
+    }
+    if(action === 'edit'){
+      const product = prompt('商品資料', row.product_text || '');
+      if(product === null) return;
+      const qty = prompt('數量', rowQty(row) || row.qty || 1);
+      if(qty === null) return;
+      const material = prompt('材質（可空白）', rowMaterial(row));
+      if(material === null) return;
+      try{
+        await api(itemEndpoint(source,id), {method:'PUT', body:JSON.stringify({product_text:clean(product), qty:Number(qty || 0), material:clean(material), customer_name:row.customer_name || selectedCustomer() || ''})});
+        notify('已更新','ok'); await refreshSource(source,true);
+      }catch(e){ notify(e.message || '編輯失敗','error'); }
+      return;
+    }
+    if(action === 'ship'){
+      const customer = clean(row.customer_name || selectedCustomer() || prompt('請輸入出貨客戶名稱','') || '');
+      if(!customer) return notify('請先輸入客戶名稱','warn');
+      const qty = prompt('本次出貨數量', rowQty(row) || row.qty || 1);
+      if(qty === null) return;
+      try{
+        await api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:apiSource(source), id, target:'ship', customer_name:customer, qty:Number(qty||0), allow_inventory_fallback:true})});
+        notify('已直接出貨','ok'); await refreshSource(source,true);
+      }catch(e){ notify(e.message || '直接出貨失敗','error'); }
+    }
+  }
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-yx62-action]');
+    if(!btn) return;
+    const card = btn.closest('.yx62-item-card');
+    if(card){ e.preventDefault(); handleCardAction(card, btn.dataset.yx62Action); }
+  }, true);
+
+  /* 客戶卡片：選客戶 / 長按刪除 */
+  function customerCardFromEvent(e){ return e.target.closest?.('.customer-region-card,.yx-customer-card,[data-customer]'); }
+  function customerName(card){ return clean(card?.dataset?.customer || card?.querySelector?.('.yx-customer-left')?.textContent || card?.textContent?.split(/\d+件/)[0] || ''); }
+  function customerUid(card){ return clean(card?.dataset?.customerUid || ''); }
+  let holdTimer = null, holdFired = false;
+  document.addEventListener('pointerdown', e => {
+    const card = customerCardFromEvent(e);
+    if(!card) return;
+    holdFired = false;
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(async () => {
+      holdFired = true;
+      const name = customerName(card);
+      if(!name) return;
+      if(!confirm(`確定刪除 / 封存客戶「${name}」？`)) return;
+      try{
+        card.style.opacity = '0.35';
+        const data = await api(`/api/customers/${encodeURIComponent(name)}`, {method:'DELETE', body:JSON.stringify({customer_uid:customerUid(card)})});
+        card.remove();
+        notify(data.message || '客戶已刪除 / 封存','ok');
+        if(typeof window.loadCustomerBlocks === 'function') window.loadCustomerBlocks();
+      }catch(err){ card.style.opacity = ''; notify(err.message || '刪除客戶失敗','error'); }
+    }, 750);
+  }, true);
+  ['pointerup','pointercancel','pointermove','touchend','mouseup'].forEach(evt => document.addEventListener(evt, () => clearTimeout(holdTimer), true));
+
+  const oldSelectCustomer = window.selectCustomerForModule;
+  window.selectCustomerForModule = async function(customer){
+    const c = typeof customer === 'object' ? customer : {name:clean(customer)};
+    window.__YX_SELECTED_CUSTOMER__ = clean(c.name || '');
+    const input = $('customer-name');
+    if(input){
+      input.value = c.name || '';
+      input.dataset.customerUid = c.customer_uid || '';
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    $('selected-customer-items')?.classList.add('hidden');
+    if(moduleKey() === 'ship') await loadShipCustomerItems(c);
+    if(moduleKey() === 'master_order') await refreshSource('master_order', true);
+    if(typeof oldSelectCustomer === 'function'){
+      try{ oldSelectCustomer.call(this, customer); }catch(_){}
+    }
+  };
+
+  /* 出貨客戶商品下拉 */
+  async function loadShipCustomerItems(customer){
+    const name = clean((typeof customer === 'object' ? customer.name : customer) || $('customer-name')?.value || '');
+    const uid = clean((typeof customer === 'object' ? customer.customer_uid : '') || $('customer-name')?.dataset.customerUid || '');
+    const sel = $('ship-customer-item-select');
+    if(!sel || !name) return;
+    sel.innerHTML = '<option value="">商品載入中…</option>';
+    try{
+      const data = await api(`/api/customer-items?name=${encodeURIComponent(name)}&customer_uid=${encodeURIComponent(uid)}&ts=${Date.now()}`);
+      const items = data.items || [];
+      window.__YX_SHIP_CUSTOMER_ITEMS__ = items;
+      sel.innerHTML = items.length
+        ? '<option value="">請選擇商品</option>' + items.map((it,i)=>`<option value="${i}">${esc(it.product_text || '')}｜${rowQty(it)}件｜${esc(it.source || '')}</option>`).join('')
+        : '<option value="">此客戶目前沒有商品</option>';
+    }catch(e){ sel.innerHTML = `<option value="">${esc(e.message || '商品載入失敗')}</option>`; }
+  }
+  function addShipItemToTextarea(item){
+    const box = $('ocr-text'); if(!box || !item) return;
+    const line = item.product_text || '';
+    if(!line) return;
+    const cur = box.value.trim();
+    box.value = cur ? cur + '\n' + line : line;
+    box.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+  window.loadShipCustomerDropdown = loadShipCustomerItems;
+  document.addEventListener('click', e => {
+    if(e.target?.id === 'ship-refresh-customer-items') loadShipCustomerItems({name:$('customer-name')?.value || '', customer_uid:$('customer-name')?.dataset.customerUid || ''});
+    if(e.target?.id === 'ship-add-selected-item'){
+      const idx = Number($('ship-customer-item-select')?.value);
+      const item = (window.__YX_SHIP_CUSTOMER_ITEMS__ || [])[idx];
+      if(item) addShipItemToTextarea(item);
+    }
+    if(e.target?.id === 'ship-add-all-items'){
+      (window.__YX_SHIP_CUSTOMER_ITEMS__ || []).forEach(addShipItemToTextarea);
+    }
+  }, true);
+  $('customer-name')?.addEventListener('change', () => { if(moduleKey() === 'ship') loadShipCustomerItems({name:$('customer-name')?.value || ''}); });
+
+  /* 商品解析與出貨預覽 */
+  function parseSubmitItems(raw){
+    const out = [];
+    normalizeLines(raw).forEach(line => {
+      const t = normalizeX(line);
+      if(!t) return;
+      if(!t.includes('x')) return;
+      const qty = qtyFromExpression(t, 1) || 1;
+      out.push({product_text:t, product_code:'', material:'', qty});
+    });
+    return out;
+  }
+  function normalizeLines(raw){
+    return String(raw || '').replace(/\r/g,'\n').split(/\n+/).map(x => x.trim()).filter(Boolean);
+  }
+  async function submitNonShip(module, items, customerName, rawText){
+    const payload = {customer_name:customerName, ocr_text:rawText, items, request_key:`${module}_${Date.now()}_${Math.random().toString(36).slice(2)}`};
+    const url = module === 'orders' ? '/api/orders' : module === 'master_order' ? '/api/master_orders' : '/api/inventory';
+    const data = await api(url, {method:'POST', body:JSON.stringify(payload)});
+    return data;
+  }
+  function showShipPreview(preview, payload){
+    const panel = $('ship-preview-panel') || $('module-result');
+    if(!panel) return;
+    panel.classList.remove('hidden');
+    panel.style.display = '';
+    const items = preview.items || [];
+    const totalQty = items.reduce((s,it)=>s+Number(it.qty || it.need_qty || 0),0);
+    const totalLength = items.reduce((s,it)=>s+Number(it.length_total || it.total_length || 0),0);
+    const totalVolume = items.reduce((s,it)=>s+Number(it.volume || it.volume_total || 0),0);
+    panel.innerHTML = `
+      <div class="section-title">出貨預覽</div>
+      <div class="ship-preview-summary yx62-ship-summary">
+        <div>件數：<b>${totalQty}</b></div>
+        <div>長度：<b>${totalLength.toLocaleString()}</b></div>
+        <div>材積：<b>${Number(totalVolume || 0).toLocaleString()}</b></div>
+      </div>
+      <div class="yx62-table-wrap">
+        <table class="yx62-summary-table">
+          <thead><tr><th>商品</th><th>件數</th><th>長度</th><th>材積</th><th>可扣來源</th><th>倉庫圖位置</th></tr></thead>
+          <tbody>${items.map(it => {
+            const locs = (it.locations || []).map(loc => `${esc(loc.zone||'')}-${esc(loc.column_index||'')}-${String(loc.visual_slot || loc.slot_number || '').padStart(2,'0')}`).join('、') || '倉庫圖尚未找到位置';
+            const shortage = Number(it.shortage || it.shortage_qty || 0);
+            const src = `總單 ${it.master_available ?? it.master_qty ?? 0}｜訂單 ${it.order_available ?? it.order_qty ?? 0}｜庫存 ${it.inventory_available ?? it.inventory_qty ?? 0}${shortage>0?`<br><span class="danger-text">不足 ${shortage}</span>`:''}`;
+            return `<tr><td>${esc(it.product_text || '')}</td><td>${it.qty || it.need_qty || 0}</td><td>${(it.length_total || it.total_length || 0).toLocaleString?.() || 0}</td><td>${(it.volume || it.volume_total || 0).toLocaleString?.() || 0}</td><td>${src}</td><td>${locs}</td></tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+      <div class="btn-row">
+        <button class="ghost-btn" type="button" id="yx62-ship-cancel">取消</button>
+        <button class="primary-btn" type="button" id="yx62-ship-confirm">確認扣除</button>
+      </div>`;
+    $('yx62-ship-cancel')?.addEventListener('click', () => panel.classList.add('hidden'));
+    $('yx62-ship-confirm')?.addEventListener('click', async () => {
+      try{
+        const res = await api('/api/ship', {method:'POST', body:JSON.stringify({...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:`ship_${Date.now()}_${Math.random().toString(36).slice(2)}`})});
+        panel.innerHTML = `<div class="section-title">出貨完成</div><div class="muted">已扣除總單 / 訂單 / 庫存。</div>`;
+        notify('出貨完成','ok');
+        if(typeof window.loadCustomerBlocks === 'function') window.loadCustomerBlocks();
+      }catch(e){ notify(e.message || '出貨失敗','error'); }
+    });
+  }
+  window.confirmSubmit = async function(){
+    const btn = $('submit-btn');
+    if(!btn || btn.dataset.busy === '1') return;
+    const module = moduleKey() || 'inventory';
+    const rawText = $('ocr-text')?.value || '';
+    const items = parseSubmitItems(rawText);
+    const customerName = clean($('customer-name')?.value || '');
+    if(!items.length) return notify('沒有可送出的商品資料','warn');
+    if(['orders','master_order','ship'].includes(module) && !customerName) return notify('請先輸入客戶名稱','warn');
+    try{
+      btn.dataset.busy = '1';
+      btn.disabled = true;
+      btn.textContent = module === 'ship' ? '整理預覽中…' : '送出中…';
+      if(module === 'ship'){
+        const payload = {customer_name:customerName, ocr_text:rawText, items};
+        const preview = await api('/api/ship-preview', {method:'POST', body:JSON.stringify(payload)});
+        showShipPreview(preview, payload);
+        return;
+      }
+      await submitNonShip(module, items, customerName, rawText);
+      notify(module === 'inventory' ? '庫存送出成功' : module === 'orders' ? '訂單送出成功' : '總單送出成功','ok');
+      if(module === 'inventory') await refreshSource('inventory', true);
+      if(module === 'orders') await refreshSource('orders', true);
+      if(module === 'master_order') await refreshSource('master_order', true);
+    }catch(e){
+      const panel = $('module-result');
+      if(panel){ panel.classList.remove('hidden'); panel.style.display=''; panel.innerHTML = `<div class="section-title">送出失敗</div><div class="muted">${esc(e.message || '送出失敗')}</div>`; }
+      notify(e.message || '送出失敗','error');
+    }finally{
+      btn.dataset.busy = '0'; btn.disabled = false; btn.textContent = '確認送出';
+    }
+  };
+
+  /* 倉庫圖：插入/刪除指定格 */
+  async function reloadWarehouse(){
+    if(typeof window.renderWarehouse === 'function') {
+      try{ await window.renderWarehouse(); }catch(_){}
+    }
+    setTimeout(attachWarehouseSlotTools, 120);
+  }
+  window.addWarehouseVisualSlot = async function(zone, column, insertAfter){
+    try{
+      const body = {zone, column_index:Number(column||0)};
+      if(insertAfter !== undefined && insertAfter !== null) body.insert_after = Number(insertAfter || 0);
+      await api('/api/warehouse/add-slot', {method:'POST', body:JSON.stringify(body)});
+      notify('已新增格子','ok');
+      await reloadWarehouse();
+    }catch(e){ notify(e.message || '新增格子失敗','error'); }
+  };
+  window.insertWarehouseSlotAfter = (zone, column, slotNumber) => window.addWarehouseVisualSlot(zone, column, Number(slotNumber || 0));
+  window.removeWarehouseVisualSlot = async function(zone, column, slotNumber){
+    const num = Number(slotNumber || 0);
+    if(!num) return notify('請指定要刪除的格子','warn');
+    if(!confirm(`確定刪除 ${zone} 區第 ${column} 欄第 ${String(num).padStart(2,'0')} 格？有商品的格子不會被刪除。`)) return;
+    try{
+      await api('/api/warehouse/remove-slot', {method:'POST', body:JSON.stringify({zone, column_index:Number(column||0), slot_number:num})});
+      notify('已刪除格子','ok');
+      await reloadWarehouse();
+    }catch(e){ notify(e.message || '刪除格子失敗','error'); }
+  };
+  window.deleteWarehouseSlotAt = window.removeWarehouseVisualSlot;
+  function attachWarehouseSlotTools(){
+    document.querySelectorAll('.vertical-slot[data-zone][data-column][data-num]').forEach(slot => {
+      if(slot.dataset.yx62Tools === '1') return;
+      slot.dataset.yx62Tools = '1';
+      const zone = slot.dataset.zone, column = Number(slot.dataset.column || 0), num = Number(slot.dataset.num || 0);
+      const tools = document.createElement('div');
+      tools.className = 'yx62-slot-tools';
+      tools.innerHTML = `<button type="button" class="yx62-slot-btn" data-act="insert">插入下方</button><button type="button" class="yx62-slot-btn danger" data-act="delete">刪除此格</button>`;
+      tools.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const act = e.target.closest('button')?.dataset.act;
+        if(act === 'insert') window.insertWarehouseSlotAfter(zone, column, num);
+        if(act === 'delete') window.removeWarehouseVisualSlot(zone, column, num);
+      });
+      slot.appendChild(tools);
+    });
+  }
+
+  function boot(){
+    document.documentElement.dataset.yxFix62 = VERSION;
+    document.body?.setAttribute('data-yx-fix62','1');
+    removeLegacyUI();
+    const m = moduleKey();
+    if(m === 'inventory') refreshSource('inventory', true);
+    if(m === 'orders') refreshSource('orders', true);
+    if(m === 'master_order') refreshSource('master_order', true);
+    if(m === 'ship' && $('customer-name')) loadShipCustomerItems({name:$('customer-name').value || ''});
+    if(m === 'warehouse') setTimeout(attachWarehouseSlotTools, 300);
+    setTimeout(removeLegacyUI, 100);
+    setTimeout(removeLegacyUI, 500);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  // 少量監控只負責移除舊工具列，不重新渲染，不會造成亂跳。
+  const mo = new MutationObserver(() => removeLegacyUI());
+  try{ mo.observe(document.body, {childList:true, subtree:true}); }catch(_){}
+  setInterval(removeLegacyUI, 1500);
+})();
+/* ==== FIX62 end ==== */

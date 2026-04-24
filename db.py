@@ -224,22 +224,33 @@ def product_support_text(text):
 
 def effective_product_qty(product_text, fallback_qty=0):
     """
-    件數規則（FIX46）：
+    件數規則（FIX62）：
     - 等號右側用 + 分段。
-    - 每一段有 x數字 / ×數字 時，該段件數 = x 後面的數字。
-    - 每一段沒有 x數字 時，該段件數 = 1。
-    - 明確寫「19件 / 19片」時，該段件數 = 19。
-
-    例：
-    60+54+50 = 3件
-    220x4+223x2+44+35+221 = 9件
+    - 一般情況：有 xN 算 N；沒有 xN 的數字段算 1；明確「N件 / N片」算 N。
+    - 特例：超長混合長度清單，例如
+      100x30x63=504x5+588+587+502+420+382+378+280+254+237+174
+      這類第一段是長度標記，後面每個長度才是一件，因此算後面 10 件。
     """
     raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     total = 0
     parsed = False
     if '=' in raw:
         right = raw.split('=', 1)[1]
+    else:
+        # 允許只傳右側支數，例如 60+54+50 或 220x4+223x2+44+35+221。
+        right = raw
+    if right:
         segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
+
+        # FIX62 特例：像 504x5+588+...+174 這種超長清單，第一段 504x5 不當成 5 件，
+        # 只計算後面每一個單獨長度，避免把總單誤算成 15 件。
+        x_segments = [seg for seg in segments if re.search(r'x\s*\d+\s*$', seg, flags=re.I)]
+        bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', seg)]
+        if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
+                and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
+                and len(bare_segments) >= 8):
+            return len(bare_segments)
+
         for seg in segments:
             if re.search(r'[件片]', seg):
                 nums = [int(x) for x in re.findall(r'\d+', seg)]
@@ -259,7 +270,6 @@ def effective_product_qty(product_text, fallback_qty=0):
     except Exception:
         fallback = 0
     return total if parsed else fallback
-
 
 def product_note_text(text):
     """保留等號右側括號備註，例如 168x7(-1永松)。"""

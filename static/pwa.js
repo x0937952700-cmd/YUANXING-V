@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix60-stability-lock';
+  const PWA_VERSION = 'fix62-stable-final-quantity';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
