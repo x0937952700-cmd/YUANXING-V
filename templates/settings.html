@@ -39,37 +39,8 @@
   </div>
 
 
-  <div class="glass panel">
-    <div class="section-head">
-      <div>
-        <div class="section-title">OCR 修正詞庫</div>
-        <div class="muted">管理常見 OCR 錯字與正確格式。</div>
-      </div>
-    </div>
-    <div class="btn-row compact">
-      <input class="text-input small" id="correction-wrong" placeholder="錯誤文字">
-      <input class="text-input small" id="correction-correct" placeholder="正確文字">
-      <button class="primary-btn" onclick="saveCorrectionItem()">新增 / 更新</button>
-    </div>
-    <div id="corrections-list" class="chip-list stacked-list"></div>
-  </div>
 
-  <div class="glass panel">
-    <div class="section-head">
-      <div>
-        <div class="section-title">客戶別名</div>
-        <div class="muted">讓 OCR 更容易把別名對到正式客戶。</div>
-      </div>
-    </div>
-    <div class="btn-row compact">
-      <input class="text-input small" id="alias-name" placeholder="別名">
-      <input class="text-input small" id="alias-target" placeholder="正式客戶名稱">
-      <button class="primary-btn" onclick="saveCustomerAliasItem()">新增 / 更新</button>
-    </div>
-    <div id="aliases-list" class="chip-list stacked-list"></div>
-  </div>
 
-  
   <div class="glass panel">
     <div class="section-head">
       <div>
@@ -128,16 +99,6 @@
     <div id="admin-users" class="table-card"></div>
   </div>
 
-  <div class="glass panel">
-    <div class="section-head">
-      <div>
-        <div class="section-title">系統狀態</div>
-        <div class="muted">快速查看原生 OCR 模式與備份狀態。</div>
-      </div>
-      <button class="primary-btn" onclick="loadBackups()">全部重新整理</button>
-    </div>
-    <div id="system-status-panel" class="card-list"></div>
-  </div>
 
   <div class="glass panel">
     <div class="section-head">

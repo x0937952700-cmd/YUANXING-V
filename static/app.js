@@ -3042,3 +3042,161 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot57); else setTimeout(boot57,0);
   setInterval(()=>{ removeCustomerDetailTables(); const m=moduleKey(); if(m==='inventory') ensureToolbar('inventory'); if(m==='orders') ensureToolbar('orders'); if(m==='master_order') ensureToolbar('master_order'); },1000);
 })();
+
+/* ==== FIX58: duplicate toolbar cleanup + shipping preview-before-submit + settings cleanup ==== */
+(function(){
+  const VERSION = 'fix58-ship-preview-clean';
+  const $ = (id)=>document.getElementById(id);
+  const clean = (v)=>String(v ?? '').trim();
+  const esc = (v)=>String(v ?? '').replace(/[&<>"']/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  function mod(){ return document.querySelector('.module-screen')?.dataset.module || (location.pathname.includes('ship')?'ship':location.pathname.includes('orders')?'orders':location.pathname.includes('master')?'master_order':location.pathname.includes('inventory')?'inventory':''); }
+  async function api(url,opt={}){
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const txt = await res.text(); let data={};
+    try{ data = txt ? JSON.parse(txt) : {}; }catch(_){ data={success:false,error:txt||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success===false) throw Object.assign(new Error(data.error||data.message||('請求失敗 '+res.status)), {payload:data});
+    return data;
+  }
+  function toast(msg,kind='ok'){ try{ (window.toast||window.showToast||alert)(msg,kind); }catch(_){ alert(msg); } }
+
+  function cleanupDuplicatePanels(){
+    document.querySelectorAll('#selected-customer-items,.customer-detail #fix52-left-customer-items,.customer-detail .fix52-left-customer-items').forEach(el=>el.remove());
+    ['inventory','orders','master_order'].forEach(source=>{
+      const section = source==='inventory' ? ($('inventory-inline-panel') || $('inventory-inline-list')?.closest('.subsection,.panel')) : source==='orders' ? $('orders-list-section') : $('master-list-section');
+      if(!section) return;
+      // keep only one toolbar. Prefer the newest fix57 toolbar; remove older duplicated rows.
+      const toolbars = Array.from(section.querySelectorAll('.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.fix55-list-toolbar,[id*="-toolbar"]'))
+        .filter(el => /搜尋商品|批量加材質|全選目前清單|套用材質|批量刪除/.test(el.textContent + ' ' + Array.from(el.querySelectorAll('input,select')).map(x=>x.placeholder||x.value||'').join(' ')));
+      let kept = false;
+      toolbars.forEach(el=>{
+        const isGood = el.classList.contains('fix57-toolbar') || (el.id||'').startsWith('fix57-');
+        if(!kept && isGood){ kept = true; el.style.display=''; return; }
+        if(!kept){ kept = true; el.style.display=''; return; }
+        el.remove();
+      });
+      // Some old loaders create an identical block without class; remove duplicate rows by first search input.
+      const searchInputs = Array.from(section.querySelectorAll('input[placeholder="搜尋商品 / 客戶 / 材質"]'));
+      searchInputs.slice(1).forEach(inp=>{
+        const row = inp.closest('.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.btn-row,.query-bar,div');
+        if(row && row !== section) row.remove();
+      });
+    });
+  }
+
+  function normalizeText(v){ return clean(v).replace(/[Ｘ×✕＊*]/g,'x').replace(/＝/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function parseSupportExpr(expr){
+    const raw = normalizeText(expr); let pieces=0, lengthSum=0;
+    raw.split('+').forEach(part=>{
+      part=clean(part); if(!part) return;
+      const m = part.match(/^(\d+(?:\.\d+)?)(?:x(\d+))?$/i);
+      if(m){ const n=Number(m[1]||0); const c=Number(m[2]||1); pieces += c || 1; lengthSum += n * (c || 1); return; }
+      const nums = part.match(/\d+(?:\.\d+)?/g) || [];
+      if(nums.length){ pieces += 1; lengthSum += Number(nums[0]||0); }
+    });
+    return {pieces, lengthSum};
+  }
+  function parseProductLine(line){
+    const raw = normalizeText(line); if(!raw || !raw.includes('=')) return null;
+    const [left,...rightParts] = raw.split('='); const right = rightParts.join('=');
+    const dims = left.split(/x/i).map(Number);
+    if(dims.length < 3 || dims.some(n=>!Number.isFinite(n))) return null;
+    const support = parseSupportExpr(right);
+    return { product_text: `${left}=${right}`, size:left, support:right, dims, qty:support.pieces || 1, lengthSum:support.lengthSum || 0 };
+  }
+  function getSubmitItems(){
+    let arr=[];
+    try{
+      const fn = window.collectSubmitItems || (typeof collectSubmitItems === 'function' ? collectSubmitItems : null);
+      if(fn) arr = fn() || [];
+    }catch(_){ arr=[]; }
+    if(arr.length){
+      return arr.map(it=>{
+        const p = parseProductLine(it.product_text || it.text || '');
+        return { ...it, ...(p||{}), product_text: it.product_text || p?.product_text || '', qty: Number(it.qty || p?.qty || 1) };
+      }).filter(it=>it.product_text);
+    }
+    const txt = $('ocr-text')?.value || '';
+    return txt.split(/\n+/).map(parseProductLine).filter(Boolean);
+  }
+  function dimFactor(dims){
+    const L = Number(dims[0]||0), W = Number(dims[1]||0), H = Number(dims[2]||0);
+    const l = L > 210 ? L/1000 : L/100;
+    const w = W/10;
+    const h = H >= 100 ? H/100 : H/10;
+    return l*w*h;
+  }
+  function calcShipStats(items){
+    let totalLength = 0, volume = 0, totalQty = 0;
+    const rows = (items||[]).map(it=>{
+      const parsed = parseProductLine(it.product_text || '') || it;
+      const support = parseSupportExpr(parsed.support || String(parsed.product_text||'').split('=').slice(1).join('=') || '');
+      const length = parsed.lengthSum || support.lengthSum || 0;
+      const qty = Number(it.qty || parsed.qty || support.pieces || 1);
+      const dims = parsed.dims || (parsed.size||'').split('x').map(Number);
+      const vol = dims && dims.length>=3 ? length * dimFactor(dims) : 0;
+      totalLength += length; volume += vol; totalQty += qty;
+      return {product_text: it.product_text || parsed.product_text || '', qty, length, volume:vol};
+    });
+    return {rows, totalLength, volume, totalQty};
+  }
+  function formatNum(n){ return Number(n||0).toLocaleString('zh-TW',{maximumFractionDigits:3}); }
+
+  function showShipPreviewModal(preview, stats){
+    return new Promise(resolve=>{
+      document.querySelector('.yx58-ship-modal')?.remove();
+      const highlights=[];
+      (preview.items||[]).forEach(it=>(it.locations||[]).forEach(loc=>highlights.push(`${loc.zone}|${loc.column_index}|direct|${loc.slot_number || loc.visual_slot || 0}`)));
+      if(highlights.length) localStorage.setItem('shipPreviewWarehouseHighlights', JSON.stringify(highlights));
+      const itemRows = (preview.items||[]).map((it,idx)=>{
+        const stat = stats.rows.find(r=>normalizeText(r.product_text)===normalizeText(it.product_text)) || stats.rows[idx] || {};
+        const locs = (it.locations||[]).map(loc=>`<span class="yx58-location-chip">${esc(loc.zone)}-${esc(loc.column_index)}-${String(loc.visual_slot || loc.slot_number || 0).padStart(2,'0')}｜可出 ${esc(loc.ship_qty || loc.qty || 0)}</span>`).join('') || '<span class="muted">倉庫圖尚未找到位置</span>';
+        const can = Number(it.master_available||0)+Number(it.order_available||0)+Number(it.inventory_available||0);
+        const shortage = Math.max(0, Number(it.qty||0)-can);
+        return `<tr><td>${esc(it.product_text||'')}</td><td>${esc(it.qty||0)}</td><td>${formatNum(stat.length)}</td><td>${formatNum(stat.volume)}</td><td>總單 ${esc(it.master_available||0)}｜訂單 ${esc(it.order_available||0)}｜庫存 ${esc(it.inventory_available||0)}${shortage?`<br><b style="color:#dc2626">不足 ${shortage}</b>`:''}</td><td>${locs}</td></tr>`;
+      }).join('');
+      const modal=document.createElement('div'); modal.className='yx58-ship-modal';
+      modal.innerHTML=`<div class="yx58-ship-card">
+        <div class="yx58-ship-head"><div><h3 style="margin:0 0 4px">出貨預覽確認</h3><div class="muted">先確認材積、長度與倉庫位置，再扣總單 / 訂單 / 庫存。</div></div><button class="icon-btn" type="button" data-yx58-cancel>✕</button></div>
+        <div class="yx58-ship-grid"><div class="yx58-stat">總件數<b>${formatNum(stats.totalQty)}</b></div><div class="yx58-stat">總長度<b>${formatNum(stats.totalLength)}</b></div><div class="yx58-stat">材積<b>${formatNum(stats.volume)}</b></div><div class="yx58-stat">倉庫位置<b>${highlights.length ? highlights.length+'格' : '未找到'}</b></div></div>
+        <div class="yx58-preview-scroll"><table class="yx58-preview-table"><thead><tr><th>商品</th><th>件數</th><th>長度</th><th>材積</th><th>可扣來源</th><th>倉庫圖位置</th></tr></thead><tbody>${itemRows || '<tr><td colspan="6">沒有商品</td></tr>'}</tbody></table></div>
+        <div class="yx58-modal-actions"><a class="ghost-btn" href="/warehouse" target="_blank">開啟倉庫圖</a><button class="ghost-btn" type="button" data-yx58-cancel>取消</button><button class="primary-btn" type="button" data-yx58-ok>確認扣除</button></div>
+      </div>`;
+      document.body.appendChild(modal);
+      modal.querySelectorAll('[data-yx58-cancel]').forEach(btn=>btn.addEventListener('click',()=>{ modal.remove(); resolve(false); }));
+      modal.querySelector('[data-yx58-ok]')?.addEventListener('click',()=>{ modal.remove(); resolve(true); });
+    });
+  }
+
+  const oldConfirm = window.confirmSubmit;
+  window.confirmSubmit = async function(){
+    if(mod() !== 'ship' || window.__yx58ShipApproved){ return oldConfirm ? oldConfirm.apply(this,arguments) : undefined; }
+    const customer = clean($('customer-name')?.value || '');
+    const items = getSubmitItems();
+    if(!customer || !items.length){ return oldConfirm ? oldConfirm.apply(this,arguments) : toast(!customer?'請先輸入客戶名稱':'沒有可送出的商品資料','warn'); }
+    const btn=$('submit-btn');
+    try{
+      if(btn){ btn.disabled=true; btn.textContent='計算預覽…'; }
+      const preview = await api('/api/ship-preview',{method:'POST',body:JSON.stringify({customer_name:customer,items})});
+      const stats = calcShipStats(items);
+      const ok = await showShipPreviewModal(preview, stats);
+      if(!ok) return;
+      window.__yx58ShipApproved = true;
+      return await (oldConfirm ? oldConfirm.apply(this,arguments) : undefined);
+    }catch(e){
+      toast(e?.payload?.error || e.message || '出貨預覽失敗','error');
+    }finally{
+      window.__yx58ShipApproved = false;
+      if(btn){ btn.disabled=false; btn.textContent='確認送出'; }
+    }
+  };
+
+  function boot58(){
+    document.documentElement.dataset.yxFix58 = VERSION;
+    cleanupDuplicatePanels();
+    setTimeout(cleanupDuplicatePanels,80);
+    setTimeout(cleanupDuplicatePanels,400);
+    setTimeout(cleanupDuplicatePanels,1200);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot58); else boot58();
+  setInterval(cleanupDuplicatePanels,1500);
+})();

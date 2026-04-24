@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix57-final-hard-patch';
+  const PWA_VERSION = 'fix58-ship-preview-clean';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
