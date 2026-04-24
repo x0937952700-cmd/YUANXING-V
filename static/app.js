@@ -16,6 +16,64 @@ window.currentModule = window.currentModule || function(){
 window.escapeHTML = window.escapeHTML || function(str){
   return String(str ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 };
+
+window.yxSortQtyExpression = window.yxSortQtyExpression || function(expr){
+  const raw = String(expr || '')
+    .replace(/[Ｘ×✕＊*X]/g,'x')
+    .replace(/[＋，,；;]/g,'+')
+    .replace(/件|片/g,'')
+    .replace(/\s+/g,'')
+    .trim();
+  if(!raw) return '';
+  const multi = [];
+  const single = [];
+  raw.split('+').filter(Boolean).forEach((seg, idx) => {
+    const nums = (seg.match(/\d+/g) || []).map(n => parseInt(n, 10) || 0);
+    if(nums.length >= 2 && /x/i.test(seg)) multi.push({seg, cases: nums[1] || 0, supports: nums[0] || 0, idx});
+    else if(nums.length >= 1) single.push({seg, value: nums[0] || 0, idx});
+    else single.push({seg, value: 0, idx});
+  });
+  multi.sort((a,b) => (b.cases - a.cases) || (b.supports - a.supports) || (a.idx - b.idx));
+  single.sort((a,b) => (b.value - a.value) || (a.idx - b.idx));
+  return [...multi.map(x => x.seg), ...single.map(x => x.seg)].join('+');
+};
+
+window.yxCleanQtyExpression = window.yxCleanQtyExpression || function(expr){
+  return String(expr || '')
+    .replace(/[Ｘ×✕＊*X]/g,'x')
+    .replace(/[＝]/g,'=')
+    .replace(/[＋，,；;]/g,'+')
+    .replace(/件|片/g,'')
+    .replace(/\s+/g,'')
+    .trim();
+};
+window.yxFormatDimToken = window.yxFormatDimToken || function(v, isHeight){
+  const s = String(v || '').trim();
+  if(!s) return '';
+  if(/^[A-Za-z]+$/.test(s)) return s.toUpperCase();
+  if(/^\d*\.\d+$/.test(s)){
+    const n = Number(s);
+    if(n > 0 && n < 1) return s.startsWith('.') ? ('0' + s.slice(1)) : s.replace('.', '');
+    return String(n).replace('.', '');
+  }
+  if(/^\d+$/.test(s)){
+    if(isHeight && s.length === 1) return s.padStart(2,'0');
+    return s;
+  }
+  return s.replace(/\s+/g,'');
+};
+window.yxNormalizeLeftSize = window.yxNormalizeLeftSize || function(left){
+  return String(left || '').split(/x/i).map((p, i) => window.yxFormatDimToken(p, i === 2)).join('x');
+};
+window.yxNormalizeProductText = window.yxNormalizeProductText || function(text){
+  const raw = String(text || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').trim();
+  const parts = raw.split('=');
+  if(parts.length < 2) return raw;
+  const left = window.yxNormalizeLeftSize(parts.shift().trim().replace(/\s+/g,''));
+  const right = window.yxSortQtyExpression(window.yxCleanQtyExpression(parts.join('=')));
+  return right ? `${left}=${right}` : raw;
+};
+
 window.toast = window.toast || function(message, level='ok'){
   let box = document.getElementById('global-toast-box');
   if (!box) {
@@ -72,7 +130,7 @@ window.parseTextareaItems = function(){
   let last = ['', '', ''];
   const out = [];
   const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
-  const tokenRe = /(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*[=:]\s*[^\n]+/ig;
+  const tokenRe = /(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)\s*[=:]\s*[^\n]+/ig;
   for (let line of lines) {
     line = normalizeX(line).replace(/\s+/g,'');
     const matches = line.match(tokenRe) || [];
@@ -81,7 +139,7 @@ window.parseTextareaItems = function(){
       const parts = token.split(/=|:/);
       const left = parts.shift();
       let right = parts.join('=').replace(/^[=:\s]+/,'').trim();
-      right = right.replace(/[^\dA-Za-z一-鿿xX+＋\-()（）]/g, '');
+      right = window.yxSortQtyExpression(window.yxCleanQtyExpression(right.replace(/[^\dA-Za-z一-鿿xX+＋\-()（）件片]/g, '')));
       const dimsRaw = String(left || '').split(/x/i).map(s => s.trim());
       const dims = [0,1,2].map(i => {
         const v = dimsRaw[i] || '';
@@ -90,7 +148,7 @@ window.parseTextareaItems = function(){
       });
       if (dims[0] && dims[1] && dims[2]) last = dims.slice();
       if (!dims[0] || !dims[1] || !dims[2] || !right) continue;
-      const product_text = `${dims.join('x')}=${right}`;
+      const product_text = `${window.yxNormalizeLeftSize(dims.join('x'))}=${right}`;
       out.push({ product_text, product_code: product_text, qty: calcQty(right) });
     }
   }
@@ -100,7 +158,7 @@ window.normalizeCustomerItems = function(items){
   return (items || []).map(it => {
     const txt = String(it.product_text || '');
     const parts = txt.split('=');
-    return { ...it, _size: parts[0] || txt, _qtyText: parts[1] || String(it.qty || '') };
+    return { ...it, _size: parts[0] || txt, _qtyText: window.yxSortQtyExpression(parts[1] || String(it.qty || '')) };
   });
 };
 /* ==== realfix bootstrap end ==== */
@@ -693,7 +751,7 @@ function escapeHTML(str){
 function splitManualCompoundLine(line=''){
   const normalized = String(line || '')
     .replace(/[｜|]/g, ' ')
-    .replace(/([0-9_\-]{1,4}x[0-9_\-]{1,4}x[0-9_\-]{1,4}=[0-9x+]+)/ig, '\n$1\n')
+    .replace(/((?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)=[0-9A-Za-z一-鿿xX+＋件片]+)/ig, '\n$1\n')
     .replace(/\n+/g, '\n');
   return normalized.split('\n').map(s => s.trim()).filter(Boolean);
 }
@@ -708,7 +766,7 @@ function formatManualEntryText(rawText=''){
   const parseProductToken = (token) => {
     const parts = String(token || '').split('=');
     const leftRaw = parts.shift();
-    const rightRaw = parts.join('=').replace(/[。．]/g, '').trim();
+    const rightRaw = window.yxSortQtyExpression(window.yxCleanQtyExpression(parts.join('=').replace(/[。．]/g, '').trim()));
     if (!leftRaw || !rightRaw) return null;
     const leftParts = String(leftRaw || '').split(/x/i).map(s => s.trim());
     const dims = [0,1,2].map(i => {
@@ -732,7 +790,7 @@ function formatManualEntryText(rawText=''){
       return Math.max(1, total || 1);
     };
     const qty = calcQty(rightRaw);
-    const product_text = `${dims.join('x')}=${rightRaw}`;
+    const product_text = `${window.yxNormalizeLeftSize(dims.join('x'))}=${rightRaw}`;
     return { product_text, product_code: product_text, qty, _dims: dims.map(v => parseInt(v || 0, 10) || 0) };
   };
 
@@ -1322,7 +1380,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function normalizeCustomerItems(items){
     return (items || []).map(it => {
       const row = (typeof formatCustomerProductRow === 'function') ? formatCustomerProductRow(it.product_text || '') : { size: it.product_text || '', qtyText: String(it.qty || '') };
-      return { ...it, _size: row.size || it.product_text || '', _qtyText: row.qtyText || String(it.qty || '') };
+      return { ...it, _size: row.size || it.product_text || '', _qtyText: window.yxSortQtyExpression(row.qtyText || String(it.qty || '')) };
     });
   }
 
@@ -1738,29 +1796,34 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       if (!dims[0] || !dims[1] || !dims[2]) return;
       last = dims.slice();
       let right = String(rightRaw || '').replace(/\s+/g, '').replace(/（/g,'(').replace(/）/g,')');
-      right = right.replace(/[^0-9A-Za-z一-鿿xX+＋\-()]/g, '');
+      right = window.yxCleanQtyExpression(right.replace(/[^0-9A-Za-z一-鿿xX+＋\-()件片]/g, ''));
       if (!right) right = '1x1';
       const calcQty = (txt) => {
         let total = 0;
         String(txt || '').split(/[+＋,，;；]/).forEach(seg => {
           const main = seg.replace(/[\(（][^\)）]*[\)）]/g, '');
           const nums = main.match(/\d+/g) || [];
-          if (nums.length >= 2) total += parseInt(nums[1] || '0', 10) || 0;
+          // 19件 / 1425片 這種明確寫件或片的格式，數量就是該數字
+          if (nums.length === 1 && /[件片]/.test(main)) total += parseInt(nums[0] || '0', 10) || 0;
+          else if (nums.length >= 2) total += parseInt(nums[1] || '0', 10) || 0;
           else if (nums.length === 1) total += 1;
         });
         return Math.max(1, total || 1);
       };
       const qty = calcQty(right);
-      const product_text = `${dims.join('x')}=${right}`;
+      const product_text = `${window.yxNormalizeLeftSize(dims.join('x'))}=${right}`;
       out.push({ product_text, product_code: product_text, qty });
     };
 
+    const dimUnit = '(?:[_-]|[A-Za-z]+|\\d+(?:\\.\\d+)?)';
+    const tokenRe = new RegExp(dimUnit + 'x' + dimUnit + 'x' + dimUnit + '(?:\\s*(?:=|:)\\s*[^\\n]+)?', 'ig');
+    const wholeRe = new RegExp('^((' + dimUnit + ')x(' + dimUnit + ')x(' + dimUnit + '))(?:\\s*(?:=|:)\\s*(.+))?$', 'i');
     lines.forEach(line => {
       const normalized = normalizeX(line).replace(/\s+/g, ' ').trim();
       if (!normalized) return;
       if (pushPallet(normalized)) return;
       const compact = normalized.replace(/\s+/g, '');
-      const tokens = compact.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?:\s*(?:=|:)\s*[^\n]+)?/ig) || [];
+      const tokens = compact.match(tokenRe) || [];
       if (tokens.length) {
         tokens.forEach(token => {
           const parts = token.split(/=|:/);
@@ -1768,8 +1831,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         });
         return;
       }
-      const whole = compact.match(/^((?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4}))(?:\s*(?:=|:)\s*(.+))?$/i);
-      if (whole) pushEntry(whole[1], whole[2] || '');
+      const whole = compact.match(wholeRe);
+      if (whole) pushEntry(whole[1], whole[5] || '');
     });
 
     return mergeSubmitItems(out);
@@ -1777,7 +1840,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function collectSubmitItems(){
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
     const rawText = (ocrBox?.value || '').trim();
     let items = [];
     try { items = parseSubmitItemsRobust(rawText); } catch (_e) { items = []; }
@@ -1947,7 +2010,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return (items || []).map(it => {
       const text = String(it.product_text || '');
       const parts = text.split('=');
-      const qtyText = parts[1] || String(it.qty || '');
+      const qtyText = window.yxSortQtyExpression(parts[1] || String(it.qty || ''));
       return `<tr>
         <td><input type="checkbox" data-product-text="${escapeHTML(text)}" data-qty="${escapeHTML(String(it.qty || 1))}" data-source="${escapeHTML(it.source || '')}" data-id="${escapeHTML(String(it.id || ''))}"></td>
         <td>${escapeHTML(parts[0] || text)}</td>
@@ -2287,7 +2350,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
     const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();
@@ -2752,8 +2815,13 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.moveCustomerRegionUnified = async function(customerName, region){
     const identity = customerIdentity(customerName);
     await requestJSON('/api/customers/move', { method:'POST', body: JSON.stringify({ name: identity.name, customer_uid: identity.customer_uid, region }) });
+    state.selectedCustomerRegion = normalizeRegion(region, region);
+    state.customerDirectory = (state.customerDirectory || []).map(c => c.name === identity.name ? {...c, region} : c);
     toast(`${identity.name} 已移到${region}`, 'ok');
     await window.loadCustomerBlocks();
+    const targetId = {'北區':'region-north','中區':'region-center','南區':'region-south'}[region] || {'北區':'customers-north','中區':'customers-center','南區':'customers-south'}[region];
+    const targetEl = targetId ? document.getElementById(targetId) : null;
+    if (targetEl) targetEl.scrollIntoView({behavior:'smooth', block:'center'});
     const mod = getModuleKey();
     if (['orders','master_order','ship'].includes(mod)) await window.selectCustomerForModule(identity.name);
     if (mod === 'customers' && typeof window.openCustomerModal === 'function') await window.openCustomerModal(identity.name);
@@ -2793,7 +2861,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g, '')).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
     const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();

@@ -1,7 +1,7 @@
 /* ==== FIX36：出貨客戶商品下拉 + 材積/長度/重量預覽後確認出貨 ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix37-ship-parser-ui-cleanup';
+  const VERSION = 'fix40-decimal-L-region-refresh';
   window.__YUANXING_FIX_VERSION__ = VERSION;
   document.documentElement.dataset.yxVersion = VERSION;
 
@@ -9,6 +9,21 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
   const mod = () => document.querySelector('.module-screen')?.dataset?.module || (location.pathname.includes('/ship') ? 'ship' : '');
   const say = (msg, type='ok') => typeof window.toast === 'function' ? window.toast(msg, type) : alert(msg);
+
+
+  function removeNonShipLocationField(){
+    if(mod() === 'ship') return;
+    const loc = $('location-input');
+    if(loc) loc.remove();
+    Array.from(document.querySelectorAll('label,.field-label,div,span')).forEach(el => {
+      if((el.textContent || '').trim() === '倉庫格位 / 預設位置'){
+        const next = el.nextElementSibling;
+        if(next && (next.id === 'location-input' || next.placeholder?.includes('A-1-01'))) next.remove();
+        el.remove();
+      }
+    });
+    Array.from(document.querySelectorAll('input[placeholder*="A-1-01"]')).forEach(el => el.remove());
+  }
 
   async function api(url, options={}){
     if (typeof window.requestJSON === 'function') return window.requestJSON(url, options);
@@ -28,6 +43,58 @@
       .replace(/\u3000/g,' ')
       .trim();
   }
+
+
+  function cleanQtyExpression(expr){
+    return String(expr || '')
+      .replace(/[Ｘ×✕＊*X]/g,'x')
+      .replace(/[＋，,；;]/g,'+')
+      .replace(/件|片/g,'')
+      .replace(/\s+/g,'')
+      .trim();
+  }
+  function formatDimToken(v, isHeight=false){
+    const s = String(v || '').trim();
+    if(!s) return '';
+    if(/^[A-Za-z]+$/.test(s)) return s.toUpperCase();
+    if(/^\d*\.\d+$/.test(s)){
+      const n = Number(s);
+      if(n > 0 && n < 1) return s.startsWith('.') ? ('0' + s.slice(1)) : s.replace('.', '');
+      return String(n).replace('.', '');
+    }
+    if(/^\d+$/.test(s)){
+      if(isHeight && s.length === 1) return s.padStart(2,'0');
+      return s;
+    }
+    return s.replace(/\s+/g,'');
+  }
+  function normalizeLeftSize(left){
+    return String(left || '').split(/x/i).map((p, i) => formatDimToken(p, i === 2)).join('x');
+  }
+  function sortQtyExpression(expr){
+    if(typeof window.yxSortQtyExpression === 'function') return window.yxSortQtyExpression(expr);
+    const raw = String(expr || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'').trim();
+    if(!raw) return '';
+    const multi = [], single = [];
+    raw.split('+').filter(Boolean).forEach((seg, idx) => {
+      const nums = (seg.match(/\d+/g) || []).map(n => parseInt(n,10) || 0);
+      if(nums.length >= 2 && /x/i.test(seg)) multi.push({seg, cases:nums[1]||0, supports:nums[0]||0, idx});
+      else if(nums.length >= 1) single.push({seg, value:nums[0]||0, idx});
+      else single.push({seg, value:0, idx});
+    });
+    multi.sort((a,b)=>(b.cases-a.cases)||(b.supports-a.supports)||(a.idx-b.idx));
+    single.sort((a,b)=>(b.value-a.value)||(a.idx-b.idx));
+    return [...multi.map(x=>x.seg), ...single.map(x=>x.seg)].join('+');
+  }
+  function normalizeProductTextSort(text){
+    const raw = normalizeX(text || '');
+    if(!raw.includes('=')) return raw;
+    const parts = raw.split('=');
+    const left = normalizeLeftSize(parts.shift().replace(/\s+/g,''));
+    const right = sortQtyExpression(cleanQtyExpression(parts.join('=')));
+    return right ? `${left}=${right}` : raw;
+  }
+
   function padSize(left){
     const nums = String(left || '').replace(/[×X＊*]/g,'x').match(/\d+/g) || [];
     if(nums.length < 3) return '';
@@ -37,7 +104,8 @@
     let total = 0;
     String(right || '').split(/[+＋,，;；]/).forEach(seg => {
       const nums = String(seg || '').match(/\d+/g) || [];
-      if(nums.length >= 2) total += Number(nums[1] || 0) || 0;
+      if(nums.length === 1 && /[件片]/.test(String(seg || ''))) total += Number(nums[0] || 0) || 0;
+      else if(nums.length >= 2) total += Number(nums[1] || 0) || 0;
       else if(nums.length === 1) total += 1;
     });
     return Math.max(1, total || 1);
@@ -77,23 +145,25 @@
       const parts = String(token || '').split(/=|:/);
       const left = parts.shift() || '';
       let right = parts.join('=').replace(/^[=:]+/,'').trim().replace(/\s+/g,'');
-      right = normalizeX(right).replace(/[^0-9A-Za-z一-鿿xX+＋\-()]/g, '');
+      right = sortQtyExpression(cleanQtyExpression(normalizeX(right).replace(/[^0-9A-Za-z一-鿿xX+＋\-()件片]/g, '')));
       const dimsRaw = String(left || '').split(/x/i).map(s => s.trim());
       const dims = [0,1,2].map(i => {
         const v = dimsRaw[i] || '';
         if(!v || /^[_-]+$/.test(v)) return last[i] || '';
-        return String(Number(v));
+        return v;
       });
       if(dims[0] && dims[1] && dims[2]) last = dims.slice();
       if(!dims[0] || !dims[1] || !dims[2] || !right) return;
-      const size = `${Number(dims[0])}x${Number(dims[1])}x${String(Number(dims[2])).padStart(2,'0')}`;
+      const size = normalizeLeftSize(dims.join('x'));
       const product_text = `${size}=${right}`;
       out.push({ product_text, product_code: product_text, qty: calcPieces(right) });
     };
     raw.split(/\n+/).map(s => normalizeX(s).trim()).filter(Boolean).forEach(line0 => {
       if(pushPallet(line0)) return;
       const line = line0.replace(/\s+/g,'');
-      const tokens = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*(?:=|:)\s*[^\n]+/ig) || [];
+      const dimUnit = '(?:[_-]|[A-Za-z]+|\\d+(?:\\.\\d+)?)';
+      const tokenRe = new RegExp(dimUnit + 'x' + dimUnit + 'x' + dimUnit + '\\s*(?:=|:)\\s*[^\\n]+', 'ig');
+      const tokens = line.match(tokenRe) || [];
       if(tokens.length) tokens.forEach(pushToken);
       else if(line.includes('=') && /x/i.test(line)) pushToken(line);
     });
@@ -109,14 +179,14 @@
   function cleanTextareaSpaces(){
     const box = $('ocr-text');
     if(!box) return;
-    const cleaned = normalizeX(box.value || '').split(/\n+/).map(line => line.trim().replace(/\s+/g,'')).filter(Boolean).join('\n');
+    const cleaned = normalizeX(box.value || '').split(/\n+/).map(line => normalizeProductTextSort(line.trim().replace(/\s+/g,''))).filter(Boolean).join('\n');
     if(cleaned !== box.value) box.value = cleaned;
   }
 
   function appendProductsToTextarea(products, replace=false){
     const box = $('ocr-text');
     if(!box) return;
-    const lines = (products || []).map(it => String(it.product_text || '').trim()).filter(Boolean);
+    const lines = (products || []).map(it => normalizeProductTextSort(it.product_text || '')).filter(Boolean);
     if(!lines.length) return say('沒有可加入的商品', 'warn');
     const before = replace ? '' : box.value.trim();
     box.value = [before, ...lines].filter(Boolean).join('\n');
@@ -145,7 +215,7 @@
         return [];
       }
       sel.innerHTML = items.map((it, idx) => {
-        const text = String(it.product_text || '');
+        const text = normalizeProductTextSort(it.product_text || '');
         const source = String(it.source || '');
         const qty = Number(it.qty || 0) || 0;
         const mat = String(it.material || (it.product_code && it.product_code !== it.product_text ? it.product_code : '') || '');
@@ -186,9 +256,29 @@
     }));
   }
 
-  function factorLength(n){ return Number(n) > 210 ? Number('0.' + String(Number(n))) : Number(n) / 100; }
-  function factorWidth(n){ return Number(n) / 10; }
-  function factorHeight(n){ return Number(n) >= 100 ? Number(n) / 100 : Number(n) / 10; }
+  function dimNumberToken(s){
+    const raw = String(s || '').trim();
+    if(/^\d+$/.test(raw)) return Number(raw);
+    if(/^\d*\.\d+$/.test(raw)) return Number(raw);
+    return NaN;
+  }
+  function factorLengthToken(s){
+    const n = dimNumberToken(s);
+    if(!Number.isFinite(n)) return NaN;
+    return n > 210 ? Number('0.' + String(Math.trunc(n))) : n / 100;
+  }
+  function factorWidthToken(s){
+    const n = dimNumberToken(s);
+    if(!Number.isFinite(n)) return NaN;
+    return n / 10;
+  }
+  function factorHeightToken(s){
+    const raw = String(s || '').trim();
+    if(/^0\d{2}$/.test(raw)) return Number('0.' + raw.slice(1));
+    const n = dimNumberToken(raw);
+    if(!Number.isFinite(n)) return NaN;
+    return n >= 100 ? n / 100 : n / 10;
+  }
   function fmt(n){
     const x = Number(n || 0);
     if(!Number.isFinite(x)) return '0';
@@ -197,11 +287,12 @@
   function itemMeasure(item){
     const text = String(item.product_text || '');
     const [left, right=''] = text.split('=');
-    const nums = (left.match(/\d+/g) || []).map(Number);
-    if(nums.length < 3) return { supportTotal:0, volume:0, formula:'無法計算', lengthFormula:'無法計算' };
-    const [L, W, H] = nums;
+    const dims = left.split(/x/i).map(s => s.trim());
+    if(dims.length < 3) return { supportTotal:0, volume:0, formula:'無法計算', lengthFormula:'無法計算' };
+    const [L, W, H] = dims;
     const support = calcSupportTotal(right);
-    const lf = factorLength(L), wf = factorWidth(W), hf = factorHeight(H);
+    const lf = factorLengthToken(L), wf = factorWidthToken(W), hf = factorHeightToken(H);
+    if(![lf,wf,hf].every(Number.isFinite)) return { supportTotal:support.total, volume:0, formula:'無法計算', lengthFormula:`${support.expr}=${fmt(support.total)}` };
     const volume = support.total * lf * wf * hf;
     return {
       length: L, width: W, height: H,
@@ -395,6 +486,6 @@
   window.fix36LoadCustomerProducts = loadCustomerProducts;
   window.fix36RenderShipSelected = renderSelectedListQuick;
 
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootShipPicker);
-  else bootShipPicker();
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { removeNonShipLocationField(); bootShipPicker(); setTimeout(removeNonShipLocationField, 250); });
+  else { removeNonShipLocationField(); bootShipPicker(); setTimeout(removeNonShipLocationField, 250); }
 })();

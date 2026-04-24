@@ -71,6 +71,24 @@ def product_display_size(text):
 
 
 
+def sort_support_expression(expr):
+    """支數 x 件數排序：先以有 x 的段落依件數大到小；單獨支數排後面並依大到小。"""
+    raw = str(expr or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＋', '+').replace('，', '+').replace(',', '+').replace('；', '+').replace(';', '+').replace(' ', '').strip()
+    if not raw:
+        return ''
+    multi = []
+    single = []
+    for idx, seg in enumerate([x for x in raw.split('+') if x.strip()]):
+        nums = [int(x) for x in re.findall(r'\d+', seg)]
+        if len(nums) >= 2 and 'x' in seg.lower():
+            multi.append((-nums[1], -nums[0], idx, seg))
+        elif nums:
+            single.append((-nums[0], idx, seg))
+        else:
+            single.append((0, idx, seg))
+    return '+'.join([x[3] for x in sorted(multi)] + [x[2] for x in sorted(single)])
+
+
 def format_product_text_height2(text):
     """顯示/儲存用商品文字：保留等號右側與括號備註，只把尺寸高度固定兩位數。"""
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
@@ -81,7 +99,8 @@ def format_product_text_height2(text):
     if not m:
         return raw
     size = f"{int(m.group(1))}x{int(m.group(2))}x{int(m.group(3)):02d}"
-    return f"{size}={right.strip()}" if sep else size
+    support = sort_support_expression(right.strip())
+    return f"{size}={support}" if sep else size
 
 
 def _normalize_product_texts_in_table(cur, table):
@@ -152,7 +171,12 @@ def effective_product_qty(product_text, fallback_qty=0):
             nums = [int(x) for x in re.findall(r'\d+', seg)]
             if not nums:
                 continue
-            total += int(nums[1] if len(nums) >= 2 else 1)
+            # 明確寫 19件 / 1425片 時，數量直接採用該數字；
+            # 111+132x3 這種單獨支數仍維持舊規則：單獨一段算 1 件。
+            if len(nums) == 1 and re.search(r'[件片]', seg):
+                total += int(nums[0])
+            else:
+                total += int(nums[1] if len(nums) >= 2 else 1)
     try:
         fallback = int(fallback_qty or 0)
     except Exception:
@@ -1090,10 +1114,25 @@ def get_customer(name, include_archived=False):
 
 def _normalize_size_key(text):
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').strip()
-    left = (raw.split('=', 1)[0].strip() or raw).lower()
+    left = (raw.split('=', 1)[0].strip() or raw).lower().replace(' ', '')
     parts = [p for p in left.split('x') if p != '']
-    if len(parts) >= 3 and all(p.strip().isdigit() for p in parts[:3]):
-        return 'x'.join(str(int(p.strip())) for p in parts[:3])
+    def fmt_part(p, is_height=False):
+        p = str(p or '').strip().lower()
+        try:
+            if '.' in p and p.replace('.', '', 1).isdigit():
+                n = float(p)
+                if 0 < n < 1:
+                    return str(int(round(n * 100))).zfill(3)
+                return str(n).replace('.', '')
+            if p.isdigit():
+                if is_height and len(p) == 1:
+                    return p.zfill(2)
+                return str(int(p)) if not p.startswith('0') else p
+        except Exception:
+            pass
+        return p
+    if len(parts) >= 3:
+        return 'x'.join(fmt_part(p, i == 2) for i, p in enumerate(parts[:3]))
     return left
 
 def _normalize_product_key(text):
@@ -1103,7 +1142,7 @@ def _normalize_product_key(text):
     left, right = raw.split('=', 1)
     size = _normalize_size_key(left)
     # 括號備註例如 (-1永松) 只做顯示，不參與商品比對，避免出貨/移動找不到同尺寸商品。
-    right_for_key = __import__('re').sub(r'[\(（][^\)）]*[\)）]', '', right)
+    right_for_key = __import__('re').sub(r'[\(（][^\)）]*[\)）]', '', right).replace('件', '').replace('片', '')
     # 右側保留材積/支數資訊，但清掉空白與前導 0，讓 05 和 5 可比對。
     nums = [str(int(n)) for n in __import__('re').findall(r'\d+', right_for_key)]
     if nums:
