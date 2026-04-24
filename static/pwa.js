@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix55-actions-material-clean';
+  const PWA_VERSION = 'fix56-send-login-batch-customer-delete';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

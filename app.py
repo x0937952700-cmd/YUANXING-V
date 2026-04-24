@@ -1385,6 +1385,54 @@ def api_customer_items_batch_material():
         log_error("customer_items_batch_material", str(e))
         return error_response(str(e) or "批量材質更新失敗")
 
+
+
+@app.route("/api/customer-items/batch-delete", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_delete():
+    """FIX56：庫存 / 訂單 / 總單共用批量刪除。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get("items") or []
+        if not items:
+            return error_response("請先勾選要刪除的商品")
+        table_map = {
+            "庫存": "inventory", "inventory": "inventory",
+            "訂單": "orders", "orders": "orders",
+            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
+        }
+        conn = get_db()
+        cur = conn.cursor()
+        deleted = 0
+        before_items = []
+        try:
+            for it in items:
+                source = (it.get("source") or "").strip()
+                table = table_map.get(source)
+                item_id = int(it.get("id") or 0)
+                if not table or item_id <= 0:
+                    continue
+                cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+                row = fetchone_dict(cur)
+                if not row:
+                    continue
+                before_items.append({"source": source, "table": table, "id": item_id, "row": row})
+                cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (item_id,))
+                deleted += cur.rowcount or 0
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
+        log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
+        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted})
+        return jsonify(success=True, count=deleted)
+    except Exception as e:
+        log_error("customer_items_batch_delete", str(e))
+        return error_response(str(e) or "批量刪除失敗")
+
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
 def api_backup():

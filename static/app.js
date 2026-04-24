@@ -2374,7 +2374,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       } else if (resultPanel) {
         resultPanel.classList.remove('hidden');
         resultPanel.style.display = '';
-        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(finalCustomer)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${finalItems.length} 筆庫存資料。</div>`;
+        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(finalCustomer)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${items.length} 筆庫存資料。</div>`;
       }
       if (needCustomer) {
         await window.loadCustomerBlocks();
@@ -2462,7 +2462,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX52 formal clean final override ==== */
 (function(){
   'use strict';
-  const VERSION='fix53-production-clean';
+  const VERSION='fix56-send-login-batch-customer-delete';
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').trim();
   const esc=v=>String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -2515,7 +2515,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
 /* ==== FIX53 production clean guard: customer modal removed + final UI consistency ==== */
 (function(){
-  const VERSION = 'fix53-production-clean';
+  const VERSION = 'fix56-send-login-batch-customer-delete';
   const $ = window.$ || (id => document.getElementById(id));
   const clean = v => String(v ?? '').trim();
   const esc = window.escapeHTML || (s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
@@ -2584,7 +2584,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX54 shipping customer dropdown + card alignment cleanup ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix54-ship-dropdown-clean';
+  const VERSION = 'fix56-send-login-batch-customer-delete';
   const $ = id => document.getElementById(id);
   const clean = v => String(v ?? '').trim();
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2786,7 +2786,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX55 inventory/order/master action + material + customer-filter cleanup ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix55-actions-material-clean';
+  const VERSION = 'fix56-send-login-batch-customer-delete';
   const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
   const $ = (id) => document.getElementById(id);
   const clean = (v) => String(v ?? '').trim();
@@ -2829,4 +2829,107 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.selectCustomerForModule=async function(customer){ const c=typeof customer==='object'&&customer?customer:{name:clean(customer)}; const input=$('customer-name'); if(input){ input.value=c.name||''; input.dataset.customerUid=c.customer_uid||''; input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new Event('change',{bubbles:true})); } const selected=$('selected-customer-items'); if(selected){selected.classList.add('hidden'); selected.innerHTML='';} if(pageModule()==='ship'&&typeof window.loadShipCustomerDropdown==='function') await window.loadShipCustomerDropdown(c); if(pageModule()==='master_order') setTimeout(()=>window.loadMasterList(),0); if(pageModule()==='orders') setTimeout(()=>window.loadOrdersList(),0); return null; };
   function bootFix55(){ document.documentElement.dataset.yxFix55=VERSION; document.querySelectorAll('#selected-customer-items').forEach(el=>{el.classList.add('hidden'); el.innerHTML='';}); const m=pageModule(); if(m==='inventory') window.loadInventory(); if(m==='orders') window.loadOrdersList(); if(m==='master_order') window.loadMasterList(); $('customer-name')?.addEventListener('input',()=>{ if(pageModule()==='master_order') renderSourceRows('master_order',rowsFor('master_order')); }); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bootFix55); else setTimeout(bootFix55,0);
+})();
+
+
+/* ==== FIX56 send/login/long-press-delete/batch-table final override ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix56-send-login-batch-customer-delete';
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
+  const $ = (id)=>document.getElementById(id);
+  const clean = (v)=>String(v ?? '').trim();
+  const esc = (v)=>String(v ?? '').replace(/[&<>"']/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const toastSafe = (msg,type='ok') => (typeof window.toast === 'function' ? window.toast(msg,type) : alert(msg));
+  const api = async(url,opt={})=>{
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const txt = await res.text();
+    let data = {};
+    try{ data = txt ? JSON.parse(txt) : {}; }catch(_){ data = {success:false,error:txt||'伺服器回應錯誤'}; }
+    if(!res.ok || data.success === false) throw new Error(data.error || data.message || `請求失敗 ${res.status}`);
+    return data;
+  };
+  const moduleKey = ()=>document.querySelector('[data-module]')?.dataset.module || (location.pathname.includes('/inventory')?'inventory':location.pathname.includes('/orders')?'orders':location.pathname.includes('/master')?'master_order':location.pathname.includes('/ship')?'ship':location.pathname.includes('/customers')?'customers':'');
+  function normalizeText(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function looksLikeProduct(v, product=''){
+    const s=normalizeText(v), p=normalizeText(product);
+    if(!s) return false; if(p && s===p) return true; if(s.includes('=')) return true;
+    return /^\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?$/i.test(s) || /^\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)+$/.test(s);
+  }
+  function materialOf(row){ const v=clean(row?.material || row?.product_code || ''); return looksLikeProduct(v,row?.product_text||'') ? '' : v; }
+  function splitProduct(row){ const raw=normalizeText(row?.product_text || row?.size || ''); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
+  function sizeOf(row){ const p=splitProduct(row); const m=p.size.match(/\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?/i); return m ? m[0] : p.size; }
+  function supportOf(row){ const p=splitProduct(row); if(p.support) return p.support; const q=Number(row?.qty || 0); return q>0 ? String(Math.trunc(q)) : ''; }
+  function qtyCount(row){ const s=supportOf(row); if(!s) return Math.max(0, Number(row?.qty||0)); return s.split('+').map(x=>clean(x)).filter(Boolean).reduce((sum,part)=>{ const m=part.match(/[xX×＊*]\s*(\d+)\s*$/); return sum + (m ? Number(m[1]) : 1); },0); }
+  function rowsFor(source){ return source==='inventory' ? (window.__yxInventoryRows||[]) : source==='orders' ? (window.__yxOrderRows||[]) : (window.__yxMasterRows||[]); }
+  function setRows(source, rows){ if(source==='inventory') window.__yxInventoryRows=rows||[]; else if(source==='orders') window.__yxOrderRows=rows||[]; else window.__yxMasterRows=rows||[]; }
+  function endpointFor(source,id){ return source==='inventory' ? `/api/inventory/${id}` : source==='orders' ? `/api/orders/${id}` : `/api/master_orders/${id}`; }
+  function apiSource(source){ return source==='inventory'?'inventory':source==='orders'?'orders':'master_orders'; }
+  function listEl(source){ return source==='inventory' ? $('inventory-inline-list') : source==='orders' ? $('orders-list') : $('master-list'); }
+  function panelEl(source){ return source==='inventory' ? $('inventory-inline-panel') : source==='orders' ? $('orders-list-section') : $('master-list-section'); }
+  function selectedCustomer(){ return clean($('customer-name')?.value || window.state?.currentCustomer || ''); }
+  function filteredRows(source){
+    const kw = clean($(`fix56-${source}-summary-search`)?.value || $(`fix56-${source}-search`)?.value || '').toLowerCase();
+    let rows = (rowsFor(source)||[]).slice();
+    if(source==='master_order'){ const name = selectedCustomer(); rows = name ? rows.filter(r=>clean(r.customer_name).toLowerCase()===name.toLowerCase()) : []; }
+    if(kw) rows = rows.filter(r=>`${materialOf(r)} ${sizeOf(r)} ${supportOf(r)} ${r.customer_name||''}`.toLowerCase().includes(kw));
+    rows.sort((a,b)=> (materialOf(a).localeCompare(materialOf(b),'zh-Hant') || sizeOf(a).localeCompare(sizeOf(b),'zh-Hant',{numeric:true}) || supportOf(a).localeCompare(supportOf(b),'zh-Hant',{numeric:true})) );
+    window[`__yxFix56Visible_${source}`] = rows; return rows;
+  }
+  function materialOptions(){ return '<option value="">批量加材質</option>' + MATERIALS.map(m=>`<option value="${m}">${m}</option>`).join(''); }
+  function ensureFix56Toolbar(source){
+    const panel = panelEl(source); if(!panel) return null;
+    let bar = $(`fix56-${source}-toolbar`);
+    if(!bar){
+      bar = document.createElement('div'); bar.id = `fix56-${source}-toolbar`; bar.className = 'fix56-toolbar';
+      bar.innerHTML = `<label class="fix56-checkline"><input type="checkbox" id="fix56-${source}-selectall"> 全選目前清單</label><input id="fix56-${source}-search" class="text-input" placeholder="搜尋商品 / 客戶 / 材質"><select id="fix56-${source}-material" class="text-input small-input">${materialOptions()}</select><button id="fix56-${source}-apply-material" class="ghost-btn small-btn" type="button">套用材質</button><button id="fix56-${source}-batch-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button><button id="fix56-${source}-refresh" class="ghost-btn small-btn" type="button">重新整理</button>`;
+      const old = panel.querySelector(`#fix55-${source}-toolbar`) || panel.querySelector('.fix52-list-toolbar');
+      if(old) old.replaceWith(bar); else (panel.querySelector('.section-head')||panel).insertAdjacentElement('afterend',bar);
+      $(`fix56-${source}-search`)?.addEventListener('input',()=>{ renderSourceTable(source); renderSourceCards(source); });
+      $(`fix56-${source}-selectall`)?.addEventListener('change',e=>document.querySelectorAll(`.fix56-row-check[data-source="${source}"]`).forEach(ch=>ch.checked=e.target.checked));
+      $(`fix56-${source}-apply-material`)?.addEventListener('click',()=>batchMaterial(source));
+      $(`fix56-${source}-batch-delete`)?.addEventListener('click',()=>batchDelete(source));
+      $(`fix56-${source}-refresh`)?.addEventListener('click',()=>refreshSource(source));
+    }
+    return bar;
+  }
+  function ensureSummaryHost(source){
+    const panel = panelEl(source); if(!panel) return null;
+    let host = $(`fix56-${source}-summary`);
+    if(!host){ host = document.createElement('div'); host.id = `fix56-${source}-summary`; host.className = 'fix56-summary-panel table-card'; const list = listEl(source); if(list) list.insertAdjacentElement('beforebegin',host); else panel.appendChild(host); }
+    document.querySelectorAll(`#fix55-${source}-summary,#fix52-${source}-summary,#fix55-inventory-summary,#fix52-inventory-summary,#fix51-inventory-summary,#fix49-inventory-summary,#fix48-inventory-summary,#fix47-inventory-summary`).forEach(x=>{ if(x.id!==host.id) x.remove(); });
+    return host;
+  }
+  function renderSourceTable(source){
+    ensureFix56Toolbar(source); const host = ensureSummaryHost(source); if(!host) return;
+    const rows = filteredRows(source); const total = rows.reduce((s,r)=>s+qtyCount(r),0); const sourceName = source==='inventory'?'庫存':source==='orders'?'訂單':'總單';
+    if(source==='master_order' && !selectedCustomer()){ host.innerHTML = `<div class="fix56-summary-title"><strong>${sourceName}統整</strong><span>請先點選客戶，只顯示該客戶的總單清單</span></div>`; return; }
+    const expandedKey = `yxFix56_${source}_expanded`; const expanded = localStorage.getItem(expandedKey)==='1'; const shown = expanded ? rows : rows.slice(0,160);
+    host.innerHTML = `<div class="fix56-summary-title"><strong>${total}件 / ${rows.length}筆商品</strong><span>${sourceName}統整</span></div><table class="fix56-summary-table"><thead><tr><th class="check-col">選取</th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${source==='inventory'?'<th>客戶</th>':''}</tr></thead><tbody>${shown.map(r=>`<tr><td><input class="fix56-row-check" type="checkbox" data-source="${source}" data-id="${Number(r.id||0)}"></td><td>${esc(materialOf(r))}</td><td>${esc(sizeOf(r))}</td><td>${esc(supportOf(r))}</td><td>${qtyCount(r)}</td>${source==='inventory'?`<td>${esc(r.customer_name||'')}</td>`:''}</tr>`).join('') || `<tr><td colspan="${source==='inventory'?6:5}">目前沒有資料</td></tr>`}</tbody></table>${rows.length>160?`<button class="ghost-btn small-btn" type="button" id="fix56-${source}-toggle">${expanded?'收合':'顯示全部'}</button>`:''}`;
+    $(`fix56-${source}-toggle`)?.addEventListener('click',()=>{localStorage.setItem(expandedKey,expanded?'0':'1'); renderSourceTable(source);});
+  }
+  function itemCardHTML(row,source){
+    const id=Number(row.id||0);
+    const actions = `<div class="fix56-card-actions"><button class="ghost-btn tiny-btn" type="button" data-fix56-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-fix56-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-fix56-action="delete">刪除</button></div>`;
+    return `<div class="card inventory-action-card fix56-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(row.customer_name||'')}"><div class="fix56-item-grid"><div><span class="fix56-item-label">材質</span><b>${esc(materialOf(row))}</b></div><div><span class="fix56-item-label">尺寸</span><b>${esc(sizeOf(row))}</b></div><div><span class="fix56-item-label">支數 x 件數</span><b>${esc(supportOf(row))}</b></div><div><span class="fix56-item-label">數量</span><b>${qtyCount(row)}</b></div>${row.customer_name?`<div class="fix56-item-customer">客戶：${esc(row.customer_name)}</div>`:''}</div>${actions}</div>`;
+  }
+  function renderSourceCards(source){ const box = listEl(source); if(!box) return; const rows = filteredRows(source); if(source==='master_order' && !selectedCustomer()){ box.innerHTML = '<div class="empty-state-card compact-empty">請先點選客戶，這裡只顯示該客戶的總單清單。</div>'; return; } box.innerHTML = rows.length ? rows.map(r=>itemCardHTML(r,source)).join('') : '<div class="empty-state-card compact-empty">目前沒有資料</div>'; }
+  function checkedPayload(source){ let checks = Array.from(document.querySelectorAll(`.fix56-row-check[data-source="${source}"]:checked`)); let ids = checks.map(ch=>Number(ch.dataset.id||0)).filter(Boolean); if(!ids.length) ids = (window[`__yxFix56Visible_${source}`] || filteredRows(source)).map(r=>Number(r.id||0)).filter(Boolean); return [...new Set(ids)].map(id=>({source:apiSource(source),id})); }
+  async function batchMaterial(source){ const mat = clean($(`fix56-${source}-material`)?.value || '').toUpperCase(); if(!mat) return toastSafe('請先選擇材質','warn'); const items = checkedPayload(source); if(!items.length) return toastSafe('目前沒有商品可套用','warn'); const hasChecked = document.querySelector(`.fix56-row-check[data-source="${source}"]:checked`); if(!confirm(`${hasChecked?'':'未勾選商品，將套用目前清單全部商品。\n'}確定套用材質 ${mat} 到 ${items.length} 筆商品？`)) return; try{ const data = await api('/api/customer-items/batch-material',{method:'POST',body:JSON.stringify({material:mat,items})}); toastSafe(`已套用 ${data.material||mat}，共 ${data.count||items.length} 筆`,'ok'); await refreshSource(source); } catch(e){ toastSafe(e.message||'批量套用材質失敗','error'); } }
+  async function batchDelete(source){ const items = checkedPayload(source); if(!items.length) return toastSafe('目前沒有商品可刪除','warn'); const hasChecked = document.querySelector(`.fix56-row-check[data-source="${source}"]:checked`); if(!confirm(`${hasChecked?'':'未勾選商品，將刪除目前清單全部商品。\n'}確定刪除 ${items.length} 筆商品？`)) return; try{ const data = await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items})}); toastSafe(`已刪除 ${data.count||items.length} 筆`,'ok'); await refreshSource(source); } catch(e){ toastSafe(e.message||'批量刪除失敗','error'); } }
+  async function refreshSource(source){ if(source==='inventory') return window.loadInventory(); if(source==='orders') return window.loadOrdersList(); return window.loadMasterList(); }
+  async function handleCardAction(card,action){ const source = card.dataset.source || (moduleKey()==='orders'?'orders':moduleKey()==='master_order'?'master_order':'inventory'); const id = Number(card.dataset.id || 0); if(!id) return; const row = (rowsFor(source)||[]).find(r=>Number(r.id||0)===id) || {}; if(action==='delete'){ if(!confirm('確定刪除此商品？')) return; try{ await api(endpointFor(source,id),{method:'DELETE'}); toastSafe('已刪除','ok'); await refreshSource(source); }catch(e){ toastSafe(e.message||'刪除失敗','error'); } return; } if(action==='edit'){ const product = prompt('商品資料', row.product_text || ''); if(product===null) return; const qtyRaw = prompt('數量', qtyCount(row) || row.qty || 1); if(qtyRaw===null) return; const mat = prompt('材質（可空白）', materialOf(row)); if(mat===null) return; const customer = clean(row.customer_name || selectedCustomer() || ''); try{ await api(endpointFor(source,id),{method:'PUT',body:JSON.stringify({product_text:clean(product),qty:Number(qtyRaw||0),material:clean(mat),customer_name:customer})}); toastSafe('已更新','ok'); await refreshSource(source); }catch(e){ toastSafe(e.message||'編輯失敗','error'); } return; } if(action==='ship'){ const customer = clean(row.customer_name || selectedCustomer() || prompt('請輸入出貨客戶名稱','') || ''); if(!customer) return toastSafe('請先輸入客戶名稱','warn'); const qtyRaw = prompt('本次出貨數量', qtyCount(row) || row.qty || 1); if(qtyRaw===null) return; try{ await api('/api/items/transfer',{method:'POST',body:JSON.stringify({source,id,target:'ship',customer_name:customer,qty:Number(qtyRaw||0),allow_inventory_fallback:true})}); toastSafe('已直接出貨','ok'); await refreshSource(source); }catch(e){ toastSafe(e.message||'出貨失敗','error'); } } }
+  document.addEventListener('click',e=>{ const btn = e.target.closest('[data-fix56-action],[data-fix55-action],[data-act]'); if(!btn) return; const card = btn.closest('.fix56-item-card,.fix55-item-card,.fix52-item-card,.inventory-action-card'); if(!card) return; e.preventDefault(); e.stopPropagation(); handleCardAction(card, btn.dataset.fix56Action || btn.dataset.fix55Action || btn.dataset.act); },true);
+  const oldLoadInventory = window.loadInventory; window.loadInventory = async function(){ ensureFix56Toolbar('inventory'); try{ if(oldLoadInventory) await oldLoadInventory.apply(this,arguments); }catch(e){ console.warn(e); } if(!window.__yxInventoryRows?.length){ try{ const data=await api('/api/inventory?ts='+Date.now()); setRows('inventory',data.items||[]); }catch(_){} } renderSourceTable('inventory'); renderSourceCards('inventory'); };
+  const oldLoadOrders = window.loadOrdersList; window.loadOrdersList = async function(){ ensureFix56Toolbar('orders'); try{ if(oldLoadOrders) await oldLoadOrders.apply(this,arguments); }catch(e){ console.warn(e); } if(!window.__yxOrderRows?.length){ try{ const data=await api('/api/orders?ts='+Date.now()); setRows('orders',data.items||[]); }catch(_){} } renderSourceTable('orders'); renderSourceCards('orders'); };
+  const oldLoadMaster = window.loadMasterList; window.loadMasterList = async function(){ ensureFix56Toolbar('master_order'); try{ if(oldLoadMaster) await oldLoadMaster.apply(this,arguments); }catch(e){ console.warn(e); } if(!window.__yxMasterRows?.length){ try{ const data=await api('/api/master_orders?ts='+Date.now()); setRows('master_order',data.items||[]); }catch(_){} } renderSourceTable('master_order'); renderSourceCards('master_order'); };
+  window.selectCustomerForModule = async function(customer){ const c = typeof customer === 'object' && customer ? customer : {name:clean(customer)}; const input = $('customer-name'); if(input){ input.value = c.name || ''; input.dataset.customerUid = c.customer_uid || ''; input.dispatchEvent(new Event('input',{bubbles:true})); input.dispatchEvent(new Event('change',{bubbles:true})); } if(moduleKey()==='ship' && typeof window.loadShipCustomerDropdown === 'function') await window.loadShipCustomerDropdown(c); if(moduleKey()==='master_order') setTimeout(()=>{ renderSourceTable('master_order'); renderSourceCards('master_order'); },30); if(moduleKey()==='orders') setTimeout(()=>{ renderSourceTable('orders'); renderSourceCards('orders'); },30); return null; };
+  function bindLongPressDelete(){ document.querySelectorAll('.customer-region-card,.yx-customer-card').forEach(card=>{ if(card.dataset.fix56LongPress==='1') return; card.dataset.fix56LongPress='1'; let timer=null, fired=false; const start=()=>{ fired=false; clearTimeout(timer); timer=setTimeout(async()=>{ fired=true; const name=clean(card.dataset.customer || card.querySelector('.customer-card-name,.fix52-customer-name,.fix55-card-name')?.textContent || ''); const uid=clean(card.dataset.customerUid || ''); if(!name) return; if(!confirm(`確定刪除 / 封存客戶「${name}」？`)) return; try{ card.style.opacity='0.35'; const data=await api(`/api/customers/${encodeURIComponent(name)}`,{method:'DELETE',body:JSON.stringify({customer_uid:uid})}); card.remove(); toastSafe(data.message || '客戶已刪除 / 封存','ok'); if(typeof window.loadCustomerBlocks==='function') setTimeout(()=>window.loadCustomerBlocks(),80); }catch(e){ card.style.opacity=''; toastSafe(e.message||'刪除客戶失敗','error'); } },800); }; const cancel=(ev)=>{ clearTimeout(timer); if(fired && ev) { ev.preventDefault(); ev.stopPropagation(); } }; card.addEventListener('pointerdown',start,{passive:true}); ['pointerup','pointerleave','pointercancel','dragstart'].forEach(t=>card.addEventListener(t,cancel,true)); card.addEventListener('contextmenu',ev=>{ ev.preventDefault(); start(); setTimeout(()=>cancel(ev),850); }); }); }
+  const oldRenderCustomers = window.renderCustomers; if(oldRenderCustomers) window.renderCustomers = function(){ const r=oldRenderCustomers.apply(this,arguments); setTimeout(bindLongPressDelete,30); return r; };
+  const oldRenderCustomerBoards = window.renderCustomerBoards; if(oldRenderCustomerBoards) window.renderCustomerBoards = function(){ const r=oldRenderCustomerBoards.apply(this,arguments); setTimeout(bindLongPressDelete,30); return r; };
+  const oldLoadCustomerBlocks = window.loadCustomerBlocks; if(oldLoadCustomerBlocks) window.loadCustomerBlocks = async function(){ const r=await oldLoadCustomerBlocks.apply(this,arguments); setTimeout(bindLongPressDelete,30); return r; };
+  window.toggleLoginSave = function(){ const next = localStorage.getItem('yxRememberLogin') === '0' ? '1' : '0'; localStorage.setItem('yxRememberLogin', next); const lab = $('remember-label'); if(lab) lab.textContent = next === '1' ? '開' : '關'; };
+  window.submitLogin = async function(){ const user = clean($('login-username')?.value || ''); const pass = clean($('login-password')?.value || ''); const err = $('login-error'); const btn = document.querySelector('button[onclick="submitLogin()"]'); if(err){ err.classList.add('hidden'); err.textContent=''; } if(!user || !pass){ if(err){err.textContent='請輸入帳號與密碼'; err.classList.remove('hidden');} else alert('請輸入帳號與密碼'); return; } try{ if(btn){btn.disabled=true; btn.textContent='登入中…';} await api('/api/login',{method:'POST',body:JSON.stringify({username:user,password:pass})}); if(localStorage.getItem('yxRememberLogin') !== '0') localStorage.setItem('yxLastUsername', user); location.href = '/'; }catch(e){ if(err){err.textContent=e.message||'登入失敗'; err.classList.remove('hidden');} else alert(e.message||'登入失敗'); } finally{ if(btn){btn.disabled=false; btn.textContent='登入';} } };
+  function boot(){ document.documentElement.dataset.yxFix56 = VERSION; const last = localStorage.getItem('yxLastUsername') || ''; if($('login-username') && !$('login-username').value) $('login-username').value = last; const lab=$('remember-label'); if(lab) lab.textContent = localStorage.getItem('yxRememberLogin') === '0' ? '關' : '開'; $('login-password')?.addEventListener('keydown',e=>{ if(e.key==='Enter') window.submitLogin(); }); $('login-username')?.addEventListener('keydown',e=>{ if(e.key==='Enter') $('login-password')?.focus(); }); const m = moduleKey(); if(m==='inventory') setTimeout(()=>window.loadInventory(),50); if(m==='orders') setTimeout(()=>window.loadOrdersList(),50); if(m==='master_order') setTimeout(()=>window.loadMasterList(),50); setTimeout(bindLongPressDelete,120); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else setTimeout(boot,0);
 })();
