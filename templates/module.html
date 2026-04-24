@@ -220,7 +220,7 @@
   <section class="subsection" id="customers-section" {% if module_key != 'customers' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>客戶資料</h3>
-      <span class="muted">可手動編輯名稱、電話、地址、特殊要求</span>
+      <span class="muted">可手動編輯名稱、電話、地址、特殊要求、常用材質、常用尺寸</span>
     </div>
     <div class="customer-editor">
       <div class="customer-detail glass">
@@ -233,9 +233,9 @@
         <label class="field-label">特殊要求</label>
         <textarea class="text-area small" id="cust-notes"></textarea>
         <label class="field-label">常用材質：</label>
-        <div class="text-input readonly-field" id="cust-common-materials">尚未建立</div>
+        <div class="text-input readonly-field editable-field" id="cust-common-materials" contenteditable="true" data-placeholder="尚未建立">尚未建立</div>
         <label class="field-label">常用尺寸：</label>
-        <div class="text-input readonly-field" id="cust-common-sizes">尚未建立</div>
+        <div class="text-input readonly-field editable-field" id="cust-common-sizes" contenteditable="true" data-placeholder="尚未建立">尚未建立</div>
         <label class="field-label">區域</label>
         <select id="cust-region" class="text-input">
           <option>北區</option><option>中區</option><option>南區</option>
@@ -320,16 +320,6 @@
       <label class="field-label">格位備註</label>
       <textarea id="warehouse-note" class="text-area small"></textarea>
       <div id="warehouse-cell-items" class="chip-list"></div>
-    </div>
-  </div>
-
-  <div id="customer-modal" class="modal hidden" style="display:none!important">
-    <div class="modal-card glass">
-      <div class="modal-head">
-        <div class="section-title"></div>
-        <button class="icon-btn" onclick="closeCustomerModal()">✕</button>
-      </div>
-      <div id="customer-modal-body"></div>
     </div>
   </div>
 </div>

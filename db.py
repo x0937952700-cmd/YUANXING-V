@@ -61,6 +61,30 @@ def fetchone_dict(cur):
 
 
 
+
+def looks_like_product_value(value, product_text=''):
+    v = str(value or '').strip()
+    p = str(product_text or '').strip()
+    if not v:
+        return False
+    norm = v.replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=')
+    norm_p = p.replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=')
+    if norm_p and norm == norm_p:
+        return True
+    if '=' in norm:
+        return True
+    if re.fullmatch(r'\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?', norm, flags=re.I):
+        return True
+    if re.fullmatch(r'\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)+', norm):
+        return True
+    return False
+
+def clean_material_value(value='', product_text=''):
+    v = str(value or '').strip()
+    if not v or looks_like_product_value(v, product_text):
+        return ''
+    return v.upper() if re.fullmatch(r'[A-Za-z0-9_\-\/]+', v) else v
+
 def product_display_size(text):
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw)
@@ -140,6 +164,20 @@ def _normalize_product_texts_in_table(cur, table):
     except Exception as e:
         log_error('normalize_product_texts_in_table', f'{table}: {e}')
 
+
+
+def _clean_product_like_materials(cur):
+    for table in ('inventory','orders','master_orders','shipping_records'):
+        try:
+            cur.execute(sql(f"SELECT id, product_text, product_code, material FROM {table}"))
+            for row in rows_to_dict(cur):
+                product_text = row.get('product_text') or ''
+                material = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
+                product_code = material
+                if material != (row.get('material') or '') or product_code != (row.get('product_code') or ''):
+                    cur.execute(sql(f"UPDATE {table} SET material = ?, product_code = ? WHERE id = ?"), (material, product_code, row.get('id')))
+        except Exception as e:
+            log_error('clean_product_like_materials', f'{table}: {e}')
 
 def _normalize_warehouse_item_texts(cur):
     try:
@@ -234,15 +272,21 @@ def product_note_text(text):
 
 def material_value(row_or_value):
     if isinstance(row_or_value, dict):
-        return (row_or_value.get('material') or row_or_value.get('product_code') or '').strip()
-    return (row_or_value or '').strip()
+        product_text = row_or_value.get('product_text') or ''
+        return clean_material_value(row_or_value.get('material') or row_or_value.get('product_code') or '', product_text)
+    return clean_material_value(row_or_value or '', '')
 
 
 def apply_effective_qty_to_rows(rows):
     out = []
     for row in rows or []:
         r = dict(row)
-        r['qty'] = effective_product_qty(r.get('product_text') or r.get('product') or '', r.get('qty') or 0)
+        product_text = format_product_text_height2(r.get('product_text') or r.get('product') or '')
+        r['product_text'] = product_text
+        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+        r['material'] = material
+        r['product_code'] = material
+        r['qty'] = effective_product_qty(product_text, r.get('qty') or 0)
         out.append(r)
     return out
 
@@ -388,6 +432,7 @@ def init_db():
             qty INTEGER DEFAULT 0,
             location {text},
             customer_name {text},
+            customer_uid {text},
             operator {text},
             source_text {text},
             created_at {text},
@@ -396,6 +441,7 @@ def init_db():
         f"""CREATE TABLE IF NOT EXISTS orders (
             id {pk},
             customer_name {text} NOT NULL,
+            customer_uid {text},
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
@@ -408,6 +454,7 @@ def init_db():
         f"""CREATE TABLE IF NOT EXISTS master_orders (
             id {pk},
             customer_name {text} NOT NULL,
+            customer_uid {text},
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
@@ -419,6 +466,7 @@ def init_db():
         f"""CREATE TABLE IF NOT EXISTS shipping_records (
             id {pk},
             customer_name {text} NOT NULL,
+            customer_uid {text},
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
@@ -527,10 +575,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     _schema_columns = {
         'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
         'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('common_materials','TEXT'),('common_sizes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'inventory': [('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'master_orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
         'customer_aliases': [('alias','TEXT'),('target_name','TEXT'),('updated_at','TEXT')],
@@ -813,6 +861,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
     for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
         _normalize_product_texts_in_table(cur, _table)
+    _clean_product_like_materials(cur)
     _normalize_warehouse_item_texts(cur)
     conn.commit()
     conn.close()
@@ -1003,8 +1052,38 @@ def _new_customer_uid(name, created_at=''):
     return 'CUST-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper()
 
 
-def get_customer_relation_counts(name):
+
+
+def _customer_uid_for_name_cur(cur, name):
     name = (name or '').strip()
+    if not name:
+        return ''
+    try:
+        cur.execute(sql("SELECT customer_uid, created_at FROM customer_profiles WHERE name = ?"), (name,))
+        row = fetchone_dict(cur)
+        if row:
+            uid = (row.get('customer_uid') or '').strip()
+            if uid:
+                return uid
+            return _new_customer_uid(name, row.get('created_at') or '')
+    except Exception:
+        pass
+    return ''
+
+def _sync_customer_uid_columns(cur):
+    try:
+        for table in ('inventory','orders','master_orders','shipping_records'):
+            if USE_POSTGRES:
+                cur.execute(sql(f"UPDATE {table} t SET customer_uid = cp.customer_uid FROM customer_profiles cp WHERE COALESCE(t.customer_uid,'') = '' AND t.customer_name = cp.name"))
+            else:
+                cur.execute(sql(f"UPDATE {table} SET customer_uid = (SELECT customer_uid FROM customer_profiles cp WHERE cp.name = {table}.customer_name) WHERE COALESCE(customer_uid,'') = '' AND customer_name IS NOT NULL AND customer_name <> ''"))
+    except Exception as e:
+        log_error('sync_customer_uid_columns', str(e))
+
+def get_customer_relation_counts(name='', customer_uid=''):
+    """FIX52：客戶關聯數量以 customer_uid 為主、customer_name 為備援。"""
+    name = (name or '').strip()
+    customer_uid = (customer_uid or '').strip()
     counts = {
         'inventory_rows': 0,
         'order_rows': 0,
@@ -1019,26 +1098,41 @@ def get_customer_relation_counts(name):
         'active_qty_total': 0,
         'history_qty_total': 0,
     }
-    if not name:
+    if not name and not customer_uid:
         return counts
     conn = get_db()
     cur = conn.cursor()
-    for table, prefix, ts_col in [
-        ('inventory', 'inventory', 'updated_at'),
-        ('orders', 'order', 'updated_at'),
-        ('master_orders', 'master', 'updated_at'),
-        ('shipping_records', 'shipping', 'shipped_at'),
-    ]:
-        cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_name = ?"), (name,))
-        rows = rows_to_dict(cur)
-        counts[f'{prefix}_rows'] = len(rows)
-        counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
-    counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
-    counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
-    counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
-    counts['history_qty_total'] = counts['shipping_qty']
-    conn.close()
-    return counts
+    try:
+        if customer_uid:
+            cur.execute(sql("SELECT name, customer_uid FROM customer_profiles WHERE customer_uid = ?"), (customer_uid,))
+            row = fetchone_dict(cur)
+            if row:
+                name = name or (row.get('name') or '').strip()
+        elif name:
+            cur.execute(sql("SELECT customer_uid FROM customer_profiles WHERE name = ?"), (name,))
+            row = fetchone_dict(cur)
+            if row:
+                customer_uid = (row.get('customer_uid') or '').strip()
+        for table, prefix in [
+            ('inventory', 'inventory'),
+            ('orders', 'order'),
+            ('master_orders', 'master'),
+            ('shipping_records', 'shipping'),
+        ]:
+            if customer_uid:
+                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_uid = ? OR (COALESCE(customer_uid,'') = '' AND customer_name = ?)"), (customer_uid, name))
+            else:
+                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_name = ?"), (name,))
+            rows = rows_to_dict(cur)
+            counts[f'{prefix}_rows'] = len(rows)
+            counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
+        counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
+        counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
+        counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
+        counts['history_qty_total'] = counts['shipping_qty']
+        return counts
+    finally:
+        conn.close()
 
 
 def upsert_customer(name, phone=None, address=None, notes=None, region=None, preserve_existing=True, common_materials=None, common_sizes=None):
@@ -1083,28 +1177,98 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
     return get_customer(name, include_archived=True)
 
 
+
 def get_customers(active_only=True):
+    """FIX53：客戶清單用資料庫 GROUP BY 統計，以 customer_uid 為主、customer_name 只做舊資料備援。"""
     conn = get_db()
     cur = conn.cursor()
-    query = "SELECT * FROM customer_profiles"
-    params = []
-    if active_only:
-        query += " WHERE COALESCE(is_archived, 0) = 0"
-    query += " ORDER BY CASE region WHEN '北區' THEN 1 WHEN '中區' THEN 2 WHEN '南區' THEN 3 ELSE 9 END, name"
-    cur.execute(sql(query), tuple(params))
-    rows = rows_to_dict(cur)
-    for row in rows:
-        name = (row.get("name") or "").strip()
-        counts = get_customer_relation_counts(name)
-        row['relation_counts'] = counts
-        row['row_count'] = counts.get('active_rows', 0)
-        row['item_count'] = counts.get('active_qty_total', 0)
-        row['history_count'] = counts.get('shipping_qty', 0)
-        row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(name, row.get('created_at') or '')
-        row['is_archived'] = int(row.get('is_archived') or 0)
-    conn.close()
-    return rows
+    try:
+        _sync_customer_uid_columns(cur)
+        try:
+            _clean_product_like_materials(cur)
+        except Exception as e:
+            log_error('get_customers_clean_materials', str(e))
 
+        query = "SELECT * FROM customer_profiles"
+        if active_only:
+            query += " WHERE COALESCE(is_archived, 0) = 0"
+        query += " ORDER BY CASE region WHEN '北區' THEN 1 WHEN '中區' THEN 2 WHEN '南區' THEN 3 ELSE 9 END, name"
+        cur.execute(sql(query))
+        customers = rows_to_dict(cur)
+
+        def empty_counts():
+            return {
+                'inventory_rows': 0, 'order_rows': 0, 'master_rows': 0, 'shipping_rows': 0,
+                'inventory_qty': 0, 'order_qty': 0, 'master_qty': 0, 'shipping_qty': 0,
+                'active_rows': 0, 'total_rows': 0, 'active_qty_total': 0, 'history_qty_total': 0,
+            }
+
+        name_to_uid = {}
+        for row in customers:
+            name = (row.get('name') or '').strip()
+            uid = (row.get('customer_uid') or '').strip()
+            if not uid and name:
+                uid = _new_customer_uid(name, row.get('created_at') or '')
+                try:
+                    cur.execute(sql("UPDATE customer_profiles SET customer_uid = ?, updated_at = ? WHERE id = ?"), (uid, now(), row.get('id')))
+                except Exception:
+                    pass
+                row['customer_uid'] = uid
+            if name:
+                name_to_uid[name] = uid or name
+
+        count_map = {}
+        def add_grouped_counts(table, prefix):
+            try:
+                cur.execute(sql(f"""
+                    SELECT
+                        customer_uid,
+                        customer_name,
+                        COUNT(*) AS row_count,
+                        COALESCE(SUM(COALESCE(qty, 0)), 0) AS qty_sum
+                    FROM {table}
+                    WHERE COALESCE(customer_uid, '') <> '' OR COALESCE(customer_name, '') <> ''
+                    GROUP BY customer_uid, customer_name
+                """))
+                for r in rows_to_dict(cur):
+                    uid = (r.get('customer_uid') or '').strip()
+                    cname = (r.get('customer_name') or '').strip()
+                    key = uid or name_to_uid.get(cname) or cname
+                    if not key:
+                        continue
+                    c = count_map.setdefault(key, empty_counts())
+                    c[f'{prefix}_rows'] += int(r.get('row_count') or 0)
+                    try:
+                        c[f'{prefix}_qty'] += int(float(r.get('qty_sum') or 0))
+                    except Exception:
+                        c[f'{prefix}_qty'] += 0
+            except Exception as e:
+                log_error('get_customers_grouped_counts', f'{table}: {e}')
+
+        add_grouped_counts('inventory', 'inventory')
+        add_grouped_counts('orders', 'order')
+        add_grouped_counts('master_orders', 'master')
+        add_grouped_counts('shipping_records', 'shipping')
+
+        for row in customers:
+            name = (row.get('name') or '').strip()
+            uid = (row.get('customer_uid') or '').strip()
+            key = uid or name_to_uid.get(name) or name
+            counts = count_map.get(key, empty_counts())
+            counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
+            counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
+            counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
+            counts['history_qty_total'] = counts['shipping_qty']
+            row['relation_counts'] = counts
+            row['row_count'] = counts['active_rows']
+            row['item_count'] = counts['active_qty_total']
+            row['history_count'] = counts['shipping_qty']
+            row['customer_uid'] = uid or name_to_uid.get(name) or _new_customer_uid(name, row.get('created_at') or '')
+            row['is_archived'] = int(row.get('is_archived') or 0)
+        conn.commit()
+        return customers
+    finally:
+        conn.close()
 
 
 def delete_customer(name):
@@ -1142,7 +1306,7 @@ def get_customer_by_uid(customer_uid, include_archived=False):
     row = fetchone_dict(cur)
     conn.close()
     if row:
-        row['relation_counts'] = get_customer_relation_counts(row.get('name') or '')
+        row['relation_counts'] = get_customer_relation_counts(row.get('name') or '', row.get('customer_uid') or '')
         row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(row.get('name') or '', row.get('created_at') or '')
         row['is_archived'] = int(row.get('is_archived') or 0)
     return row
@@ -1157,7 +1321,7 @@ def get_customer(name, include_archived=False):
     row = fetchone_dict(cur)
     conn.close()
     if row:
-        row['relation_counts'] = get_customer_relation_counts(name)
+        row['relation_counts'] = get_customer_relation_counts(name, row.get('customer_uid') or '')
         row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(name, row.get('created_at') or '')
         row['is_archived'] = int(row.get('is_archived') or 0)
     return row
@@ -1221,10 +1385,11 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
     conn = get_db()
     cur = conn.cursor()
     product_text = format_product_text_height2((product_text or '').strip())
-    material = (material or '').strip()
-    product_code = (product_code or material or product_text or '').strip()
+    material = clean_material_value(material or product_code or '', product_text)
+    product_code = material
     location = (location or '').strip()
     customer_name = (customer_name or '').strip()
+    customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     qty = int(qty or 0)
     cur.execute(sql("""
         SELECT id, qty, product_text FROM inventory
@@ -1244,14 +1409,14 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
         rid = matched[0] if USE_POSTGRES else matched["id"]
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, material, product_text, customer_name, operator, source_text, now(), rid))
+        """), (qty, product_code, material, product_text, customer_name, customer_uid, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, material, qty, location, customer_name, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1268,6 +1433,7 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
     conn = get_db()
     cur = conn.cursor()
     customer_name = (customer_name or '').strip()
+    order_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     if duplicate_mode == 'replace':
         for item in items:
             for row in _fetch_matching_product_rows(cur, 'orders', item.get('product_text') or '', customer_name=customer_name):
@@ -1276,8 +1442,8 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
         if not product_text:
             continue
-        material = (item.get('material') or '').strip()
-        product_code = (item.get('product_code') or material or product_text).strip()
+        material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+        product_code = material
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
@@ -1285,12 +1451,12 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             rows = _fetch_matching_product_rows(cur, 'orders', product_text, customer_name=customer_name)
             if rows:
                 rid = rows[-1]['id']
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, material, operator, now(), rid))
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, material, order_customer_uid, operator, now(), rid))
                 continue
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, product_text, product_code, material, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, product_text, product_code, material, qty, operator, now(), now()))
+            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1298,6 +1464,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
     conn = get_db()
     cur = conn.cursor()
     customer_name = (customer_name or '').strip()
+    master_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     if duplicate_mode == 'replace':
         for item in items:
             for row in _fetch_matching_product_rows(cur, 'master_orders', item.get('product_text') or '', customer_name=customer_name):
@@ -1306,8 +1473,8 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
         if not product_text:
             continue
-        material = (item.get('material') or '').strip()
-        product_code = (item.get('product_code') or material or product_text).strip()
+        material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+        product_code = material
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
@@ -1315,14 +1482,14 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         if rows and duplicate_mode != 'replace':
             rid = rows[-1]['id']
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, product_text, product_code, material, operator, now(), rid))
+            """), (qty, product_text, product_code, material, master_customer_uid, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, product_text, product_code, material, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, product_code, material, qty, operator, now(), now()))
+                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1512,6 +1679,7 @@ def preview_ship_order(customer_name, items):
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
     cur = conn.cursor()
+    ship_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     try:
         breakdown = []
         for item in items:
@@ -1556,9 +1724,9 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
 
             material = (item.get("material") or "").strip()
             cur.execute(sql("""
-                INSERT INTO shipping_records(customer_name, product_text, product_code, material, qty, operator, shipped_at, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, item.get("product_code", material), material, qty_needed, operator, now(), note))
+                INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, ship_customer_uid, product_text, item.get("product_code", material), material, qty_needed, operator, now(), note))
 
             breakdown.append({
                 "product_text": product_text,
@@ -1901,17 +2069,23 @@ def inventory_summary():
     placement = inventory_placements()
     result = []
     for r in rows:
-        size = _warehouse_size_key(r.get("product_text") or "")
+        r = dict(r)
+        product_text = format_product_text_height2(r.get('product_text') or '')
+        r['product_text'] = product_text
+        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+        r['material'] = material
+        r['product_code'] = material
+        size = _warehouse_size_key(product_text)
         customer = (r.get('customer_name') or '').strip()
         placed = placement.get((size, customer), 0)
-        qty = int(r.get("qty", 0) or 0)
-        result.append({
-            **r,
-            "placed_qty": placed,
-            "unplaced_qty": max(0, qty - placed),
-            "needs_red": max(0, qty - placed) > 0
-        })
+        qty = effective_product_qty(product_text, r.get('qty') or 0)
+        r['qty'] = qty
+        r['placed_qty'] = placed
+        r['unplaced_qty'] = max(0, qty - placed)
+        r['needs_red'] = max(0, qty - placed) > 0
+        result.append(r)
     return result
+
 
 def warehouse_summary():
     cells = warehouse_get_cells()

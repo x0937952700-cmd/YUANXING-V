@@ -24,13 +24,15 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
 app = Flask(__name__)
-_SECRET_KEY = os.getenv("SECRET_KEY") or "yuanxing-default-secret-key-change-in-render"
+# FIX52：優先使用 Render 環境變數 SECRET_KEY。
+# 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
+_SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
 app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
@@ -198,7 +200,9 @@ def add_no_cache_headers(response):
 @app.before_request
 def protect_pages():
     path = request.path
-    if require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+    # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
+    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
         ensure_daily_backup()
     if path.startswith("/static/") or path in ("/health",):
         return None
@@ -214,6 +218,14 @@ def protect_pages():
             return jsonify(success=False, error="請先登入"), 401
         return redirect(url_for("login_page"))
     return None
+
+
+@app.route("/sw.js")
+def serve_root_service_worker():
+    resp = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -245,8 +257,8 @@ def normalize_item_quantity(product_text, qty=0):
 
 def normalize_item_for_save(item):
     product_text = format_product_text_height2((item.get('product_text') or item.get('product') or '').strip())
-    material = (item.get('material') or '').strip().upper()
-    product_code = (item.get('product_code') or material or product_text or '').strip()
+    material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+    product_code = material
     qty = normalize_item_quantity(product_text, item.get('qty') or 0)
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
@@ -274,7 +286,7 @@ def aggregate_customer_items(items):
             out['qty'] = qty
             out['product_text'] = f"{size}={support}" if support else size
             out['material'] = material
-            out['product_code'] = material or out.get('product_code') or out['product_text']
+            out['product_code'] = material
             out['size_text'] = size
             out['support_text'] = support
             buckets[key] = out
@@ -812,7 +824,8 @@ def api_inventory_item(item_id):
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
-        product_code = (data.get('product_code') or product_text or '').strip()
+        material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
+        product_code = material
         qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
@@ -824,9 +837,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, qty, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -863,7 +876,7 @@ def api_inventory_item_move(item_id):
         if move_qty > current_qty:
             move_qty = current_qty
         product_text = format_product_text_height2((row.get('product_text') or '').strip())
-        product_code = (row.get('product_code') or product_text or '').strip()
+        product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
@@ -1101,10 +1114,10 @@ def api_customer_detail(name):
             cur = conn.cursor()
             try:
                 cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
-                cur.execute(sql("UPDATE inventory SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
-                cur.execute(sql("UPDATE orders SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
-                cur.execute(sql("UPDATE master_orders SET customer_name = ?, updated_at = ? WHERE customer_name = ?"), (new_name, now(), name))
-                cur.execute(sql("UPDATE shipping_records SET customer_name = ? WHERE customer_name = ?"), (new_name, name))
+                cur.execute(sql("UPDATE inventory SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE master_orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE shipping_records SET customer_name = ?, customer_uid = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', name))
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -1289,23 +1302,38 @@ def api_warehouse_available_items():
 @app.route("/api/customer-items", methods=["GET"])
 @login_required_json
 def api_customer_items():
+    """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
     name = (request.args.get("name") or "").strip()
-    inv = list_inventory()
-    orders = get_orders()
-    masters = get_master_orders()
+    uid = (request.args.get("customer_uid") or "").strip()
+    row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
+    name = resolved_name or name
+    uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
     items = []
-    if name:
-        for row in orders:
-            if row.get("customer_name") == name:
-                items.append({"source": "訂單", **row})
-        for row in masters:
-            if row.get("customer_name") == name:
-                items.append({"source": "總單", **row})
-        for row in inv:
-            if row.get("customer_name") == name:
-                items.append({"source": "庫存", **row})
-    else:
-        items = []
+    if not name and not uid:
+        return jsonify(success=True, items=[])
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        def pull(table, source_label):
+            if uid and name:
+                cur.execute(sql(f"""
+                    SELECT * FROM {table}
+                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    ORDER BY id DESC
+                """), (uid, name))
+            elif uid:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (uid,))
+            else:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
+            for r in rows_to_dict(cur):
+                r['source'] = source_label
+                items.append(r)
+        pull('orders', '訂單')
+        pull('master_orders', '總單')
+        pull('inventory', '庫存')
+    finally:
+        conn.close()
     return jsonify(success=True, items=aggregate_customer_items(items))
 
 
@@ -2153,7 +2181,7 @@ def _fix28_update_item_api(table, item_id):
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
-        product_code = (data.get('product_code') or material or product_text).strip()
+        product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
         qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
         if not product_text or not customer_name:
@@ -2203,7 +2231,7 @@ def api_fix28_items_transfer():
         target = (data.get('target') or '').strip()
         product_text = format_product_text_height2((row.get('product_text') or '').strip())
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
-        product_code = (row.get('product_code') or material or product_text).strip()
+        product_code = clean_material_value(row.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
         item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
         target_label = ''
