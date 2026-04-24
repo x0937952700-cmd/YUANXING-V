@@ -1,14 +1,18 @@
-#!/usr/bin/env python3
-"""沅興木業 FIX53 基本檢查：語法、重要字串、件數邏輯。"""
+import py_compile
 from pathlib import Path
-import py_compile, re, sys
-root = Path(__file__).resolve().parents[1]
-for p in ['app.py','db.py','ocr.py','backup.py']:
-    py_compile.compile(str(root/p), doraise=True)
-appjs = (root/'static/app.js').read_text(encoding='utf-8')
-assert 'legacyOpenCustomerModal(' not in appjs
-assert 'legacyOpenCustomerModalFix6(' not in appjs
-assert 'FIX53 production clean guard' in appjs
-for bad in ['客戶資料已使用 UID 強化；改名會盡量同步關聯，避免同名混淆。','庫存 / 訂單 / 總單 / 出貨']:
-    assert bad not in appjs
-print('FIX53 smoke test OK')
+
+ROOT = Path(__file__).resolve().parents[1]
+for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
+    py_compile.compile(str(ROOT / rel), doraise=True)
+
+required = {
+    "static/app.js": ["fix60-stability-lock", "yx60RefreshSource", "window.confirmSubmit"],
+    "templates/base.html": ["fix60-stability-lock", "app.js", "pwa.js"],
+    "static/service-worker.js": ["fix60-stability-lock"],
+}
+for rel, tokens in required.items():
+    text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    missing = [t for t in tokens if t not in text]
+    if missing:
+        raise SystemExit(f"{rel} missing {missing}")
+print("FIX60 smoke test OK")

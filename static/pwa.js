@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix59-material-summary-warehouse-slots';
+  const PWA_VERSION = 'fix61-stable-clean-dedup';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
