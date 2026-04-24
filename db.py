@@ -185,28 +185,42 @@ def product_support_text(text):
 
 
 def effective_product_qty(product_text, fallback_qty=0):
-    """件數規則：等號右側每段 x 後面的數字相加；沒有 x 件數的段落算 1。"""
-    raw = str(product_text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    """
+    件數規則（FIX46）：
+    - 等號右側用 + 分段。
+    - 每一段有 x數字 / ×數字 時，該段件數 = x 後面的數字。
+    - 每一段沒有 x數字 時，該段件數 = 1。
+    - 明確寫「19件 / 19片」時，該段件數 = 19。
+
+    例：
+    60+54+50 = 3件
+    220x4+223x2+44+35+221 = 9件
+    """
+    raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     total = 0
+    parsed = False
     if '=' in raw:
         right = raw.split('=', 1)[1]
-        segments = [seg for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
+        segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
         for seg in segments:
-            nums = [int(x) for x in re.findall(r'\d+', seg)]
-            if not nums:
+            if re.search(r'[件片]', seg):
+                nums = [int(x) for x in re.findall(r'\d+', seg)]
+                if nums:
+                    total += nums[-1]
+                    parsed = True
                 continue
-            # 明確寫 19件 / 1425片 時，數量直接採用該數字；
-            # 111+132x3 這種單獨支數仍維持舊規則：單獨一段算 1 件。
-            if len(nums) == 1 and re.search(r'[件片]', seg):
-                total += int(nums[0])
-            else:
-                total += int(nums[1] if len(nums) >= 2 else 1)
+            m = re.search(r'x\s*(\d+)', seg, flags=re.I)
+            if m:
+                total += int(m.group(1))
+                parsed = True
+            elif re.search(r'\d+', seg):
+                total += 1
+                parsed = True
     try:
         fallback = int(fallback_qty or 0)
     except Exception:
         fallback = 0
-    return max(total, fallback)
-
+    return total if parsed else fallback
 
 
 def product_note_text(text):
@@ -239,7 +253,11 @@ def repair_effective_qtys(cur):
             cur.execute(sql(f"SELECT id, product_text, qty FROM {table}"))
             for row in rows_to_dict(cur):
                 fixed_qty = effective_product_qty(row.get('product_text') or '', row.get('qty') or 0)
-                if fixed_qty > int(row.get('qty') or 0):
+                try:
+                    old_qty = int(row.get('qty') or 0)
+                except Exception:
+                    old_qty = 0
+                if fixed_qty and fixed_qty != old_qty:
                     cur.execute(sql(f"UPDATE {table} SET qty = ? WHERE id = ?"), (fixed_qty, row.get('id')))
         except Exception as e:
             log_error('repair_effective_qtys', f'{table}: {e}')
@@ -356,6 +374,8 @@ def init_db():
             phone {text},
             address {text},
             notes {text},
+            common_materials {text},
+            common_sizes {text},
             region {text},
             created_at {text},
             updated_at {text}
@@ -506,7 +526,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
 
     _schema_columns = {
         'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
-        'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('common_materials','TEXT'),('common_sizes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'inventory': [('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'master_orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
@@ -568,6 +588,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER DEFAULT 0")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS customer_uid TEXT")
+        cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS common_materials TEXT")
+        cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS common_sizes TEXT")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS is_archived INTEGER DEFAULT 0")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS archived_at TEXT")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
@@ -583,6 +605,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         customer_cols = {r[1] for r in cur.fetchall()}
         if 'customer_uid' not in customer_cols:
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN customer_uid TEXT")
+        if 'common_materials' not in customer_cols:
+            cur.execute("ALTER TABLE customer_profiles ADD COLUMN common_materials TEXT")
+        if 'common_sizes' not in customer_cols:
+            cur.execute("ALTER TABLE customer_profiles ADD COLUMN common_sizes TEXT")
         if 'is_archived' not in customer_cols:
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN is_archived INTEGER DEFAULT 0")
         if 'archived_at' not in customer_cols:
@@ -1015,7 +1041,7 @@ def get_customer_relation_counts(name):
     return counts
 
 
-def upsert_customer(name, phone=None, address=None, notes=None, region=None, preserve_existing=True):
+def upsert_customer(name, phone=None, address=None, notes=None, region=None, preserve_existing=True, common_materials=None, common_sizes=None):
     name = (name or '').strip()
     if not name:
         raise ValueError('客戶名稱不可空白')
@@ -1035,6 +1061,8 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
     phone_v = choose('phone', phone, '')
     address_v = choose('address', address, '')
     notes_v = choose('notes', notes, '')
+    common_materials_v = choose('common_materials', common_materials, '')
+    common_sizes_v = choose('common_sizes', common_sizes, '')
     region_v = choose('region', region, '')
     created_at_v = existing.get('created_at') or now()
     customer_uid = existing.get('customer_uid') or _new_customer_uid(name, created_at_v)
@@ -1042,14 +1070,14 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
     if existing:
         cur.execute(sql("""
             UPDATE customer_profiles
-            SET phone = ?, address = ?, notes = ?, region = ?, customer_uid = ?, is_archived = 0, archived_at = NULL, updated_at = ?
+            SET phone = ?, address = ?, notes = ?, common_materials = ?, common_sizes = ?, region = ?, customer_uid = ?, is_archived = 0, archived_at = NULL, updated_at = ?
             WHERE name = ?
-        """), (phone_v, address_v, notes_v, region_v, customer_uid, now(), name))
+        """), (phone_v, address_v, notes_v, common_materials_v, common_sizes_v, region_v, customer_uid, now(), name))
     else:
         cur.execute(sql("""
-            INSERT INTO customer_profiles(name, phone, address, notes, region, customer_uid, is_archived, archived_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)
-        """), (name, phone_v, address_v, notes_v, region_v, customer_uid, created_at_v, now()))
+            INSERT INTO customer_profiles(name, phone, address, notes, common_materials, common_sizes, region, customer_uid, is_archived, archived_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)
+        """), (name, phone_v, address_v, notes_v, common_materials_v, common_sizes_v, region_v, customer_uid, created_at_v, now()))
     conn.commit()
     conn.close()
     return get_customer(name, include_archived=True)

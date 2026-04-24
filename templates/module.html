@@ -41,7 +41,7 @@
     {% endif %}
 
     <label class="field-label">商品資料</label>
-    <textarea class="text-area" id="ocr-text" placeholder="把手機辨識好的文字直接貼上，系統會立刻自動整理、刪除句點、承接 _ / - 的寬高數字，並依照你的固定規則排序"></textarea>
+    <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     <div class="btn-row">
       <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
       {% if module_key == 'ship' %}
@@ -232,6 +232,10 @@
         <input class="text-input" id="cust-address">
         <label class="field-label">特殊要求</label>
         <textarea class="text-area small" id="cust-notes"></textarea>
+        <label class="field-label">常用材質：</label>
+        <div class="text-input readonly-field" id="cust-common-materials">尚未建立</div>
+        <label class="field-label">常用尺寸：</label>
+        <div class="text-input readonly-field" id="cust-common-sizes">尚未建立</div>
         <label class="field-label">區域</label>
         <select id="cust-region" class="text-input">
           <option>北區</option><option>中區</option><option>南區</option>
@@ -319,10 +323,10 @@
     </div>
   </div>
 
-  <div id="customer-modal" class="modal hidden">
+  <div id="customer-modal" class="modal hidden" style="display:none!important">
     <div class="modal-card glass">
       <div class="modal-head">
-        <div class="section-title">客戶明細</div>
+        <div class="section-title"></div>
         <button class="icon-btn" onclick="closeCustomerModal()">✕</button>
       </div>
       <div id="customer-modal-body"></div>

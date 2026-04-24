@@ -485,14 +485,14 @@
     const input = $('customer-name');
     if(!input || input.dataset.fix32Uid) return;
     input.dataset.fix32Uid = '1';
-    input.insertAdjacentHTML('afterend', '<div id="fix32-customer-hint" class="small-note">客戶資料已使用 UID 強化；改名會盡量同步關聯，避免同名混淆。</div>');
+    
     input.addEventListener('blur', async () => {
       const name = input.value.trim();
       if(!name) return;
       try{
         const d = await api(`/api/customers/${encodeURIComponent(name)}`, {method:'GET'});
         const hint = $('fix32-customer-hint');
-        if(hint && d.item) hint.textContent = `已匹配客戶：${d.item.name || name}｜區域：${d.item.region || '未設定'}｜UID：${d.item.customer_uid || '已建立'}`;
+        if(hint && d.item) hint.textContent = '';
       }catch(_){}
     });
   }

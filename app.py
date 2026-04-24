@@ -1015,6 +1015,8 @@ def api_customers():
             phone=(data.get("phone") or "").strip(),
             address=(data.get("address") or "").strip(),
             notes=(data.get("notes") or "").strip(),
+            common_materials=(data.get("common_materials") or "").strip(),
+            common_sizes=(data.get("common_sizes") or "").strip(),
             region=resolve_customer_region(name, data.get("region")),
             preserve_existing=bool(data.get('preserve_existing', False))
         )
@@ -1067,7 +1069,7 @@ def api_customers_move():
         if not name or not row:
             return error_response("找不到客戶資料")
         before_region = (row.get("region") or "").strip()
-        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), region=region, preserve_existing=True)
+        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
         log_action(current_username(), f"移動客戶 {name} 到 {region}")
         add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})

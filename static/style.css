@@ -1528,3 +1528,9 @@ body{ padding-top:var(--safe-top); padding-bottom:calc(var(--safe-bottom) + 10px
   .ship-picker-actions .primary-btn,.ship-picker-actions .ghost-btn{width:100%;}
   .fix36-ship-preview-modal-card{max-width:96vw;max-height:90vh;}
 }
+
+
+/* FIX46 customer editor */
+.readonly-field{display:flex;align-items:center;min-height:46px;background:#f9fafb;color:#374151;white-space:normal;height:auto;}
+#customer-modal{display:none!important;}
+#fix32-customer-hint{display:none!important;}
