@@ -147,7 +147,7 @@
     try{
       await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material:m, items})});
       say(`已套用材質 ${m}`,'ok');
-      if(typeof window.openCustomerModal === 'function' && customerName) await window.openCustomerModal(customerName);
+      if(typeof window.fillCustomerForm === 'function' && customerName) await window.fillCustomerForm(customerName);
     }catch(e){ say(e.message || '套用材質失敗','error'); }
   };
 

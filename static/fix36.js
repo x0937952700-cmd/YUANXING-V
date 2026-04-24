@@ -1,7 +1,7 @@
 /* ==== FIX36：出貨客戶商品下拉 + 材積/長度/重量預覽後確認出貨 ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix41-preserve-leading-zero-083';
+  const VERSION = 'fix42-underscore-prev-width-height';
   window.__YUANXING_FIX_VERSION__ = VERSION;
   document.documentElement.dataset.yxVersion = VERSION;
 

@@ -480,3 +480,114 @@ def process_native_ocr_text(raw_text, customer_hint="", native_confidence=0, blo
             for line in line_map
         ],
     }
+
+# ==== FIX42 underscore previous width-height + decimal display preservation ====
+def _fix42_fmt_dim_token(token, is_height=False):
+    s = str(token or '').strip()
+    if not s or re.fullmatch(r'[_-]+', s):
+        return ''
+    if re.fullmatch(r'[A-Za-z]+', s):
+        return s.upper()
+    if re.fullmatch(r'\d*\.\d+', s):
+        if s.startswith('.'):
+            s = '0' + s
+        return s.replace('.', '')
+    if re.fullmatch(r'\d+', s):
+        return s.zfill(2) if is_height and len(s) == 1 else s
+    return re.sub(r'\s+', '', s)
+
+
+def _fix42_dims_from_left(left, prev_dims=None):
+    prev_dims = prev_dims or ['', '', '']
+    raw = _normalize_x(left or '').replace('Ｘ', 'x')
+    raw = re.sub(r'\s+', '', raw)
+    parts = [p for p in re.split(r'x', raw, flags=re.I) if p != '']
+    if len(parts) == 2 and re.fullmatch(r'[_-]+', parts[1] or '') and prev_dims and prev_dims[1] and prev_dims[2]:
+        parts = [parts[0], prev_dims[1], prev_dims[2]]
+    elif len(parts) == 1 and prev_dims and prev_dims[1] and prev_dims[2]:
+        parts = [parts[0], prev_dims[1], prev_dims[2]]
+    elif len(parts) >= 3:
+        parts = [(prev_dims[i] if re.fullmatch(r'[_-]+', parts[i] or '') and prev_dims and prev_dims[i] else parts[i]) for i in range(3)]
+    if len(parts) < 3:
+        return None
+    dims = [_fix42_fmt_dim_token(parts[0], False), _fix42_fmt_dim_token(parts[1], False), _fix42_fmt_dim_token(parts[2], True)]
+    return dims if all(dims) else None
+
+
+def _fix42_sort_value(v):
+    s = str(v or '')
+    if re.fullmatch(r'[A-Za-z]+', s):
+        return 0
+    try:
+        return int(re.sub(r'\D', '', s) or '0')
+    except Exception:
+        return 0
+
+
+def _normalize_item_line(line):
+    line = clean_ocr_noise(line)
+    line = re.sub(r"[\[\]{}]", "", line)
+    line = re.sub(r"\s+", "", line)
+    line = re.sub(r"[^0-9A-Za-z_x=+\-.,/一-鿿()（）]", "", line)
+    if "=" not in line and line.count("x") >= 2 and line.count("-") == 1:
+        line = line.replace("-", "=")
+    if "=" not in line:
+        line = re.sub(r"(?<=\d)(?=\d{1,3}x\d+$)", "=", line, count=1)
+    return line
+
+
+def _extract_item_rows(raw_text):
+    rows = []
+    prev_dims = ['', '', '']
+    for raw in (raw_text or '').splitlines():
+        candidate = _normalize_item_line(raw)
+        if not candidate:
+            continue
+        if '=' not in candidate and candidate.count('x') >= 2:
+            candidate = _ensure_equals_candidate(candidate, prev_dims=prev_dims)
+        if '=' not in candidate:
+            continue
+        left, right = candidate.split('=', 1)
+        dims = _fix42_dims_from_left(left, prev_dims=prev_dims)
+        if not dims:
+            continue
+        prev_dims = dims[:]
+        segments = [seg for seg in re.split(r"[+＋,，;；]", right) if seg] or [right]
+        for seg in segments:
+            seg_text = (seg or '').strip()
+            seg_for_qty = re.sub(r"[\(（][^\)）]*[\)）]", "", seg_text)
+            nums = [int(x) for x in re.findall(r"\d+", seg_for_qty)]
+            if not nums:
+                continue
+            if len(nums) == 1 and re.search(r'[件片]', seg_for_qty):
+                qty = max(1, nums[0])
+            else:
+                qty = max(1, int(nums[1] if len(nums) > 1 else 1))
+            line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={seg_text}"
+            rows.append({
+                'line': line_out,
+                'product_text': line_out,
+                'product_code': line_out,
+                'qty': qty,
+                'dims': dims,
+            })
+    rows.sort(key=lambda r: (_fix42_sort_value(r['dims'][2]), _fix42_sort_value(r['dims'][1]), _fix42_sort_value(r['dims'][0]), -(r['qty'] or 1), r['line']))
+    return rows
+
+
+def _fallback_extract_lines(raw_text):
+    raw_text = _normalize_x(raw_text or '')
+    lines = []
+    prev_dims = ['', '', '']
+    for raw in raw_text.splitlines():
+        line = _normalize_item_line(raw)
+        if '=' not in line:
+            line = _ensure_equals_candidate(line, prev_dims=prev_dims)
+        if line.count('x') >= 1 and '=' in line:
+            left, right = line.split('=', 1)
+            dims = _fix42_dims_from_left(left, prev_dims=prev_dims)
+            if dims:
+                prev_dims = dims[:]
+                lines.append(f"{dims[0]}x{dims[1]}x{dims[2]}={right}")
+    return lines
+# ==== FIX42 end ====

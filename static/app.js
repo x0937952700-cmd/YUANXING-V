@@ -1759,6 +1759,61 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       .replace(/\r/g, '\n');
   }
 
+  function normalizeProductTextLines(raw){
+    const formatDim = (v, isHeight=false) => {
+      let s = String(v || '').trim();
+      if (!s) return '';
+      if (/^[_-]+$/.test(s)) return '';
+      if (/^[A-Za-z]+$/.test(s)) return s.toUpperCase();
+      if (/^\d*\.\d+$/.test(s)) {
+        if (s.startsWith('.')) s = '0' + s;
+        return s.replace('.', '');
+      }
+      if (/^\d+$/.test(s)) return (isHeight && s.length === 1) ? s.padStart(2, '0') : s;
+      return s.replace(/\s+/g, '');
+    };
+    const resolveLeft = (left, prev) => {
+      const compact = normalizeX(left).replace(/\s+/g, '');
+      let parts = compact.split(/x/i).filter(v => v !== '');
+      if (parts.length === 2 && /^[_-]+$/.test(parts[1]) && prev[1] && prev[2]) {
+        parts = [parts[0], prev[1], prev[2]];
+      } else if (parts.length === 1 && prev[1] && prev[2]) {
+        parts = [parts[0], prev[1], prev[2]];
+      } else if (parts.length >= 3) {
+        parts = [0,1,2].map(i => (/^[_-]+$/.test(parts[i] || '') ? (prev[i] || '') : parts[i]));
+      }
+      if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) return null;
+      const dims = [formatDim(parts[0], false), formatDim(parts[1], false), formatDim(parts[2], true)];
+      return dims.every(Boolean) ? dims : null;
+    };
+    const out = [];
+    let prev = ['', '', ''];
+    normalizeX(raw || '').split(/\n+/).forEach(line => {
+      const normalized = line.trim();
+      if (!normalized) return;
+      const compactForPallet = normalized.replace(/\s+/g, '');
+      const pallet = compactForPallet.match(/^(棧板|栈板|木棧板|木栈板)(\d+)片?$/);
+      if (pallet) { out.push(`棧板=${pallet[2]}`); return; }
+      const pair = normalized.split(/=|:/);
+      if (pair.length < 2) {
+        const fixed = window.yxNormalizeProductText(normalized.replace(/\s+/g,''));
+        if (fixed) out.push(fixed);
+        return;
+      }
+      const left = pair.shift();
+      const dims = resolveLeft(left, prev);
+      if (!dims) {
+        const fixed = window.yxNormalizeProductText(normalized.replace(/\s+/g,''));
+        if (fixed) out.push(fixed);
+        return;
+      }
+      prev = dims.slice();
+      const right = window.yxSortQtyExpression(window.yxCleanQtyExpression(pair.join('=')));
+      out.push(right ? `${dims.join('x')}=${right}` : dims.join('x'));
+    });
+    return out.join('\n');
+  }
+
   function mergeSubmitItems(items){
     const map = new Map();
     (items || []).forEach(it => {
@@ -1840,7 +1895,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function collectSubmitItems(){
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeProductTextLines(ocrBox.value || '');
     const rawText = (ocrBox?.value || '').trim();
     let items = [];
     try { items = parseSubmitItemsRobust(rawText); } catch (_e) { items = []; }
@@ -2059,7 +2114,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       await requestJSON('/api/customer-item', { method:'DELETE', body: JSON.stringify({ source, id }) });
     }
     toast('已刪除所選商品', 'ok');
-    if (typeof window.openCustomerModal === 'function') await window.openCustomerModal(customerName);
+    if (typeof window.fillCustomerForm === 'function') await window.fillCustomerForm(customerName);
   }
 
   async function editCustomerItemInline(customerName, source, id){
@@ -2078,7 +2133,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       await requestJSON('/api/customer-item', { method:'POST', body: JSON.stringify({ source, id, product_text, qty }) });
       close();
       toast('客戶商品已更新', 'ok');
-      await window.openCustomerModal(customerName);
+      await window.fillCustomerForm(customerName);
     };
     modal.classList.remove('hidden');
   }
@@ -2089,7 +2144,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!ok) return;
     await requestJSON('/api/customer-item', { method:'DELETE', body: JSON.stringify({ source, id }) });
     toast('客戶商品已刪除', 'ok');
-    await window.openCustomerModal(customerName);
+    await window.fillCustomerForm(customerName);
   }
   window.deleteCustomerItemInline = deleteCustomerItemInline;
 
@@ -2126,7 +2181,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         toast('客戶資料已更新', 'ok');
         await window.loadCustomerBlocks();
         const mod = getModuleKey();
-        if (mod === 'customers') await window.openCustomerModal(nextName);
+        if (mod === 'customers') await window.fillCustomerForm(nextName);
         if (['orders','master_order','ship'].includes(mod)) await window.selectCustomerForModule(nextName);
       } catch (e) {
         toast(e?.message || '客戶資料更新失敗', 'error');
@@ -2167,7 +2222,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     await window.loadCustomerBlocks();
     const mod = getModuleKey();
     if (['orders','master_order','ship'].includes(mod)) await window.selectCustomerForModule(customerName);
-    if (mod === 'customers' && typeof window.openCustomerModal === 'function') await window.openCustomerModal(customerName);
+    if (mod === 'customers' && typeof window.fillCustomerForm === 'function') await window.fillCustomerForm(customerName);
   }
 
   function boardTargets(){
@@ -2196,7 +2251,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     ['touchend','touchmove','touchcancel','pointerup','pointerleave'].forEach(evt => card.addEventListener(evt, clearHold, { passive:true }));
     card.addEventListener('click', async () => {
       state.selectedCustomerRegion = normalizeRegion(card.dataset.region, state.selectedCustomerRegion || '');
-      if (mode === 'customers') await window.openCustomerModal(customerName);
+      if (mode === 'customers') await window.fillCustomerForm(customerName);
       else await window.selectCustomerForModule(customerName);
     });
   }
@@ -2328,7 +2383,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       state.currentCustomer = nextName;
       toast('客戶儲存成功', 'ok');
       await window.loadCustomerBlocks();
-      await window.openCustomerModal(nextName);
+      await window.fillCustomerForm(nextName);
     } catch (e) {
       toast(e?.message || '客戶儲存失敗', 'error');
     }
@@ -2350,7 +2405,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeProductTextLines(ocrBox.value || '');
     const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();
@@ -2575,7 +2630,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     }
   }
 
-  async function openCustomerModalFinal(name){
+  async function fillCustomerFormFinal(name){
     try {
       state.currentCustomer = name;
       const [detail, items, recent] = await Promise.all([
@@ -2643,14 +2698,14 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   async function renderWarehouse(){ return renderWarehouseFinal(); }
   async function searchWarehouse(){ return searchWarehouseFinal(); }
-  async function openCustomerModal(name){ return openCustomerModalFinal(name); }
+  async function fillCustomerForm(name){ return fillCustomerFormFinal(name); }
 
   window.renderWarehouse = renderWarehouse;
   window.searchWarehouse = searchWarehouse;
-  window.openCustomerModal = openCustomerModal;
+  window.fillCustomerForm = fillCustomerForm;
   window.renderWarehouseCellItems = renderWarehouseCellItemsFinal;
 
-  ['renderWarehouse','searchWarehouse','openCustomerModal','renderWarehouseCellItems','setWarehouseZone','loadCustomerBlocks','selectCustomerForModule','confirmSubmit'].forEach(name => {
+  ['renderWarehouse','searchWarehouse','fillCustomerForm','renderWarehouseCellItems','setWarehouseZone','loadCustomerBlocks','selectCustomerForModule','confirmSubmit'].forEach(name => {
     if (window[name]) globalThis[name] = window[name];
   });
 
@@ -2805,7 +2860,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       state.currentCustomer = nextName;
       toast('客戶儲存成功', 'ok');
       await window.loadCustomerBlocks();
-      await window.openCustomerModal(nextName);
+      await window.fillCustomerForm(nextName);
     } catch (e) {
       toast(e?.message || '客戶儲存失敗', 'error');
     }
@@ -2824,7 +2879,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (targetEl) targetEl.scrollIntoView({behavior:'smooth', block:'center'});
     const mod = getModuleKey();
     if (['orders','master_order','ship'].includes(mod)) await window.selectCustomerForModule(identity.name);
-    if (mod === 'customers' && typeof window.openCustomerModal === 'function') await window.openCustomerModal(identity.name);
+    if (mod === 'customers' && typeof window.fillCustomerForm === 'function') await window.fillCustomerForm(identity.name);
   };
   moveCustomerRegionUnified = window.moveCustomerRegionUnified;
 
@@ -2861,7 +2916,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!btn || btn.dataset.busy === '1') return;
     const module = getModuleKey() || 'inventory';
     const ocrBox = $('ocr-text');
-    if (ocrBox) ocrBox.value = normalizeX(ocrBox.value || '').split(/\n+/).map(line => window.yxNormalizeProductText(line.trim().replace(/\s+/g, ''))).filter(Boolean).join('\n');
+    if (ocrBox) ocrBox.value = normalizeProductTextLines(ocrBox.value || '');
     const rawText = (ocrBox?.value || '').trim();
     const location = ($('location-input')?.value || '').trim();
     const items = collectSubmitItems();
@@ -2919,7 +2974,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       toast(submitSuccessText(module), 'ok');
       if (['orders','master_order','ship','customers'].includes(module)) await window.loadCustomerBlocks();
       if (needCustomer && identity.name) await window.selectCustomerForModule(identity.name);
-      if (module === 'customers' && identity.name) await window.openCustomerModal(identity.name);
+      if (module === 'customers' && identity.name) await window.fillCustomerForm(identity.name);
       if (module === 'ship') updateShipPreview();
     } catch (e) {
       if (resultPanel) {
