@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix53-production-clean';
+  const PWA_VERSION = 'fix55-actions-material-clean';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
