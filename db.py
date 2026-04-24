@@ -279,6 +279,18 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     after_json {text},
     created_at {text}
 )""",
+        f"""CREATE TABLE IF NOT EXISTS todo_items (
+            id {pk},
+            note {text},
+            due_date {text},
+            image_filename {text},
+            created_by {text},
+            created_at {text},
+            updated_at {text},
+            completed_at {text},
+            is_done INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0
+        )""",
         f"""CREATE TABLE IF NOT EXISTS app_settings (
             id {pk},
             key {text} UNIQUE NOT NULL,
@@ -288,6 +300,79 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     ]
     for t in tables:
         cur.execute(t)
+
+    # FIX24: 舊資料庫自動補欄位，避免覆寫新版後因缺欄位造成按鈕/API 失效。
+    def _ensure_column(table_name, column_name, column_def):
+        try:
+            if USE_POSTGRES:
+                cur.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {column_def}")
+            else:
+                cur.execute(f"PRAGMA table_info({table_name})")
+                existing = {r[1] for r in cur.fetchall()}
+                if column_name not in existing:
+                    cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+        except Exception as e:
+            log_error('ensure_column', f'{table_name}.{column_name}: {e}')
+
+    _schema_columns = {
+        'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
+        'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'inventory': [('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'master_orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'shipping_records': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT')],
+        'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
+        'customer_aliases': [('alias','TEXT'),('target_name','TEXT'),('updated_at','TEXT')],
+        'warehouse_recent_slots': [('username','TEXT'),('customer_name','TEXT'),('zone','TEXT'),('column_index','INTEGER'),('slot_number','INTEGER'),('used_at','TEXT')],
+        'audit_trails': [('username','TEXT'),('action_type','TEXT'),('entity_type','TEXT'),('entity_key','TEXT'),('before_json','TEXT'),('after_json','TEXT'),('created_at','TEXT')],
+        'todo_items': [('note','TEXT'),('due_date','TEXT'),('image_filename','TEXT'),('created_by','TEXT'),('created_at','TEXT'),('updated_at','TEXT'),('completed_at','TEXT'),('is_done','INTEGER DEFAULT 0'),('sort_order','INTEGER DEFAULT 0')],
+    }
+    for _table, _columns in _schema_columns.items():
+        for _col, _def in _columns:
+            _ensure_column(_table, _col, _def)
+
+    # FIX25: SQLite 舊版倉庫表欄位相容（舊欄位 area/col/front_back/row 轉成 zone/column_index/slot_type/slot_number）
+    # 以前本機或手機 SQLite 若已經有舊 schema，CREATE TABLE IF NOT EXISTS 不會改表，
+    # 這裡先把舊欄位值補進新欄位，避免倉庫圖讀不到或全部變成 A-1-01。
+    if not USE_POSTGRES:
+        try:
+            cur.execute("PRAGMA table_info(warehouse_cells)")
+            wh_cols = {r[1] for r in cur.fetchall()}
+            def _has_col(name):
+                return name in wh_cols
+            if _has_col('zone'):
+                if _has_col('area'):
+                    cur.execute("UPDATE warehouse_cells SET zone = COALESCE(NULLIF(zone,''), NULLIF(area,''), 'A') WHERE zone IS NULL OR zone = ''")
+                else:
+                    cur.execute("UPDATE warehouse_cells SET zone = COALESCE(NULLIF(zone,''), 'A') WHERE zone IS NULL OR zone = ''")
+            if _has_col('column_index'):
+                if _has_col('col'):
+                    cur.execute("UPDATE warehouse_cells SET column_index = COALESCE(column_index, col, 1) WHERE column_index IS NULL OR column_index = 0")
+                elif _has_col('column'):
+                    cur.execute("UPDATE warehouse_cells SET column_index = COALESCE(column_index, column, 1) WHERE column_index IS NULL OR column_index = 0")
+                else:
+                    cur.execute("UPDATE warehouse_cells SET column_index = COALESCE(column_index, 1) WHERE column_index IS NULL OR column_index = 0")
+            if _has_col('slot_type'):
+                if _has_col('front_back'):
+                    cur.execute("UPDATE warehouse_cells SET slot_type = COALESCE(NULLIF(slot_type,''), NULLIF(front_back,''), 'direct') WHERE slot_type IS NULL OR slot_type = ''")
+                elif _has_col('side'):
+                    cur.execute("UPDATE warehouse_cells SET slot_type = COALESCE(NULLIF(slot_type,''), NULLIF(side,''), 'direct') WHERE slot_type IS NULL OR slot_type = ''")
+                else:
+                    cur.execute("UPDATE warehouse_cells SET slot_type = COALESCE(NULLIF(slot_type,''), 'direct') WHERE slot_type IS NULL OR slot_type = ''")
+            if _has_col('slot_number'):
+                if _has_col('row'):
+                    cur.execute("UPDATE warehouse_cells SET slot_number = COALESCE(slot_number, row, 1) WHERE slot_number IS NULL OR slot_number = 0")
+                elif _has_col('position'):
+                    cur.execute("UPDATE warehouse_cells SET slot_number = COALESCE(slot_number, position, 1) WHERE slot_number IS NULL OR slot_number = 0")
+                else:
+                    cur.execute("UPDATE warehouse_cells SET slot_number = COALESCE(slot_number, 1) WHERE slot_number IS NULL OR slot_number = 0")
+            if _has_col('items_json'):
+                cur.execute("UPDATE warehouse_cells SET items_json = COALESCE(NULLIF(items_json,''), '[]') WHERE items_json IS NULL OR items_json = ''")
+            if _has_col('note'):
+                cur.execute("UPDATE warehouse_cells SET note = '' WHERE note LIKE '__USER_%__' OR note IN ('__USER_ADDED__','__USER_INSERTED_SLOT__')")
+        except Exception as e:
+            log_error('sqlite_warehouse_legacy_migration', str(e))
 
     if USE_POSTGRES:
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
@@ -498,6 +583,14 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                     """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
     except Exception as e:
         log_error('warehouse_normalize_direct_model', str(e))
+
+    # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
+    try:
+        cur.execute(sql("UPDATE warehouse_cells SET note = '' WHERE note LIKE '__USER_%__' OR note IN ('__USER_ADDED__','__USER_INSERTED_SLOT__')"))
+        if not USE_POSTGRES:
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
+    except Exception as e:
+        log_error('warehouse_final_index_cleanup', str(e))
 
     ensure_fixed_warehouse_grid(conn, cur)
     conn.commit()
@@ -847,23 +940,72 @@ def get_customer(name, include_archived=False):
     return row
 
 
+
+def _normalize_size_key(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').strip()
+    left = (raw.split('=', 1)[0].strip() or raw).lower()
+    parts = [p for p in left.split('x') if p != '']
+    if len(parts) >= 3 and all(p.strip().isdigit() for p in parts[:3]):
+        return 'x'.join(str(int(p.strip())) for p in parts[:3])
+    return left
+
+def _normalize_product_key(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip().lower()
+    if '=' not in raw:
+        return _normalize_size_key(raw)
+    left, right = raw.split('=', 1)
+    size = _normalize_size_key(left)
+    # 右側保留材積/支數資訊，但清掉空白與前導 0，讓 05 和 5 可比對。
+    nums = [str(int(n)) for n in __import__('re').findall(r'\d+', right)]
+    if nums:
+        return size + '=' + 'x'.join(nums)
+    return size + '=' + right.strip()
+
+def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
+    target = _normalize_product_key(product_text)
+    if customer_name is None:
+        cur.execute(sql(f"SELECT id, qty, product_text FROM {table} WHERE qty > 0 ORDER BY id ASC"))
+    else:
+        cur.execute(sql(f"SELECT id, qty, product_text FROM {table} WHERE customer_name = ? AND qty > 0 ORDER BY id ASC"), (customer_name,))
+    rows = cur.fetchall()
+    out = []
+    for row in rows:
+        rid = row[0] if USE_POSTGRES else row['id']
+        qty = row[1] if USE_POSTGRES else row['qty']
+        product = row[2] if USE_POSTGRES else row['product_text']
+        if _normalize_product_key(product) == target:
+            out.append({'id': rid, 'qty': int(qty or 0), 'product_text': product})
+    return out
+
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text=""):
     conn = get_db()
     cur = conn.cursor()
+    product_text = (product_text or '').strip()
+    product_code = (product_code or product_text or '').strip()
+    location = (location or '').strip()
+    customer_name = (customer_name or '').strip()
+    qty = int(qty or 0)
     cur.execute(sql("""
-        SELECT id, qty FROM inventory
-        WHERE product_text = ?
-          AND COALESCE(location, '') = COALESCE(?, '')
+        SELECT id, qty, product_text FROM inventory
+        WHERE COALESCE(location, '') = COALESCE(?, '')
           AND COALESCE(customer_name, '') = COALESCE(?, '')
-    """), (product_text, location, customer_name))
-    row = cur.fetchone()
-    if row:
-        rid = row[0] if USE_POSTGRES else row["id"]
+        ORDER BY id DESC
+    """), (location, customer_name))
+    rows = cur.fetchall()
+    target_key = _normalize_product_key(product_text)
+    matched = None
+    for row in rows:
+        existing_text = row[2] if USE_POSTGRES else row['product_text']
+        if _normalize_product_key(existing_text) == target_key:
+            matched = row
+            break
+    if matched:
+        rid = matched[0] if USE_POSTGRES else matched["id"]
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, product_text = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, customer_name, operator, source_text, now(), rid))
+        """), (qty, product_code, product_text, customer_name, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
             INSERT INTO inventory(product_text, product_code, qty, location, customer_name, operator, source_text, created_at, updated_at)
@@ -884,46 +1026,60 @@ def list_inventory():
 def save_order(customer_name, items, operator, duplicate_mode='merge'):
     conn = get_db()
     cur = conn.cursor()
+    customer_name = (customer_name or '').strip()
     if duplicate_mode == 'replace':
         for item in items:
-            cur.execute(sql("DELETE FROM orders WHERE customer_name = ? AND product_text = ?"), (customer_name, item["product_text"]))
+            for row in _fetch_matching_product_rows(cur, 'orders', item.get('product_text') or '', customer_name=customer_name):
+                cur.execute(sql("DELETE FROM orders WHERE id = ?"), (row['id'],))
     for item in items:
+        product_text = (item.get('product_text') or '').strip()
+        if not product_text:
+            continue
+        product_code = (item.get('product_code') or product_text).strip()
+        qty = int(item.get('qty') or 0)
+        if qty <= 0:
+            continue
         if duplicate_mode == 'merge':
-            cur.execute(sql("SELECT id FROM orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC"), (customer_name, item["product_text"]))
-            row = cur.fetchone()
-            if row:
-                rid = row[0] if USE_POSTGRES else row["id"]
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_code = ?, operator = ?, updated_at = ? WHERE id = ?"), (int(item["qty"]), item.get("product_code", ""), operator, now(), rid))
+            rows = _fetch_matching_product_rows(cur, 'orders', product_text, customer_name=customer_name)
+            if rows:
+                rid = rows[-1]['id']
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, operator, now(), rid))
                 continue
         cur.execute(sql("""
             INSERT INTO orders(customer_name, product_text, product_code, qty, status, operator, created_at, updated_at)
             VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, item["product_text"], item.get("product_code", ""), int(item["qty"]), operator, now(), now()))
+        """), (customer_name, product_text, product_code, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
 def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
     conn = get_db()
     cur = conn.cursor()
+    customer_name = (customer_name or '').strip()
     if duplicate_mode == 'replace':
         for item in items:
-            cur.execute(sql("DELETE FROM master_orders WHERE customer_name = ? AND product_text = ?"), (customer_name, item["product_text"]))
+            for row in _fetch_matching_product_rows(cur, 'master_orders', item.get('product_text') or '', customer_name=customer_name):
+                cur.execute(sql("DELETE FROM master_orders WHERE id = ?"), (row['id'],))
     for item in items:
-        cur.execute(sql("""
-            SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ?
-        """), (customer_name, item["product_text"]))
-        row = cur.fetchone()
-        if row and duplicate_mode != 'replace':
-            rid = row[0] if USE_POSTGRES else row["id"]
+        product_text = (item.get('product_text') or '').strip()
+        if not product_text:
+            continue
+        product_code = (item.get('product_code') or product_text).strip()
+        qty = int(item.get('qty') or 0)
+        if qty <= 0:
+            continue
+        rows = _fetch_matching_product_rows(cur, 'master_orders', product_text, customer_name=customer_name)
+        if rows and duplicate_mode != 'replace':
+            rid = rows[-1]['id']
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_code = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (int(item["qty"]), item.get("product_code", ""), operator, now(), rid))
+            """), (qty, product_text, product_code, operator, now(), rid))
         else:
             cur.execute(sql("""
                 INSERT INTO master_orders(customer_name, product_text, product_code, qty, operator, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, item["product_text"], item.get("product_code", ""), int(item["qty"]), operator, now(), now()))
+            """), (customer_name, product_text, product_code, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -944,98 +1100,78 @@ def get_master_orders():
     return rows
 
 def _deduct_from_table(cur, table, customer_name, product_text, qty_needed):
-    cur.execute(sql(f"""
-        SELECT id, qty
-        FROM {table}
-        WHERE customer_name = ? AND product_text = ? AND qty > 0
-        ORDER BY id ASC
-    """), (customer_name, product_text))
-    rows = cur.fetchall()
-    total = 0
-    for row in rows:
-        total += row[1] if USE_POSTGRES else row["qty"]
+    rows = _fetch_matching_product_rows(cur, table, product_text, customer_name=customer_name)
+    total = sum(int(r.get('qty') or 0) for r in rows)
     if total < qty_needed:
         return False, []
-    remain = qty_needed
+    remain = int(qty_needed or 0)
     used = []
     for row in rows:
-        rid = row[0] if USE_POSTGRES else row["id"]
-        stock = row[1] if USE_POSTGRES else row["qty"]
-        use_qty = min(stock, remain)
-        cur.execute(sql(f"""
-            UPDATE {table}
-            SET qty = qty - ?, updated_at = ?
-            WHERE id = ?
-        """), (use_qty, now(), rid))
-        used.append({"id": rid, "qty": use_qty})
-        remain -= use_qty
         if remain <= 0:
             break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
     return True, used
 
 def _deduct_from_inventory(cur, product_text, qty_needed):
-    cur.execute(sql("""
-        SELECT id, qty
-        FROM inventory
-        WHERE product_text = ? AND qty > 0
-        ORDER BY qty DESC, id ASC
-    """), (product_text,))
-    rows = cur.fetchall()
-    total = sum((r[1] if USE_POSTGRES else r["qty"]) for r in rows)
+    rows = _fetch_matching_product_rows(cur, 'inventory', product_text, customer_name=None)
+    rows.sort(key=lambda r: (-int(r.get('qty') or 0), int(r.get('id') or 0)))
+    total = sum(int(r.get('qty') or 0) for r in rows)
     if total < qty_needed:
         return False, []
-    remain = qty_needed
+    remain = int(qty_needed or 0)
     used = []
     for row in rows:
-        rid = row[0] if USE_POSTGRES else row["id"]
-        stock = row[1] if USE_POSTGRES else row["qty"]
-        use_qty = min(stock, remain)
-        cur.execute(sql("""
-            UPDATE inventory SET qty = qty - ?, updated_at = ? WHERE id = ?
-        """), (use_qty, now(), rid))
-        used.append({"id": rid, "qty": use_qty})
-        remain -= use_qty
         if remain <= 0:
             break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql("UPDATE inventory SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
     return True, used
 
 def _sum_available(cur, table, customer_name, product_text):
-    cur.execute(sql(f"SELECT COALESCE(SUM(qty),0) AS total FROM {table} WHERE customer_name = ? AND product_text = ? AND qty > 0"), (customer_name, product_text))
-    row = fetchone_dict(cur)
-    return int((row or {}).get('total') or 0)
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_product_rows(cur, table, product_text, customer_name=customer_name)))
 
 def _sum_inventory(cur, product_text):
-    cur.execute(sql("SELECT COALESCE(SUM(qty),0) AS total FROM inventory WHERE product_text = ? AND qty > 0"), (product_text,))
-    row = fetchone_dict(cur)
-    return int((row or {}).get('total') or 0)
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_product_rows(cur, 'inventory', product_text, customer_name=None)))
 
 def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_target):
     qty_target = int(qty_target or 0)
     if qty_target <= 0:
         return []
-    cur.execute(sql(f"""
-        SELECT id, qty
-        FROM {table}
-        WHERE customer_name = ? AND product_text = ? AND qty > 0
-        ORDER BY id ASC
-    """), (customer_name, product_text))
-    rows = cur.fetchall()
+    rows = _fetch_matching_product_rows(cur, table, product_text, customer_name=customer_name)
     remain = qty_target
     used = []
     for row in rows:
-        rid = row[0] if USE_POSTGRES else row["id"]
-        stock = row[1] if USE_POSTGRES else row["qty"]
         if remain <= 0:
             break
-        use_qty = min(int(stock), remain)
+        use_qty = min(int(row.get('qty') or 0), remain)
         if use_qty <= 0:
             continue
-        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), rid))
-        used.append({"id": rid, "qty": use_qty})
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
         remain -= use_qty
     return used
 
-def _warehouse_locations_for_product(product_text, qty_needed=None):
+def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None):
+    """Find warehouse locations by normalized size, and optionally by customer.
+
+    Older versions compared the full product text exactly.  After the warehouse
+    unplaced-list feature, warehouse cells may store only the size part
+    (for example ``132x23x05``) while orders/shipping may carry
+    ``132x23x05=249x3``.  Matching by size prevents location lookup from
+    missing valid cells, and filtering by customer prevents same-size goods for
+    another customer from being shown in shipping previews.
+    """
+    target_size = _warehouse_size_key(product_text or '')
+    want_customer = (customer_name or '').strip()
     cells = warehouse_get_cells()
     out = []
     for cell in cells:
@@ -1044,20 +1180,37 @@ def _warehouse_locations_for_product(product_text, qty_needed=None):
         except Exception:
             items = []
         for it in items:
-            if (it.get('product_text') or '') == product_text and int(it.get('qty') or 0) > 0:
-                visual_num = int(cell.get('slot_number') or 0)
-                out.append({'zone': cell.get('zone'), 'column_index': int(cell.get('column_index') or 0), 'slot_type': 'direct', 'slot_number': visual_num, 'visual_slot': visual_num, 'qty': int(it.get('qty') or 0), 'product_text': it.get('product_text') or ''})
-    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot']))
+            item_size = _warehouse_size_key(it.get('product_text') or it.get('product') or '')
+            item_customer = (it.get('customer_name') or '').strip()
+            qty = int(it.get('qty') or 0)
+            if not target_size or item_size != target_size or qty <= 0:
+                continue
+            if want_customer and item_customer and item_customer != want_customer:
+                continue
+            visual_num = int(cell.get('slot_number') or 0)
+            out.append({
+                'zone': cell.get('zone'),
+                'column_index': int(cell.get('column_index') or 0),
+                'slot_type': 'direct',
+                'slot_number': visual_num,
+                'visual_slot': visual_num,
+                'qty': qty,
+                'product_text': it.get('product_text') or product_text or '',
+                'customer_name': item_customer,
+            })
+    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
     if qty_needed is None:
         return out
     remain = int(qty_needed or 0)
     plan = []
     for row in out:
-        take = min(int(row.get('qty') or 0), remain)
-        plan.append({**row, 'ship_qty': take, 'remain_after': max(0, remain - take)})
-        remain -= take
         if remain <= 0:
             break
+        take = min(int(row.get('qty') or 0), remain)
+        if take <= 0:
+            continue
+        plan.append({**row, 'ship_qty': take, 'remain_after': max(0, remain - take)})
+        remain -= take
     return plan
 
 def preview_ship_order(customer_name, items):
@@ -1100,7 +1253,7 @@ def preview_ship_order(customer_name, items):
                     {'source': '訂單', 'available': order_available},
                     {'source': '庫存', 'available': inventory_available},
                 ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed),
+                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=customer_name),
             })
         return {
             'success': True,
@@ -1212,6 +1365,40 @@ def get_shipping_records(start_date=None, end_date=None, q=""):
     conn.close()
     return rows
 
+
+def _warehouse_size_key(text):
+    return _normalize_size_key(text)
+
+def _normalize_warehouse_items(items):
+    """合併同尺寸 / 同客戶商品，清掉空白或 0 數量，避免格位資料越存越亂。"""
+    merged = {}
+    for raw in (items or []):
+        if not isinstance(raw, dict):
+            continue
+        product_text = str(raw.get('product_text') or raw.get('product') or '').strip()
+        if not product_text:
+            continue
+        try:
+            qty = int(raw.get('qty') or 0)
+        except Exception:
+            qty = 0
+        if qty <= 0:
+            continue
+        customer_name = str(raw.get('customer_name') or '').strip()
+        key = (_warehouse_size_key(product_text), customer_name)
+        if key not in merged:
+            next_item = dict(raw)
+            next_item['product_text'] = product_text
+            next_item['product_code'] = str(raw.get('product_code') or product_text).strip()
+            next_item['customer_name'] = customer_name
+            next_item['qty'] = qty
+            merged[key] = next_item
+        else:
+            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
+            if not merged[key].get('source_summary') and raw.get('source_summary'):
+                merged[key]['source_summary'] = raw.get('source_summary')
+    return list(merged.values())
+
 def warehouse_get_cells():
     conn = get_db()
     cur = conn.cursor()
@@ -1236,6 +1423,9 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
     conn = get_db()
     cur = conn.cursor()
     slot_type = 'direct'
+    items = _normalize_warehouse_items(items)
+    # FIX25: 舊版用於標記新增格的內部字串不應顯示在備註，也不應被再次儲存。
+    note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
     items_json = json.dumps(items, ensure_ascii=False)
     if USE_POSTGRES:
         cur.execute("""
@@ -1272,36 +1462,105 @@ def warehouse_add_column(zone):
         cur.execute(sql("""
             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """), (zone, next_col, 'direct', num, '[]', '__USER_ADDED__', now()))
+        """), (zone, next_col, 'direct', num, '[]', '', now()))
     conn.commit(); conn.close(); return next_col
 
-def warehouse_add_slot(zone, column_index, slot_type='direct'):
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    """新增格子。
+
+    insert_after=None 時加在最後；insert_after=0 時加在最前面；
+    insert_after=N 時在第 N 格後面插入，後面的格子自動往後順延。
+    """
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index)
+    if zone not in ('A', 'B') or column_index < 1 or column_index > 6:
+        raise ValueError('格位參數錯誤')
     conn = get_db(); cur = conn.cursor()
-    cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
-    row = fetchone_dict(cur) or {}
-    next_slot = int(row.get('max_slot') or 0) + 1
-    cur.execute(sql("""
-        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """), (zone, column_index, 'direct', next_slot, '[]', '__USER_ADDED_SLOT__', now()))
-    conn.commit(); conn.close(); return next_slot
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
+        row = fetchone_dict(cur) or {}
+        max_slot = max(20, int(row.get('max_slot') or 0))
+        if insert_after is None or insert_after == '':
+            insert_after = max_slot
+        insert_after = int(insert_after)
+        insert_after = max(0, min(insert_after, max_slot))
+        new_slot = insert_after + 1
+        # 從後往前搬，避免唯一索引衝突。
+        for n in range(max_slot, insert_after, -1):
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_number = ?, updated_at = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+            """), (n + 1, now(), zone, column_index, 'direct', n))
+        # 最近格位也要跟著位移，避免「最近使用」指向錯格。
+        cur.execute(sql("""
+            UPDATE warehouse_recent_slots
+            SET slot_number = slot_number + 1
+            WHERE zone = ? AND column_index = ? AND slot_number > ?
+        """), (zone, column_index, insert_after))
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (zone, column_index, 'direct', new_slot, '[]', '', now()))
+        conn.commit(); return new_slot
+    except Exception:
+        conn.rollback(); raise
+    finally:
+        conn.close()
 
 def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    """刪除指定空白格，後面的格子自動往前補位；每欄至少保留 20 格。"""
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index)
+    slot_number = int(slot_number)
+    if zone not in ('A', 'B') or column_index < 1 or column_index > 6:
+        return {'success': False, 'error': '格位參數錯誤'}
     conn = get_db(); cur = conn.cursor()
-    cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
-    row = fetchone_dict(cur)
-    if not row:
-        conn.close(); return {'success': False, 'error': '找不到格子'}
     try:
-        items = json.loads(row.get('items_json') or '[]')
+        ensure_fixed_warehouse_grid(conn, cur)
+        cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
+        max_row = fetchone_dict(cur) or {}
+        max_slot = max(20, int(max_row.get('max_slot') or 0))
+        if max_slot <= 20:
+            return {'success': False, 'error': '每欄至少要保留 20 格'}
+        if slot_number < 1 or slot_number > max_slot:
+            return {'success': False, 'error': '格號超出範圍'}
+        cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
+        row = fetchone_dict(cur)
+        if not row:
+            return {'success': False, 'error': '找不到格子'}
+        try:
+            items = json.loads(row.get('items_json') or '[]')
+        except Exception:
+            items = []
+        if items:
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
+        # 從前往後補位，讓格號連續。
+        for n in range(slot_number + 1, max_slot + 1):
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_number = ?, updated_at = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+            """), (n - 1, now(), zone, column_index, 'direct', n))
+        # 最近格位也要同步：刪除目標格紀錄，後方格號往前補。
+        cur.execute(sql("""
+            DELETE FROM warehouse_recent_slots
+            WHERE zone = ? AND column_index = ? AND slot_number = ?
+        """), (zone, column_index, slot_number))
+        cur.execute(sql("""
+            UPDATE warehouse_recent_slots
+            SET slot_number = slot_number - 1
+            WHERE zone = ? AND column_index = ? AND slot_number > ?
+        """), (zone, column_index, slot_number))
+        conn.commit(); return {'success': True, 'removed_slot': slot_number}
     except Exception:
-        items = []
-    if items:
-        conn.close(); return {'success': False, 'error': '格子內還有商品，無法刪除'}
-    cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
-    conn.commit(); conn.close(); return {'success': True}
+        conn.rollback(); raise
+    finally:
+        conn.close()
 
-def warehouse_move_item(from_key, to_key, product_text, qty):
+def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None):
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -1318,35 +1577,55 @@ def warehouse_move_item(from_key, to_key, product_text, qty):
                 WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
+        from_norm = _norm(from_key)
+        to_norm = _norm(to_key)
+        if from_norm == to_norm:
+            return {'success': True, 'noop': True}
         src = _load(from_key); dst = _load(to_key)
         if not src or not dst:
             return {'success': False, 'error': '找不到來源或目標格位'}
-        src_items = json.loads(src.get('items_json') or '[]'); dst_items = json.loads(dst.get('items_json') or '[]')
+        try:
+            src_items = json.loads(src.get('items_json') or '[]')
+        except Exception:
+            src_items = []
+        try:
+            dst_items = json.loads(dst.get('items_json') or '[]')
+        except Exception:
+            dst_items = []
+        qty = int(qty or 0)
+        if qty <= 0:
+            return {'success': False, 'error': '搬移數量必須大於 0'}
+        want_customer = (customer_name or '').strip()
+        # 若同尺寸商品有不同客戶，前端必須帶客戶名，避免搬錯貨。
+        matching_customers = {
+            (it.get('customer_name') or '').strip()
+            for it in src_items
+            if (it.get('product_text') or '').strip() == (product_text or '').strip() and int(it.get('qty', 0) or 0) > 0
+        }
+        if not want_customer and len(matching_customers) > 1:
+            return {'success': False, 'error': '同尺寸有不同客戶，請點選該客戶商品再拖拉'}
         moved=[]; remain=qty; new_src=[]
         for it in src_items:
-            if it.get('product_text') == product_text and remain > 0:
-                take = min(int(it.get('qty', 0)), remain)
+            same_product = (it.get('product_text') or '').strip() == (product_text or '').strip()
+            same_customer = True if not want_customer else ((it.get('customer_name') or '').strip() == want_customer)
+            if same_product and same_customer and remain > 0:
+                take = min(int(it.get('qty', 0) or 0), remain)
                 remain -= take
                 moved.append({**it, 'qty': take})
-                leftover = int(it.get('qty', 0)) - take
+                leftover = int(it.get('qty', 0) or 0) - take
                 if leftover > 0:
                     new_src.append({**it, 'qty': leftover})
             else:
                 new_src.append(it)
         if remain > 0:
             return {'success': False, 'error': '來源格位數量不足'}
-        merged = {}
-        for it in dst_items + moved:
-            k = ((it.get('product_text') or '').strip(), (it.get('customer_name') or '').strip())
-            if k not in merged:
-                merged[k] = dict(it)
-                merged[k]['qty'] = int(it.get('qty') or 0)
-            else:
-                merged[k]['qty'] = int(merged[k].get('qty') or 0) + int(it.get('qty') or 0)
+        # FIX24: 依「尺寸 + 客戶」合併，避免同尺寸不同寫法重複列；同時清掉 0 數量。
+        normalized_src = _normalize_warehouse_items(new_src)
+        normalized_dst = _normalize_warehouse_items(dst_items + moved)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(new_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(list(merged.values()), ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
         conn.commit(); return {'success': True}
     except Exception as e:
         conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
@@ -1354,6 +1633,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty):
         conn.close()
 
 def inventory_placements():
+    """回傳已放入倉庫的數量，依「尺寸 + 客戶」計算，避免同尺寸不同客戶互相抵扣。"""
     cells = warehouse_get_cells()
     placement = {}
     for cell in cells:
@@ -1362,8 +1642,12 @@ def inventory_placements():
         except Exception:
             items = []
         for it in items:
-            key = it.get("product_text") or it.get("product") or ""
-            placement[key] = placement.get(key, 0) + int(it.get("qty", 0))
+            size = _warehouse_size_key(it.get("product_text") or it.get("product") or "")
+            if not size:
+                continue
+            customer = (it.get('customer_name') or '').strip()
+            key = (size, customer)
+            placement[key] = placement.get(key, 0) + int(it.get("qty", 0) or 0)
     return placement
 
 def inventory_summary():
@@ -1371,8 +1655,10 @@ def inventory_summary():
     placement = inventory_placements()
     result = []
     for r in rows:
-        placed = placement.get(r["product_text"], 0)
-        qty = int(r.get("qty", 0))
+        size = _warehouse_size_key(r.get("product_text") or "")
+        customer = (r.get('customer_name') or '').strip()
+        placed = placement.get((size, customer), 0)
+        qty = int(r.get("qty", 0) or 0)
         result.append({
             **r,
             "placed_qty": placed,

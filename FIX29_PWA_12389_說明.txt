@@ -1,0 +1,19 @@
+FIX29 PWA 12389 版
+
+已新增：
+1. 使用你提供的木紋「沅興木業」圖片產生 PWA 圖示。
+2. 新增 manifest.webmanifest，App 名稱為「沅興木業」。
+3. 新增 Android / Chrome 可安裝支援。
+4. 新增 iPhone 加入主畫面所需 apple-touch-icon 與手機狀態列設定。
+5. 新增 /sw.js Service Worker，scope 為整站。
+6. Service Worker 只快取圖示與 manifest，HTML / JS / CSS / API 都優先抓最新，避免之前 PWA 快取舊畫面的問題。
+7. 新增右下角「安裝 App / 加入主畫面」按鈕。
+
+部署後：
+- Android Chrome：打開網站後可按「安裝 App」。
+- iPhone Safari：按分享按鈕 → 加入主畫面。
+
+如果手機還看到舊圖示：
+1. 先刪除舊的主畫面 App。
+2. Safari / Chrome 清除該網站資料。
+3. 重新打開網站再加入主畫面。

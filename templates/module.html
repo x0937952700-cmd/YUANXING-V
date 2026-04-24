@@ -45,10 +45,10 @@
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
     <div id="module-result" class="result-card hidden" style="display:none"></div>
     {% if module_key == 'inventory' %}
-    <div id="inventory-inline-panel" class="result-card inventory-inline-panel" style="display:none">
+    <div id="inventory-inline-panel" class="result-card inventory-inline-panel">
       <div class="section-head inventory-inline-head">
         <h3>庫存清單</h3>
-        <span class="muted">送出後會立即出現在這裡，可點開編輯或移到訂單 / 總單</span>
+        <span class="muted">送出完成後會直接顯示在這裡，可點開編輯或移到訂單 / 總單</span>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list"></div>
     </div>
@@ -89,11 +89,7 @@
   </section>
 
 
-  <section class="subsection" id="inventory-summary-section" {% if module_key != 'inventory' %}style="display:none"{% endif %}>
-    <div class="section-head">
-      <h3>庫存清單</h3>
-      <span class="muted">未放入倉庫圖的商品會以紅色標示</span>
-    </div>
+  <section class="subsection" id="inventory-summary-section" style="display:none">
     <div id="inventory-summary" class="card-list"></div>
   </section>
 
@@ -122,7 +118,7 @@
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
-        <span class="muted">固定顯示 A / B 倉，各 6 欄、每欄 20 格；保留搜尋、高亮、反查、點格資訊與編輯功能。</span>
+        <span class="muted">固定顯示 A / B 倉，各 6 欄；每欄基本 20 格。可指定位置增減格子；下方尚未入倉商品支援來源篩選、選數量、拖拉或手動放入格位。</span>
       </div>
     </div>
 
@@ -156,14 +152,14 @@
       <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
-          <div class="small-note">6 欄 × 20 格</div>
+          <div class="small-note">6 欄 × 基本 20 格</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
           {% for col in range(1, 7) %}
           <div class="vertical-column-card intuitive-column">
             <div class="column-head-row">
               <div class="column-head">A 區第 {{ col }} 欄</div>
-              <div class="small-note">20 格</div>
+              <div class="small-note">基本 20 格</div>
             </div>
             <div class="btn-row compact warehouse-col-tools">
               <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('A', {{ col }})">＋</button>
@@ -185,14 +181,14 @@
       <div class="zone-card full-zone warehouse-zone-card" id="zone-B">
         <div class="zone-titlebar">
           <div class="zone-title">B 區</div>
-          <div class="small-note">6 欄 × 20 格</div>
+          <div class="small-note">6 欄 × 基本 20 格</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
           {% for col in range(1, 7) %}
           <div class="vertical-column-card intuitive-column">
             <div class="column-head-row">
               <div class="column-head">B 區第 {{ col }} 欄</div>
-              <div class="small-note">20 格</div>
+              <div class="small-note">基本 20 格</div>
             </div>
             <div class="btn-row compact warehouse-col-tools">
               <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('B', {{ col }})">＋</button>
