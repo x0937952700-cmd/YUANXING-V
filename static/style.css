@@ -1024,3 +1024,13 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .ship-record-sub{display:flex;flex-wrap:wrap;gap:10px;color:#666;font-size:13px}
 .ship-record-product{margin-top:6px;font-weight:600;word-break:break-word}
 .ship-record-note{margin-top:4px;color:#8a5a00;font-size:13px}
+/* FIX12: inventory list must show directly under submit result */
+.inventory-inline-panel{margin-top:18px !important;display:block;}
+.inventory-inline-head{margin-bottom:12px;}
+.inventory-action-card{cursor:pointer;transition:transform .12s ease, box-shadow .12s ease;}
+.inventory-action-card:hover{transform:translateY(-1px);box-shadow:0 14px 32px rgba(17,24,39,.10);}
+.inventory-unplaced-card{border-color:rgba(220,38,38,.28) !important;background:linear-gradient(180deg,#fff,#fff7f7) !important;}
+.danger-text{color:#b91c1c !important;font-weight:800;}
+.tiny-btn{padding:8px 10px !important;font-size:.86rem !important;border-radius:14px !important;}
+.modal:not(.hidden){display:flex;align-items:center;justify-content:center;position:fixed;inset:0;background:rgba(15,23,42,.28);z-index:9998;padding:18px;}
+.modal-card{max-height:88vh;overflow:auto;}

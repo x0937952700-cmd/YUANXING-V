@@ -3121,3 +3121,154 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   });
 })();
 /* ==== FIX11 end ==== */
+
+/* ==== FIX12 inventory inline list: show immediately under submit result ==== */
+(function(){
+  const byId = (id) => document.getElementById(id);
+  const esc = (v) => window.escapeHTML ? window.escapeHTML(v) : String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const api = (url, options={}) => window.requestJSON ? window.requestJSON(url, options) : fetch(url, {credentials:'same-origin', headers:{'Content-Type':'application/json'}, ...options}).then(r=>r.json());
+  const say = (msg, level='ok') => window.toast ? window.toast(msg, level) : alert(msg);
+  const isInventoryPage = () => {
+    try { return (typeof window.currentModule === 'function' && window.currentModule() === 'inventory') || location.pathname.includes('/inventory'); }
+    catch(_e){ return location.pathname.includes('/inventory'); }
+  };
+  function containers(){
+    const arr = [];
+    const inline = byId('inventory-inline-list');
+    const summary = byId('inventory-summary');
+    if (inline) arr.push(inline);
+    if (summary && summary !== inline) arr.push(summary);
+    const panel = byId('inventory-inline-panel');
+    if (panel) panel.style.display = '';
+    const section = byId('inventory-summary-section');
+    if (section) section.style.display = '';
+    return arr;
+  }
+  function qtyLabel(row){
+    const text = String(row.product_text || '');
+    const eq = text.indexOf('=');
+    return eq >= 0 ? text.slice(eq + 1) : String(row.qty || '');
+  }
+  function sizeLabel(row){
+    const text = String(row.product_text || '');
+    const eq = text.indexOf('=');
+    return eq >= 0 ? text.slice(0, eq) : text;
+  }
+  function cardHtml(row){
+    const id = Number(row.id || 0);
+    const unplaced = Number(row.unplaced_qty || 0) > 0 || row.needs_red;
+    return `<div class="card inventory-action-card ${unplaced ? 'inventory-unplaced-card' : ''}" data-inventory-id="${id}">
+      <div class="title">${esc(sizeLabel(row))}</div>
+      <div class="sub">${esc(qtyLabel(row))}｜數量 ${Number(row.qty || 0)}${row.location ? `｜格位 ${esc(row.location)}` : '｜未設定格位'}${row.customer_name ? `｜${esc(row.customer_name)}` : ''}</div>
+      ${unplaced ? `<div class="small-note danger-text">未錄入倉庫圖：${Number(row.unplaced_qty || row.qty || 0)}</div>` : ''}
+      <div class="btn-row compact-row" style="margin-top:10px;justify-content:flex-end;">
+        <button class="ghost-btn tiny-btn" type="button" data-inv-act="edit" data-id="${id}">編輯</button>
+        <button class="ghost-btn tiny-btn" type="button" data-inv-act="orders" data-id="${id}">移到訂單</button>
+        <button class="ghost-btn tiny-btn" type="button" data-inv-act="master_order" data-id="${id}">移到總單</button>
+      </div>
+    </div>`;
+  }
+  async function loadInventoryFix12(){
+    if (!isInventoryPage()) return;
+    const boxes = containers();
+    if (!boxes.length) return;
+    boxes.forEach(b => b.innerHTML = '<div class="empty-state-card compact-empty">庫存載入中…</div>');
+    try {
+      const data = await api('/api/inventory', {method:'GET'});
+      const rows = Array.isArray(data.items) ? data.items : [];
+      const html = rows.length ? rows.map(cardHtml).join('') : '<div class="empty-state-card compact-empty">目前沒有庫存資料</div>';
+      boxes.forEach(b => { b.innerHTML = html; bindBox(b, rows); });
+    } catch(e) {
+      boxes.forEach(b => b.innerHTML = `<div class="empty-state-card compact-empty">${esc(e?.message || '庫存清單載入失敗')}</div>`);
+    }
+  }
+  function bindBox(box, rows){
+    box.querySelectorAll('[data-inv-act]').forEach(btn => {
+      btn.onclick = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const row = rows.find(r => Number(r.id || 0) === Number(btn.dataset.id || 0));
+        if (!row) return;
+        const act = btn.dataset.invAct;
+        if (act === 'edit') openEdit(row);
+        else openMove(row, act);
+      };
+    });
+    box.querySelectorAll('.inventory-action-card').forEach(card => {
+      card.onclick = () => {
+        const row = rows.find(r => Number(r.id || 0) === Number(card.dataset.inventoryId || 0));
+        if (row) openEdit(row);
+      };
+    });
+  }
+  function modal(id, title){
+    let el = byId(id);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = id; el.className = 'modal hidden';
+      el.innerHTML = `<div class="modal-card glass" style="max-width:560px;width:min(94vw,560px);"><div class="modal-head"><div class="section-title">${esc(title)}</div><button type="button" class="icon-btn yx-close">✕</button></div><div class="yx-modal-body"></div></div>`;
+      document.body.appendChild(el);
+      el.querySelector('.yx-close').onclick = () => el.classList.add('hidden');
+      el.addEventListener('click', e => { if (e.target === el) el.classList.add('hidden'); });
+    }
+    return el;
+  }
+  function openEdit(row){
+    const m = modal('inventory-edit-modal-fix12', '編輯庫存商品');
+    m.querySelector('.yx-modal-body').innerHTML = `<label class="field-label">商品資料</label><textarea id="fix12-inv-text" class="text-area" style="min-height:110px;">${esc(row.product_text || '')}</textarea><label class="field-label">數量</label><input id="fix12-inv-qty" class="text-input" type="number" min="0" value="${Number(row.qty || 0)}"><label class="field-label">倉庫格位 / 預設位置</label><input id="fix12-inv-location" class="text-input" value="${esc(row.location || '')}"><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="fix12-inv-cancel" type="button">取消</button><button class="primary-btn" id="fix12-inv-save" type="button">儲存</button></div>`;
+    byId('fix12-inv-cancel').onclick = () => m.classList.add('hidden');
+    byId('fix12-inv-save').onclick = async () => {
+      try {
+        await api(`/api/inventory/${Number(row.id)}`, {method:'PUT', body: JSON.stringify({product_text:byId('fix12-inv-text').value.trim(), qty:Number(byId('fix12-inv-qty').value || 0), location:byId('fix12-inv-location').value.trim()})});
+        m.classList.add('hidden'); say('庫存已更新','ok'); loadInventoryFix12();
+      } catch(e){ say(e?.message || '庫存更新失敗','error'); }
+    };
+    m.classList.remove('hidden');
+  }
+  async function chooseCustomer(){
+    const m = modal('inventory-customer-modal-fix12', '選擇客戶');
+    m.querySelector('.yx-modal-body').innerHTML = `<input id="fix12-cust-search" class="text-input" placeholder="輸入或搜尋客戶名稱"><div id="fix12-cust-list" class="card-list" style="max-height:42vh;overflow:auto;margin-top:12px;"></div><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="fix12-cust-cancel" type="button">取消</button><button class="primary-btn" id="fix12-cust-use" type="button">使用輸入名稱</button></div>`;
+    m.classList.remove('hidden');
+    return new Promise(async resolve => {
+      let closed = false;
+      const close = (val) => { if (closed) return; closed = true; m.classList.add('hidden'); resolve((val || '').trim()); };
+      byId('fix12-cust-cancel').onclick = () => close('');
+      byId('fix12-cust-use').onclick = () => close(byId('fix12-cust-search').value);
+      let list = [];
+      try { const data = await api('/api/customers', {method:'GET'}); list = Array.isArray(data.items) ? data.items : []; } catch(_e) {}
+      const render = () => {
+        const q = (byId('fix12-cust-search').value || '').trim().toLowerCase();
+        const matched = list.filter(c => !q || String(c.name || '').toLowerCase().includes(q)).slice(0, 80);
+        byId('fix12-cust-list').innerHTML = matched.length ? matched.map(c => `<button class="card" type="button" data-name="${esc(c.name || '')}"><div class="title">${esc(c.name || '')}</div><div class="sub">${esc(c.region || '未分區')}</div></button>`).join('') : '<div class="empty-state-card compact-empty">沒有符合客戶，可按「使用輸入名稱」</div>';
+        byId('fix12-cust-list').querySelectorAll('button[data-name]').forEach(b => b.onclick = () => close(b.dataset.name || ''));
+      };
+      byId('fix12-cust-search').oninput = render;
+      render(); setTimeout(() => byId('fix12-cust-search')?.focus(), 50);
+    });
+  }
+  async function openMove(row, target){
+    const label = target === 'orders' ? '訂單' : '總單';
+    const customer = await chooseCustomer();
+    if (!customer) return;
+    try {
+      await api(`/api/inventory/${Number(row.id)}/move`, {method:'POST', body: JSON.stringify({target, customer_name: customer, qty: Number(row.qty || 0)})});
+      say(`已移到${label}：${customer}`, 'ok');
+      loadInventoryFix12();
+    } catch(e){ say(e?.message || `移到${label}失敗`, 'error'); }
+  }
+  window.loadInventoryFix12 = loadInventoryFix12;
+  window.loadInventory = loadInventoryFix12;
+  window.loadInventoryHard = loadInventoryFix12;
+  const prevConfirm = window.confirmSubmit;
+  window.confirmSubmit = async function(){
+    const ret = typeof prevConfirm === 'function' ? await prevConfirm.apply(this, arguments) : undefined;
+    if (isInventoryPage()) {
+      setTimeout(loadInventoryFix12, 80);
+      setTimeout(loadInventoryFix12, 450);
+    }
+    return ret;
+  };
+  globalThis.confirmSubmit = window.confirmSubmit;
+  function boot(){ if (isInventoryPage()) loadInventoryFix12(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+/* ==== FIX12 end ==== */
