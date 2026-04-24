@@ -14,24 +14,46 @@
     <input class="text-input" id="customer-name" placeholder="可直接輸入，或貼上商品資料後自動帶入客戶名稱">
     {% endif %}
 
+    {% if module_key == 'ship' %}
+    <label class="field-label">客戶商品清單</label>
+    <div class="ship-customer-picker" id="ship-customer-picker">
+      <div class="ship-picker-row">
+        <select class="text-input" id="ship-customer-item-select">
+          <option value="">請先選擇 / 輸入客戶名稱</option>
+        </select>
+        <button class="ghost-btn small-btn" type="button" id="ship-refresh-customer-items">重新載入</button>
+      </div>
+      <div class="btn-row compact-row ship-picker-actions">
+        <button class="primary-btn small-btn" type="button" id="ship-add-selected-item">加入選取商品</button>
+        <button class="ghost-btn small-btn" type="button" id="ship-add-all-items">整個加入下方商品資料</button>
+      </div>
+      <div class="small-note">下拉選單會顯示該客戶目前所有商品；加入後可在「商品資料」欄位直接修改本次要出的數量 / 支數。</div>
+    </div>
+    <input type="hidden" id="location-input" value="">
+    {% else %}
     <label class="field-label">倉庫格位 / 預設位置</label>
     <input class="text-input" id="location-input" placeholder="例如：A-1-01">
+    {% endif %}
 
-    <div class="hidden-batch-material" style="display:none">
-      <label class="field-label">批量材質</label>
+    {% if module_key == 'master_order' %}
+    <div class="batch-material-panel">
+      <label class="field-label">總單批量材質</label>
       <select class="text-input" id="batch-material">
         <option value="">不指定材質</option>
         <option value="SPF">SPF</option>
         <option value="HF">HF</option>
         <option value="DF">DF</option>
-        <option value="ROT">ROT</option>
+        <option value="RDT">RDT</option>
         <option value="SPY">SPY</option>
         <option value="SP">SP</option>
         <option value="RP">RP</option>
         <option value="TD">TD</option>
-        <option value="MLH">MLH</option>
+        <option value="MKJ">MKJ</option>
+        <option value="LVL">LVL</option>
       </select>
+      <div class="small-note">送出總單時，會把這個材質套用到本次輸入的所有商品；下方總單清單也可勾選後批量套用材質。</div>
     </div>
+    {% endif %}
 
     <label class="field-label">商品資料</label>
     <textarea class="text-area" id="ocr-text" placeholder="把手機辨識好的文字直接貼上，系統會立刻自動整理、刪除句點、承接 _ / - 的寬高數字，並依照你的固定規則排序"></textarea>

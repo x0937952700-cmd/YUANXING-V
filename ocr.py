@@ -98,7 +98,8 @@ def clean_ocr_noise(text):
     text = text.replace("｜", "1").replace("|", "1")
     text = text.replace("O", "0").replace("o", "0")
     text = text.replace("l", "1").replace("I", "1")
-    text = re.sub(r"[^0-9A-Za-z一-鿿x=+\-.,/\n ]", "", text)
+    # 保留括號備註，例如 168x7(-1永松)(-1威寶)，不要在清理時刪除。
+    text = re.sub(r"[^0-9A-Za-z一-鿿x=+\-.,/()（）\n ]", "", text)
     return text.strip()
 
 
@@ -283,9 +284,9 @@ def _structured_text_from_blocks(blocks, fallback_text=""):
 
 def _normalize_item_line(line):
     line = clean_ocr_noise(line)
-    line = re.sub(r"[\[\]{}()（）]", "", line)
+    line = re.sub(r"[\[\]{}]", "", line)
     line = re.sub(r"\s+", "", line)
-    line = re.sub(r"[^0-9x=+\-.,/一-鿿]", "", line)
+    line = re.sub(r"[^0-9x=+\-.,/一-鿿()（）]", "", line)
     if "=" not in line and line.count("x") >= 2 and line.count("-") == 1:
         line = line.replace("-", "=")
     if "=" not in line:
@@ -337,16 +338,18 @@ def _extract_item_rows(raw_text):
         prev_dims = dims
         segments = [seg for seg in re.split(r"[+＋,，;；]", right) if seg] or [right]
         for seg in segments:
-            nums = [int(x) for x in re.findall(r"\d+", seg)]
+            seg_text = (seg or "").strip()
+            # 括號備註只顯示，不參與件數判斷，避免 (-1永松) 被算成件數。
+            seg_for_qty = re.sub(r"[\(（][^\)）]*[\)）]", "", seg_text)
+            nums = [int(x) for x in re.findall(r"\d+", seg_for_qty)]
             if not nums:
                 continue
-            rhs = nums[0]
             qty = max(1, int(nums[1] if len(nums) > 1 else 1))
-            line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}" + (f"x{qty}" if qty != 1 else "")
+            line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={seg_text}"
             rows.append({
                 "line": line_out,
-                "product_text": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
-                "product_code": f"{dims[0]}x{dims[1]}x{dims[2]}={rhs}",
+                "product_text": line_out,
+                "product_code": line_out,
                 "qty": qty,
                 "dims": dims,
             })
@@ -361,7 +364,7 @@ def _fallback_extract_lines(raw_text):
     for raw in raw_text.splitlines():
         line = _ensure_equals_candidate(raw, prev_dims=prev_dims)
         if line.count('x') >= 2 and '=' in line:
-            line = re.sub(r'[^0-9x=+]', '', line)
+            line = re.sub(r'[^0-9x=+()（）一-鿿\\-]', '', line)
             nums = [int(x) for x in re.findall(r"\d+", line.split("=", 1)[0])]
             if len(nums) >= 3:
                 prev_dims = nums[:3]
@@ -378,15 +381,17 @@ def _build_items_from_lines(lines):
             continue
         left, right = clean.split('=', 1)
         for seg in re.split(r"[+＋]", right):
-            nums = [int(x) for x in re.findall(r"\d+", seg)]
+            seg_text = (seg or "").strip()
+            seg_for_qty = re.sub(r"[\(（][^\)）]*[\)）]", "", seg_text)
+            nums = [int(x) for x in re.findall(r"\d+", seg_for_qty)]
             if not nums:
                 continue
-            rhs = nums[0]
             qty = max(1, nums[1] if len(nums) > 1 else 1)
+            text = f"{left}={seg_text}"
             items.append({
-                "raw_text": f"{left}={rhs}" + (f"x{qty}" if qty != 1 else ""),
-                "product_text": f"{left}={rhs}",
-                "product_code": f"{left}={rhs}",
+                "raw_text": text,
+                "product_text": text,
+                "product_code": text,
                 "qty": qty,
             })
     return items

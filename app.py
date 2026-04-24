@@ -7,6 +7,7 @@ import io
 import time
 import hashlib
 import json
+import re
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -21,9 +22,9 @@ from db import (
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
-    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, delete_customer_item,
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -235,6 +236,60 @@ def compress_image(path):
 def parse_lines_to_items(text):
     parsed = parse_ocr_text(text)
     return parsed["items"], parsed["text"]
+
+
+
+def normalize_item_quantity(product_text, qty=0):
+    return effective_product_qty(product_text, qty)
+
+
+def normalize_item_for_save(item):
+    product_text = format_product_text_height2((item.get('product_text') or item.get('product') or '').strip())
+    material = (item.get('material') or '').strip().upper()
+    product_code = (item.get('product_code') or material or product_text or '').strip()
+    qty = normalize_item_quantity(product_text, item.get('qty') or 0)
+    return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+
+
+def aggregate_customer_items(items):
+    """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
+    buckets = {}
+    for row in items or []:
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        if not product_text:
+            continue
+        source = row.get('source') or ''
+        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+        size = product_display_size(product_text)
+        qty = normalize_item_quantity(product_text, row.get('qty') or 0)
+        support = product_support_text(product_text)
+        # If the right side is only 支數, append x件數 for display. 括號備註會保留。
+        if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
+            support = f"{support}x{qty}"
+        elif not support:
+            support = str(qty)
+        key = (source, size, material)
+        if key not in buckets:
+            out = dict(row)
+            out['qty'] = qty
+            out['product_text'] = f"{size}={support}" if support else size
+            out['material'] = material
+            out['product_code'] = material or out.get('product_code') or out['product_text']
+            out['size_text'] = size
+            out['support_text'] = support
+            buckets[key] = out
+        else:
+            buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
+            old_support = (buckets[key].get('support_text') or '').strip()
+            if support:
+                supports = [x for x in old_support.split('+') if x] if old_support else []
+                if support not in supports:
+                    supports.append(support)
+                buckets[key]['support_text'] = '+'.join(supports)
+                buckets[key]['product_text'] = f"{size}={buckets[key]['support_text']}"
+    rows = list(buckets.values())
+    rows.sort(key=lambda r: (product_sort_tuple(r.get('product_text') or ''), r.get('source') or '', r.get('id') or 0))
+    return rows
 
 
 def warehouse_item_size_key(text):
@@ -681,21 +736,27 @@ def api_save_correction():
 
 def _parse_items_from_request(data):
     items = data.get("items") or []
+    payload_material = (data.get("material") or "").strip().upper()
     if items:
         cleaned = []
         for it in items:
-            qty = int(it.get("qty", 0))
-            if qty <= 0:
+            if payload_material and not (it.get("material") or "").strip():
+                it = {**it, "material": payload_material, "product_code": payload_material}
+            fixed = normalize_item_for_save(it)
+            if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
                 continue
-            cleaned.append({
-                "product_text": it.get("product_text") or it.get("product") or "",
-                "product_code": it.get("product_code") or "",
-                "qty": qty
-            })
+            cleaned.append(fixed)
         return cleaned
     text = data.get("ocr_text") or data.get("text") or ""
     parsed_items, _ = parse_lines_to_items(text)
-    return [{"product_text": it["product_text"], "product_code": it.get("product_code", ""), "qty": int(it["qty"])} for it in parsed_items]
+    cleaned = []
+    for it in parsed_items:
+        if payload_material:
+            it = {**it, "material": payload_material, "product_code": payload_material}
+        fixed = normalize_item_for_save(it)
+        if fixed.get("product_text") and int(fixed.get("qty") or 0) > 0:
+            cleaned.append(fixed)
+    return cleaned
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
@@ -715,7 +776,7 @@ def api_inventory():
         if customer_name:
             upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""))
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""))
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -750,7 +811,7 @@ def api_inventory_item(item_id):
             notify_sync_event(kind='refresh', module='inventory', message='庫存商品已刪除', extra={'id': item_id})
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
-        product_text = (data.get('product_text') or row.get('product_text') or '').strip()
+        product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         product_code = (data.get('product_code') or product_text or '').strip()
         qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
@@ -801,7 +862,7 @@ def api_inventory_item_move(item_id):
             return error_response('移動數量必須大於 0')
         if move_qty > current_qty:
             move_qty = current_qty
-        product_text = (row.get('product_text') or '').strip()
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
         product_code = (row.get('product_code') or product_text or '').strip()
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
@@ -1128,7 +1189,7 @@ def api_warehouse_move():
         data = request.get_json(silent=True) or {}
         from_key = data.get("from_key")
         to_key = data.get("to_key")
-        product_text = data.get("product_text")
+        product_text = format_product_text_height2(data.get("product_text"))
         customer_name = (data.get("customer_name") or "").strip()
         qty = int(data.get("qty", 1))
         if not (from_key and to_key and product_text):
@@ -1243,7 +1304,7 @@ def api_customer_items():
                 items.append({"source": "庫存", **row})
     else:
         items = []
-    return jsonify(success=True, items=items)
+    return jsonify(success=True, items=aggregate_customer_items(items))
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
@@ -1260,17 +1321,39 @@ def api_customer_item_modify():
             log_action(current_username(), f"刪除客戶商品 {source}#{item_id}")
             notify_sync_event(kind='refresh', module='customers', message='客戶商品已刪除', extra={'source': source, 'id': item_id})
             return jsonify(success=True)
-        product_text = (data.get("product_text") or "").strip()
+        product_text = format_product_text_height2((data.get("product_text") or "").strip())
         qty = int(data.get("qty") or 0)
         if not product_text:
             return error_response("請輸入商品資料")
-        update_customer_item(source, item_id, product_text, qty, current_username())
+        material = data.get("material") if "material" in data else None
+        update_customer_item(source, item_id, product_text, qty, current_username(), material=material)
         log_action(current_username(), f"更新客戶商品 {source}#{item_id}")
         notify_sync_event(kind='refresh', module='customers', message='客戶商品已更新', extra={'source': source, 'id': item_id})
         return jsonify(success=True)
     except Exception as e:
         log_error("customer_item_modify", str(e))
         return error_response("客戶商品修改失敗")
+
+
+@app.route("/api/customer-items/batch-material", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_material():
+    try:
+        data = request.get_json(silent=True) or {}
+        material = (data.get("material") or "").strip().upper()
+        items = data.get("items") or []
+        if not material:
+            return error_response("請選擇材質")
+        if not items:
+            return error_response("請先勾選要套用材質的商品")
+        count = update_items_material(items, material, current_username())
+        add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json={}, after_json={'material': material, 'count': count, 'items': items})
+        log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
+        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
+        return jsonify(success=True, count=count, material=material)
+    except Exception as e:
+        log_error("customer_items_batch_material", str(e))
+        return error_response(str(e) or "批量材質更新失敗")
 
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
@@ -1354,7 +1437,7 @@ def api_orders_to_master():
     try:
         data = request.get_json(silent=True) or {}
         customer_name = (data.get("customer_name") or "").strip()
-        product_text = (data.get("product_text") or "").strip()
+        product_text = format_product_text_height2((data.get("product_text") or "").strip())
         product_code = (data.get("product_code") or "").strip()
         qty = int(data.get("qty") or 0)
         if not customer_name or not product_text or qty <= 0:
@@ -1809,24 +1892,58 @@ def api_reports_export():
     report_type = (request.args.get('type') or 'inventory').strip()
     start_date = (request.args.get('start_date') or '').strip()
     end_date = (request.args.get('end_date') or '').strip()
+    q = (request.args.get('q') or '').strip()
+
     if report_type == 'inventory':
         rows = inventory_summary()
-        columns = [('商品', 'product_text'), ('總數量', 'qty'), ('已放倉庫', 'placed_qty'), ('未放倉庫', 'unplaced_qty'), ('位置', 'location')]
-        name = 'inventory_report.xlsx'
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('總數量', 'qty'), ('已放倉庫', 'placed_qty'), ('未放倉庫', 'unplaced_qty'), ('位置', 'location'), ('操作人員', 'operator'), ('更新時間', 'updated_at')]
+        name = '庫存總表.xlsx'
+    elif report_type == 'orders':
+        rows = get_orders()
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('狀態', 'status'), ('操作人員', 'operator'), ('建立時間', 'created_at'), ('更新時間', 'updated_at')]
+        name = '訂單總表.xlsx'
     elif report_type == 'shipping':
-        rows = get_shipping_records(start_date or None, end_date or None, request.args.get('q') or '')
+        rows = get_shipping_records(start_date or None, end_date or None, q)
         columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
-        name = 'shipping_report.xlsx'
+        name = '出貨紀錄.xlsx'
     elif report_type == 'master_orders':
         rows = get_master_orders()
-        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('更新時間', 'updated_at')]
-        name = 'master_orders_report.xlsx'
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('建立時間', 'created_at'), ('更新時間', 'updated_at')]
+        name = '客戶總單.xlsx'
     elif report_type == 'unplaced':
         rows = [r for r in inventory_summary() if int(r.get('unplaced_qty') or 0) > 0]
-        columns = [('商品', 'product_text'), ('未放倉庫數量', 'unplaced_qty'), ('總數量', 'qty'), ('位置', 'location')]
-        name = 'unplaced_report.xlsx'
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('未放倉庫數量', 'unplaced_qty'), ('總數量', 'qty'), ('位置', 'location'), ('更新時間', 'updated_at')]
+        name = '未入倉商品.xlsx'
+    elif report_type == 'warehouse':
+        rows = []
+        for cell in warehouse_get_cells():
+            try:
+                items = json.loads(cell.get('items_json') or '[]')
+            except Exception:
+                items = []
+            if not items:
+                rows.append({**cell, 'location': f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}", 'customer_name': '', 'product_text': '', 'qty': 0})
+            else:
+                for it in items:
+                    rows.append({**cell, 'location': f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}", 'customer_name': it.get('customer_name') or '', 'product_text': it.get('product_text') or it.get('product') or '', 'qty': it.get('qty') or 0})
+        columns = [('格位', 'location'), ('區域', 'zone'), ('欄', 'column_index'), ('格號', 'slot_number'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('備註', 'note'), ('更新時間', 'updated_at')]
+        name = '倉庫位置表.xlsx'
+    elif report_type == 'audit_trails':
+        if current_username() != '陳韋廷':
+            return error_response('操作紀錄僅陳韋廷可以匯出', 403)
+        rows = []
+        for item in list_audit_trails(limit=5000):
+            decorated = _decorate_audit_item(item)
+            rows.append(decorated)
+        columns = [('時間', 'created_at'), ('操作者', 'username'), ('操作', 'action_label'), ('資料類型', 'entity_label'), ('資料鍵值', 'entity_key'), ('摘要', 'summary_text'), ('變更前', 'before_text'), ('變更後', 'after_text')]
+        name = '操作紀錄.xlsx'
+    elif report_type == 'customers':
+        rows = get_customers(active_only=False)
+        columns = [('客戶UID', 'customer_uid'), ('客戶名稱', 'name'), ('電話', 'phone'), ('地址', 'address'), ('區域', 'region'), ('特殊要求', 'notes'), ('封存', 'is_archived'), ('更新時間', 'updated_at')]
+        name = '客戶資料.xlsx'
     else:
         return error_response('報表類型不存在')
+
     buf = export_rows_to_xlsx(report_type, rows, columns)
     return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -2032,8 +2149,9 @@ def _fix28_update_item_api(table, item_id):
             notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已刪除', extra={'id': item_id})
             return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
         data = request.get_json(silent=True) or {}
-        product_text = (data.get('product_text') or row.get('product_text') or '').strip()
-        product_code = (data.get('product_code') or product_text).strip()
+        product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
+        material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
+        product_code = (data.get('product_code') or material or product_text).strip()
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
         qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
         if not product_text or not customer_name:
@@ -2041,10 +2159,10 @@ def _fix28_update_item_api(table, item_id):
         if qty < 0:
             qty = 0
         conn = get_db(); cur = conn.cursor()
-        cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, qty, current_username(), now(), int(item_id)))
+        cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
         conn.commit(); conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty})
         log_action(current_username(), f"修改{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
         notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已更新', extra={'id': item_id})
         return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
@@ -2081,14 +2199,15 @@ def api_fix28_items_transfer():
             return error_response('數量必須大於 0')
         qty = min(qty, current_qty)
         target = (data.get('target') or '').strip()
-        product_text = (row.get('product_text') or '').strip()
-        product_code = (row.get('product_code') or product_text).strip()
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+        product_code = (row.get('product_code') or material or product_text).strip()
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        item = {'product_text': product_text, 'product_code': product_code, 'qty': qty}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
         target_label = ''
         result_payload = {}
         if target == 'inventory':
-            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}')
+            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}', material)
             target_label = '庫存'
             ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
             if not ok: return error_response(moved)

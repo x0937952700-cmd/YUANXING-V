@@ -58,24 +58,40 @@ window.buildCellKey = function(zone, column, num){ return [zone, Number(column),
 window.parseTextareaItems = function(){
   const text = (document.getElementById('ocr-text')?.value || '').replace(/[。．]/g,'').trim();
   if (!text) return [];
+  const normalizeX = v => String(v || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/（/g,'(').replace(/）/g,')');
+  const calcQty = right => {
+    let total = 0;
+    String(right || '').split(/[+＋,，;；]/).forEach(seg => {
+      const main = seg.replace(/[\(（][^\)）]*[\)）]/g, '');
+      const nums = (main.match(/\d+/g) || []).map(n => parseInt(n,10));
+      if (nums.length >= 2) total += nums[1] || 0;
+      else if (nums.length === 1) total += 1;
+    });
+    return Math.max(1, total || 1);
+  };
   let last = ['', '', ''];
-  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
   const out = [];
+  const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const tokenRe = /(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*[=:]\s*[^\n]+/ig;
   for (let line of lines) {
-    line = line.replace(/\s+/g,' ');
-    const matches = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})=[0-9x+]+/ig) || [];
-    for (const token of matches) {
-      const [left, right] = token.split('=');
-      const dimsRaw = left.split(/x/i).map(s => s.trim());
+    line = normalizeX(line).replace(/\s+/g,'');
+    const matches = line.match(tokenRe) || [];
+    const tokens = matches.length ? matches : (/x/i.test(line) && /=/.test(line) ? [line] : []);
+    for (const token of tokens) {
+      const parts = token.split(/=|:/);
+      const left = parts.shift();
+      let right = parts.join('=').replace(/^[=:\s]+/,'').trim();
+      right = right.replace(/[^\dA-Za-z一-鿿xX+＋\-()（）]/g, '');
+      const dimsRaw = String(left || '').split(/x/i).map(s => s.trim());
       const dims = [0,1,2].map(i => {
         const v = dimsRaw[i] || '';
         if (!v || /^[_-]+$/.test(v)) return last[i] || '';
         return v;
       });
-      if (dims[0]) last = dims.slice();
-      const nums = (right || '').match(/\d+/g) || [];
-      const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
-      out.push({ product_text: `${dims.join('x')}=${right}`, product_code: `${dims.join('x')}=${right}`, qty });
+      if (dims[0] && dims[1] && dims[2]) last = dims.slice();
+      if (!dims[0] || !dims[1] || !dims[2] || !right) continue;
+      const product_text = `${dims.join('x')}=${right}`;
+      out.push({ product_text, product_code: product_text, qty: calcQty(right) });
     }
   }
   return out;
@@ -705,8 +721,17 @@ function formatManualEntryText(rawText=''){
     if (!dims[2]) dims[2] = lastDims[2] || '';
     if (!dims[0] || !dims[1] || !dims[2]) return null;
     lastDims = dims.slice();
-    const nums = rightRaw.match(/\d+/g) || [];
-    const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
+    const calcQty = (txt) => {
+      let total = 0;
+      String(txt || '').split(/[+＋,，;；]/).forEach(seg => {
+        const main = seg.replace(/[\(（][^\)）]*[\)）]/g, '');
+        const nums = main.match(/\d+/g) || [];
+        if (nums.length >= 2) total += parseInt(nums[1] || '0', 10) || 0;
+        else if (nums.length === 1) total += 1;
+      });
+      return Math.max(1, total || 1);
+    };
+    const qty = calcQty(rightRaw);
     const product_text = `${dims.join('x')}=${rightRaw}`;
     return { product_text, product_code: product_text, qty, _dims: dims.map(v => parseInt(v || 0, 10) || 0) };
   };
@@ -726,10 +751,10 @@ function formatManualEntryText(rawText=''){
       return;
     }
 
-    line = normalizeOcrLine(line).replace(/[^0-9a-zA-Zx=+_\-｜:\u4e00-\u9fff ]/g, '').trim();
+    line = normalizeOcrLine(line).replace(/[^0-9a-zA-Zx=+_\-｜:()（）\u4e00-\u9fff ]/g, '').trim();
     if (!line) return;
 
-    const productPattern = /(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})=[0-9x+]+/ig;
+    const productPattern = /(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})=[^\n\s]+/ig;
     const tokens = line.match(productPattern) || [];
 
     if (tokens.length) {
@@ -1704,21 +1729,28 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       });
       if (!dims[0] || !dims[1] || !dims[2]) return;
       last = dims.slice();
-      let right = String(rightRaw || '').replace(/\s+/g, '');
+      let right = String(rightRaw || '').replace(/\s+/g, '').replace(/（/g,'(').replace(/）/g,')');
+      right = right.replace(/[^0-9A-Za-z一-鿿xX+＋\-()]/g, '');
       if (!right) right = '1x1';
-      let nums = right.match(/\d+/g) || [];
-      if (!nums.length) nums = ['1','1'];
-      if (nums.length === 1) nums = [nums[0], '1'];
-      const rightText = right && /\d/.test(right) ? right.replace(/[^0-9x+]/g, '') || `${nums[0]}x${nums[1]}` : `${nums[0]}x${nums[1]}`;
-      const qty = parseInt(nums[1] || nums[0] || '1', 10) || 1;
-      const product_text = `${dims.join('x')}=${rightText || '1x1'}`;
+      const calcQty = (txt) => {
+        let total = 0;
+        String(txt || '').split(/[+＋,，;；]/).forEach(seg => {
+          const main = seg.replace(/[\(（][^\)）]*[\)）]/g, '');
+          const nums = main.match(/\d+/g) || [];
+          if (nums.length >= 2) total += parseInt(nums[1] || '0', 10) || 0;
+          else if (nums.length === 1) total += 1;
+        });
+        return Math.max(1, total || 1);
+      };
+      const qty = calcQty(right);
+      const product_text = `${dims.join('x')}=${right}`;
       out.push({ product_text, product_code: product_text, qty });
     };
 
     lines.forEach(line => {
       const normalized = normalizeX(line).replace(/\s+/g, ' ').trim();
       if (!normalized) return;
-      const tokens = normalized.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?:\s*(?:=|:)\s*[0-9x+ ]+)?/ig) || [];
+      const tokens = normalized.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})(?:\s*(?:=|:)\s*[^\n]+)?/ig) || [];
       if (tokens.length) {
         tokens.forEach(token => {
           const parts = token.split(/=|:/);
@@ -2292,7 +2324,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       } else if (resultPanel) {
         resultPanel.classList.remove('hidden');
         resultPanel.style.display = '';
-        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(finalCustomer)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${items.length} 筆庫存資料。</div>`;
+        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(finalCustomer)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${finalItems.length} 筆庫存資料。</div>`;
       }
       if (needCustomer) {
         await window.loadCustomerBlocks();
@@ -2770,7 +2802,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       const detail = needCustomer && identity.name ? await requestJSON(`/api/customers/${encodeURIComponent(identity.name)}?customer_uid=${encodeURIComponent(identity.customer_uid || '')}`, { method:'GET' }) : null;
       customerRegion = preferredRegion(detail?.item?.region, customerRegion);
     } catch (_e) {}
-    const payload = { customer_name: identity.name, customer_uid: identity.customer_uid, location, ocr_text: rawText, items, region: customerRegion, request_key: makeReqKey(module, identity.name, items) };
+    const batchMaterial = module === 'master_order' ? (($('batch-material')?.value || '').trim().toUpperCase()) : '';
+    const finalItems = batchMaterial ? items.map(it => ({ ...it, material: batchMaterial, product_code: batchMaterial })) : items;
+    const payload = { customer_name: identity.name, customer_uid: identity.customer_uid, location, ocr_text: rawText, items: finalItems, material: batchMaterial, region: customerRegion, request_key: makeReqKey(module, identity.name, finalItems) };
     try {
       btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = '送出中…';
       if (needCustomer) {
@@ -2796,7 +2830,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       } else if (resultPanel) {
         resultPanel.classList.remove('hidden');
         resultPanel.style.display = '';
-        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(identity.name)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${items.length} 筆庫存資料。</div>`;
+        resultPanel.innerHTML = needCustomer ? `<div class="section-title">送出完成</div><div class="muted">${escapeHTML(identity.name)} 已更新到 ${escapeHTML((response?.customer?.region || customerRegion || '未分區'))}，點開客戶即可看到剛輸入的商品。</div>` : `<div class="section-title">送出完成</div><div class="muted">已建立 ${finalItems.length} 筆庫存資料。</div>`;
       }
       toast(submitSuccessText(module), 'ok');
       if (['orders','master_order','ship','customers'].includes(module)) await window.loadCustomerBlocks();

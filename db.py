@@ -1,6 +1,7 @@
 
 import os
 import json
+import re
 import sqlite3
 import hashlib
 from datetime import datetime
@@ -57,6 +58,143 @@ def fetchone_dict(cur):
         cols = [d[0] for d in cur.description]
         return dict(zip(cols, row))
     return dict(row)
+
+
+
+def product_display_size(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    left = (raw.split('=', 1)[0].strip() or raw)
+    nums = re.findall(r'\d+', left)
+    if len(nums) >= 3:
+        return f"{int(nums[0])}x{int(nums[1])}x{int(nums[2]):02d}"
+    return left
+
+
+
+def format_product_text_height2(text):
+    """顯示/儲存用商品文字：保留等號右側與括號備註，只把尺寸高度固定兩位數。"""
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    if not raw:
+        return ''
+    left, sep, right = raw.partition('=')
+    m = re.search(r'(\d+)\D+(\d+)\D+(\d+)', left.strip())
+    if not m:
+        return raw
+    size = f"{int(m.group(1))}x{int(m.group(2))}x{int(m.group(3)):02d}"
+    return f"{size}={right.strip()}" if sep else size
+
+
+def _normalize_product_texts_in_table(cur, table):
+    try:
+        cur.execute(sql(f"SELECT id, product_text, product_code FROM {table}"))
+        for row in rows_to_dict(cur):
+            old = row.get('product_text') or ''
+            fixed = format_product_text_height2(old)
+            if fixed and fixed != old:
+                code = row.get('product_code') or ''
+                fixed_code = fixed if (not code or code == old) else code
+                cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ? WHERE id = ?"), (fixed, fixed_code, row.get('id')))
+    except Exception as e:
+        log_error('normalize_product_texts_in_table', f'{table}: {e}')
+
+
+def _normalize_warehouse_item_texts(cur):
+    try:
+        cur.execute(sql("SELECT id, items_json FROM warehouse_cells"))
+        for row in rows_to_dict(cur):
+            changed = False
+            try:
+                items = json.loads(row.get('items_json') or '[]')
+            except Exception:
+                items = []
+            if not isinstance(items, list):
+                items = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                old = it.get('product_text') or it.get('product') or ''
+                fixed = format_product_text_height2(old)
+                if fixed and fixed != old:
+                    it['product_text'] = fixed
+                    if not it.get('product_code') or it.get('product_code') == old:
+                        it['product_code'] = fixed
+                    changed = True
+            if changed:
+                cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE id = ?"), (json.dumps(items, ensure_ascii=False), now(), row.get('id')))
+    except Exception as e:
+        log_error('normalize_warehouse_item_texts', str(e))
+
+def product_sort_tuple(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    left = (raw.split('=', 1)[0].strip() or raw)
+    nums = [int(x) for x in re.findall(r'\d+', left)]
+    if len(nums) >= 3:
+        length, width, height = nums[:3]
+        return (height, width, length, raw)
+    return (999999, 999999, 999999, raw)
+
+
+def product_support_text(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    if '=' in raw:
+        return raw.split('=', 1)[1].strip()
+    return ''
+
+
+def effective_product_qty(product_text, fallback_qty=0):
+    """件數規則：等號右側每段 x 後面的數字相加；沒有 x 件數的段落算 1。"""
+    raw = str(product_text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    total = 0
+    if '=' in raw:
+        right = raw.split('=', 1)[1]
+        segments = [seg for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
+        for seg in segments:
+            nums = [int(x) for x in re.findall(r'\d+', seg)]
+            if not nums:
+                continue
+            total += int(nums[1] if len(nums) >= 2 else 1)
+    try:
+        fallback = int(fallback_qty or 0)
+    except Exception:
+        fallback = 0
+    return max(total, fallback)
+
+
+
+def product_note_text(text):
+    """保留等號右側括號備註，例如 168x7(-1永松)。"""
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    if '=' not in raw:
+        return ''
+    right = raw.split('=', 1)[1].strip()
+    return right
+
+
+def material_value(row_or_value):
+    if isinstance(row_or_value, dict):
+        return (row_or_value.get('material') or row_or_value.get('product_code') or '').strip()
+    return (row_or_value or '').strip()
+
+
+def apply_effective_qty_to_rows(rows):
+    out = []
+    for row in rows or []:
+        r = dict(row)
+        r['qty'] = effective_product_qty(r.get('product_text') or r.get('product') or '', r.get('qty') or 0)
+        out.append(r)
+    return out
+
+
+def repair_effective_qtys(cur):
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        try:
+            cur.execute(sql(f"SELECT id, product_text, qty FROM {table}"))
+            for row in rows_to_dict(cur):
+                fixed_qty = effective_product_qty(row.get('product_text') or '', row.get('qty') or 0)
+                if fixed_qty > int(row.get('qty') or 0):
+                    cur.execute(sql(f"UPDATE {table} SET qty = ? WHERE id = ?"), (fixed_qty, row.get('id')))
+        except Exception as e:
+            log_error('repair_effective_qtys', f'{table}: {e}')
 
 
 
@@ -178,6 +316,7 @@ def init_db():
             id {pk},
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             location {text},
             customer_name {text},
@@ -191,6 +330,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             status {text} DEFAULT 'pending',
             operator {text},
@@ -202,6 +342,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             created_at {text},
@@ -212,6 +353,7 @@ def init_db():
             customer_name {text} NOT NULL,
             product_text {text} NOT NULL,
             product_code {text},
+            material {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             shipped_at {text},
@@ -317,10 +459,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     _schema_columns = {
         'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
         'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'inventory': [('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'master_orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'inventory': [('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'master_orders': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'shipping_records': [('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
         'customer_aliases': [('alias','TEXT'),('target_name','TEXT'),('updated_at','TEXT')],
@@ -593,6 +735,11 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         log_error('warehouse_final_index_cleanup', str(e))
 
     ensure_fixed_warehouse_grid(conn, cur)
+
+    # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
+    for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        _normalize_product_texts_in_table(cur, _table)
+    _normalize_warehouse_item_texts(cur)
     conn.commit()
     conn.close()
 
@@ -808,10 +955,10 @@ def get_customer_relation_counts(name):
         ('master_orders', 'master', 'updated_at'),
         ('shipping_records', 'shipping', 'shipped_at'),
     ]:
-        cur.execute(sql(f"SELECT COUNT(*) AS rows, COALESCE(SUM(qty),0) AS qty FROM {table} WHERE customer_name = ?"), (name,))
-        row = fetchone_dict(cur) or {}
-        counts[f'{prefix}_rows'] = int(row.get('rows') or 0)
-        counts[f'{prefix}_qty'] = int(row.get('qty') or 0)
+        cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_name = ?"), (name,))
+        rows = rows_to_dict(cur)
+        counts[f'{prefix}_rows'] = len(rows)
+        counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
     counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
     counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
     counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
@@ -955,11 +1102,13 @@ def _normalize_product_key(text):
         return _normalize_size_key(raw)
     left, right = raw.split('=', 1)
     size = _normalize_size_key(left)
+    # 括號備註例如 (-1永松) 只做顯示，不參與商品比對，避免出貨/移動找不到同尺寸商品。
+    right_for_key = __import__('re').sub(r'[\(（][^\)）]*[\)）]', '', right)
     # 右側保留材積/支數資訊，但清掉空白與前導 0，讓 05 和 5 可比對。
-    nums = [str(int(n)) for n in __import__('re').findall(r'\d+', right)]
+    nums = [str(int(n)) for n in __import__('re').findall(r'\d+', right_for_key)]
     if nums:
         return size + '=' + 'x'.join(nums)
-    return size + '=' + right.strip()
+    return size + '=' + right_for_key.strip()
 
 def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
     target = _normalize_product_key(product_text)
@@ -977,11 +1126,12 @@ def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
             out.append({'id': rid, 'qty': int(qty or 0), 'product_text': product})
     return out
 
-def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text=""):
+def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
     conn = get_db()
     cur = conn.cursor()
-    product_text = (product_text or '').strip()
-    product_code = (product_code or product_text or '').strip()
+    product_text = format_product_text_height2((product_text or '').strip())
+    material = (material or '').strip()
+    product_code = (product_code or material or product_text or '').strip()
     location = (location or '').strip()
     customer_name = (customer_name or '').strip()
     qty = int(qty or 0)
@@ -1003,14 +1153,14 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
         rid = matched[0] if USE_POSTGRES else matched["id"]
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, product_text = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, product_text, customer_name, operator, source_text, now(), rid))
+        """), (qty, product_code, material, product_text, customer_name, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, qty, location, customer_name, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, qty, location, customer_name, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, qty, location, customer_name, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1019,7 +1169,7 @@ def list_inventory():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("SELECT * FROM inventory ORDER BY updated_at DESC, id DESC"))
-    rows = rows_to_dict(cur)
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
     conn.close()
     return rows
 
@@ -1032,10 +1182,11 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             for row in _fetch_matching_product_rows(cur, 'orders', item.get('product_text') or '', customer_name=customer_name):
                 cur.execute(sql("DELETE FROM orders WHERE id = ?"), (row['id'],))
     for item in items:
-        product_text = (item.get('product_text') or '').strip()
+        product_text = format_product_text_height2((item.get('product_text') or '').strip())
         if not product_text:
             continue
-        product_code = (item.get('product_code') or product_text).strip()
+        material = (item.get('material') or '').strip()
+        product_code = (item.get('product_code') or material or product_text).strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
@@ -1043,12 +1194,12 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             rows = _fetch_matching_product_rows(cur, 'orders', product_text, customer_name=customer_name)
             if rows:
                 rid = rows[-1]['id']
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, operator, now(), rid))
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, material, operator, now(), rid))
                 continue
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, product_text, product_code, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, product_text, product_code, qty, operator, now(), now()))
+            INSERT INTO orders(customer_name, product_text, product_code, material, qty, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, product_text, product_code, material, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1061,10 +1212,11 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             for row in _fetch_matching_product_rows(cur, 'master_orders', item.get('product_text') or '', customer_name=customer_name):
                 cur.execute(sql("DELETE FROM master_orders WHERE id = ?"), (row['id'],))
     for item in items:
-        product_text = (item.get('product_text') or '').strip()
+        product_text = format_product_text_height2((item.get('product_text') or '').strip())
         if not product_text:
             continue
-        product_code = (item.get('product_code') or product_text).strip()
+        material = (item.get('material') or '').strip()
+        product_code = (item.get('product_code') or material or product_text).strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
@@ -1072,14 +1224,14 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         if rows and duplicate_mode != 'replace':
             rid = rows[-1]['id']
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, product_text, product_code, operator, now(), rid))
+            """), (qty, product_text, product_code, material, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, product_text, product_code, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, product_code, qty, operator, now(), now()))
+                INSERT INTO master_orders(customer_name, product_text, product_code, material, qty, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, product_text, product_code, material, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -1087,7 +1239,8 @@ def get_orders():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("SELECT * FROM orders ORDER BY id DESC"))
-    rows = rows_to_dict(cur)
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
+    rows.sort(key=lambda r: product_sort_tuple(r.get('product_text') or ''))
     conn.close()
     return rows
 
@@ -1095,7 +1248,8 @@ def get_master_orders():
     conn = get_db()
     cur = conn.cursor()
     cur.execute(sql("SELECT * FROM master_orders ORDER BY id DESC"))
-    rows = rows_to_dict(cur)
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
+    rows.sort(key=lambda r: product_sort_tuple(r.get('product_text') or ''))
     conn.close()
     return rows
 
@@ -1220,7 +1374,7 @@ def preview_ship_order(customer_name, items):
         preview = []
         needs_inventory_fallback = False
         for item in items:
-            product_text = item['product_text']
+            product_text = format_product_text_height2(item['product_text'])
             qty_needed = int(item.get('qty') or 0)
             master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
             order_available = _sum_available(cur, 'orders', customer_name, product_text)
@@ -1270,7 +1424,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         for item in items:
-            product_text = item["product_text"]
+            product_text = format_product_text_height2(item["product_text"])
             qty_needed = int(item["qty"])
 
             master_available = _sum_available(cur, "master_orders", customer_name, product_text)
@@ -1309,10 +1463,11 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                     return {"success": False, "error": f"{product_text} 庫存不足"}
                 note = "庫存補扣出貨"
 
+            material = (item.get("material") or "").strip()
             cur.execute(sql("""
-                INSERT INTO shipping_records(customer_name, product_text, product_code, qty, operator, shipped_at, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, product_text, item.get("product_code", ""), qty_needed, operator, now(), note))
+                INSERT INTO shipping_records(customer_name, product_text, product_code, material, qty, operator, shipped_at, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, product_text, item.get("product_code", material), material, qty_needed, operator, now(), note))
 
             breakdown.append({
                 "product_text": product_text,
@@ -1375,7 +1530,7 @@ def _normalize_warehouse_items(items):
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
-        product_text = str(raw.get('product_text') or raw.get('product') or '').strip()
+        product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or '').strip())
         if not product_text:
             continue
         try:
@@ -1864,24 +2019,49 @@ def get_customer_spec_stats(customer_name='', limit=20):
 
 
 
-def update_customer_item(source, item_id, product_text, qty, operator=''):
+def update_customer_item(source, item_id, product_text, qty, operator='', material=None):
     table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
     table = table_map.get(source)
     if not table:
         raise ValueError('不支援的來源')
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(sql(f"SELECT id FROM {table} WHERE id = ?"), (item_id,))
-    row = cur.fetchone()
+    cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+    row = fetchone_dict(cur)
     if not row:
         conn.close()
         raise ValueError('找不到商品')
     qty = int(qty or 0)
     if qty < 0:
         qty = 0
-    cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, product_text, qty, now(), item_id))
+    product_text = format_product_text_height2(product_text)
+    if material is None:
+        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, row.get('product_code') or product_text, qty, now(), item_id))
+    else:
+        material = (material or '').strip().upper()
+        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, material = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, material or product_text, material, qty, now(), item_id))
     conn.commit()
     conn.close()
+
+
+def update_items_material(items, material, operator=''):
+    table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
+    material = (material or '').strip().upper()
+    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'}:
+        raise ValueError('材質不在下拉選單內')
+    conn = get_db()
+    cur = conn.cursor()
+    count = 0
+    for it in items or []:
+        table = table_map.get((it.get('source') or '').strip())
+        item_id = int(it.get('id') or 0)
+        if not table or item_id <= 0:
+            continue
+        cur.execute(sql(f"UPDATE {table} SET material = ?, product_code = ?, operator = ?, updated_at = ? WHERE id = ?"), (material, material, operator, now(), item_id))
+        count += cur.rowcount or 0
+    conn.commit()
+    conn.close()
+    return count
 
 def delete_customer_item(source, item_id):
     table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
