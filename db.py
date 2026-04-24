@@ -224,46 +224,40 @@ def product_support_text(text):
 
 def effective_product_qty(product_text, fallback_qty=0):
     """
-    件數規則（FIX61）：
+    件數規則（FIX46）：
     - 等號右側用 + 分段。
-    - 每一段有 x數字 / ×數字 時，一般情況件數 = x 後面的數字。
-    - 每一段沒有 x數字 時，件數 = 1。
-    - 明確寫「19件 / 19片」時，件數 = 19。
-    - 現場長度組合特例：若只有一段 xN，且後面散支長度達 10 段以上，總單件數以散支段數為準。
-      例：100x30x63=504x5+588+587+502+420+382+378+280+254+237+174 -> 10件。
+    - 每一段有 x數字 / ×數字 時，該段件數 = x 後面的數字。
+    - 每一段沒有 x數字 時，該段件數 = 1。
+    - 明確寫「19件 / 19片」時，該段件數 = 19。
+
+    例：
+    60+54+50 = 3件
+    220x4+223x2+44+35+221 = 9件
     """
     raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    total = 0
+    parsed = False
+    if '=' in raw:
+        right = raw.split('=', 1)[1]
+        segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
+        for seg in segments:
+            if re.search(r'[件片]', seg):
+                nums = [int(x) for x in re.findall(r'\d+', seg)]
+                if nums:
+                    total += nums[-1]
+                    parsed = True
+                continue
+            m = re.search(r'x\s*(\d+)', seg, flags=re.I)
+            if m:
+                total += int(m.group(1))
+                parsed = True
+            elif re.search(r'\d+', seg):
+                total += 1
+                parsed = True
     try:
         fallback = int(fallback_qty or 0)
     except Exception:
         fallback = 0
-
-    right = raw.split('=', 1)[1] if '=' in raw else raw
-    segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
-    if not segments:
-        return fallback
-
-    x_segments = [seg for seg in segments if re.search(r'x\s*\d+\s*$', seg, flags=re.I)]
-    single_segments = [seg for seg in segments if not re.search(r'x\s*\d+\s*$', seg, flags=re.I) and re.search(r'\d+', seg)]
-    if len(x_segments) == 1 and len(single_segments) >= 10:
-        return len(single_segments)
-
-    total = 0
-    parsed = False
-    for seg in segments:
-        if re.search(r'[件片]', seg):
-            nums = [int(x) for x in re.findall(r'\d+', seg)]
-            if nums:
-                total += nums[-1]
-                parsed = True
-            continue
-        m = re.search(r'x\s*(\d+)\s*$', seg, flags=re.I)
-        if m:
-            total += int(m.group(1))
-            parsed = True
-        elif re.search(r'\d+', seg):
-            total += 1
-            parsed = True
     return total if parsed else fallback
 
 
@@ -869,10 +863,6 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         _normalize_product_texts_in_table(cur, _table)
     _clean_product_like_materials(cur)
     _normalize_warehouse_item_texts(cur)
-    try:
-        repair_effective_qtys(cur)
-    except Exception as e:
-        log_error('repair_effective_qtys_init', str(e))
     conn.commit()
     conn.close()
 
@@ -1399,7 +1389,7 @@ def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
         qty = row[1] if USE_POSTGRES else row['qty']
         product = row[2] if USE_POSTGRES else row['product_text']
         if _normalize_product_key(product) == target:
-            out.append({'id': rid, 'qty': effective_product_qty(product, qty), 'product_text': product})
+            out.append({'id': rid, 'qty': int(qty or 0), 'product_text': product})
     return out
 
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
