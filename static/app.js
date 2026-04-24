@@ -2925,3 +2925,199 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if ($('shipping-results')) window.loadShippingRecords();
   });
 })();
+
+/* ==== FIX11 inventory list actions + today buttons hard bind ==== */
+(function(){
+  const $id = (id) => document.getElementById(id);
+  const html = (v) => (window.escapeHTML ? window.escapeHTML(v) : String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s])));
+  const api = (url, options={}) => (window.requestJSON ? window.requestJSON(url, options) : fetch(url, {credentials:'same-origin', headers:{'Content-Type':'application/json'}, ...options}).then(r=>r.json()));
+  const say = (msg, level='ok') => window.toast ? window.toast(msg, level) : alert(msg);
+  function moduleKey(){ return window.currentModule ? window.currentModule() : (location.pathname.includes('/inventory') ? 'inventory' : ''); }
+  function qtyText(row){
+    const t = String(row.product_text || '');
+    const p = t.split('=');
+    return p.length > 1 ? p.slice(1).join('=') : String(row.qty || '');
+  }
+  function sizeText(row){ return String(row.product_text || '').split('=')[0] || String(row.product_text || ''); }
+  function getModal(id, title){
+    let modal = $id(id);
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = id;
+    modal.className = 'modal hidden';
+    modal.innerHTML = `<div class="modal-card glass" style="max-width:560px;width:min(94vw,560px);"><div class="modal-head"><div class="section-title">${html(title)}</div><button type="button" class="icon-btn yx-close">✕</button></div><div class="yx-modal-body"></div></div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('.yx-close').onclick = () => modal.classList.add('hidden');
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.add('hidden'); });
+    return modal;
+  }
+  async function loadInventoryHard(){
+    const box = $id('inventory-summary');
+    if (!box) return;
+    try {
+      box.innerHTML = '<div class="empty-state-card compact-empty">庫存載入中…</div>';
+      const data = await api('/api/inventory', {method:'GET'});
+      const rows = Array.isArray(data.items) ? data.items : [];
+      if (!rows.length) {
+        box.innerHTML = '<div class="empty-state-card compact-empty">目前沒有庫存資料</div>';
+        return;
+      }
+      box.innerHTML = rows.map(row => {
+        const needs = Number(row.unplaced_qty || 0) > 0 || row.needs_red;
+        return `<div class="card inventory-action-card ${needs ? 'inventory-unplaced-card' : ''}" data-inventory-id="${Number(row.id || 0)}">
+          <div class="title">${html(sizeText(row))}</div>
+          <div class="sub">${html(qtyText(row))}｜數量 ${Number(row.qty || 0)}${row.location ? `｜格位 ${html(row.location)}` : '｜未設定格位'}${row.customer_name ? `｜${html(row.customer_name)}` : ''}</div>
+          ${needs ? `<div class="small-note danger-text">未錄入倉庫圖：${Number(row.unplaced_qty || row.qty || 0)}</div>` : ''}
+          <div class="btn-row compact-row" style="margin-top:10px;justify-content:flex-end;">
+            <button class="ghost-btn tiny-btn" type="button" data-action="edit" data-id="${Number(row.id || 0)}">編輯</button>
+            <button class="ghost-btn tiny-btn" type="button" data-action="order" data-id="${Number(row.id || 0)}">移到訂單</button>
+            <button class="ghost-btn tiny-btn" type="button" data-action="master" data-id="${Number(row.id || 0)}">移到總單</button>
+          </div>
+        </div>`;
+      }).join('');
+      box.querySelectorAll('button[data-action]').forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const id = Number(btn.dataset.id || 0);
+          const row = rows.find(r => Number(r.id || 0) === id);
+          if (!row) return;
+          if (btn.dataset.action === 'edit') openInventoryEdit(row);
+          if (btn.dataset.action === 'order') openMoveInventory(row, 'orders');
+          if (btn.dataset.action === 'master') openMoveInventory(row, 'master_order');
+        };
+      });
+      box.querySelectorAll('.inventory-action-card').forEach(card => {
+        card.onclick = () => {
+          const id = Number(card.dataset.inventoryId || 0);
+          const row = rows.find(r => Number(r.id || 0) === id);
+          if (row) openInventoryEdit(row);
+        };
+      });
+    } catch(e) {
+      box.innerHTML = `<div class="empty-state-card compact-empty">${html(e?.message || '庫存清單載入失敗')}</div>`;
+    }
+  }
+  async function openInventoryEdit(row){
+    const modal = getModal('inventory-edit-modal', '編輯庫存商品');
+    modal.querySelector('.yx-modal-body').innerHTML = `<label class="field-label">商品資料</label><textarea id="inv-edit-text" class="text-area" style="min-height:110px;">${html(row.product_text || '')}</textarea><label class="field-label">數量</label><input id="inv-edit-qty" class="text-input" type="number" min="0" value="${Number(row.qty || 0)}"><label class="field-label">倉庫格位 / 預設位置</label><input id="inv-edit-location" class="text-input" value="${html(row.location || '')}"><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="inv-edit-cancel" type="button">取消</button><button class="primary-btn" id="inv-edit-save" type="button">儲存</button></div>`;
+    modal.querySelector('#inv-edit-cancel').onclick = () => modal.classList.add('hidden');
+    modal.querySelector('#inv-edit-save').onclick = async () => {
+      try {
+        await api(`/api/inventory/${Number(row.id)}`, {method:'PUT', body: JSON.stringify({product_text:$id('inv-edit-text').value.trim(), qty:Number($id('inv-edit-qty').value || 0), location:$id('inv-edit-location').value.trim()})});
+        modal.classList.add('hidden');
+        say('庫存已更新', 'ok');
+        await loadInventoryHard();
+      } catch(e) { say(e?.message || '庫存更新失敗', 'error'); }
+    };
+    modal.classList.remove('hidden');
+  }
+  async function chooseCustomer(){
+    const modal = getModal('inventory-customer-choose-modal', '選擇客戶');
+    modal.querySelector('.yx-modal-body').innerHTML = `<input id="inv-customer-search" class="text-input" placeholder="輸入或搜尋客戶名稱"><div id="inv-customer-list" class="card-list" style="max-height:42vh;overflow:auto;margin-top:12px;"></div><div class="btn-row" style="justify-content:flex-end;margin-top:14px;"><button class="ghost-btn" id="inv-customer-cancel" type="button">取消</button><button class="primary-btn" id="inv-customer-new" type="button">使用輸入名稱</button></div>`;
+    modal.classList.remove('hidden');
+    return new Promise(async (resolve) => {
+      let done = false;
+      const close = (val) => { if (done) return; done = true; modal.classList.add('hidden'); resolve(val || ''); };
+      modal.querySelector('#inv-customer-cancel').onclick = () => close('');
+      modal.querySelector('#inv-customer-new').onclick = () => close($id('inv-customer-search').value.trim());
+      let customers = [];
+      try { const data = await api('/api/customers', {method:'GET'}); customers = Array.isArray(data.items) ? data.items : []; } catch(_e) {}
+      const render = () => {
+        const q = ($id('inv-customer-search')?.value || '').trim().toLowerCase();
+        const list = customers.filter(c => !q || String(c.name || '').toLowerCase().includes(q)).slice(0,80);
+        $id('inv-customer-list').innerHTML = list.length ? list.map(c => `<button class="card" type="button" data-name="${html(c.name || '')}"><div class="title">${html(c.name || '')}</div><div class="sub">${html(c.region || '未分區')}</div></button>`).join('') : '<div class="empty-state-card compact-empty">沒有符合客戶，可按「使用輸入名稱」新增/使用</div>';
+        $id('inv-customer-list').querySelectorAll('button[data-name]').forEach(b => b.onclick = () => close(b.dataset.name || ''));
+      };
+      $id('inv-customer-search').oninput = render;
+      render();
+      setTimeout(() => $id('inv-customer-search')?.focus(), 50);
+    });
+  }
+  async function openMoveInventory(row, target){
+    const label = target === 'orders' ? '訂單' : '總單';
+    const customer = await chooseCustomer();
+    if (!customer) return;
+    try {
+      await api(`/api/inventory/${Number(row.id)}/move`, {method:'POST', body: JSON.stringify({target, customer_name: customer, qty: Number(row.qty || 0)})});
+      say(`已移到${label}：${customer}`, 'ok');
+      await loadInventoryHard();
+    } catch(e) { say(e?.message || `移到${label}失敗`, 'error'); }
+  }
+  window.loadInventory = loadInventoryHard;
+  window.loadInventoryHard = loadInventoryHard;
+
+  const oldConfirm = window.confirmSubmit;
+  window.confirmSubmit = async function(){
+    if (typeof oldConfirm === 'function') await oldConfirm.apply(this, arguments);
+    if (moduleKey() === 'inventory') setTimeout(loadInventoryHard, 250);
+  };
+  globalThis.confirmSubmit = window.confirmSubmit;
+
+  function formatWhen(v){
+    const s = String(v || '');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/);
+    return m ? `${m[2]}/${m[3]} ${m[4] || ''}`.trim() : s;
+  }
+  function todayCard(entry, kind){
+    const id = Number(entry.id || 0);
+    return `<div class="recent-activity-item inline-activity-card" data-kind="${html(kind)}" data-log-id="${id}"><strong>${html(formatWhen(entry.created_at || entry.time || ''))}</strong><div>${html(entry.username || '')}｜${html(entry.action || entry.message || '')}</div>${id ? `<div class="btn-row compact-row" style="margin-top:8px;justify-content:flex-end;"><button class="ghost-btn tiny-btn danger-btn" type="button" data-delete-log="${id}">刪除</button></div>` : ''}</div>`;
+  }
+  async function renderTodayHard(){
+    const summaryBox = $id('today-summary-cards');
+    if (!summaryBox) return;
+    try {
+      const data = await api('/api/today-changes', {method:'GET'});
+      const s = data.summary || {};
+      if ($id('today-unread-badge')) $id('today-unread-badge').textContent = String(s.unread_count || 0);
+      const cards = [['inbound','進貨',s.inbound_count||0],['outbound','出貨',s.outbound_count||0],['orders','新增訂單',s.new_order_count||0],['unplaced','未錄入倉庫圖',s.unplaced_count||0],['anomaly','異常比對',s.anomaly_count||0]];
+      summaryBox.innerHTML = cards.map(([k,l,v]) => `<button class="card" type="button" data-today-filter-card="${k}"><div class="title">${l}</div><div class="sub">${v}</div></button>`).join('');
+      const f = data.feed || {};
+      const set = (id, content, empty) => { const el=$id(id); if(el) el.innerHTML = content || `<div class="empty-state-card compact-empty">${empty}</div>`; };
+      set('today-inbound-list', (f.inbound || []).map(x => todayCard(x,'inbound')).join(''), '今天沒有進貨異動');
+      set('today-outbound-list', (f.outbound || []).map(x => todayCard(x,'outbound')).join(''), '今天沒有出貨異動');
+      set('today-order-list', (f.new_orders || []).map(x => todayCard(x,'orders')).join(''), '今天沒有新增訂單');
+      set('today-unplaced-list', (data.unplaced_items || []).map(x => `<div class="recent-activity-item inline-activity-card" data-kind="unplaced"><strong>${html(x.qty || 0)}</strong><div>${html(x.product_text || x.message || '')}</div></div>`).join(''), '今天沒有未錄入倉庫圖商品');
+      set('today-anomaly-list', (data.anomalies || []).map(x => `<div class="recent-activity-item inline-activity-card" data-kind="anomaly"><div>${html(x.message || '')}</div></div>`).join(''), '今天沒有異常比對');
+      bindTodayButtons();
+      setTodayHard(window.__todayFilter || 'all');
+    } catch(e) {
+      summaryBox.innerHTML = `<div class="empty-state-card compact-empty">${html(e?.message || '今日異動載入失敗')}</div>`;
+    }
+  }
+  function setTodayHard(kind){
+    window.__todayFilter = kind || 'all';
+    ['all','inbound','outbound','orders','unplaced','anomaly'].forEach(k => $id('today-filter-'+k)?.classList.toggle('active', k === window.__todayFilter));
+    const ids = {inbound:'today-inbound-list', outbound:'today-outbound-list', orders:'today-order-list', unplaced:'today-unplaced-list', anomaly:'today-anomaly-list'};
+    Object.entries(ids).forEach(([k,id]) => {
+      const panel = $id(id)?.closest('.panel');
+      if (panel) panel.style.display = (window.__todayFilter === 'all' || window.__todayFilter === k) ? '' : 'none';
+    });
+  }
+  async function deleteTodayHard(id, el){
+    if (!id) return;
+    if (!confirm('確定刪除這筆異動紀錄？')) return;
+    const card = el?.closest?.('.inline-activity-card');
+    if (card) card.remove();
+    try { await api(`/api/today-changes/${id}`, {method:'DELETE'}); say('已刪除','ok'); renderTodayHard(); } catch(e) { say(e?.message || '刪除失敗','error'); renderTodayHard(); }
+  }
+  function bindTodayButtons(){
+    ['all','inbound','outbound','orders','unplaced','anomaly'].forEach(k => { const b=$id('today-filter-'+k); if(b) b.onclick=()=>setTodayHard(k); });
+    document.querySelectorAll('[data-today-filter-card]').forEach(b => b.onclick = () => setTodayHard(b.dataset.todayFilterCard || 'all'));
+    document.querySelectorAll('[data-delete-log]').forEach(b => b.onclick = () => deleteTodayHard(Number(b.dataset.deleteLog || 0), b));
+    const unread = $id('today-unread-toggle');
+    if (unread) unread.onclick = () => { window.__todayUnreadOnly = !window.__todayUnreadOnly; unread.classList.toggle('active', !!window.__todayUnreadOnly); };
+    const read = document.querySelector('button[onclick="markTodayChangesRead()"]');
+    if (read) read.onclick = async () => { try { await api('/api/today-changes/read', {method:'POST', body:'{}'}); if($id('today-unread-badge')) $id('today-unread-badge').textContent='0'; say('已清除已讀','ok'); } catch(e){ say(e?.message || '清除已讀失敗','error'); } };
+  }
+  window.renderTodayChangesPage = renderTodayHard;
+  window.setTodayCategoryFilter = setTodayHard;
+  window.deleteTodayChange = (id) => deleteTodayHard(id, document.querySelector(`[data-delete-log="${id}"]`));
+  window.toggleTodayUnreadFilter = () => { const b=$id('today-unread-toggle'); if (b) b.click(); };
+  window.markTodayChangesRead = async () => { const b=document.querySelector('button[onclick="markTodayChangesRead()"]'); if (b) b.click(); };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (moduleKey() === 'inventory') setTimeout(loadInventoryHard, 80);
+    if ($id('today-summary-cards')) setTimeout(renderTodayHard, 60);
+  });
+})();
+/* ==== FIX11 end ==== */

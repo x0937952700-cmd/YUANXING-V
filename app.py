@@ -595,6 +595,112 @@ def api_inventory():
         log_error("inventory", str(e))
         return error_response("建立失敗")
 
+
+@app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@login_required_json
+def api_inventory_item(item_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
+        row = fetchone_dict(cur)
+        if not row:
+            conn.close()
+            return error_response("找不到庫存商品", 404)
+        if request.method == "GET":
+            conn.close()
+            return jsonify(success=True, item=row)
+        if request.method == "DELETE":
+            before = dict(row)
+            cur.execute(sql("DELETE FROM inventory WHERE id = ?"), (item_id,))
+            conn.commit()
+            conn.close()
+            log_action(current_username(), f"刪除庫存商品 #{item_id}")
+            add_audit_trail(current_username(), 'delete', 'inventory', str(item_id), before_json=before, after_json={})
+            notify_sync_event(kind='refresh', module='inventory', message='庫存商品已刪除', extra={'id': item_id})
+            return jsonify(success=True, items=grouped_inventory())
+        data = request.get_json(silent=True) or {}
+        product_text = (data.get('product_text') or row.get('product_text') or '').strip()
+        product_code = (data.get('product_code') or product_text or '').strip()
+        qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
+        if not product_text:
+            conn.close()
+            return error_response('請輸入商品資料')
+        if qty < 0:
+            qty = 0
+        before = dict(row)
+        cur.execute(sql("""
+            UPDATE inventory
+            SET product_text = ?, product_code = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            WHERE id = ?
+        """), (product_text, product_code, qty, location, customer_name, current_username(), now(), item_id))
+        conn.commit()
+        conn.close()
+        log_action(current_username(), f"編輯庫存商品 #{item_id}")
+        add_audit_trail(current_username(), 'update', 'inventory', str(item_id), before_json=before, after_json={'product_text': product_text, 'qty': qty, 'location': location, 'customer_name': customer_name})
+        notify_sync_event(kind='refresh', module='inventory', message='庫存商品已更新', extra={'id': item_id})
+        return jsonify(success=True, items=grouped_inventory())
+    except Exception as e:
+        log_error('inventory_item', str(e))
+        return error_response('庫存商品操作失敗')
+
+@app.route("/api/inventory/<int:item_id>/move", methods=["POST"])
+@login_required_json
+def api_inventory_item_move(item_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        target = (data.get('target') or '').strip()
+        customer_name = (data.get('customer_name') or '').strip()
+        if target not in ('orders', 'master_order', 'master_orders'):
+            return error_response('請選擇要移到訂單或總單')
+        if not customer_name:
+            return error_response('請選擇客戶')
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
+        row = fetchone_dict(cur)
+        if not row:
+            conn.close()
+            return error_response('找不到庫存商品', 404)
+        current_qty = int(row.get('qty') or 0)
+        move_qty = int(data.get('qty') or current_qty or 0)
+        if move_qty <= 0:
+            conn.close()
+            return error_response('移動數量必須大於 0')
+        if move_qty > current_qty:
+            move_qty = current_qty
+        product_text = (row.get('product_text') or '').strip()
+        product_code = (row.get('product_code') or product_text or '').strip()
+        conn.close()
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
+        if target == 'orders':
+            save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '訂單'
+            module = 'orders'
+        else:
+            save_master_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '總單'
+            module = 'master_order'
+        conn = get_db()
+        cur = conn.cursor()
+        if move_qty >= current_qty:
+            cur.execute(sql("DELETE FROM inventory WHERE id = ?"), (item_id,))
+        else:
+            cur.execute(sql("UPDATE inventory SET qty = qty - ?, operator = ?, updated_at = ? WHERE id = ?"), (move_qty, current_username(), now(), item_id))
+        conn.commit()
+        conn.close()
+        log_action(current_username(), f"庫存移到{target_label}：{customer_name}")
+        add_audit_trail(current_username(), 'move', 'inventory', str(item_id), before_json={'id': item_id, 'qty': current_qty, 'product_text': product_text}, after_json={'target': target_label, 'customer_name': customer_name, 'qty': move_qty, 'product_text': product_text})
+        notify_sync_event(kind='refresh', module='inventory', message=f'庫存已移到{target_label}', extra={'id': item_id, 'customer_name': customer_name, 'qty': move_qty})
+        notify_sync_event(kind='refresh', module=module, message=f'{target_label}已更新', extra={'customer_name': customer_name, 'qty': move_qty})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=grouped_inventory(), customer_name=customer_name, target=target_label, **snap)
+    except Exception as e:
+        log_error('inventory_item_move', str(e))
+        return error_response('庫存移動失敗')
 @app.route("/api/orders", methods=["GET", "POST"])
 @login_required_json
 def api_orders():
@@ -675,7 +781,7 @@ def api_shipping_records():
     end_date = request.args.get("end_date")
     q = (request.args.get("q") or '').strip()
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
-    return jsonify(success=True, records=rows)
+    return jsonify(success=True, items=rows, records=rows)
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
