@@ -1,6 +1,6 @@
-/* 沅興木業 PWA Service Worker - version 12389
+/* 沅興木業 PWA Service Worker - version 12394
    設計原則：可安裝、圖示可快取，但 HTML / JS / CSS / API 永遠優先抓最新，避免舊畫面卡住。 */
-const YX_PWA_VERSION = '12389';
+const YX_PWA_VERSION = '12394';
 const STATIC_CACHE = `yuanxing-pwa-icons-${YX_PWA_VERSION}`;
 const ICON_ASSETS = [
   '/static/manifest.webmanifest',

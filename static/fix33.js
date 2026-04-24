@@ -34,7 +34,7 @@
     const raw = String(productText || '').replace(/[×X＊*]/g,'x').replace('＝','=').trim();
     const left = (raw.split('=',1)[0] || raw);
     const m = left.match(/(\d+)\D+(\d+)\D+(\d+)/);
-    if(m) return `${Number(m[1])}x${Number(m[2])}x${String(Number(m[3])).padStart(2,'0')}`;
+    if(m) return `${m[1]}x${m[2]}x${String(m[3]).length === 1 ? String(m[3]).padStart(2,'0') : String(m[3])}`;
     return left;
   }
 

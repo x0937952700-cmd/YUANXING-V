@@ -89,19 +89,43 @@ def sort_support_expression(expr):
     return '+'.join([x[3] for x in sorted(multi)] + [x[2] for x in sorted(single)])
 
 
+def _format_dim_token_preserve_zero(token, is_height=False):
+    """尺寸欄位格式化：0.83 -> 083，063/083 這種前導 0 不可刪。"""
+    s = str(token or '').strip()
+    if not s:
+        return ''
+    if re.fullmatch(r'[A-Za-z]+', s):
+        return s.upper()
+    if re.fullmatch(r'\d*\.\d+', s):
+        # 0.83 / .83 供顯示儲存成 083，材積計算時再把 083 當 0.83。
+        return s.replace('.', '') if s.startswith('0') else '0' + s.replace('.', '')
+    if re.fullmatch(r'\d+', s):
+        # 高度單碼補成 05；但 063 / 083 / 006 這種使用者輸入的 0 要保留。
+        if is_height and len(s) == 1:
+            return s.zfill(2)
+        return s
+    return re.sub(r'\s+', '', s)
+
+
+def _normalize_left_size_preserve_zero(left):
+    left = str(left or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x')
+    parts = [p.strip() for p in re.split(r'x', left) if p.strip() != '']
+    if len(parts) < 3:
+        return re.sub(r'\s+', '', left)
+    return 'x'.join(_format_dim_token_preserve_zero(p, i == 2) for i, p in enumerate(parts[:3]))
+
+
 def format_product_text_height2(text):
-    """顯示/儲存用商品文字：保留等號右側與括號備註，只把尺寸高度固定兩位數。"""
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    """顯示/儲存用商品文字：保留 063/083 前導 0，0.83 -> 083，右側支數件數照規則排序。"""
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     if not raw:
         return ''
     left, sep, right = raw.partition('=')
-    m = re.search(r'(\d+)\D+(\d+)\D+(\d+)', left.strip())
-    if not m:
-        return raw
-    size = f"{int(m.group(1))}x{int(m.group(2))}x{int(m.group(3)):02d}"
-    support = sort_support_expression(right.strip())
-    return f"{size}={support}" if sep else size
-
+    size = _normalize_left_size_preserve_zero(left.strip())
+    if not sep:
+        return size or raw
+    support = sort_support_expression(str(right or '').replace('件', '').replace('片', '').strip())
+    return f"{size}={support}" if support else size
 
 def _normalize_product_texts_in_table(cur, table):
     try:

@@ -1,7 +1,7 @@
 /* ==== FIX36：出貨客戶商品下拉 + 材積/長度/重量預覽後確認出貨 ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix40-decimal-L-region-refresh';
+  const VERSION = 'fix41-preserve-leading-zero-083';
   window.__YUANXING_FIX_VERSION__ = VERSION;
   document.documentElement.dataset.yxVersion = VERSION;
 
@@ -98,7 +98,7 @@
   function padSize(left){
     const nums = String(left || '').replace(/[×X＊*]/g,'x').match(/\d+/g) || [];
     if(nums.length < 3) return '';
-    return `${Number(nums[0])}x${Number(nums[1])}x${String(Number(nums[2])).padStart(2,'0')}`;
+    return `${nums[0]}x${nums[1]}x${String(nums[2]).length === 1 ? String(nums[2]).padStart(2,'0') : String(nums[2])}`;
   }
   function calcPieces(right){
     let total = 0;

@@ -16,7 +16,7 @@
     const raw = normalizeX(text);
     if(!raw) return raw;
     return raw.replace(/(\d{1,4})x(\d{1,4})x(\d{1,4})(?=\s*(?:=|$|[^0-9]))/g, function(_, a, b, c){
-      return `${Number(a)}x${Number(b)}x${String(Number(c)).padStart(2,'0')}`;
+      return `${a}x${b}x${String(c).length === 1 ? String(c).padStart(2,'0') : String(c)}`;
     });
   }
   function calcQty(right){
@@ -46,16 +46,16 @@
       const dims = [0,1,2].map(i => {
         const v = dimsRaw[i] || '';
         if(!v || /^[_-]+$/.test(v)) return last[i] || '';
-        return String(Number(v));
+        return /^\d*\.\d+$/.test(v) ? (v.startsWith('.') ? '0' + v.slice(1) : v.replace('.', '')) : String(v);
       });
       if(dims[0] && dims[1] && dims[2]) last = dims.slice();
       if(!dims[0] || !dims[1] || !dims[2]) return;
-      const size = `${Number(dims[0])}x${Number(dims[1])}x${String(Number(dims[2])).padStart(2,'0')}`;
+      const size = `${dims[0]}x${dims[1]}x${String(dims[2]).length === 1 ? String(dims[2]).padStart(2,'0') : String(dims[2])}`;
       const product_text = `${size}=${right}`;
       out.push({ product_text, product_code: product_text, qty: calcQty(right) });
     };
     lines.forEach(line => {
-      const tokens = line.match(/(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})x(?:[_-]|\d{1,4})\s*(?:=|:)\s*[^\n]+/ig) || [];
+      const tokens = line.match(/(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_-]|[A-Za-z]+|\d+(?:\.\d+)?)\s*(?:=|:)\s*[^\n]+/ig) || [];
       if(tokens.length) tokens.forEach(parseToken);
       else if(line.includes('=') && /x/i.test(line)) parseToken(line);
     });
