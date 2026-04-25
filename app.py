@@ -1167,18 +1167,37 @@ def api_warehouse():
 @app.route("/api/warehouse/cell", methods=["POST"])
 @login_required_json
 def api_warehouse_cell():
+    """FIX81：倉庫格位儲存最終收斂。
+
+    兼容前端送 column / column_index、B / B區，以及格位文字 meta。
+    不再因舊 JS 送法不同而顯示「格位參數錯誤」。
+    """
+    def _first_int(*values):
+        for value in values:
+            if value is None:
+                continue
+            m = re.search(r"\d+", str(value))
+            if m:
+                try:
+                    return int(m.group(0))
+                except Exception:
+                    pass
+        return 0
     try:
         data = request.get_json(silent=True) or {}
-        zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
+        raw_zone = str(data.get("zone") or data.get("area") or data.get("warehouse_zone") or "A").strip().upper()
+        zm = re.search(r"[AB]", raw_zone)
+        zone = zm.group(0) if zm else "A"
+        meta = str(data.get("meta") or data.get("label") or data.get("cell_label") or "")
+        mm = re.search(r"([AB])\s*區\s*/?\s*第\s*(\d+)\s*欄\s*/?\s*第\s*(\d+)\s*格", meta, flags=re.I)
+        if mm:
+            zone = mm.group(1).upper()
+        column_index = _first_int(data.get("column_index"), data.get("column"), data.get("col"), data.get("columnNo"), mm.group(2) if mm else None)
         slot_type = 'direct'
-        slot_number = int(data.get("slot_number") or 0)
+        slot_number = _first_int(data.get("slot_number"), data.get("slot"), data.get("num"), data.get("visual_slot"), mm.group(3) if mm else None)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
             return error_response("格位參數錯誤")
-        # 防止手動輸入不存在的格位（例如 A-1-99）造成倉庫圖被拉出異常超長格數。
         existing_cells = warehouse_get_cells()
-        if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
-            return error_response("格位不存在，請先在格子內點「插入格子」")
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
@@ -1192,10 +1211,10 @@ def api_warehouse_cell():
         log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
         add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        return jsonify(success=True, zones=warehouse_summary())
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_cell", str(e))
-        return error_response("格位更新失敗")
+        return error_response(str(e) or "格位更新失敗")
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
@@ -1436,7 +1455,53 @@ def api_customer_items_batch_delete():
 @app.route("/api/customer-items/merge", methods=["POST"])
 @login_required_json
 def api_customer_items_merge():
-    """FIX76：合併同來源、同客戶/位置、同商品的重複資料。"""
+    """FIX81：合併同尺寸 + 同材質的重複商品，並保留 073 / 支數件數規則。"""
+    def _clean_x(v):
+        return str(v or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',', '+').replace('；','+').replace(';','+').replace(' ', '').strip()
+    def _split_product(text):
+        p = format_product_text_height2(text or '')
+        left, sep, right = p.partition('=')
+        return left.strip(), right.strip() if sep else ''
+    def _merge_product_texts(rows):
+        first_size = ''
+        multi = {}
+        singles = []
+        weird = []
+        has_support = False
+        total_qty = 0
+        for r in rows:
+            product = format_product_text_height2(r.get('product_text') or '')
+            size, support = _split_product(product)
+            if size and not first_size:
+                first_size = size
+            total_qty += int(effective_product_qty(product, r.get('qty') or 0) or 0)
+            support = _clean_x(support)
+            if not support:
+                continue
+            has_support = True
+            for seg in [x for x in support.split('+') if x]:
+                m = re.fullmatch(r'(\d+)x(\d+)', seg, flags=re.I)
+                if m:
+                    length = m.group(1)
+                    multi[length] = multi.get(length, 0) + int(m.group(2) or 0)
+                elif re.fullmatch(r'\d+', seg):
+                    singles.append(seg)
+                else:
+                    weird.append(seg)
+        if not first_size:
+            first_size = _split_product(rows[0].get('product_text') or '')[0]
+        if has_support:
+            parts = []
+            for length, count in sorted(multi.items(), key=lambda kv: (-kv[1], -int(kv[0]) if kv[0].isdigit() else 0)):
+                if count > 0:
+                    parts.append(f"{length}x{count}")
+            parts.extend(sorted(singles, key=lambda x: int(x) if x.isdigit() else 0, reverse=True))
+            parts.extend(weird)
+            merged_product = format_product_text_height2(f"{first_size}={'+'.join(parts)}" if parts else first_size)
+            total_qty = int(effective_product_qty(merged_product, total_qty) or total_qty or 0)
+        else:
+            merged_product = format_product_text_height2(first_size)
+        return merged_product, max(total_qty, 0)
     try:
         data = request.get_json(silent=True) or {}
         source = (data.get("source") or "").strip()
@@ -1448,47 +1513,40 @@ def api_customer_items_merge():
                     ids.append(iv)
             except Exception:
                 pass
-        table_map = {
-            "庫存": "inventory", "inventory": "inventory",
-            "訂單": "orders", "orders": "orders",
-            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
-        }
+        table_map = {"庫存":"inventory", "inventory":"inventory", "訂單":"orders", "orders":"orders", "總單":"master_orders", "master_order":"master_orders", "master_orders":"master_orders"}
         table = table_map.get(source)
         if not table or len(ids) < 2:
             return error_response("合併參數不足")
         placeholders = ",".join(["?"] * len(ids))
-        conn = get_db()
-        cur = conn.cursor()
+        conn = get_db(); cur = conn.cursor()
         try:
             cur.execute(sql(f"SELECT * FROM {table} WHERE id IN ({placeholders}) ORDER BY id ASC"), tuple(ids))
             rows = rows_to_dict(cur)
             if len(rows) < 2:
                 return error_response("找不到可合併商品")
-            keep = rows[0]
-            keep_id = int(keep.get("id") or 0)
-            total_qty = sum(int(r.get("qty") or 0) for r in rows)
-            material = clean_material_value(keep.get("material") or keep.get("product_code") or "", keep.get("product_text") or "")
-            product_text = format_product_text_height2(keep.get("product_text") or "")
-            cur.execute(sql(f"UPDATE {table} SET qty = ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ? WHERE id = ?"),
-                        (total_qty, product_text, material, material, current_username(), now(), keep_id))
+            keep = rows[0]; keep_id = int(keep.get("id") or 0)
+            product_text, total_qty = _merge_product_texts(rows)
+            material = ''
+            for r in rows:
+                material = clean_material_value(r.get("material") or r.get("product_code") or "", r.get("product_text") or "")
+                if material:
+                    break
+            cur.execute(sql(f"UPDATE {table} SET qty = ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ? WHERE id = ?"), (total_qty, product_text, material, material, current_username(), now(), keep_id))
             delete_ids = [int(r.get("id") or 0) for r in rows[1:] if int(r.get("id") or 0) != keep_id]
             if delete_ids:
                 delete_ph = ",".join(["?"] * len(delete_ids))
                 cur.execute(sql(f"DELETE FROM {table} WHERE id IN ({delete_ph})"), tuple(delete_ids))
             conn.commit()
         except Exception:
-            conn.rollback()
-            raise
+            conn.rollback(); raise
         finally:
             conn.close()
-        add_audit_trail(current_username(), "merge", table, str(keep_id), before_json={"rows": rows}, after_json={"keep_id": keep_id, "deleted_ids": delete_ids, "qty": total_qty})
+        add_audit_trail(current_username(), "merge", table, str(keep_id), before_json={"rows": rows}, after_json={"keep_id": keep_id, "deleted_ids": delete_ids, "qty": total_qty, "product_text": product_text})
         log_action(current_username(), f"合併重複商品 {table} #{keep_id}，共 {len(rows)} 筆")
-        notify_sync_event(kind="refresh", module="all", message="重複商品已合併", extra={"source": source, "keep_id": keep_id, "count": len(rows)})
-        if table == "inventory":
-            return jsonify(success=True, items=grouped_inventory(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
-        if table == "orders":
-            return jsonify(success=True, items=get_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
-        return jsonify(success=True, items=get_master_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
+        notify_sync_event(kind="refresh", module="all", message="重複商品已合併", extra={"source": source, "keep_id": keep_id, "count": len(rows), "product_text": product_text})
+        if table == "inventory": return jsonify(success=True, items=grouped_inventory(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty, product_text=product_text)
+        if table == "orders": return jsonify(success=True, items=get_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty, product_text=product_text)
+        return jsonify(success=True, items=get_master_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty, product_text=product_text)
     except Exception as e:
         log_error("customer_items_merge", str(e))
         return error_response(str(e) or "合併商品失敗")
