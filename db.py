@@ -1677,135 +1677,150 @@ def _warehouse_locations_for_product(product_text, qty_needed=None, customer_nam
     return plan
 
 def preview_ship_order(customer_name, items):
+    """FIX77 母版：出貨預覽改成真正的「總單 → 訂單 → 庫存」順序。
+
+    舊版把總單、訂單、庫存都要求各自 >= 出貨數量，容易造成明明
+    三邊加總足夠卻顯示不足，前端看起來像卡住。這裡只用可扣總量
+    判斷是否足夠，並保留各來源可扣數與倉庫位置。
+    """
     conn = get_db()
     cur = conn.cursor()
     try:
         preview = []
-        needs_inventory_fallback = False
+        has_shortage = False
         for item in items:
-            product_text = format_product_text_height2(item['product_text'])
-            qty_needed = int(item.get('qty') or 0)
+            product_text = format_product_text_height2(item.get('product_text') or '')
+            qty_needed = int(item.get('qty') or effective_product_qty(product_text, 1) or 0)
+            if not product_text or qty_needed <= 0:
+                continue
             master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
             order_available = _sum_available(cur, 'orders', customer_name, product_text)
             inventory_available = _sum_inventory(cur, product_text)
-            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
-            inventory_only_ok = inventory_available >= qty_needed
-            needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
-            if needs_fallback:
-                needs_inventory_fallback = True
+            total_available = int(master_available or 0) + int(order_available or 0) + int(inventory_available or 0)
+            shortage = max(0, int(qty_needed or 0) - total_available)
+            if shortage:
+                has_shortage = True
+            # 預覽扣除計畫：總單優先，其次訂單，最後庫存。
+            remain = int(qty_needed or 0)
+            plan_master = min(int(master_available or 0), remain); remain -= plan_master
+            plan_order = min(int(order_available or 0), remain); remain -= plan_order
+            plan_inventory = min(int(inventory_available or 0), remain); remain -= plan_inventory
             shortage_reasons = []
-            if master_available < qty_needed:
-                shortage_reasons.append(f"總單不足 {master_available}/{qty_needed}")
-            if order_available < qty_needed:
-                shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
-            if inventory_available < qty_needed:
-                shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
+            if shortage:
+                shortage_reasons.append(f"總可扣不足 {total_available}/{qty_needed}")
             preview.append({
                 'product_text': product_text,
                 'qty': qty_needed,
                 'master_available': master_available,
                 'order_available': order_available,
                 'inventory_available': inventory_available,
-                'strict_ok': strict_ok,
-                'inventory_only_ok': inventory_only_ok,
-                'needs_inventory_fallback': needs_fallback,
+                'total_available': total_available,
+                'shortage': shortage,
+                'strict_ok': shortage == 0,
+                'inventory_only_ok': inventory_available >= qty_needed,
+                'needs_inventory_fallback': False,
                 'shortage_reasons': shortage_reasons,
-                'recommendation': ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存亦不足')),
+                'recommendation': ('可依序扣除：總單 → 訂單 → 庫存' if shortage == 0 else '總可扣不足'),
                 'source_breakdown': [
-                    {'source': '總單', 'available': master_available},
-                    {'source': '訂單', 'available': order_available},
-                    {'source': '庫存', 'available': inventory_available},
+                    {'source': '總單', 'available': master_available, 'planned_deduct': plan_master},
+                    {'source': '訂單', 'available': order_available, 'planned_deduct': plan_order},
+                    {'source': '庫存', 'available': inventory_available, 'planned_deduct': plan_inventory},
                 ],
+                'deduct_plan': {
+                    'master': plan_master,
+                    'order': plan_order,
+                    'inventory': plan_inventory,
+                    'shortage': shortage,
+                },
                 'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=customer_name),
             })
         return {
             'success': True,
             'items': preview,
-            'needs_inventory_fallback': needs_inventory_fallback,
-            'message': ('客戶總單/訂單不足，可改扣庫存' if needs_inventory_fallback else '可直接出貨')
+            'needs_inventory_fallback': False,
+            'has_shortage': has_shortage,
+            'message': ('有商品總可扣不足，請調整數量' if has_shortage else '可依序扣除：總單 → 訂單 → 庫存')
         }
     finally:
         conn.close()
 
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
+    """FIX77 母版：出貨扣除鎖定為 總單 → 訂單 → 庫存。
+
+    不再要求三張表各自都有完整數量；只要三邊加總足夠就可出貨。
+    仍保留 allow_inventory_fallback 參數，避免舊前端呼叫壞掉。
+    """
     conn = get_db()
     cur = conn.cursor()
     ship_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     try:
         breakdown = []
         for item in items:
-            product_text = format_product_text_height2(item["product_text"])
-            qty_needed = int(item["qty"])
+            product_text = format_product_text_height2(item.get('product_text') or '')
+            qty_needed = int(item.get('qty') or effective_product_qty(product_text, 1) or 0)
+            if not product_text or qty_needed <= 0:
+                continue
 
-            master_available = _sum_available(cur, "master_orders", customer_name, product_text)
-            order_available = _sum_available(cur, "orders", customer_name, product_text)
+            master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
+            order_available = _sum_available(cur, 'orders', customer_name, product_text)
             inventory_available = _sum_inventory(cur, product_text)
+            total_available = int(master_available or 0) + int(order_available or 0) + int(inventory_available or 0)
+            if total_available < qty_needed:
+                conn.rollback()
+                return {
+                    'success': False,
+                    'error': f"{product_text} 總可扣不足（總單 {master_available}｜訂單 {order_available}｜庫存 {inventory_available}，需要 {qty_needed}）",
+                    'requires_inventory_fallback': False,
+                    'shortage': qty_needed - total_available,
+                }
 
-            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
+            remain = int(qty_needed)
+            used_master = _deduct_from_table_partial(cur, 'master_orders', customer_name, product_text, min(master_available, remain))
+            remain -= sum(x['qty'] for x in used_master)
+            used_order = _deduct_from_table_partial(cur, 'orders', customer_name, product_text, min(order_available, remain))
+            remain -= sum(x['qty'] for x in used_order)
+            ok3, used_inv = True, []
+            if remain > 0:
+                ok3, used_inv = _deduct_from_inventory(cur, product_text, remain)
+                remain -= sum(x['qty'] for x in used_inv)
+            if (not ok3) or remain > 0:
+                conn.rollback()
+                return {'success': False, 'error': f'{product_text} 庫存扣除失敗，請重新整理後再試'}
 
-            if strict_ok:
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, qty_needed)
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, qty_needed)
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
-                if not ok3:
-                    conn.rollback()
-                    return {"success": False, "error": f"{product_text} 庫存不足"}
-                note = "已出貨"
-            else:
-                if not allow_inventory_fallback:
-                    conn.rollback()
-                    reasons = []
-                    if master_available < qty_needed:
-                        reasons.append(f"總單不足({master_available}/{qty_needed})")
-                    if order_available < qty_needed:
-                        reasons.append(f"訂單不足({order_available}/{qty_needed})")
-                    if inventory_available < qty_needed:
-                        reasons.append(f"庫存不足({inventory_available}/{qty_needed})")
-                    return {"success": False, "requires_inventory_fallback": True, "error": f"{product_text}「{'、'.join(reasons)}」，是否改扣庫存？"}
-                if inventory_available < qty_needed:
-                    conn.rollback()
-                    return {"success": False, "error": f"{product_text} 庫存不足，無法改扣庫存"}
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, min(master_available, qty_needed))
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, min(order_available, qty_needed))
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
-                if not ok3:
-                    conn.rollback()
-                    return {"success": False, "error": f"{product_text} 庫存不足"}
-                note = "庫存補扣出貨"
-
-            material = (item.get("material") or "").strip()
+            material = (item.get('material') or '').strip()
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, ship_customer_uid, product_text, item.get("product_code", material), material, qty_needed, operator, now(), note))
+            """), (customer_name, ship_customer_uid, product_text, item.get('product_code', material), material, qty_needed, operator, now(), '依序扣除出貨'))
 
             breakdown.append({
-                "product_text": product_text,
-                "qty": qty_needed,
-                "master_deduct": sum(x["qty"] for x in used_master),
-                "order_deduct": sum(x["qty"] for x in used_order),
-                "inventory_deduct": sum(x["qty"] for x in used_inv),
-                "master_available": master_available,
-                "order_available": order_available,
-                "inventory_available": inventory_available,
-                "used_inventory_fallback": (not strict_ok),
-                "master_details": used_master,
-                "order_details": used_order,
-                "inventory_details": used_inv,
-                "note": note,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed),
-                "remaining_after": {
-                    "master": max(0, master_available - sum(x["qty"] for x in used_master)),
-                    "order": max(0, order_available - sum(x["qty"] for x in used_order)),
-                    "inventory": max(0, inventory_available - sum(x["qty"] for x in used_inv)),
+                'product_text': product_text,
+                'qty': qty_needed,
+                'master_deduct': sum(x['qty'] for x in used_master),
+                'order_deduct': sum(x['qty'] for x in used_order),
+                'inventory_deduct': sum(x['qty'] for x in used_inv),
+                'master_available': master_available,
+                'order_available': order_available,
+                'inventory_available': inventory_available,
+                'total_available': total_available,
+                'used_inventory_fallback': False,
+                'master_details': used_master,
+                'order_details': used_order,
+                'inventory_details': used_inv,
+                'note': '總單 → 訂單 → 庫存',
+                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=customer_name),
+                'remaining_after': {
+                    'master': max(0, master_available - sum(x['qty'] for x in used_master)),
+                    'order': max(0, order_available - sum(x['qty'] for x in used_order)),
+                    'inventory': max(0, inventory_available - sum(x['qty'] for x in used_inv)),
                 },
             })
         conn.commit()
-        return {"success": True, "breakdown": breakdown}
+        return {'success': True, 'breakdown': breakdown}
     except Exception as e:
         conn.rollback()
-        log_error("ship_order", e)
-        return {"success": False, "error": "出貨失敗"}
+        log_error('ship_order', e)
+        return {'success': False, 'error': '出貨失敗'}
     finally:
         conn.close()
 

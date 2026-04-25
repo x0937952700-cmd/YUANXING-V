@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix76-merge-warehouse-ship-clean';
+  const PWA_VERSION = 'fix77-master-ship-stable';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
