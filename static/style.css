@@ -2647,3 +2647,11 @@ html[data-yx-fix74-core] .vertical-slot::after,
 /* ==== FIX88_FINAL_QC_STABLE_CSS ==== */
 .yx88-hidden-legacy{display:none!important;}
 html[data-yx-fix88="FIX88_FINAL_QC_STABLE_GUARD"] .yx83-legacy-warehouse-controls{display:none!important;}
+
+/* FIX91: single warehouse batch master */
+#warehouse-modal .yx91-hidden-legacy{display:none!important;}
+#yx91-warehouse-detail-panel{margin:12px 0;}
+#yx91-warehouse-batch-panel{margin:12px 0;padding:14px;border:1px solid rgba(15,23,42,.08);border-radius:18px;background:rgba(255,255,255,.62);}
+#yx91-warehouse-batch-panel .yx91-batch-row{display:grid;grid-template-columns:64px 1fr 96px;gap:10px;align-items:center;margin:8px 0;}
+#yx91-warehouse-batch-panel .yx80-batch-label{font-weight:800;color:#0f172a;}
+@media(max-width:640px){#yx91-warehouse-batch-panel .yx91-batch-row{grid-template-columns:1fr;} }

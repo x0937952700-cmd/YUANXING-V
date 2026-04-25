@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix90-ship-preview-stable';
+  const PWA_VERSION = 'fix91-single-master-stable';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
