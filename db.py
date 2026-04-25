@@ -8,8 +8,8 @@ from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///warehouse.db")
-USE_POSTGRES = DATABASE_URL.startswith("postgres")
+DATABASE_URL = (os.getenv("DATABASE_URL", "sqlite:///warehouse.db") or "sqlite:///warehouse.db").strip()
+USE_POSTGRES = DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
 
 if USE_POSTGRES:
     import psycopg2
@@ -31,6 +31,45 @@ def get_db():
     conn = sqlite3.connect(_sqlite_path())
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _safe_identifier(name):
+    return re.sub(r'[^A-Za-z0-9_]', '', str(name or ''))
+
+def _backend_is_postgres(cur=None):
+    """True for PostgreSQL; also checks cursor type as a Render safety guard."""
+    if USE_POSTGRES:
+        return True
+    try:
+        mod = (cur.__class__.__module__ or '').lower() if cur is not None else ''
+        return 'psycopg2' in mod or 'psycopg' in mod
+    except Exception:
+        return False
+
+def _table_columns(cur, table_name):
+    table = _safe_identifier(table_name)
+    if not table:
+        return set()
+    if _backend_is_postgres(cur):
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+        """, (table,))
+        return {r[0] for r in cur.fetchall()}
+    cur.execute(f"PRAGMA table_info({table})")
+    return {r[1] for r in cur.fetchall()}
+
+def _add_column_if_missing(cur, table_name, column_name, column_def):
+    table = _safe_identifier(table_name)
+    col = _safe_identifier(column_name)
+    if not table or not col:
+        return
+    if _backend_is_postgres(cur):
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {column_def}")
+    else:
+        if col not in _table_columns(cur, table):
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {column_def}")
 
 def row_to_dict(row):
     if row is None:
@@ -599,13 +638,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     # FIX24: 舊資料庫自動補欄位，避免覆寫新版後因缺欄位造成按鈕/API 失效。
     def _ensure_column(table_name, column_name, column_def):
         try:
-            if USE_POSTGRES:
-                cur.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {column_def}")
-            else:
-                cur.execute(f"PRAGMA table_info({table_name})")
-                existing = {r[1] for r in cur.fetchall()}
-                if column_name not in existing:
-                    cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+            _add_column_if_missing(cur, table_name, column_name, column_def)
         except Exception as e:
             log_error('ensure_column', f'{table_name}.{column_name}: {e}')
 
@@ -632,8 +665,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     # 這裡先把舊欄位值補進新欄位，避免倉庫圖讀不到或全部變成 A-1-01。
     if not USE_POSTGRES:
         try:
-            cur.execute("PRAGMA table_info(warehouse_cells)")
-            wh_cols = {r[1] for r in cur.fetchall()}
+            wh_cols = _table_columns(cur, 'warehouse_cells')
             def _has_col(name):
                 return name in wh_cols
             if _has_col('zone'):
@@ -680,14 +712,12 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
     else:
-        cur.execute("PRAGMA table_info(users)")
-        user_cols = {r[1] for r in cur.fetchall()}
+        user_cols = _table_columns(cur, 'users')
         if 'role' not in user_cols:
             cur.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
         if 'is_blocked' not in user_cols:
             cur.execute("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
-        cur.execute("PRAGMA table_info(customer_profiles)")
-        customer_cols = {r[1] for r in cur.fetchall()}
+        customer_cols = _table_columns(cur, 'customer_profiles')
         if 'customer_uid' not in customer_cols:
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN customer_uid TEXT")
         if 'common_materials' not in customer_cols:
@@ -2638,8 +2668,7 @@ def ensure_todo_table(cur):
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS is_done INTEGER DEFAULT 0')
         cur.execute('ALTER TABLE todo_items ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0')
     else:
-        cur.execute('PRAGMA table_info(todo_items)')
-        cols = {r[1] for r in cur.fetchall()}
+        cols = _table_columns(cur, 'todo_items')
         for col in ('note','due_date','image_filename','created_by','created_at','updated_at','completed_at'):
             if col not in cols:
                 cur.execute(f'ALTER TABLE todo_items ADD COLUMN {col} TEXT')
