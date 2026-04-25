@@ -770,6 +770,106 @@ def _parse_items_from_request(data):
             cleaned.append(fixed)
     return cleaned
 
+
+# FIX76：送出前檢查相同「尺寸 + 材質」並列出將被合併的資料。
+def _dup_size_key(product_text):
+    return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
+
+
+def _dup_material_key(material='', product_text=''):
+    return clean_material_value(material or '', product_text or '').replace(' ', '').upper()
+
+
+def _duplicate_check_table(module):
+    mod = (module or '').strip()
+    if mod == 'inventory':
+        return 'inventory', '庫存'
+    if mod == 'orders':
+        return 'orders', '訂單'
+    if mod in ('master_order', 'master_orders'):
+        return 'master_orders', '總單'
+    return '', ''
+
+
+@app.route('/api/duplicate-check', methods=['POST'])
+@login_required_json
+def api_duplicate_check():
+    try:
+        data = request.get_json(silent=True) or {}
+        module = (data.get('module') or data.get('source') or '').strip()
+        table, label = _duplicate_check_table(module)
+        if not table:
+            return jsonify(success=True, has_duplicates=False, duplicates=[])
+        customer_name = (data.get('customer_name') or '').strip()
+        items = _parse_items_from_request(data)
+        if not items:
+            return jsonify(success=True, has_duplicates=False, duplicates=[])
+
+        incoming = {}
+        order = []
+        for it in items:
+            product_text = format_product_text_height2(it.get('product_text') or '')
+            material = clean_material_value(it.get('material') or it.get('product_code') or '', product_text)
+            key = (_dup_size_key(product_text), _dup_material_key(material, product_text))
+            if not key[0]:
+                continue
+            if key not in incoming:
+                incoming[key] = {'size': product_display_size(product_text), 'material': material, 'new_qty': 0, 'incoming_count': 0, 'new_items': []}
+                order.append(key)
+            incoming[key]['new_qty'] += int(it.get('qty') or 0)
+            incoming[key]['incoming_count'] += 1
+            incoming[key]['new_items'].append({'product_text': product_text, 'qty': int(it.get('qty') or 0), 'material': material})
+
+        conn = get_db(); cur = conn.cursor()
+        try:
+            params = []
+            query = f"SELECT id, customer_name, product_text, product_code, material, qty FROM {table} WHERE qty > 0"
+            if table in ('orders', 'master_orders'):
+                query += " AND customer_name = ?"
+                params.append(customer_name)
+            cur.execute(sql(query), tuple(params))
+            rows = rows_to_dict(cur)
+        finally:
+            conn.close()
+
+        existing_by_key = {}
+        for r in rows:
+            product_text = format_product_text_height2(r.get('product_text') or '')
+            material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+            key = (_dup_size_key(product_text), _dup_material_key(material, product_text))
+            if key not in existing_by_key:
+                existing_by_key[key] = []
+            existing_by_key[key].append({
+                'id': r.get('id'),
+                'customer_name': r.get('customer_name') or '',
+                'product_text': product_text,
+                'material': material,
+                'qty': int(r.get('qty') or 0),
+                'source': label,
+            })
+
+        duplicates = []
+        for key in order:
+            inc = incoming[key]
+            exists = existing_by_key.get(key, [])
+            is_dup_inside = inc.get('incoming_count', 0) > 1
+            if exists or is_dup_inside:
+                duplicates.append({
+                    'source': label,
+                    'customer_name': customer_name,
+                    'size': inc.get('size') or key[0],
+                    'material': inc.get('material') or '未填材質',
+                    'new_qty': inc.get('new_qty') or 0,
+                    'incoming_count': inc.get('incoming_count') or 0,
+                    'existing_qty': sum(int(x.get('qty') or 0) for x in exists),
+                    'existing_rows': exists,
+                    'new_items': inc.get('new_items') or [],
+                })
+        return jsonify(success=True, has_duplicates=bool(duplicates), duplicates=duplicates)
+    except Exception as e:
+        log_error('duplicate_check', str(e))
+        return error_response('合併檢查失敗')
+
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
 def api_inventory():
@@ -1004,7 +1104,10 @@ def api_ship_preview():
             return error_response("請輸入客戶名稱")
         if not items:
             return error_response("沒有可預覽的商品")
-        return jsonify(preview_ship_order(customer_name, items))
+        preview = preview_ship_order(customer_name, items)
+        if preview.get('master_exceeded'):
+            return error_response(preview.get('message') or '超過總單，禁止出貨')
+        return jsonify(preview)
     except Exception as e:
         log_error("ship_preview", str(e))
         return error_response("出貨預覽失敗")

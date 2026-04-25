@@ -374,10 +374,14 @@ async function saveWarehouseCell(){
   if (!state.currentCell) return;
   try {
     const note = $('warehouse-note')?.value || '';
+    const cell = state.currentCell || {};
     await requestJSON('/api/warehouse/cell', {
       method: 'POST',
       body: JSON.stringify({
-        ...state.currentCell,
+        zone: cell.zone,
+        column_index: Number(cell.column_index || cell.column || cell.col || 0),
+        slot_type: 'direct',
+        slot_number: Number(cell.slot_number || cell.num || 0),
         items: state.currentCellItems,
         note
       })
@@ -385,7 +389,7 @@ async function saveWarehouseCell(){
     toast('格位已儲存', 'ok');
     closeWarehouseModal();
     await renderWarehouse();
-    await loadInventory();
+    if (typeof loadInventory === 'function') await loadInventory();
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -4508,13 +4512,31 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     box.dispatchEvent(new Event('input', {bubbles:true}));
     box.dispatchEvent(new Event('change', {bubbles:true}));
   }
+  function shipLineKey(line){
+    const raw = String(line || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'').trim();
+    const left = (raw.split('=')[0] || raw).toLowerCase();
+    const dims = left.split('x').filter(Boolean);
+    const size = dims.length >= 3 ? dims.slice(0,3).join('x') : left;
+    return size;
+  }
   function appendShipLines(lines){
-    const clean = (lines || []).map(s=>String(s||'').trim()).filter(Boolean);
-    if(!clean.length) return 0;
-    setTextLines(textLines().concat(clean));
+    const incoming = (lines || []).map(s=>String(s||'').trim()).filter(Boolean);
+    if(!incoming.length) return 0;
+    const current = textLines();
+    const seen = new Set(current.map(shipLineKey).filter(Boolean));
+    const next = [];
+    let skipped = 0;
+    incoming.forEach(line => {
+      const key = shipLineKey(line);
+      if(key && seen.has(key)){ skipped += 1; return; }
+      if(key) seen.add(key);
+      next.push(line);
+    });
+    if(next.length) setTextLines(current.concat(next));
+    if(skipped) notify(`同一種商品已在商品資料內，已阻止重複加入 ${skipped} 筆`, 'warn');
     try{ window.renderShipSelectedItems && window.renderShipSelectedItems(); }catch(_e){}
     try{ window.loadShipPreview && window.loadShipPreview(); }catch(_e){}
-    return clean.length;
+    return next.length;
   }
 
   async function fetchShipItemsFallback(name, uid){
@@ -5648,3 +5670,155 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try { new MutationObserver(() => { replaceLengthLabels(); bindWarehouseModalButtons(); ensureReturnButton(); }).observe(document.body || document.documentElement, {childList:true, subtree:true, characterData:true}); } catch(_e) {}
 })();
 /* ==== FIX75 end ==== */
+
+/* ==== FIX76: merge-confirm + warehouse-save + ship-guard ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix76-merge-confirm-ship-master-guard';
+  if (window.__YX76_MERGE_CONFIRM_SHIP_GUARD__) return;
+  window.__YX76_MERGE_CONFIRM_SHIP_GUARD__ = true;
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const clean = v => String(v ?? '').trim();
+  const notify = (msg, kind='ok') => { try { (window.toast || window.showToast || window.alert)(msg, kind); } catch(_e) { console.log(msg); } };
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url, { credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})} });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  });
+  window.yxApi = api;
+
+  function moduleKey(){ return document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule === 'function' ? window.currentModule() : ''); }
+  function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function qtyFromProduct(productText, fallback=1){
+    const raw = normalizeX(productText); const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
+    if(!right) return Number(fallback || 1) || 1;
+    const parts = right.split('+').map(clean).filter(Boolean);
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if(right.toLowerCase() === canonical) return 10;
+    const xParts = parts.filter(p => /x\s*\d+$/i.test(p));
+    const bareParts = parts.filter(p => !/x\s*\d+$/i.test(p) && /\d/.test(p));
+    if(parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
+    let total = 0;
+    parts.forEach(seg => { const m = seg.match(/x\s*(\d+)$/i); if(m) total += Number(m[1] || 0); else if(/\d/.test(seg)) total += 1; });
+    return total || Number(fallback || 1) || 1;
+  }
+  function parseItems(raw){
+    const lines = String(raw || '').replace(/\r/g,'\n').split(/\n+/).map(normalizeX).filter(Boolean);
+    const out = [];
+    lines.forEach(line => {
+      if(!/[0-9].*x.*[0-9]/i.test(line)) return;
+      const m = line.match(/\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:=[0-9x+\.]+)?/ig);
+      const tokens = m && m.length ? m : [line];
+      tokens.forEach(token => { token = normalizeX(token); if(token) out.push({product_text:token, product_code:'', material:'', qty:qtyFromProduct(token,1)}); });
+    });
+    return out;
+  }
+  function reqKey(prefix){ return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; }
+
+  function ensurePanel(){
+    let panel = $('duplicate-action-panel');
+    if(!panel){
+      panel = document.createElement('div');
+      panel.id = 'duplicate-action-panel';
+      panel.className = 'result-card hidden';
+      const form = $('ocr-text')?.closest('.manual-entry-panel,.upload-panel,.glass.panel') || document.querySelector('.module-screen');
+      form && form.appendChild(panel);
+    }
+    return panel;
+  }
+  function renderDuplicatePanel(data, onConfirm){
+    const panel = ensurePanel();
+    const rows = (data.duplicates || []).map(d => {
+      const existing = (d.existing_rows || []).map(r => `<li>${esc(r.product_text || '')}｜${esc(r.material || '未填材質')}｜現有 ${r.qty || 0} 件${r.customer_name ? `｜${esc(r.customer_name)}` : ''}</li>`).join('') || '<li>本次輸入內重複，尚無舊資料</li>';
+      const incoming = (d.new_items || []).map(r => `<li>${esc(r.product_text || '')}｜新增 ${r.qty || 0} 件</li>`).join('');
+      return `<div class="yx76-dup-item">
+        <div><strong>${esc(d.size || '')}</strong>｜材質：${esc(d.material || '未填材質')}</div>
+        <div class="small-note">目前 ${d.existing_qty || 0} 件，本次 ${d.new_qty || 0} 件；確認後會合併成同一筆。</div>
+        <div class="yx76-dup-columns"><div><b>要合併的舊資料</b><ul>${existing}</ul></div><div><b>本次新增</b><ul>${incoming}</ul></div></div>
+      </div>`;
+    }).join('');
+    panel.innerHTML = `<div class="section-title">發現相同尺寸 + 材質，是否合併？</div>
+      <div class="small-note">請先確認下面列出的資料；按「確認合併送出」後才會合併。</div>
+      ${rows}
+      <div class="btn-row"><button type="button" class="primary-btn" id="yx76-confirm-merge">確認合併送出</button><button type="button" class="ghost-btn" id="yx76-cancel-merge">取消送出</button></div>`;
+    panel.classList.remove('hidden');
+    panel.style.display = '';
+    $('yx76-cancel-merge')?.addEventListener('click', () => { panel.classList.add('hidden'); notify('已取消送出，尚未合併', 'warn'); }, {once:true});
+    $('yx76-confirm-merge')?.addEventListener('click', async () => { panel.classList.add('hidden'); await onConfirm(); }, {once:true});
+    try { panel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_e) {}
+  }
+
+  const oldConfirm = window.confirmSubmit;
+  if (typeof oldConfirm === 'function' && !oldConfirm.__yx76MergeConfirm) {
+    const wrapped = async function(){
+      const mod = moduleKey() || 'inventory';
+      if(!['inventory','orders','master_order'].includes(mod)) return oldConfirm.apply(this, arguments);
+      if(window.__YX76_DUPLICATE_CONFIRMED__){
+        window.__YX76_DUPLICATE_CONFIRMED__ = false;
+        return oldConfirm.apply(this, arguments);
+      }
+      const raw = $('ocr-text')?.value || '';
+      const items = parseItems(raw);
+      const customer = clean($('customer-name')?.value || '');
+      if(!items.length) return oldConfirm.apply(this, arguments);
+      if(['orders','master_order'].includes(mod) && !customer) return oldConfirm.apply(this, arguments);
+      try{
+        const check = await api('/api/duplicate-check', {method:'POST', body:JSON.stringify({module:mod, customer_name:customer, ocr_text:raw, items, request_key:reqKey('dup_check')})});
+        if(check.has_duplicates){
+          renderDuplicatePanel(check, async () => { window.__YX76_DUPLICATE_CONFIRMED__ = true; await window.confirmSubmit(); });
+          return false;
+        }
+      }catch(e){
+        notify(e.message || '合併檢查失敗，已停止送出', 'error');
+        return false;
+      }
+      return oldConfirm.apply(this, arguments);
+    };
+    wrapped.__yx76MergeConfirm = true;
+    wrapped.__yx76Original = oldConfirm;
+    window.confirmSubmit = wrapped;
+  }
+
+  // 圖三的出貨下方紅色/缺貨卡片是重複輔助資訊，出貨仍以「商品資料」與「出貨預覽」為主。
+  function hideShipSelectedCards(){
+    const section = $('ship-selected-section');
+    if(section){ section.classList.add('yx76-hidden-ship-selected'); section.style.display = 'none'; }
+  }
+
+  // 最後保險：倉庫儲存必帶 column_index，避免 API 收到 column 後回「格位參數錯誤」。
+  const oldSaveWarehouseCell = window.saveWarehouseCell;
+  if(typeof oldSaveWarehouseCell === 'function' && !oldSaveWarehouseCell.__yx76WarehouseSave){
+    const fixed = async function(){
+      if(!window.state?.currentCell) return notify('找不到格位資料，請重新點選格子', 'error');
+      const cell = window.state.currentCell || {};
+      try{
+        await api('/api/warehouse/cell', {method:'POST', body:JSON.stringify({
+          zone: cell.zone,
+          column_index: Number(cell.column_index || cell.column || cell.col || 0),
+          slot_type: 'direct',
+          slot_number: Number(cell.slot_number || cell.num || 0),
+          items: window.state.currentCellItems || [],
+          note: $('warehouse-note')?.value || ''
+        })});
+        notify('格位已儲存', 'ok');
+        try{ window.closeWarehouseModal && window.closeWarehouseModal(); }catch(_e){}
+        try{ await (window.renderWarehouse && window.renderWarehouse(true)); }catch(_e){ try{ await window.renderWarehouse(); }catch(_e2){} }
+      }catch(e){ notify(e.message || '格位更新失敗', 'error'); }
+    };
+    fixed.__yx76WarehouseSave = true;
+    window.saveWarehouseCell = fixed;
+  }
+
+  function boot(){
+    try { document.documentElement.dataset.yxFix76 = VERSION; document.body && document.body.setAttribute('data-yx-fix76','1'); } catch(_e) {}
+    hideShipSelectedCards();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot);
+})();
+/* ==== FIX76 end ==== */

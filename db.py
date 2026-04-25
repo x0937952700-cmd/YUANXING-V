@@ -1432,6 +1432,173 @@ def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
             out.append({'id': rid, 'qty': int(qty or 0), 'product_text': product})
     return out
 
+
+# FIX76：合併與出貨判斷統一改成「尺寸 + 材質」；支數/件數只影響數量，不再讓同尺寸商品被當成不同商品。
+def _merge_size_key(product_text):
+    return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
+
+
+def _merge_material_key(material='', product_text=''):
+    return clean_material_value(material or '', product_text or '').replace(' ', '').upper()
+
+
+def _row_material_for_merge(row, product_text=''):
+    return clean_material_value((row.get('material') or row.get('product_code') or ''), product_text or row.get('product_text') or '')
+
+
+def _fetch_matching_size_material_rows(cur, table, product_text, material='', customer_name=None, location=None):
+    target_size = _merge_size_key(product_text)
+    target_material = _merge_material_key(material, product_text)
+    if not target_size:
+        return []
+    wheres = ['qty > 0']
+    params = []
+    if customer_name is not None:
+        wheres.append('COALESCE(customer_name, \'\') = COALESCE(?, \'\')')
+        params.append(customer_name or '')
+    if location is not None:
+        wheres.append('COALESCE(location, \'\') = COALESCE(?, \'\')')
+        params.append(location or '')
+    query = f"SELECT id, qty, product_text, product_code, material FROM {table} WHERE " + ' AND '.join(wheres) + ' ORDER BY id ASC'
+    cur.execute(sql(query), tuple(params))
+    out = []
+    for row in rows_to_dict(cur):
+        product = format_product_text_height2(row.get('product_text') or '')
+        row_material = _row_material_for_merge(row, product)
+        if _merge_size_key(product) == target_size and _merge_material_key(row_material, product) == target_material:
+            row['product_text'] = product
+            row['material'] = row_material
+            row['product_code'] = row_material
+            row['qty'] = int(row.get('qty') or 0)
+            out.append(row)
+    return out
+
+
+def _support_count_map(expr):
+    raw = str(expr or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＋', '+').replace('，', '+').replace(',', '+').replace('；', '+').replace(';', '+').replace('件', '').replace('片', '').strip()
+    counts = {}
+    order = []
+    for seg in [x.strip() for x in raw.split('+') if x.strip()]:
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', seg, flags=re.I)
+        if m:
+            key = str(int(float(m.group(1))))
+            cnt = int(m.group(2) or 1)
+            if key not in counts:
+                order.append(key)
+                counts[key] = 0
+            counts[key] += cnt
+            continue
+        nums = re.findall(r'\d+(?:\.\d+)?', seg)
+        if nums:
+            key = str(int(float(nums[0])))
+            if key not in counts:
+                order.append(key)
+                counts[key] = 0
+            counts[key] += 1
+    return counts, order
+
+
+def _merge_support_expressions(*exprs):
+    counts = {}
+    order = []
+    for expr in exprs:
+        c, o = _support_count_map(expr)
+        for key in o:
+            if key not in counts:
+                order.append(key)
+                counts[key] = 0
+            counts[key] += int(c.get(key) or 0)
+    parts = []
+    for key in order:
+        cnt = int(counts.get(key) or 0)
+        if cnt <= 0:
+            continue
+        parts.append(key if cnt == 1 else f'{key}x{cnt}')
+    return sort_support_expression('+'.join(parts))
+
+
+def _merge_product_text_supports(existing_product, new_product):
+    existing_product = format_product_text_height2(existing_product or '')
+    new_product = format_product_text_height2(new_product or '')
+    size = product_display_size(new_product or existing_product)
+    merged_support = _merge_support_expressions(product_support_text(existing_product), product_support_text(new_product))
+    return format_product_text_height2(f'{size}={merged_support}') if merged_support else (new_product or existing_product)
+
+
+def _merge_items_by_size_material(items):
+    buckets = {}
+    ordered = []
+    for item in items or []:
+        product_text = format_product_text_height2((item.get('product_text') or item.get('product') or '').strip())
+        if not product_text:
+            continue
+        material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+        qty = effective_product_qty(product_text, item.get('qty') or 0)
+        if qty <= 0:
+            continue
+        key = (_merge_size_key(product_text), _merge_material_key(material, product_text))
+        if key not in buckets:
+            row = dict(item)
+            row['product_text'] = product_text
+            row['material'] = material
+            row['product_code'] = material
+            row['qty'] = qty
+            buckets[key] = row
+            ordered.append(key)
+        else:
+            row = buckets[key]
+            row['product_text'] = _merge_product_text_supports(row.get('product_text') or '', product_text)
+            row['qty'] = int(row.get('qty') or 0) + int(qty or 0)
+    return [buckets[k] for k in ordered]
+
+
+def _sum_available_size_material(cur, table, customer_name, product_text, material=''):
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)))
+
+
+def _sum_inventory_size_material(cur, product_text, material=''):
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=None)))
+
+
+def _deduct_from_table_partial_size_material(cur, table, customer_name, product_text, material='', qty_target=0):
+    qty_target = int(qty_target or 0)
+    if qty_target <= 0:
+        return []
+    rows = _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)
+    remain = qty_target
+    used = []
+    for row in rows:
+        if remain <= 0:
+            break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
+    return used
+
+
+def _deduct_from_inventory_size_material(cur, product_text, material='', qty_needed=0):
+    qty_needed = int(qty_needed or 0)
+    rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=None)
+    rows.sort(key=lambda r: (-int(r.get('qty') or 0), int(r.get('id') or 0)))
+    total = sum(int(r.get('qty') or 0) for r in rows)
+    if total < qty_needed:
+        return False, []
+    remain = qty_needed
+    used = []
+    for row in rows:
+        if remain <= 0:
+            break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql("UPDATE inventory SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
+    return True, used
+
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
     conn = get_db()
     cur = conn.cursor()
@@ -1442,27 +1609,16 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
     customer_name = (customer_name or '').strip()
     customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     qty = int(qty or 0)
-    cur.execute(sql("""
-        SELECT id, qty, product_text FROM inventory
-        WHERE COALESCE(location, '') = COALESCE(?, '')
-          AND COALESCE(customer_name, '') = COALESCE(?, '')
-        ORDER BY id DESC
-    """), (location, customer_name))
-    rows = cur.fetchall()
-    target_key = _normalize_product_key(product_text)
-    matched = None
-    for row in rows:
-        existing_text = row[2] if USE_POSTGRES else row['product_text']
-        if _normalize_product_key(existing_text) == target_key:
-            matched = row
-            break
+    rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location)
+    matched = rows[-1] if rows else None
     if matched:
-        rid = matched[0] if USE_POSTGRES else matched["id"]
+        rid = matched["id"]
+        merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
         cur.execute(sql("""
             UPDATE inventory
             SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, material, product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+        """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
             INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
@@ -1487,7 +1643,7 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
     order_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     if duplicate_mode == 'replace':
         for item in items:
-            for row in _fetch_matching_product_rows(cur, 'orders', item.get('product_text') or '', customer_name=customer_name):
+            for row in _fetch_matching_size_material_rows(cur, 'orders', item.get('product_text') or '', item.get('material') or item.get('product_code') or '', customer_name=customer_name):
                 cur.execute(sql("DELETE FROM orders WHERE id = ?"), (row['id'],))
     for item in items:
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
@@ -1499,10 +1655,12 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
         if qty <= 0:
             continue
         if duplicate_mode == 'merge':
-            rows = _fetch_matching_product_rows(cur, 'orders', product_text, customer_name=customer_name)
+            rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name)
             if rows:
-                rid = rows[-1]['id']
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                matched = rows[-1]
+                rid = matched['id']
+                merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
                 continue
         cur.execute(sql("""
             INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
@@ -1518,7 +1676,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
     master_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     if duplicate_mode == 'replace':
         for item in items:
-            for row in _fetch_matching_product_rows(cur, 'master_orders', item.get('product_text') or '', customer_name=customer_name):
+            for row in _fetch_matching_size_material_rows(cur, 'master_orders', item.get('product_text') or '', item.get('material') or item.get('product_code') or '', customer_name=customer_name):
                 cur.execute(sql("DELETE FROM master_orders WHERE id = ?"), (row['id'],))
     for item in items:
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
@@ -1529,13 +1687,15 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
-        rows = _fetch_matching_product_rows(cur, 'master_orders', product_text, customer_name=customer_name)
-        if rows and duplicate_mode != 'replace':
-            rid = rows[-1]['id']
+        rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name)
+        if rows and duplicate_mode == 'merge':
+            matched = rows[-1]
+            rid = matched['id']
+            merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
             cur.execute(sql("""
                 UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, product_text, product_code, material, master_customer_uid, operator, now(), rid))
+            """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
         else:
             cur.execute(sql("""
                 INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
@@ -1682,35 +1842,43 @@ def preview_ship_order(customer_name, items):
     try:
         preview = []
         needs_inventory_fallback = False
+        master_errors = []
+        items = _merge_items_by_size_material(items)
         for item in items:
             product_text = format_product_text_height2(item['product_text'])
-            qty_needed = int(item.get('qty') or 0)
-            master_available = _sum_available(cur, 'master_orders', customer_name, product_text)
-            order_available = _sum_available(cur, 'orders', customer_name, product_text)
-            inventory_available = _sum_inventory(cur, product_text)
-            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
-            inventory_only_ok = inventory_available >= qty_needed
-            needs_fallback = (master_available < qty_needed or order_available < qty_needed) and inventory_only_ok
+            material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+            qty_needed = int(item.get('qty') or effective_product_qty(product_text, 0) or 0)
+            master_available = _sum_available_size_material(cur, 'master_orders', customer_name, product_text, material)
+            order_available = _sum_available_size_material(cur, 'orders', customer_name, product_text, material)
+            inventory_available = _sum_inventory_size_material(cur, product_text, material)
+            master_exceeded = qty_needed > master_available
+            strict_ok = (not master_exceeded) and order_available >= qty_needed and inventory_available >= qty_needed
+            inventory_only_ok = (not master_exceeded) and inventory_available >= qty_needed
+            needs_fallback = (not master_exceeded) and (order_available < qty_needed) and inventory_only_ok
             if needs_fallback:
                 needs_inventory_fallback = True
             shortage_reasons = []
-            if master_available < qty_needed:
-                shortage_reasons.append(f"總單不足 {master_available}/{qty_needed}")
-            if order_available < qty_needed:
+            if master_exceeded:
+                shortage_reasons.append(f"超過總單：總單 {master_available}，本次 {qty_needed}")
+                master_errors.append(f"{product_text} 超過總單：總單 {master_available}，本次 {qty_needed}")
+            if not master_exceeded and order_available < qty_needed:
                 shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
-            if inventory_available < qty_needed:
+            if not master_exceeded and inventory_available < qty_needed:
                 shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
             preview.append({
                 'product_text': product_text,
+                'product_code': material,
+                'material': material,
                 'qty': qty_needed,
                 'master_available': master_available,
                 'order_available': order_available,
                 'inventory_available': inventory_available,
+                'master_exceeded': master_exceeded,
                 'strict_ok': strict_ok,
                 'inventory_only_ok': inventory_only_ok,
                 'needs_inventory_fallback': needs_fallback,
                 'shortage_reasons': shortage_reasons,
-                'recommendation': ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存亦不足')),
+                'recommendation': ('不可出貨，已超過總單' if master_exceeded else ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存不足'))),
                 'source_breakdown': [
                     {'source': '總單', 'available': master_available},
                     {'source': '訂單', 'available': order_available},
@@ -1722,7 +1890,9 @@ def preview_ship_order(customer_name, items):
             'success': True,
             'items': preview,
             'needs_inventory_fallback': needs_inventory_fallback,
-            'message': ('客戶總單/訂單不足，可改扣庫存' if needs_inventory_fallback else '可直接出貨')
+            'master_exceeded': bool(master_errors),
+            'master_errors': master_errors,
+            'message': ('；'.join(master_errors) if master_errors else ('客戶訂單不足，可改扣庫存' if needs_inventory_fallback else '可直接出貨'))
         }
     finally:
         conn.close()
@@ -1733,20 +1903,26 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     ship_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     try:
         breakdown = []
+        items = _merge_items_by_size_material(items)
         for item in items:
             product_text = format_product_text_height2(item["product_text"])
-            qty_needed = int(item["qty"])
+            material = clean_material_value(item.get("material") or item.get("product_code") or "", product_text)
+            qty_needed = int(item.get("qty") or effective_product_qty(product_text, 0) or 0)
 
-            master_available = _sum_available(cur, "master_orders", customer_name, product_text)
-            order_available = _sum_available(cur, "orders", customer_name, product_text)
-            inventory_available = _sum_inventory(cur, product_text)
+            master_available = _sum_available_size_material(cur, "master_orders", customer_name, product_text, material)
+            order_available = _sum_available_size_material(cur, "orders", customer_name, product_text, material)
+            inventory_available = _sum_inventory_size_material(cur, product_text, material)
 
-            strict_ok = master_available >= qty_needed and order_available >= qty_needed and inventory_available >= qty_needed
+            if master_available < qty_needed:
+                conn.rollback()
+                return {"success": False, "error": f"{product_text} 超過總單：總單 {master_available}，本次 {qty_needed}"}
+
+            strict_ok = order_available >= qty_needed and inventory_available >= qty_needed
 
             if strict_ok:
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, qty_needed)
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, qty_needed)
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                used_master = _deduct_from_table_partial_size_material(cur, "master_orders", customer_name, product_text, material, qty_needed)
+                used_order = _deduct_from_table_partial_size_material(cur, "orders", customer_name, product_text, material, qty_needed)
+                ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
@@ -1755,8 +1931,6 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 if not allow_inventory_fallback:
                     conn.rollback()
                     reasons = []
-                    if master_available < qty_needed:
-                        reasons.append(f"總單不足({master_available}/{qty_needed})")
                     if order_available < qty_needed:
                         reasons.append(f"訂單不足({order_available}/{qty_needed})")
                     if inventory_available < qty_needed:
@@ -1765,22 +1939,23 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 if inventory_available < qty_needed:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足，無法改扣庫存"}
-                used_master = _deduct_from_table_partial(cur, "master_orders", customer_name, product_text, min(master_available, qty_needed))
-                used_order = _deduct_from_table_partial(cur, "orders", customer_name, product_text, min(order_available, qty_needed))
-                ok3, used_inv = _deduct_from_inventory(cur, product_text, qty_needed)
+                used_master = _deduct_from_table_partial_size_material(cur, "master_orders", customer_name, product_text, material, min(master_available, qty_needed))
+                used_order = _deduct_from_table_partial_size_material(cur, "orders", customer_name, product_text, material, min(order_available, qty_needed))
+                ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
                 note = "庫存補扣出貨"
 
-            material = (item.get("material") or "").strip()
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, ship_customer_uid, product_text, item.get("product_code", material), material, qty_needed, operator, now(), note))
+            """), (customer_name, ship_customer_uid, product_text, material, material, qty_needed, operator, now(), note))
 
             breakdown.append({
                 "product_text": product_text,
+                "product_code": material,
+                "material": material,
                 "qty": qty_needed,
                 "master_deduct": sum(x["qty"] for x in used_master),
                 "order_deduct": sum(x["qty"] for x in used_order),
@@ -1793,7 +1968,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "order_details": used_order,
                 "inventory_details": used_inv,
                 "note": note,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed),
+                "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=customer_name),
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
                     "order": max(0, order_available - sum(x["qty"] for x in used_order)),

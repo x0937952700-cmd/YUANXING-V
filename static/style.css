@@ -2470,3 +2470,40 @@ html[data-yx-fix74-core] .vertical-slot::after,
 .yx72-ok{color:#047857!important;font-weight:900;}
 @media(max-width:720px){.yx72-weight-row{grid-template-columns:1fr}.yx72-preview-table{min-width:680px}.yx72-ship-summary{grid-template-columns:1fr 1fr;}}
 /* ==== FIX74 end ==== */
+
+/* ==== FIX76 merge-confirm / hide duplicate ship cards ==== */
+.yx76-hidden-ship-selected,
+.module-screen[data-module="ship"] #ship-selected-section{
+  display:none !important;
+}
+#duplicate-action-panel{
+  border:1px solid rgba(28,28,30,.12);
+  background:rgba(255,255,255,.96);
+  border-radius:22px;
+  padding:16px;
+  box-shadow:0 16px 44px rgba(15,23,42,.10);
+}
+.yx76-dup-item{
+  border:1px solid rgba(245,158,11,.28);
+  background:rgba(255,251,235,.72);
+  border-radius:18px;
+  padding:12px;
+  margin:10px 0;
+}
+.yx76-dup-columns{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:8px;
+}
+.yx76-dup-columns ul{
+  margin:6px 0 0;
+  padding-left:18px;
+  color:#475569;
+  font-size:13px;
+  line-height:1.55;
+}
+@media (max-width:720px){
+  .yx76-dup-columns{ grid-template-columns:1fr; }
+}
+/* ==== FIX76 end ==== */
