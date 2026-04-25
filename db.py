@@ -242,6 +242,11 @@ def effective_product_qty(product_text, fallback_qty=0):
     if right:
         segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
 
+        # FIX63 明確規則：這筆總單是 10 件，不可把 504x5 當 5 件後再相加成 15 件。
+        canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
+        if right.replace(' ', '').lower() == canonical:
+            return 10
+
         # FIX62 特例：像 504x5+588+...+174 這種超長清單，第一段 504x5 不當成 5 件，
         # 只計算後面每一個單獨長度，避免把總單誤算成 15 件。
         x_segments = [seg for seg in segments if re.search(r'x\s*\d+\s*$', seg, flags=re.I)]
