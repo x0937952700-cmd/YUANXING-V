@@ -5822,3 +5822,334 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', boot);
 })();
 /* ==== FIX76 end ==== */
+
+/* ==== FIX77 final master stabilization start ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX77_FINAL_MASTER_STABILIZATION';
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const clean = (v) => String(v ?? '').trim();
+  const toast = (msg, kind='ok') => {
+    try { (window.toast || window.showToast || window.alert)(msg, kind); }
+    catch(_e) { try { console.log(msg); } catch(_e2) {} }
+  };
+  const api = window.yxApi || window.requestJSON || (async function(url, opt={}){
+    const res = await fetch(url, { credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})} });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = { success:false, error:text || '伺服器回應格式錯誤' }; }
+    if(!res.ok || data.success === false){ const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  });
+  window.yxApi = api;
+
+  function moduleKey(){
+    return document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule === 'function' ? window.currentModule() : '');
+  }
+  function endpointFor(mod){
+    return mod === 'orders' ? '/api/orders' : mod === 'master_order' ? '/api/master_orders' : mod === 'ship' ? '/api/ship' : '/api/inventory';
+  }
+  function reqKey(prefix){ return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; }
+  function normalizeX(v){
+    return String(v ?? '')
+      .replace(/[Ｘ×✕＊*X]/g,'x')
+      .replace(/[＝]/g,'=')
+      .replace(/[＋，,；;]/g,'+')
+      .replace(/（/g,'(').replace(/）/g,')')
+      .trim();
+  }
+  function formatDim(v, idx){
+    let s = clean(v).replace(/^[_\-]+$/,'');
+    if(!s) return '';
+    if(/^[A-Za-z]+$/.test(s)) return s.toUpperCase();
+    if(/^\d*\.\d+$/.test(s)) {
+      const compact = s.replace('.', '');
+      return s.startsWith('.') ? ('0' + compact) : compact;
+    }
+    if(/^\d+$/.test(s) && idx === 2 && s.length === 1) return s.padStart(2,'0');
+    return s.replace(/\s+/g,'');
+  }
+  function normalizeLeft(left){
+    return normalizeX(left).replace(/\s+/g,'').split(/x/i).slice(0,3).map((p,i)=>formatDim(p,i)).join('x');
+  }
+  function cleanQtyExpr(expr){
+    return normalizeX(expr)
+      .replace(/\s+/g,'')
+      .replace(/片|件/g,'')
+      .replace(/[^0-9A-Za-z一-鿿x+\-().]/g,'')
+      .replace(/\++/g,'+')
+      .replace(/^\+|\+$/g,'');
+  }
+  function sortQtyExpr(expr){
+    const raw = cleanQtyExpr(expr);
+    if(!raw) return '';
+    const multi = [], single = [];
+    raw.split('+').filter(Boolean).forEach((seg, idx) => {
+      const nums = (seg.match(/\d+/g) || []).map(n => parseInt(n, 10) || 0);
+      if(nums.length >= 2 && /x/i.test(seg)) multi.push({seg, cases:nums[1]||0, supports:nums[0]||0, idx});
+      else if(nums.length >= 1) single.push({seg, value:nums[0]||0, idx});
+      else single.push({seg, value:0, idx});
+    });
+    multi.sort((a,b)=>(b.cases-a.cases)||(b.supports-a.supports)||(a.idx-b.idx));
+    single.sort((a,b)=>(b.value-a.value)||(a.idx-b.idx));
+    return multi.map(x=>x.seg).concat(single.map(x=>x.seg)).join('+');
+  }
+  function qtyFromRight(right, originalRight=''){
+    const expr = cleanQtyExpr(right);
+    if(!expr) return 1;
+    if(/[件片]/.test(String(originalRight || '')) && /^\d+$/.test(expr)) return Math.max(1, Number(expr || 0) || 1);
+    const parts = expr.split('+').filter(Boolean);
+    const xParts = parts.filter(p => /^\d+(?:\.\d+)?x\d+$/i.test(p));
+    const bareParts = parts.filter(p => /^\d+(?:\.\d+)?$/.test(p));
+    // 特例：100x30x63=504x5+588+... 這種「多個長度包成同一包」依段數算件數。
+    if(parts.length >= 6 && xParts.length === 1 && bareParts.length === parts.length - 1) return parts.length;
+    let total = 0;
+    parts.forEach(seg => {
+      const m = seg.match(/x\s*(\d+)$/i);
+      if(m) total += Number(m[1] || 0) || 0;
+      else if(/\d/.test(seg)) total += 1;
+    });
+    if(!total && /[件片]/.test(originalRight)){
+      const n = String(originalRight).match(/\d+/);
+      if(n) total = Number(n[0] || 0) || 0;
+    }
+    return Math.max(1, total || 1);
+  }
+  function mergeItems(items){
+    const map = new Map();
+    (items || []).forEach(it => {
+      const text = clean(it.product_text || '');
+      if(!text) return;
+      const material = clean(it.material || it.product_code || '');
+      const key = `${text}||${material}`;
+      const prev = map.get(key) || { product_text:text, product_code:material, material, qty:0 };
+      prev.qty += Number(it.qty || 0) || 0;
+      map.set(key, prev);
+    });
+    return Array.from(map.values()).filter(it => it.product_text && Number(it.qty || 0) > 0);
+  }
+  function parseManualItems(raw){
+    const material = clean($('batch-material')?.value || '');
+    const out = [];
+    let lastDims = ['', '', ''];
+    const lines = String(raw || '').replace(/\r/g,'\n').split(/\n+/).map(s=>normalizeX(s)).filter(Boolean);
+    const push = (leftRaw, rightRaw) => {
+      leftRaw = normalizeX(leftRaw).replace(/\s+/g,'');
+      rightRaw = normalizeX(rightRaw || '');
+      if(!leftRaw) return;
+      let parts = leftRaw.split(/x/i).map(s=>s.trim()).filter(s=>s !== '');
+      let dims = ['', '', ''];
+      if(parts.length >= 3){
+        dims = [0,1,2].map(i => /^[_\-]+$/.test(parts[i] || '') ? (lastDims[i] || '') : (parts[i] || ''));
+      }else if(parts.length === 2 && /^[_\-]+$/.test(parts[1] || '')){
+        dims = [parts[0] || lastDims[0] || '', lastDims[1] || '', lastDims[2] || ''];
+      }else if(parts.length === 2){
+        dims = [parts[0] || lastDims[0] || '', parts[1] || lastDims[1] || '', lastDims[2] || ''];
+      }else if(parts.length === 1){
+        dims = [parts[0] || lastDims[0] || '', lastDims[1] || '', lastDims[2] || ''];
+      }
+      dims = dims.map((d,i)=>formatDim(d,i));
+      if(!dims[0] || !dims[1] || !dims[2]) return;
+      lastDims = dims.slice();
+      let right = sortQtyExpr(rightRaw);
+      if(!right && /[件片]/.test(rightRaw)){
+        const n = rightRaw.match(/\d+/);
+        right = n ? n[0] : '';
+      }
+      if(!right) right = '1';
+      const product_text = `${dims.join('x')}=${right}`;
+      out.push({ product_text, product_code: material, material, qty: qtyFromRight(right, rightRaw) });
+    };
+    lines.forEach(line => {
+      const compact = normalizeX(line).replace(/\s+/g,'');
+      if(!compact) return;
+      // 棧板19片
+      const pallet = compact.match(/^(?:棧板|栈板|木棧板|木栈板)(\d+)片?$/);
+      if(pallet){ out.push({ product_text:`棧板=${pallet[1]}`, product_code:material, material, qty:Number(pallet[1]||0)||1 }); return; }
+      if(compact.includes('=')){
+        const [left, ...rest] = compact.split('=');
+        push(left, rest.join('='));
+        return;
+      }
+      // 無等號但長寬高存在時，當 1 件處理。
+      const dim3 = compact.match(/^((?:[_\-]+|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_\-]+|[A-Za-z]+|\d+(?:\.\d+)?)x(?:[_\-]+|[A-Za-z]+|\d+(?:\.\d+)?))$/i);
+      if(dim3) push(dim3[1], '1');
+    });
+    return mergeItems(out);
+  }
+  function collectSubmitItems(){
+    const box = $('ocr-text');
+    const raw = box?.value || '';
+    let items = parseManualItems(raw);
+    if(!items.length && typeof window.parseTextareaItems === 'function'){
+      try { items = window.parseTextareaItems(); } catch(_e) { items = []; }
+    }
+    if(box && items.length){ box.value = items.map(it => it.product_text).join('\n'); }
+    return mergeItems(items);
+  }
+  window.yx77CollectSubmitItems = collectSubmitItems;
+
+  function ensureResultPanel(id='module-result'){
+    let panel = $(id);
+    if(!panel){ panel = document.createElement('div'); panel.id = id; panel.className = 'result-card'; document.querySelector('.module-screen')?.appendChild(panel); }
+    panel.classList.remove('hidden'); panel.style.display = '';
+    return panel;
+  }
+  function setSubmitBusy(isBusy, text){
+    const btn = $('submit-btn');
+    if(!btn) return;
+    btn.disabled = !!isBusy;
+    btn.dataset.yx77Busy = isBusy ? '1' : '0';
+    btn.textContent = isBusy ? (text || '送出中…') : '確認送出';
+  }
+  function renderDuplicatePanel(data, onConfirm){
+    const panel = ensureResultPanel('duplicate-action-panel');
+    const rows = (data.duplicates || []).map(d => {
+      const oldRows = (d.existing_rows || []).map(r => `<li>${esc(r.product_text || '')}｜材質：${esc(r.material || '未填材質')}｜現有 ${Number(r.qty||0)} 件${r.customer_name ? `｜${esc(r.customer_name)}` : ''}</li>`).join('') || '<li>本次輸入內重複，尚無舊資料</li>';
+      const newRows = (d.new_items || []).map(r => `<li>${esc(r.product_text || '')}｜新增 ${Number(r.qty||0)} 件</li>`).join('') || '<li>本次新增資料</li>';
+      return `<div class="yx76-dup-item"><div><strong>${esc(d.size || '')}</strong>｜材質：${esc(d.material || '未填材質')}</div><div class="small-note">目前 ${Number(d.existing_qty||0)} 件，本次 ${Number(d.new_qty||0)} 件；確認後會合併。</div><div class="yx76-dup-columns"><div><b>舊資料</b><ul>${oldRows}</ul></div><div><b>本次新增</b><ul>${newRows}</ul></div></div></div>`;
+    }).join('');
+    panel.innerHTML = `<div class="section-title">發現相同尺寸 + 材質，是否合併？</div><div class="small-note">下面已列出要合併的資料。按確認後才會合併送出。</div>${rows}<div class="btn-row"><button type="button" class="primary-btn" id="yx77-confirm-merge">確認合併送出</button><button type="button" class="ghost-btn" id="yx77-cancel-merge">取消送出</button></div>`;
+    $('yx77-cancel-merge')?.addEventListener('click', () => { panel.classList.add('hidden'); toast('已取消送出，尚未合併', 'warn'); }, {once:true});
+    $('yx77-confirm-merge')?.addEventListener('click', async () => { panel.classList.add('hidden'); await onConfirm(); }, {once:true});
+    try { panel.scrollIntoView({behavior:'smooth', block:'center'}); } catch(_e) {}
+  }
+
+  function dimToVolumeFactor(v, idx){
+    const raw = clean(v).replace(/^0+(?=\d)/, '');
+    const n = Number(raw || 0);
+    if(!n) return 0;
+    if(idx === 0) return n > 210 ? n / 1000 : n / 100;
+    if(idx === 1) return n / 10;
+    if(idx === 2) return n >= 100 ? n / 100 : n / 10;
+    return n;
+  }
+  function supportSum(productText){
+    const right = cleanQtyExpr(String(productText || '').split('=').slice(1).join('='));
+    if(!right) return 0;
+    let total = 0;
+    right.split('+').filter(Boolean).forEach(seg => {
+      const m = seg.match(/^(\d+(?:\.\d+)?)x(\d+)$/i);
+      if(m) total += (Number(m[1]) || 0) * (Number(m[2]) || 0);
+      else if(/^\d+(?:\.\d+)?$/.test(seg)) total += Number(seg) || 0;
+    });
+    return total;
+  }
+  function volumeForProduct(productText){
+    const left = normalizeLeft(String(productText || '').split('=')[0] || '');
+    const dims = left.split('x');
+    if(dims.length < 3) return 0;
+    const support = supportSum(productText);
+    if(!support) return 0;
+    return support * dimToVolumeFactor(dims[0],0) * dimToVolumeFactor(dims[1],1) * dimToVolumeFactor(dims[2],2);
+  }
+  function renderShipPreview(preview, payload){
+    const panel = ensureResultPanel('ship-preview-panel');
+    const items = Array.isArray(preview.items) ? preview.items : [];
+    const totalVolume = items.reduce((sum, it) => sum + volumeForProduct(it.product_text || ''), 0);
+    const hasShortage = items.some(it => (it.shortage_reasons || []).length);
+    const rows = items.map(it => {
+      const locs = (it.locations || []).map(loc => `<button type="button" class="ship-location-chip ship-location-jump" onclick="quickJumpToModule && quickJumpToModule('warehouse','',${JSON.stringify(it.product_text || '')})">${esc(loc.zone || '')}-${esc(loc.column_index || '')}-${String(loc.visual_slot || loc.slot_number || '').padStart(2,'0')}｜可出 ${Number(loc.ship_qty || loc.qty || 0)}</button>`).join('') || '<span class="small-note">倉庫圖中尚未找到位置</span>';
+      const reasons = (it.shortage_reasons || []).length ? `<div class="error-card compact-danger">${esc((it.shortage_reasons || []).join('、'))}</div>` : '';
+      return `<div class="ship-breakdown-item ${reasons ? 'has-shortage' : ''}"><div><strong>${esc(it.product_text || '')}</strong>｜本次 ${Number(it.qty||0)} 件</div><div class="ship-breakdown-list"><span class="ship-mini-chip">總單 ${Number(it.master_available||0)}</span><span class="ship-mini-chip">訂單 ${Number(it.order_available||0)}</span><span class="ship-mini-chip">庫存 ${Number(it.inventory_available||0)}</span></div>${reasons}<div class="small-note">${esc(it.recommendation || '')}</div><div class="ship-breakdown-list">${locs}</div></div>`;
+    }).join('');
+    panel.innerHTML = `<div class="success-card"><div class="section-title">出貨預覽</div><div class="small-note">${esc(preview.message || '請確認扣除來源、倉庫位置與材積。')}</div></div><div class="ship-preview-summary"><div class="ship-summary-chip">材積<span class="small-note">${totalVolume.toFixed(3)}</span></div><div class="ship-summary-chip">狀態<span class="small-note">${hasShortage ? '需確認' : '可出貨'}</span></div></div>${rows || '<div class="empty-state-card compact-empty">沒有預覽資料</div>'}<div class="glass panel" style="margin-top:12px;"><label class="field-label">重量</label><input id="yx77-ship-weight" class="text-input" type="number" step="0.01" placeholder="輸入重量，自動計算 材積 × 重量"><div class="small-note" id="yx77-ship-weight-result">材積 ${totalVolume.toFixed(3)}</div></div><div class="btn-row"><button type="button" class="ghost-btn" id="yx77-cancel-ship">取消</button><button type="button" class="primary-btn" id="yx77-confirm-ship">確認扣除</button></div>`;
+    $('yx77-ship-weight')?.addEventListener('input', () => {
+      const w = Number($('yx77-ship-weight')?.value || 0);
+      const out = $('yx77-ship-weight-result');
+      if(out) out.textContent = w ? `材積 ${totalVolume.toFixed(3)} × 重量 ${w} = ${(totalVolume*w).toFixed(3)}` : `材積 ${totalVolume.toFixed(3)}`;
+    });
+    $('yx77-cancel-ship')?.addEventListener('click', () => panel.classList.add('hidden'), {once:true});
+    $('yx77-confirm-ship')?.addEventListener('click', async function(){
+      const btn = this;
+      if(btn.dataset.busy === '1') return;
+      btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = '扣除中…';
+      try{
+        const result = await api('/api/ship', {method:'POST', body:JSON.stringify({...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:reqKey('ship_confirm')})});
+        const doneRows = (result.breakdown || []).map(row => `<div class="deduct-card"><div><strong>${esc(row.product_text || '')}</strong>｜本次出貨 ${Number(row.qty||0)}</div><div>扣總單：${Number(row.master_deduct||0)}｜扣訂單：${Number(row.order_deduct||0)}｜扣庫存：${Number(row.inventory_deduct||0)}</div><div class="small-note">剩餘：總單 ${row.remaining_after?.master ?? '-'}｜訂單 ${row.remaining_after?.order ?? '-'}｜庫存 ${row.remaining_after?.inventory ?? '-'}</div></div>`).join('');
+        panel.innerHTML = `<div class="success-card"><div class="section-title">出貨完成</div><div class="small-note">已完成扣除，下面是本次摘要。</div></div>${doneRows || '<div class="empty-state-card compact-empty">已出貨。</div>'}`;
+        toast('出貨完成', 'ok');
+        try { window.loadCustomerBlocks && await window.loadCustomerBlocks(true); } catch(_e) {}
+      }catch(e){
+        toast(e.message || '出貨失敗', 'error');
+        btn.dataset.busy = '0'; btn.disabled = false; btn.textContent = '確認扣除';
+      }
+    });
+    try { panel.scrollIntoView({behavior:'smooth', block:'start'}); } catch(_e) {}
+  }
+
+  async function finalConfirmSubmit(){
+    const btn = $('submit-btn');
+    if(btn?.dataset.yx77Busy === '1') return false;
+    const mod = moduleKey() || 'inventory';
+    const raw = $('ocr-text')?.value || '';
+    const items = collectSubmitItems();
+    const customer = clean($('customer-name')?.value || '');
+    const needCustomer = ['orders','master_order','ship'].includes(mod);
+    const resultPanel = ensureResultPanel('module-result');
+    if(!items.length){ resultPanel.innerHTML = '<div class="error-card">沒有可送出的商品資料，請確認格式。</div>'; toast('沒有可送出的商品資料', 'warn'); return false; }
+    if(needCustomer && !customer){ resultPanel.innerHTML = '<div class="error-card">請先輸入客戶名稱。</div>'; toast('請先輸入客戶名稱', 'warn'); return false; }
+    const payload = { customer_name:customer, ocr_text:raw, items, location:clean($('location-input')?.value || ''), duplicate_mode:'merge', request_key:reqKey(mod) };
+    setSubmitBusy(true, mod === 'ship' ? '整理預覽中…' : '送出中…');
+    try{
+      if(['inventory','orders','master_order'].includes(mod) && !window.__YX77_DUPLICATE_CONFIRMED__){
+        const check = await api('/api/duplicate-check', {method:'POST', body:JSON.stringify({module:mod, customer_name:customer, ocr_text:raw, items, request_key:reqKey('dup_check')})});
+        if(check.has_duplicates){
+          renderDuplicatePanel(check, async () => { window.__YX77_DUPLICATE_CONFIRMED__ = true; await finalConfirmSubmit(); });
+          return false;
+        }
+      }
+      window.__YX77_DUPLICATE_CONFIRMED__ = false;
+      if(needCustomer){ await api('/api/customers', {method:'POST', body:JSON.stringify({name:customer, preserve_existing:true})}).catch(()=>null); }
+      if(mod === 'ship'){
+        const preview = await api('/api/ship-preview', {method:'POST', body:JSON.stringify(payload)});
+        renderShipPreview(preview, payload);
+        toast('已產生出貨預覽', 'ok');
+        return true;
+      }
+      const data = await api(endpointFor(mod), {method:'POST', body:JSON.stringify(payload)});
+      resultPanel.innerHTML = `<div class="success-card"><div class="section-title">送出完成</div><div class="small-note">已建立 / 更新 ${items.length} 筆資料。</div></div>`;
+      toast(mod === 'inventory' ? '庫存送出成功' : mod === 'orders' ? '訂單送出成功' : '總單送出成功', 'ok');
+      try { window.refreshSource && await window.refreshSource(mod, true); } catch(_e) {}
+      try { window.loadCustomerBlocks && await window.loadCustomerBlocks(true); } catch(_e) {}
+      try { needCustomer && window.selectCustomerForModule && await window.selectCustomerForModule(customer); } catch(_e) {}
+      return data;
+    }catch(e){
+      const msg = e.message || '送出失敗';
+      resultPanel.innerHTML = `<div class="error-card">${esc(msg)}</div>`;
+      toast(msg, 'error');
+      return false;
+    }finally{
+      setSubmitBusy(false);
+    }
+  }
+
+  async function finalSaveWarehouseCell(){
+    const cell = window.state?.currentCell || {};
+    const zone = clean(cell.zone || '').toUpperCase();
+    const col = Number(cell.column_index || cell.column || cell.col || 0);
+    const slot = Number(cell.slot_number || cell.num || 0);
+    if(!zone || !col || !slot){ toast('找不到格位資料，請重新點選格子', 'error'); return false; }
+    try{
+      await api('/api/warehouse/cell', {method:'POST', body:JSON.stringify({ zone, column_index:col, slot_type:'direct', slot_number:slot, items:window.state.currentCellItems || [], note:$('warehouse-note')?.value || '' })});
+      toast('格位已儲存', 'ok');
+      try { window.closeWarehouseModal && window.closeWarehouseModal(); } catch(_e) {}
+      try { window.renderWarehouse && await window.renderWarehouse(true); } catch(_e) { try { await window.renderWarehouse(); } catch(_e2) {} }
+      return true;
+    }catch(e){ toast(e.message || '格位更新失敗', 'error'); return false; }
+  }
+
+  function install(){
+    window.confirmSubmit = finalConfirmSubmit;
+    window.saveWarehouseCell = finalSaveWarehouseCell;
+    try { document.documentElement.dataset.yxFix77 = VERSION; document.body && document.body.setAttribute('data-yx-fix77','1'); } catch(_e) {}
+    const shipSelected = $('ship-selected-section');
+    if(shipSelected){ shipSelected.classList.add('yx76-hidden-ship-selected'); shipSelected.style.display = 'none'; }
+  }
+  install();
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  window.addEventListener('pageshow', install);
+  setTimeout(install, 50);
+})();
+/* ==== FIX77 final master stabilization end ==== */

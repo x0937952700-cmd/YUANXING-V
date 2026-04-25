@@ -807,13 +807,21 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 updated_at {text},
                 UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT")
-            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT")
+            # FIX77: SQLite 不支援「ALTER TABLE ... ADD COLUMN IF NOT EXISTS」，
+            # 這裡改成先讀 PRAGMA table_info 再補欄位，避免本機 / 手機 SQLite 初始化直接失敗。
+            cur.execute("PRAGMA table_info(warehouse_cells)")
+            _wh_existing_cols = {r[1] for r in cur.fetchall()}
+            for _col, _def in (
+                ('zone', 'TEXT'),
+                ('column_index', 'INTEGER'),
+                ('slot_type', 'TEXT'),
+                ('slot_number', 'INTEGER'),
+                ('items_json', 'TEXT'),
+                ('note', 'TEXT'),
+                ('updated_at', 'TEXT'),
+            ):
+                if _col not in _wh_existing_cols:
+                    cur.execute(f"ALTER TABLE warehouse_cells ADD COLUMN {_col} {_def}")
             cur.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot
                 ON warehouse_cells(zone, column_index, slot_type, slot_number)
@@ -2105,11 +2113,69 @@ def warehouse_add_column(zone):
         """), (zone, next_col, 'direct', num, '[]', '', now()))
     conn.commit(); conn.close(); return next_col
 
+def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
+    """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
+    cur.execute(sql("""
+        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        ORDER BY slot_number
+    """), (zone, column_index, 'direct'))
+    rows = rows_to_dict(cur)
+    by_slot = {}
+    for row in rows:
+        slot_no = int(row.get('slot_number') or 0)
+        if slot_no < 1:
+            continue
+        note = row.get('note') or ''
+        if str(note).startswith('__USER_') or note in ('__USER_ADDED__', '__USER_INSERTED_SLOT__'):
+            note = ''
+        if slot_no not in by_slot:
+            by_slot[slot_no] = {
+                'items_json': row.get('items_json') or '[]',
+                'note': note,
+                'updated_at': row.get('updated_at') or now(),
+            }
+        else:
+            prev = by_slot[slot_no]
+            prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), row.get('items_json'))
+            prev['note'] = prev.get('note') or note
+            prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(row.get('updated_at') or '')) or now()
+    return [by_slot[k] for k in sorted(by_slot)]
+
+
+def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
+    """整欄刪掉後依序重寫，避免 UNIQUE(zone,column,slot_type,slot_number) 位移衝突。"""
+    cur.execute(sql("""
+        DELETE FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+    """), (zone, column_index, 'direct'))
+    cleaned = []
+    for row in slots:
+        note = row.get('note') or ''
+        if str(note).startswith('__USER_') or note in ('__USER_ADDED__', '__USER_INSERTED_SLOT__'):
+            note = ''
+        cleaned.append({
+            'items_json': row.get('items_json') or '[]',
+            'note': note,
+            'updated_at': row.get('updated_at') or now(),
+        })
+    if not cleaned:
+        cleaned = [{'items_json': '[]', 'note': '', 'updated_at': now()}]
+    for idx, row in enumerate(cleaned, start=1):
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (zone, column_index, 'direct', idx, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
+
+
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
     """新增格子。
 
     insert_after=None 時加在最後；insert_after=0 時加在最前面；
     insert_after=N 時在第 N 格後面插入，後面的格子自動往後順延。
+
+    FIX77：改成整欄安全重排，不再直接 UPDATE n→n+1，避免 SQLite/PostgreSQL 唯一索引衝突。
     """
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index)
@@ -2118,39 +2184,34 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
-        row = fetchone_dict(cur) or {}
-        max_slot = int(row.get('max_slot') or 0)
+        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
+        max_slot = len(slots)
         if insert_after is None or insert_after == '':
             insert_after = max_slot
-        insert_after = int(insert_after)
-        insert_after = max(0, min(insert_after, max_slot))
+        insert_after = max(0, min(int(insert_after), max_slot))
         new_slot = insert_after + 1
-        # 從後往前搬，避免唯一索引衝突。
-        for n in range(max_slot, insert_after, -1):
+        slots.insert(insert_after, {'items_json': '[]', 'note': '', 'updated_at': now()})
+        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        try:
             cur.execute(sql("""
-                UPDATE warehouse_cells
-                SET slot_number = ?, updated_at = ?
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
-            """), (n + 1, now(), zone, column_index, 'direct', n))
-        # 最近格位也要跟著位移，避免「最近使用」指向錯格。
-        cur.execute(sql("""
-            UPDATE warehouse_recent_slots
-            SET slot_number = slot_number + 1
-            WHERE zone = ? AND column_index = ? AND slot_number > ?
-        """), (zone, column_index, insert_after))
-        cur.execute(sql("""
-            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """), (zone, column_index, 'direct', new_slot, '[]', '', now()))
+                UPDATE warehouse_recent_slots
+                SET slot_number = slot_number + 1
+                WHERE zone = ? AND column_index = ? AND slot_number > ?
+            """), (zone, column_index, insert_after))
+        except Exception as e:
+            log_error('warehouse_recent_shift_add', str(e))
         conn.commit(); return new_slot
     except Exception:
         conn.rollback(); raise
     finally:
         conn.close()
 
+
 def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
-    """刪除指定空白格，後面的格子自動往前補位；每欄至少保留 1 格。"""
+    """刪除指定空白格，後面的格子自動往前補位；每欄至少保留 1 格。
+
+    FIX77：改成整欄安全重排，避免直接 UPDATE n→n-1 造成唯一索引衝突或格號跳號。
+    """
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index)
     slot_number = int(slot_number)
@@ -2159,41 +2220,33 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
-        max_row = fetchone_dict(cur) or {}
-        max_slot = int(max_row.get('max_slot') or 0)
+        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
+        max_slot = len(slots)
         if max_slot <= 1:
             return {'success': False, 'error': '每欄至少要保留 1 格'}
         if slot_number < 1 or slot_number > max_slot:
             return {'success': False, 'error': '格號超出範圍'}
-        cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
-        row = fetchone_dict(cur)
-        if not row:
-            return {'success': False, 'error': '找不到格子'}
+        target = slots[slot_number - 1]
         try:
-            items = json.loads(row.get('items_json') or '[]')
+            items = json.loads(target.get('items_json') or '[]')
         except Exception:
             items = []
         if items:
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
-        cur.execute(sql("DELETE FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))
-        # 從前往後補位，讓格號連續。
-        for n in range(slot_number + 1, max_slot + 1):
+        slots.pop(slot_number - 1)
+        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        try:
             cur.execute(sql("""
-                UPDATE warehouse_cells
-                SET slot_number = ?, updated_at = ?
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
-            """), (n - 1, now(), zone, column_index, 'direct', n))
-        # 最近格位也要同步：刪除目標格紀錄，後方格號往前補。
-        cur.execute(sql("""
-            DELETE FROM warehouse_recent_slots
-            WHERE zone = ? AND column_index = ? AND slot_number = ?
-        """), (zone, column_index, slot_number))
-        cur.execute(sql("""
-            UPDATE warehouse_recent_slots
-            SET slot_number = slot_number - 1
-            WHERE zone = ? AND column_index = ? AND slot_number > ?
-        """), (zone, column_index, slot_number))
+                DELETE FROM warehouse_recent_slots
+                WHERE zone = ? AND column_index = ? AND slot_number = ?
+            """), (zone, column_index, slot_number))
+            cur.execute(sql("""
+                UPDATE warehouse_recent_slots
+                SET slot_number = slot_number - 1
+                WHERE zone = ? AND column_index = ? AND slot_number > ?
+            """), (zone, column_index, slot_number))
+        except Exception as e:
+            log_error('warehouse_recent_shift_remove', str(e))
         conn.commit(); return {'success': True, 'removed_slot': slot_number}
     except Exception:
         conn.rollback(); raise
