@@ -2602,3 +2602,43 @@ html[data-yx-fix74-core] .vertical-slot::after,
 /* FIX83 */
 .yx83-legacy-warehouse-controls{display:none!important;}
 #yx80-warehouse-batch-panel.yx82-hidden-control,#yx81-warehouse-batch-panel.yx82-hidden-control{display:none!important;}
+
+
+/* ==== FIX85: 月份尺寸顯示美化 ==== */
+.yx85-month-size{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  white-space:nowrap;
+  vertical-align:middle;
+}
+.yx85-month-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:42px;
+  padding:4px 9px;
+  border-radius:999px;
+  background:#eef7f1;
+  border:1px solid #cfe7d7;
+  color:#0a7a45;
+  font-weight:800;
+  font-size:.86em;
+  line-height:1;
+}
+.yx85-size-body{
+  display:inline-block;
+  font-weight:800;
+  letter-spacing:.01em;
+}
+.yx63-summary-table .yx63-size-cell,
+.yx66-customer-table .yx66-size-cell{
+  min-width:180px;
+}
+@media (max-width: 640px){
+  .yx85-month-size{gap:6px;}
+  .yx85-month-badge{min-width:36px;padding:3px 7px;font-size:.82em;}
+  .yx63-summary-table .yx63-size-cell,
+  .yx66-customer-table .yx66-size-cell{min-width:150px;}
+}
+/* ==== FIX85 end ==== */

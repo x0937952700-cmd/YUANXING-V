@@ -2495,6 +2495,32 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');
   }
   function splitProduct(text){ const raw=normalizeX(text); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
+  // FIX85：有月份前綴時，排序一定改成「月份 → 高 → 寬 → 長」，並把尺寸顯示成月份標籤。
+  function yx85SizeInfo(size){
+    const raw = normalizeX(size || '');
+    const m = raw.match(/^(\d{1,2})(?:月|月份)(.+)$/);
+    const month = m ? Number(m[1] || 0) : 0;
+    const body = m ? (m[2] || '') : raw;
+    const nums = (body.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    return {
+      hasMonth: !!(month >= 1 && month <= 12),
+      month: (month >= 1 && month <= 12) ? month : 99,
+      body,
+      length: Number.isFinite(nums[0]) ? nums[0] : 999999,
+      width: Number.isFinite(nums[1]) ? nums[1] : 999999,
+      height: Number.isFinite(nums[2]) ? nums[2] : 999999
+    };
+  }
+  function yx85PrettySizeText(size){
+    const info = yx85SizeInfo(size);
+    const body = String(info.body || size || '').replace(/x/gi, ' × ');
+    return info.hasMonth ? `${info.month}月 ${body}` : body;
+  }
+  function yx85SizeHTML(size){
+    const info = yx85SizeInfo(size);
+    const body = esc(String(info.body || size || '').replace(/x/gi, ' × '));
+    return info.hasMonth ? `<span class="yx85-month-size"><span class="yx85-month-badge">${info.month}月</span><span class="yx85-size-body">${body}</span></span>` : `<span class="yx85-size-body">${body}</span>`;
+  }
   function qtyFromExpression(expr, fallback=0){
     const raw = normalizeX(expr);
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
@@ -2554,13 +2580,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(source==='master_order') window.__yxMasterRows = window.__yx63Rows[source];
   }
   function yx66DimParts(r){
-    const s = rowSize(r);
-    const nums = String(s || '').split(/x/i).map(v => {
-      if(/^[A-Za-z]+$/.test(v || '')) return 999999;
-      const n = Number(String(v || '').replace(/[^0-9.]/g,''));
-      return Number.isFinite(n) ? n : 999999;
-    });
-    return { length: nums[0] ?? 999999, width: nums[1] ?? 999999, height: nums[2] ?? 999999 };
+    return yx85SizeInfo(rowSize(r));
   }
   function yx66SupportPieces(r){
     const support = String(rowSupport(r) || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+');
@@ -2576,16 +2596,22 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return { maxCase, totalCase, text: support };
   }
   function yx66CompareRows(a,b){
-    const ma = rowMaterial(a), mb = rowMaterial(b);
-    const mat = ma.localeCompare(mb, 'zh-Hant', {numeric:true});
-    if(mat) return mat;
     const da = yx66DimParts(a), db = yx66DimParts(b);
-    // 按使用者要求：高 → 寬 → 長，數字由小到大。
-    if(da.height !== db.height) return da.height - db.height;
-    if(da.width !== db.width) return da.width - db.width;
-    if(da.length !== db.length) return da.length - db.length;
+    // FIX85：只要尺寸有月份，就先用月份由小到大排，再排高、寬、長。
+    if(da.hasMonth || db.hasMonth){
+      if(da.month !== db.month) return da.month - db.month;
+      if(da.height !== db.height) return da.height - db.height;
+      if(da.width !== db.width) return da.width - db.width;
+      if(da.length !== db.length) return da.length - db.length;
+      const mat = rowMaterial(a).localeCompare(rowMaterial(b), 'zh-Hant', {numeric:true}); if(mat) return mat;
+    }else{
+      const ma = rowMaterial(a), mb = rowMaterial(b);
+      const mat = ma.localeCompare(mb, 'zh-Hant', {numeric:true}); if(mat) return mat;
+      if(da.height !== db.height) return da.height - db.height;
+      if(da.width !== db.width) return da.width - db.width;
+      if(da.length !== db.length) return da.length - db.length;
+    }
     const qa = yx66SupportPieces(a), qb = yx66SupportPieces(b);
-    // 同尺寸時，件數多的排前面。
     if(qa.maxCase !== qb.maxCase) return qb.maxCase - qa.maxCase;
     if(qa.totalCase !== qb.totalCase) return qb.totalCase - qa.totalCase;
     return qa.text.localeCompare(qb.text, 'zh-Hant', {numeric:true});
@@ -2697,7 +2723,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         <thead><tr><th class="yx63-material-col">材質</th><th class="yx63-size-col">尺寸</th><th class="yx63-support-col">支數 x 件數</th><th class="yx63-qty-col">數量</th>${source==='inventory'?'<th class="yx63-customer-col">客戶</th>':''}</tr></thead>
         <tbody>${shown.length ? shown.map(r=>`<tr class="yx63-summary-row" data-source="${source}" data-id="${Number(r.id||0)}">
           <td class="yx63-material-cell">${esc(rowMaterial(r))}</td>
-          <td class="yx63-size-cell" title="點尺寸選取"><input class="yx63-row-check" type="checkbox" data-source="${source}" data-id="${Number(r.id||0)}" hidden><span>${esc(rowSize(r))}</span></td>
+          <td class="yx63-size-cell" title="點尺寸選取"><input class="yx63-row-check" type="checkbox" data-source="${source}" data-id="${Number(r.id||0)}" hidden><span>${yx85SizeHTML(rowSize(r))}</span></td>
           <td class="yx63-support-cell">${esc(rowSupport(r))}</td>
           <td class="yx63-qty-cell">${rowQty(r)}</td>${source==='inventory'?`<td class="yx63-customer-cell">${esc(r.customer_name||'')}</td>`:''}
         </tr>`).join('') : `<tr><td colspan="${cols}">目前沒有資料</td></tr>`}</tbody>
@@ -2710,7 +2736,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return `<div class="card inventory-action-card yx63-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(r.customer_name||'')}">
       <div class="yx63-item-grid">
         <div><span>材質</span><b>${esc(rowMaterial(r))}</b></div>
-        <div><span>尺寸</span><b>${esc(rowSize(r))}</b></div>
+        <div><span>尺寸</span><b>${yx85SizeHTML(rowSize(r))}</b></div>
         <div><span>支數 x 件數</span><b>${esc(rowSupport(r))}</b></div>
         <div><span>數量</span><b>${rowQty(r)}</b></div>
         ${r.customer_name ? `<div class="yx63-item-customer">客戶：${esc(r.customer_name)}</div>`:''}
@@ -3168,6 +3194,32 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function splitProduct(text){ const raw=normalizeX(text); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
+  // FIX85：客戶商品明細 / 出貨下拉也要使用月份排序與漂亮格式。
+  function yx85SizeInfo(size){
+    const raw = normalizeX(size || '');
+    const m = raw.match(/^(\d{1,2})(?:月|月份)(.+)$/);
+    const month = m ? Number(m[1] || 0) : 0;
+    const body = m ? (m[2] || '') : raw;
+    const nums = (body.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    return {
+      hasMonth: !!(month >= 1 && month <= 12),
+      month: (month >= 1 && month <= 12) ? month : 99,
+      body,
+      length: Number.isFinite(nums[0]) ? nums[0] : 999999,
+      width: Number.isFinite(nums[1]) ? nums[1] : 999999,
+      height: Number.isFinite(nums[2]) ? nums[2] : 999999
+    };
+  }
+  function yx85PrettySizeText(size){
+    const info = yx85SizeInfo(size);
+    const body = String(info.body || size || '').replace(/x/gi, ' × ');
+    return info.hasMonth ? `${info.month}月 ${body}` : body;
+  }
+  function yx85SizeHTML(size){
+    const info = yx85SizeInfo(size);
+    const body = esc(String(info.body || size || '').replace(/x/gi, ' × '));
+    return info.hasMonth ? `<span class="yx85-month-size"><span class="yx85-month-badge">${info.month}月</span><span class="yx85-size-body">${body}</span></span>` : `<span class="yx85-size-body">${body}</span>`;
+  }
   function supportQty(expr, fallback=0){
     const raw=normalizeX(expr); const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;
     if(!right) return Number(fallback||0)||0;
@@ -3193,8 +3245,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function rowQty(r){ return supportQty(r?.product_text || r?.support || '', r?.qty || 0); }
 
   function dimParts(r){
-    const nums=String(rowSize(r)||'').split(/x/i).map(v=>{ if(/^[A-Za-z]+$/.test(v||'')) return 999999; const n=Number(String(v||'').replace(/[^0-9.]/g,'')); return Number.isFinite(n)?n:999999; });
-    return {length:nums[0]??999999,width:nums[1]??999999,height:nums[2]??999999};
+    return yx85SizeInfo(rowSize(r));
   }
   function supportRank(r){
     const parts=String(rowSupport(r)||'').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+').split('+').map(clean).filter(Boolean);
@@ -3203,11 +3254,20 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return {maxCase,totalCase,text:parts.join('+')};
   }
   function compareRows(a,b){
-    const mat=rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant',{numeric:true}); if(mat) return mat;
     const da=dimParts(a), db=dimParts(b);
-    if(da.height!==db.height) return da.height-db.height;
-    if(da.width!==db.width) return da.width-db.width;
-    if(da.length!==db.length) return da.length-db.length;
+    // FIX85：只要有月份，優先依「月份 → 高 → 寬 → 長」由小到大。
+    if(da.hasMonth || db.hasMonth){
+      if(da.month!==db.month) return da.month-db.month;
+      if(da.height!==db.height) return da.height-db.height;
+      if(da.width!==db.width) return da.width-db.width;
+      if(da.length!==db.length) return da.length-db.length;
+      const mat=rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant',{numeric:true}); if(mat) return mat;
+    }else{
+      const mat=rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant',{numeric:true}); if(mat) return mat;
+      if(da.height!==db.height) return da.height-db.height;
+      if(da.width!==db.width) return da.width-db.width;
+      if(da.length!==db.length) return da.length-db.length;
+    }
     const qa=supportRank(a), qb=supportRank(b);
     if(qa.maxCase!==qb.maxCase) return qb.maxCase-qa.maxCase;
     if(qa.totalCase!==qb.totalCase) return qb.totalCase-qa.totalCase;
@@ -3228,7 +3288,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const total=sorted.reduce((s,it)=>s+rowQty(it),0);
     const rows=sorted.map(it=>`<tr class="yx66-customer-product-row" data-source="${esc(it.source||'')}" data-id="${Number(it.id||0)}">
       <td class="yx66-material-cell">${esc(rowMaterial(it))}</td>
-      <td class="yx66-size-cell">${esc(rowSize(it))}</td>
+      <td class="yx66-size-cell">${yx85SizeHTML(rowSize(it))}</td>
       <td class="yx66-support-cell">${esc(rowSupport(it))}</td>
       <td class="yx66-qty-cell">${rowQty(it)}</td>
       <td class="yx66-source-cell">${esc(it.source||'')}</td>
@@ -3254,7 +3314,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       const d=await api(`/api/customer-items?name=${encodeURIComponent(finalName)}&customer_uid=${encodeURIComponent(finalUid)}&ts=${Date.now()}`, {method:'GET'});
       const items=Array.isArray(d.items)?d.items:[];
       window.__YX_SHIP_CUSTOMER_ITEMS__=items.sort(compareRows);
-      sel.innerHTML='<option value="">請選擇商品</option>'+window.__YX_SHIP_CUSTOMER_ITEMS__.map((it,i)=>`<option value="${i}">${esc(rowMaterial(it)||'未填材質')}｜${esc(rowSize(it))}｜${esc(rowSupport(it))}｜${rowQty(it)}件｜${esc(it.source||'')}</option>`).join('');
+      sel.innerHTML='<option value="">請選擇商品</option>'+window.__YX_SHIP_CUSTOMER_ITEMS__.map((it,i)=>`<option value="${i}">${esc(rowMaterial(it)||'未填材質')}｜${esc(yx85PrettySizeText(rowSize(it)))}｜${esc(rowSupport(it))}｜${rowQty(it)}件｜${esc(it.source||'')}</option>`).join('');
       if(!items.length) sel.innerHTML='<option value="">此客戶目前沒有商品</option>';
       return items;
     }catch(e){ sel.innerHTML=`<option value="">${esc(e.message||'商品載入失敗')}</option>`; window.__YX_SHIP_CUSTOMER_ITEMS__=[]; return []; }
@@ -7818,3 +7878,111 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   setTimeout(install84,600);
 })();
 /* ==== FIX84: submit refresh + month sort master patch end ==== */
+
+
+/* ==== FIX85: month-first sort + pretty month display fallback start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX85_MONTH_FIRST_PRETTY_TABLES';
+  const clean=v=>String(v??'').trim();
+  const esc=v=>String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,''); }
+  function sizeInfo(value){
+    const raw=norm(value).split('=')[0] || norm(value);
+    const m=raw.match(/^(\d{1,2})(?:月|月份)(.+)$/);
+    const month=m?Number(m[1]||0):0;
+    const body=m?(m[2]||''):raw;
+    const nums=(body.match(/\d+(?:\.\d+)?/g)||[]).map(Number);
+    return {hasMonth:month>=1&&month<=12, month:(month>=1&&month<=12)?month:99, body, length:nums[0]??999999, width:nums[1]??999999, height:nums[2]??999999};
+  }
+  function supportInfo(text){
+    const raw=norm(text).replace(/[＋，,；;]/g,'+');
+    const parts=raw.split('+').filter(Boolean);
+    let maxCase=0,totalCase=0;
+    parts.forEach(seg=>{ const m=seg.match(/x\s*(\d+)$/i); const c=m?Number(m[1]||0):(/\d/.test(seg)?1:0); maxCase=Math.max(maxCase,c); totalCase+=c; });
+    return {maxCase,totalCase,text:raw};
+  }
+  function cmpRowText(a,b){
+    const sa=sizeInfo(a.size), sb=sizeInfo(b.size);
+    if(sa.hasMonth || sb.hasMonth){
+      if(sa.month!==sb.month) return sa.month-sb.month;
+      if(sa.height!==sb.height) return sa.height-sb.height;
+      if(sa.width!==sb.width) return sa.width-sb.width;
+      if(sa.length!==sb.length) return sa.length-sb.length;
+      const mat=(a.material||'').localeCompare(b.material||'','zh-Hant',{numeric:true}); if(mat) return mat;
+    }else{
+      const mat=(a.material||'').localeCompare(b.material||'','zh-Hant',{numeric:true}); if(mat) return mat;
+      if(sa.height!==sb.height) return sa.height-sb.height;
+      if(sa.width!==sb.width) return sa.width-sb.width;
+      if(sa.length!==sb.length) return sa.length-sb.length;
+    }
+    const qa=supportInfo(a.support), qb=supportInfo(b.support);
+    if(qa.maxCase!==qb.maxCase) return qb.maxCase-qa.maxCase;
+    if(qa.totalCase!==qb.totalCase) return qb.totalCase-qa.totalCase;
+    return qa.text.localeCompare(qb.text,'zh-Hant',{numeric:true});
+  }
+  function prettySizeHTML(size){
+    const info=sizeInfo(size);
+    const body=esc(String(info.body||size||'').replace(/x/gi,' × '));
+    return info.hasMonth ? `<span class="yx85-month-size"><span class="yx85-month-badge">${info.month}月</span><span class="yx85-size-body">${body}</span></span>` : `<span class="yx85-size-body">${body}</span>`;
+  }
+  function getCellText(row, selectors){
+    for(const sel of selectors){ const el=row.querySelector(sel); if(el) return clean(el.textContent); }
+    return '';
+  }
+  function sortAndDecorateTable(table){
+    if(!table || table.dataset.yx85Sorting==='1') return;
+    const tbody=table.tBodies && table.tBodies[0]; if(!tbody) return;
+    const rows=Array.from(tbody.rows).filter(r=>r.children && r.children.length>=2);
+    if(rows.length<2 && !rows.length) return;
+    const mapped=rows.map((row,idx)=>{
+      const cls=table.className||'';
+      let material='', size='', support='';
+      if(cls.includes('yx63-summary-table')){
+        material=getCellText(row,['.yx63-material-cell','td:nth-child(1)']);
+        size=getCellText(row,['.yx63-size-cell','td:nth-child(2)']);
+        support=getCellText(row,['.yx63-support-cell','td:nth-child(3)']);
+      }else if(cls.includes('yx66-customer-table')){
+        material=getCellText(row,['.yx66-material-cell','td:nth-child(1)']);
+        size=getCellText(row,['.yx66-size-cell','td:nth-child(2)']);
+        support=getCellText(row,['.yx66-support-cell','td:nth-child(3)']);
+      }else{
+        const head=Array.from(table.querySelectorAll('thead th')).map(th=>clean(th.textContent));
+        const sizeIdx=head.findIndex(h=>h.includes('尺寸'));
+        const materialIdx=head.findIndex(h=>h.includes('材質'));
+        const supportIdx=head.findIndex(h=>h.includes('支數'));
+        if(sizeIdx<0) return {row,idx,skip:true};
+        size=clean(row.cells[sizeIdx]?.textContent||'');
+        material=materialIdx>=0?clean(row.cells[materialIdx]?.textContent||''):'';
+        support=supportIdx>=0?clean(row.cells[supportIdx]?.textContent||''):'';
+      }
+      return {row,idx,material,size,support};
+    }).filter(x=>!x.skip);
+    if(!mapped.some(x=>sizeInfo(x.size).hasMonth)){
+      decorateOnly(table);
+      return;
+    }
+    table.dataset.yx85Sorting='1';
+    mapped.sort((a,b)=>cmpRowText(a,b)||a.idx-b.idx).forEach(x=>tbody.appendChild(x.row));
+    table.dataset.yx85Sorting='0';
+    decorateOnly(table);
+  }
+  function decorateOnly(root){
+    root.querySelectorAll('.yx63-size-cell span,.yx66-size-cell,td:nth-child(2)').forEach(cell=>{
+      if(cell.dataset.yx85Decorated==='1') return;
+      const raw=clean(cell.textContent);
+      if(!sizeInfo(raw).hasMonth) return;
+      cell.innerHTML=prettySizeHTML(raw);
+      cell.dataset.yx85Decorated='1';
+    });
+  }
+  function run(){
+    try{ document.documentElement.dataset.yxFix85=VERSION; }catch(_e){}
+    document.querySelectorAll('table.yx63-summary-table,table.yx66-customer-table,.customer-table-wrap table').forEach(sortAndDecorateTable);
+  }
+  const debounced=()=>{ clearTimeout(window.__yx85Timer); window.__yx85Timer=setTimeout(run,60); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run,{once:true}); else run();
+  try{ new MutationObserver(debounced).observe(document.body||document.documentElement,{childList:true,subtree:true}); }catch(_e){}
+  window.addEventListener('pageshow',debounced);
+})();
+/* ==== FIX85: month-first sort + pretty month display fallback end ==== */
