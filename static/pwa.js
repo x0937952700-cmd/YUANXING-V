@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix71-one-table-longpress-customer-repair';
+  const PWA_VERSION = 'fix71-table-warehouse-customer-master-cleanup';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
