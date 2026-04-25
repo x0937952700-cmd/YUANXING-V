@@ -9,7 +9,7 @@ FIX70 最終衝突收斂版
 4. loadCustomerBlocks / renderWarehouse / renderCustomers / loadShipCustomerItems66 / 今日異動 / 代辦 / 出貨查詢 / 設定資料載入全部加上最後一層 single-flight 收斂，降低返回與進功能頁卡頓。
 5. 確認送出加最後一層單次鎖，避免連點或舊 handler 衝突造成重複送出。
 6. 內建 yx70SmokeCheck，會掃描目前頁面 onclick / onsubmit 是否有缺函式，避免按鈕按下完全無反應。
-7. PWA / base.html / service-worker 版本更新為 fix71-one-table-longpress-customer-repair，避免手機吃舊快取。
+7. PWA / base.html / service-worker 版本更新為 fix70-final-conflict-convergence，避免手機吃舊快取。
 8. manifest 捷徑 URL 修正為實際路由 /inventory、/warehouse、/today-changes。
 
 覆蓋方式：

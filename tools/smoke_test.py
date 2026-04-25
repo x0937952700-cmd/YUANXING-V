@@ -10,17 +10,20 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "fix71-one-table-longpress-customer-repair",
+        "fix72-table-longpress-customer-repair",
         "window.__YX70_FINAL_CONFLICT_CONVERGENCE__",
         "yx70SmokeCheck",
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
+        "fix72-table-longpress-customer-repair",
+        "window.fillCustomerForm",
+        "yx71-warehouse-action-sheet",
     ],
-    "static/style.css": ["FIX70 final conflict convergence", "yx70-busy", "warehouse-plusminus-btn"],
-    "templates/base.html": ["fix71-one-table-longpress-customer-repair", "app.js", "pwa.js"],
-    "static/service-worker.js": ["fix71-one-table-longpress-customer-repair"],
-    "static/pwa.js": ["fix71-one-table-longpress-customer-repair"],
+    "static/style.css": ["FIX70 final conflict convergence", "FIX72 one-table", "yx70-busy", "warehouse-plusminus-btn", "yx71-one-table"],
+    "templates/base.html": ["fix72-table-longpress-customer-repair", "app.js", "pwa.js"],
+    "static/service-worker.js": ["fix72-table-longpress-customer-repair"],
+    "static/pwa.js": ["fix72-table-longpress-customer-repair"],
     "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"'],
 }
 for rel, tokens in required.items():
@@ -49,4 +52,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX70 smoke test OK")
+print("FIX72 smoke test OK")
