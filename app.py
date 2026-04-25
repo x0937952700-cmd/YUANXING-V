@@ -755,6 +755,10 @@ def _parse_items_from_request(data):
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
+            # FIX80：保留出貨借貨來源客戶，避免 normalize 後被吃掉。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed'):
+                if isinstance(it, dict) and it.get(_k) not in (None, ''):
+                    fixed[_k] = it.get(_k)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
                 continue
             cleaned.append(fixed)
@@ -1753,6 +1757,59 @@ def _build_anomalies(inv_rows, order_rows, master_rows):
     return anomalies
 
 
+def _format_24h(ts):
+    """固定回傳 24 小時制 YYYY-MM-DD HH:MM:SS，避免前端或瀏覽器轉成 AM/PM。"""
+    raw = str(ts or '').strip()
+    if not raw:
+        return ''
+    try:
+        return datetime.fromisoformat(raw.replace('T', ' ')[:19]).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return raw[:19]
+
+
+def _today_unplaced_all_sources():
+    """FIX80：未錄入倉庫圖要統計 訂單 + 總單 + 庫存 的所有尚未加入數量。"""
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
+    except Exception as e:
+        log_error('today_unplaced_all_sources', str(e))
+        return []
+    out = []
+    for key, total_qty in source_totals.items():
+        size, customer = key
+        total_qty = int(total_qty or 0)
+        placed_qty = int(placed.get(key, 0) or 0)
+        unplaced_qty = max(0, total_qty - placed_qty)
+        if unplaced_qty <= 0:
+            continue
+        source_qty = {}
+        product_text = size
+        for detail in source_details.get(key, []):
+            src = detail.get('source') or '來源'
+            source_qty[src] = int(source_qty.get(src, 0) or 0) + int(detail.get('qty') or 0)
+            product_text = detail.get('product_text') or product_text
+        source_summary = '、'.join(f'{k}{v}' for k, v in source_qty.items())
+        label = f"尚未加入倉庫圖：{customer + '｜' if customer else ''}{product_text}｜未錄入 {unplaced_qty} 件"
+        if source_summary:
+            label += f"｜來源：{source_summary}"
+        out.append({
+            'type': 'unplaced',
+            'message': label,
+            'customer_name': customer,
+            'product_text': product_text,
+            'qty': unplaced_qty,
+            'unplaced_qty': unplaced_qty,
+            'total_qty': total_qty,
+            'placed_qty': placed_qty,
+            'source_qty': source_qty,
+            'source_summary': source_summary,
+        })
+    out.sort(key=lambda r: (r.get('customer_name') or '', product_sort_tuple(r.get('product_text') or '')))
+    return out
+
+
 def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
@@ -1764,47 +1821,42 @@ def _today_changes_payload():
     inbound = []
     outbound = []
     new_orders = []
-    others = []
     for r in logs:
+        r['created_at'] = _format_24h(r.get('created_at'))
         action = r.get('action') or ''
-        if '出貨' in action:
+        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
+        if action == '完成出貨' or action.startswith('完成出貨'):
             outbound.append(r)
-        elif '訂單' in action:
+        elif action == '建立訂單' or action.startswith('建立訂單'):
             new_orders.append(r)
-        elif any(k in action for k in ['庫存', '進貨', 'OCR', '總單', '儲存客戶']):
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
-        else:
-            others.append(r)
 
-    inv = inventory_summary()
-    orders = get_orders()
-    masters = get_master_orders()
-    anomalies = _build_anomalies(inv, orders, masters)
-    anomaly_list = []
-    for key in ['negative_inventory', 'orders_over_master', 'master_over_inventory', 'duplicate_products', 'shipping_deduction', 'ocr_errors', 'blocked_logins']:
-        anomaly_list.extend(anomalies.get(key, []))
-    unplaced = anomalies['unplaced']
+    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
-    unread_count = len([r for r in logs if not read_at or (r.get('created_at') or '') > read_at])
+    visible_logs = inbound + outbound + new_orders
+    unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
+    unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
         'summary': {
             'inbound_count': len(inbound),
             'outbound_count': len(outbound),
             'new_order_count': len(new_orders),
-            'unplaced_count': len(unplaced),
-            'anomaly_count': len(anomaly_list),
+            'unplaced_count': unplaced_total_qty,
+            'unplaced_row_count': len(unplaced),
+            'anomaly_count': 0,
             'unread_count': unread_count,
         },
         'feed': {
             'inbound': inbound[:60],
             'outbound': outbound[:60],
             'new_orders': new_orders[:60],
-            'others': others[:40],
+            'others': [],
         },
-        'unplaced_items': unplaced[:120],
-        'anomalies': anomaly_list[:120],
-        'anomaly_groups': anomalies,
+        'unplaced_items': unplaced[:200],
+        'anomalies': [],
+        'anomaly_groups': {'unplaced': unplaced},
         'read_at': read_at,
     }
 

@@ -2507,3 +2507,11 @@ html[data-yx-fix74-core] .vertical-slot::after,
   .yx76-dup-columns{ grid-template-columns:1fr; }
 }
 /* ==== FIX76 end ==== */
+
+/* FIX80 UI polish */
+.yx80-placement-badge{display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;margin-right:8px;border-radius:999px;background:#111827;color:#fff;font-size:12px;font-weight:700;white-space:nowrap;}
+.yx80-warehouse-batch-panel{margin:12px 0;padding:12px;border:1px solid rgba(15,23,42,.08);border-radius:18px;background:rgba(255,255,255,.55);}
+.yx80-batch-row{display:grid;grid-template-columns:58px 1fr 88px;gap:8px;align-items:center;margin:8px 0;}
+.yx80-batch-label{font-weight:800;color:#0f172a;font-size:13px;}
+.yx80-borrow-card{max-width:720px;width:min(92vw,720px);}
+@media(max-width:640px){.yx80-batch-row{grid-template-columns:1fr;}.yx80-batch-label{padding-left:4px;}}
