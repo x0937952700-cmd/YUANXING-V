@@ -124,18 +124,37 @@ def clean_material_value(value='', product_text=''):
         return ''
     return v.upper() if re.fullmatch(r'[A-Za-z0-9_\-\/]+', v) else v
 
-def product_display_size(text):
-    """Return the visible size exactly as the user entered it.
 
-    FIX74: 0xx heights such as 073 / 063 / 006 must not be converted to
-    73 / 63 / 06, because the leading zero is part of the volume rule.
+# FIX84：月份前綴排序 / 顯示支援，例如「12月132x50x06=294x8」。
+def _split_month_prefix(left):
+    raw = str(left or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = re.sub(r'\s+', '', raw)
+    m = re.match(r'^(\d{1,2})(?:月|月份)(.+)$', raw)
+    if m:
+        try:
+            month = int(m.group(1))
+            body = m.group(2) or ''
+            if 1 <= month <= 12 and body:
+                return month, body
+        except Exception:
+            pass
+    return 0, raw
+
+
+def _format_left_with_month(left):
+    month, body = _split_month_prefix(left)
+    size = _normalize_left_size_preserve_zero(body)
+    return f"{month}月{size}" if month else size
+
+def product_display_size(text):
+    """Return visible size; preserve 0xx heights and optional month prefix.
+
+    FIX84: if the item starts with a month, e.g. 12月132x50x06=294x8,
+    keep the month for display and sort by 月份 > 高 > 寬 > 長.
     """
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw)
-    parts = [p.strip() for p in re.split(r'x', left, flags=re.I) if p.strip() != '']
-    if len(parts) >= 3:
-        return 'x'.join(_format_dim_token_preserve_zero(parts[i], i == 2) for i in range(3))
-    return re.sub(r'\s+', '', left)
+    return _format_left_with_month(left)
 
 
 
@@ -184,12 +203,12 @@ def _normalize_left_size_preserve_zero(left):
 
 
 def format_product_text_height2(text):
-    """顯示/儲存用商品文字：保留 063/083 前導 0，0.83 -> 083，右側支數件數照規則排序。"""
+    """顯示/儲存用商品文字：保留 063/083 前導 0、月份前綴，右側支數件數照規則排序。"""
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     if not raw:
         return ''
     left, sep, right = raw.partition('=')
-    size = _normalize_left_size_preserve_zero(left.strip())
+    size = _format_left_with_month(left.strip())
     if not sep:
         return size or raw
     support = sort_support_expression(str(right or '').replace('件', '').replace('片', '').strip())
@@ -250,13 +269,15 @@ def _normalize_warehouse_item_texts(cur):
         log_error('normalize_warehouse_item_texts', str(e))
 
 def product_sort_tuple(text):
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw)
-    nums = [int(x) for x in re.findall(r'\d+', left)]
+    month, body = _split_month_prefix(left)
+    nums = [int(x) for x in re.findall(r'\d+', body)]
+    month_key = month if month else 99
     if len(nums) >= 3:
         length, width, height = nums[:3]
-        return (height, width, length, raw)
-    return (999999, 999999, 999999, raw)
+        return (month_key, height, width, length, raw)
+    return (month_key, 999999, 999999, 999999, raw)
 
 
 def product_support_text(text):
@@ -1570,7 +1591,7 @@ def _merge_items_by_size_material(items):
             continue
         # FIX80：借貨出貨時，同尺寸同材質但來源客戶不同不可被合併，避免扣錯客戶。
         borrow_from = (item.get('borrow_from_customer_name') or item.get('source_customer_name') or '').strip()
-        key = (_merge_size_key(product_text), _merge_material_key(material, product_text), borrow_from)
+        key = (_merge_size_key(product_text), _merge_material_key(material, product_text), borrow_from, _normalize_ship_source_preference(item.get('source_preference') or item.get('deduct_source') or item.get('source')))
         if key not in buckets:
             row = dict(item)
             row['product_text'] = product_text
@@ -1870,6 +1891,21 @@ def _warehouse_locations_for_product(product_text, qty_needed=None, customer_nam
         remain -= take
     return plan
 
+
+
+def _normalize_ship_source_preference(value):
+    """Normalize shipping source preference sent by the front-end."""
+    raw = str(value or '').strip().lower()
+    mapping = {
+        '總單': 'master_orders', 'master': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders',
+        '訂單': 'orders', 'order': 'orders', 'orders': 'orders',
+        '庫存': 'inventory', 'stock': 'inventory', 'inventory': 'inventory',
+    }
+    return mapping.get(raw, '')
+
+def _ship_source_label(source):
+    return {'master_orders': '總單', 'orders': '訂單', 'inventory': '庫存'}.get(source or '', '')
+
 def preview_ship_order(customer_name, items):
     conn = get_db()
     cur = conn.cursor()
@@ -1885,10 +1921,64 @@ def preview_ship_order(customer_name, items):
             borrow_from = (item.get('borrow_from_customer_name') or item.get('source_customer_name') or '').strip()
             source_customer = borrow_from or customer_name
             is_borrowed = bool(borrow_from and borrow_from != customer_name)
+            source_pref = _normalize_ship_source_preference(item.get('source_preference') or item.get('deduct_source') or item.get('source'))
+            source_label = _ship_source_label(source_pref)
 
             master_available = _sum_available_size_material(cur, 'master_orders', source_customer, product_text, material)
             order_available = _sum_available_size_material(cur, 'orders', source_customer, product_text, material)
             inventory_available = _sum_inventory_size_material(cur, product_text, material)
+            before = {'master': master_available, 'order': order_available, 'inventory': inventory_available}
+
+            if source_pref:
+                available_map = {'master_orders': master_available, 'orders': order_available, 'inventory': inventory_available}
+                selected_available = int(available_map.get(source_pref, 0) or 0)
+                shortage = max(0, qty_needed - selected_available)
+                shortage_reasons = []
+                if shortage:
+                    shortage_reasons.append(f"{source_label}不足 {selected_available}/{qty_needed}")
+                rec = (f"可從{source_label}出貨" if not shortage else f"不可出貨，{source_label}不足")
+                if is_borrowed:
+                    rec = f"向{source_customer}借貨：" + rec
+                after = dict(before)
+                if source_pref == 'master_orders':
+                    after['master'] = max(0, master_available - min(qty_needed, master_available))
+                elif source_pref == 'orders':
+                    after['order'] = max(0, order_available - min(qty_needed, order_available))
+                elif source_pref == 'inventory':
+                    after['inventory'] = max(0, inventory_available - min(qty_needed, inventory_available))
+                preview.append({
+                    'product_text': product_text,
+                    'product_code': material,
+                    'material': material,
+                    'qty': qty_needed,
+                    'master_available': master_available,
+                    'order_available': order_available,
+                    'inventory_available': inventory_available,
+                    'selected_available': selected_available,
+                    'source_preference': source_pref,
+                    'source_label': source_label,
+                    'deduct_before': before,
+                    'deduct_after': after,
+                    'shortage_qty': shortage,
+                    'master_exceeded': False,
+                    'strict_ok': shortage == 0,
+                    'inventory_only_ok': source_pref == 'inventory' and shortage == 0,
+                    'needs_inventory_fallback': False,
+                    'shortage_reasons': shortage_reasons,
+                    'recommendation': rec,
+                    'borrow_from_customer_name': borrow_from,
+                    'source_customer_name': source_customer,
+                    'ship_customer_name': customer_name,
+                    'is_borrowed': is_borrowed,
+                    'source_breakdown': [
+                        {'source': ('總單' if not is_borrowed else f'{source_customer}總單'), 'available': master_available, 'selected': source_pref == 'master_orders'},
+                        {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': source_pref == 'orders'},
+                        {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
+                    ],
+                    'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None),
+                })
+                continue
+
             master_exceeded = qty_needed > master_available
             strict_ok = (not master_exceeded) and order_available >= qty_needed and inventory_available >= qty_needed
             inventory_only_ok = (not master_exceeded) and inventory_available >= qty_needed
@@ -1915,6 +2005,12 @@ def preview_ship_order(customer_name, items):
                 'master_available': master_available,
                 'order_available': order_available,
                 'inventory_available': inventory_available,
+                'deduct_before': before,
+                'deduct_after': {
+                    'master': max(0, master_available - qty_needed),
+                    'order': max(0, order_available - qty_needed),
+                    'inventory': max(0, inventory_available - qty_needed),
+                },
                 'master_exceeded': master_exceeded,
                 'strict_ok': strict_ok,
                 'inventory_only_ok': inventory_only_ok,
@@ -1957,10 +2053,76 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
             borrow_from = (item.get('borrow_from_customer_name') or item.get('source_customer_name') or '').strip()
             source_customer = borrow_from or customer_name
             is_borrowed = bool(borrow_from and borrow_from != customer_name)
+            source_pref = _normalize_ship_source_preference(item.get('source_preference') or item.get('deduct_source') or item.get('source'))
+            source_label = _ship_source_label(source_pref)
 
             master_available = _sum_available_size_material(cur, "master_orders", source_customer, product_text, material)
             order_available = _sum_available_size_material(cur, "orders", source_customer, product_text, material)
             inventory_available = _sum_inventory_size_material(cur, product_text, material)
+            before = {'master': master_available, 'order': order_available, 'inventory': inventory_available}
+
+            if source_pref:
+                used_master, used_order, used_inv = [], [], []
+                if source_pref == 'master_orders':
+                    if master_available < qty_needed:
+                        conn.rollback()
+                        return {"success": False, "error": f"{product_text} 總單不足：扣除前 {master_available}，本次 {qty_needed}"}
+                    used_master = _deduct_from_table_partial_size_material(cur, "master_orders", source_customer, product_text, material, qty_needed)
+                    note = "總單出貨" if not is_borrowed else f"向{source_customer}借總單出貨"
+                elif source_pref == 'orders':
+                    if order_available < qty_needed:
+                        conn.rollback()
+                        return {"success": False, "error": f"{product_text} 訂單不足：扣除前 {order_available}，本次 {qty_needed}"}
+                    used_order = _deduct_from_table_partial_size_material(cur, "orders", source_customer, product_text, material, qty_needed)
+                    note = "訂單出貨" if not is_borrowed else f"向{source_customer}借訂單出貨"
+                elif source_pref == 'inventory':
+                    if inventory_available < qty_needed:
+                        conn.rollback()
+                        return {"success": False, "error": f"{product_text} 庫存不足：扣除前 {inventory_available}，本次 {qty_needed}"}
+                    ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
+                    if not ok3:
+                        conn.rollback()
+                        return {"success": False, "error": f"{product_text} 庫存不足"}
+                    note = "庫存出貨" if not is_borrowed else f"向{source_customer}借貨後扣庫存出貨"
+                else:
+                    source_pref = ''
+
+                if source_pref:
+                    cur.execute(sql("""
+                        INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """), (customer_name, ship_customer_uid, product_text, material, material, qty_needed, operator, now(), note))
+                    breakdown.append({
+                        "product_text": product_text,
+                        "product_code": material,
+                        "material": material,
+                        "qty": qty_needed,
+                        "source_preference": source_pref,
+                        "source_label": source_label,
+                        "master_deduct": sum(x["qty"] for x in used_master),
+                        "order_deduct": sum(x["qty"] for x in used_order),
+                        "inventory_deduct": sum(x["qty"] for x in used_inv),
+                        "master_available": master_available,
+                        "order_available": order_available,
+                        "inventory_available": inventory_available,
+                        "used_inventory_fallback": False,
+                        "master_details": used_master,
+                        "order_details": used_order,
+                        "inventory_details": used_inv,
+                        "note": note,
+                        "borrow_from_customer_name": borrow_from,
+                        "source_customer_name": source_customer,
+                        "ship_customer_name": customer_name,
+                        "is_borrowed": is_borrowed,
+                        "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None),
+                        "deduct_before": before,
+                        "remaining_after": {
+                            "master": max(0, master_available - sum(x["qty"] for x in used_master)),
+                            "order": max(0, order_available - sum(x["qty"] for x in used_order)),
+                            "inventory": max(0, inventory_available - sum(x["qty"] for x in used_inv)),
+                        },
+                    })
+                    continue
 
             if master_available < qty_needed:
                 conn.rollback()
@@ -2024,6 +2186,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "ship_customer_name": customer_name,
                 "is_borrowed": is_borrowed,
                 "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer),
+                "deduct_before": before,
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
                     "order": max(0, order_available - sum(x["qty"] for x in used_order)),

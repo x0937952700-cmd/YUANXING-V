@@ -282,7 +282,7 @@ def _structured_text_from_blocks(blocks, fallback_text=""):
     return text or (fallback_text or "").strip(), lines
 
 
-def _normalize_item_line(line):
+def _legacy_fix41_normalize_item_line(line):
     line = clean_ocr_noise(line)
     line = re.sub(r"[\[\]{}]", "", line)
     line = re.sub(r"\s+", "", line)
@@ -311,7 +311,7 @@ def _ensure_equals_candidate(line, prev_dims=None):
     return clean
 
 
-def _extract_item_rows(raw_text):
+def _legacy_fix41_extract_item_rows(raw_text):
     rows = []
     prev_dims = None
     for raw in (raw_text or "").splitlines():
@@ -357,7 +357,7 @@ def _extract_item_rows(raw_text):
     return rows
 
 
-def _fallback_extract_lines(raw_text):
+def _legacy_fix41_fallback_extract_lines(raw_text):
     raw_text = _normalize_x(raw_text or "")
     lines = []
     prev_dims = None
@@ -524,6 +524,21 @@ def _fix42_sort_value(v):
         return 0
 
 
+def _fix84_split_month_left(left):
+    raw = _normalize_x(left or '')
+    raw = re.sub(r'\s+', '', raw)
+    m = re.match(r'^(\d{1,2})(?:月|月份)(.+)$', raw)
+    if m:
+        try:
+            month = int(m.group(1))
+            body = m.group(2) or ''
+            if 1 <= month <= 12 and body:
+                return month, body
+        except Exception:
+            pass
+    return 0, raw
+
+
 def _normalize_item_line(line):
     line = clean_ocr_noise(line)
     line = re.sub(r"[\[\]{}]", "", line)
@@ -548,7 +563,8 @@ def _extract_item_rows(raw_text):
         if '=' not in candidate:
             continue
         left, right = candidate.split('=', 1)
-        dims = _fix42_dims_from_left(left, prev_dims=prev_dims)
+        month, left_body = _fix84_split_month_left(left)
+        dims = _fix42_dims_from_left(left_body, prev_dims=prev_dims)
         if not dims:
             continue
         prev_dims = dims[:]
@@ -563,15 +579,19 @@ def _extract_item_rows(raw_text):
                 qty = max(1, nums[0])
             else:
                 qty = max(1, int(nums[1] if len(nums) > 1 else 1))
-            line_out = f"{dims[0]}x{dims[1]}x{dims[2]}={seg_text}"
+            left_out = f"{dims[0]}x{dims[1]}x{dims[2]}"
+            if month:
+                left_out = f"{month}月{left_out}"
+            line_out = f"{left_out}={seg_text}"
             rows.append({
                 'line': line_out,
                 'product_text': line_out,
                 'product_code': line_out,
                 'qty': qty,
                 'dims': dims,
+                'month': month,
             })
-    rows.sort(key=lambda r: (_fix42_sort_value(r['dims'][2]), _fix42_sort_value(r['dims'][1]), _fix42_sort_value(r['dims'][0]), -(r['qty'] or 1), r['line']))
+    rows.sort(key=lambda r: ((r.get('month') or 99), _fix42_sort_value(r['dims'][2]), _fix42_sort_value(r['dims'][1]), _fix42_sort_value(r['dims'][0]), -(r['qty'] or 1), r['line']))
     return rows
 
 
@@ -585,9 +605,13 @@ def _fallback_extract_lines(raw_text):
             line = _ensure_equals_candidate(line, prev_dims=prev_dims)
         if line.count('x') >= 1 and '=' in line:
             left, right = line.split('=', 1)
-            dims = _fix42_dims_from_left(left, prev_dims=prev_dims)
+            month, left_body = _fix84_split_month_left(left)
+            dims = _fix42_dims_from_left(left_body, prev_dims=prev_dims)
             if dims:
                 prev_dims = dims[:]
-                lines.append(f"{dims[0]}x{dims[1]}x{dims[2]}={right}")
+                left_out = f"{dims[0]}x{dims[1]}x{dims[2]}"
+                if month:
+                    left_out = f"{month}月{left_out}"
+                lines.append(f"{left_out}={right}")
     return lines
 # ==== FIX42 end ====

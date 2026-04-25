@@ -2515,3 +2515,90 @@ html[data-yx-fix74-core] .vertical-slot::after,
 .yx80-batch-label{font-weight:800;color:#0f172a;font-size:13px;}
 .yx80-borrow-card{max-width:720px;width:min(92vw,720px);}
 @media(max-width:640px){.yx80-batch-row{grid-template-columns:1fr;}.yx80-batch-label{padding-left:4px;}}
+
+
+/* ==== FIX82 ship preview / warehouse batch polish ==== */
+.yx82-preview-summary{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:10px;
+  align-items:center;
+  margin-top:12px;
+}
+.yx82-preview-summary > div,
+.yx82-preview-summary label{
+  background:rgba(255,255,255,.72);
+  border:1px solid rgba(0,0,0,.08);
+  border-radius:16px;
+  padding:10px 12px;
+}
+.yx82-weight-input{
+  width:100%;
+  margin-top:6px;
+}
+.yx82-preview-item{
+  border-left:4px solid #2f3542;
+}
+.yx82-preview-title{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+.yx82-formula{
+  margin:8px 0;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#f6f7f8;
+  font-size:13px;
+  color:#1f2937;
+}
+.yx82-before-after{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(145px,1fr));
+  gap:8px;
+  margin:8px 0;
+}
+.yx82-before-after span{
+  display:block;
+  padding:8px 10px;
+  border-radius:12px;
+  background:#f3f4f6;
+  font-size:13px;
+}
+.selected-source{
+  background:#111827!important;
+  color:#fff!important;
+}
+.yx82-warehouse-detail-panel{
+  margin-top:12px;
+  margin-bottom:12px;
+}
+.yx82-warehouse-detail-card{
+  margin:8px 0;
+}
+#warehouse-modal .yx82-hidden-control{
+  display:none!important;
+}
+#warehouse-modal #warehouse-cell-items{
+  margin-top:8px;
+}
+#yx82-warehouse-batch-panel{
+  margin:12px 0;
+}
+.yx82-batch-row{
+  display:grid;
+  grid-template-columns:72px 1fr 110px;
+  gap:10px;
+  align-items:center;
+  margin:8px 0;
+}
+@media (max-width: 640px){
+  .yx82-batch-row{
+    grid-template-columns:1fr;
+  }
+}
+
+/* FIX83 */
+.yx83-legacy-warehouse-controls{display:none!important;}
+#yx80-warehouse-batch-panel.yx82-hidden-control,#yx81-warehouse-batch-panel.yx82-hidden-control{display:none!important;}

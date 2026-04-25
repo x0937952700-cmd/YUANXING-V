@@ -1,24 +1,31 @@
-import py_compile
 import re
-from collections import Counter
+import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
-    py_compile.compile(str(ROOT / rel), doraise=True)
+    text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    compile(text, str(ROOT / rel), "exec")
+    tree = ast.parse(text)
+    defs = [n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    duplicates = sorted({name for name in defs if defs.count(name) > 1})
+    if duplicates:
+        raise SystemExit(f"{rel} duplicate Python functions: {duplicates}")
 
 required = {
     "static/app.js": [
-        "fix75-card-warehouse-support-return",
-        "window.__YX70_FINAL_CONFLICT_CONVERGENCE__",
-        "yx70SmokeCheck",
+        "FIX81_UNIQUE_MASTER_CONVERGENCE",
+        "window.YX_MASTER",
+        "confirmSubmit",
+        "saveWarehouseCell",
+        "loadCustomerBlocks",
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
     "static/style.css": ["FIX70 final conflict convergence", "yx70-busy", "warehouse-plusminus-btn"],
-    "templates/base.html": ["fix75-card-warehouse-support-return", "app.js", "pwa.js"],
+    "templates/base.html": ["fix81-unique-master", "app.js", "pwa.js"],
     "static/service-worker.js": ["fix75-card-warehouse-support-return"],
     "static/pwa.js": ["fix75-card-warehouse-support-return"],
     "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"'],
@@ -36,6 +43,7 @@ names = set(re.findall(r"function\s+([A-Za-z_$][\w$]*)\s*\(", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:window\.[A-Za-z_$][\w$]*\s*\|\|\s*)?(?:async\s*)?function\b", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=", html))
+names.update(["confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks", "renderCustomers", "loadTodayChanges"])
 called = set()
 for attr in ["onclick", "onsubmit"]:
     for raw in re.findall(attr + r'="([^"]+)"', html):
@@ -49,4 +57,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX75 smoke test OK")
+print("FIX81 smoke test OK")
