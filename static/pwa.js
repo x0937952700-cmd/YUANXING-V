@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix70-final-conflict-convergence';
+  const PWA_VERSION = 'fix71-one-table-longpress-customer-repair';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

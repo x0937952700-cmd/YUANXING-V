@@ -10,7 +10,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "fix70-final-conflict-convergence",
+        "fix71-one-table-longpress-customer-repair",
         "window.__YX70_FINAL_CONFLICT_CONVERGENCE__",
         "yx70SmokeCheck",
         "ship-add-selected-item",
@@ -18,9 +18,9 @@ required = {
         "deleteWarehouseCell",
     ],
     "static/style.css": ["FIX70 final conflict convergence", "yx70-busy", "warehouse-plusminus-btn"],
-    "templates/base.html": ["fix70-final-conflict-convergence", "app.js", "pwa.js"],
-    "static/service-worker.js": ["fix70-final-conflict-convergence"],
-    "static/pwa.js": ["fix70-final-conflict-convergence"],
+    "templates/base.html": ["fix71-one-table-longpress-customer-repair", "app.js", "pwa.js"],
+    "static/service-worker.js": ["fix71-one-table-longpress-customer-repair"],
+    "static/pwa.js": ["fix71-one-table-longpress-customer-repair"],
     "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"'],
 }
 for rel, tokens in required.items():
