@@ -2470,3 +2470,14 @@ html[data-yx-fix74-core] .vertical-slot::after,
 .yx72-ok{color:#047857!important;font-weight:900;}
 @media(max-width:720px){.yx72-weight-row{grid-template-columns:1fr}.yx72-preview-table{min-width:680px}.yx72-ship-summary{grid-template-columns:1fr 1fr;}}
 /* ==== FIX74 end ==== */
+
+
+/* FIX76：出貨已選商品區只保留一鍵清空，不再顯示缺貨/上移/下移/移除卡片 */
+body[data-yx-fix76="1"] #ship-selected-items,
+html[data-yx-fix76="FIX76"] #ship-selected-items{
+  display:none !important;
+}
+body[data-yx-fix76="1"] #ship-selected-section .ship-selected-card,
+body[data-yx-fix76="1"] #ship-selected-section .ship-selected-actions{
+  display:none !important;
+}

@@ -5648,3 +5648,155 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try { new MutationObserver(() => { replaceLengthLabels(); bindWarehouseModalButtons(); ensureReturnButton(); }).observe(document.body || document.documentElement, {childList:true, subtree:true, characterData:true}); } catch(_e) {}
 })();
 /* ==== FIX75 end ==== */
+
+
+/* ==== FIX76: duplicate merge prompt + warehouse save payload fix + ship selected cleanup ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX76';
+  if(window.__YX76_DUP_MERGE_WAREHOUSE_SHIP_PATCH__) return;
+  window.__YX76_DUP_MERGE_WAREHOUSE_SHIP_PATCH__=true;
+
+  const $ = (id)=>document.getElementById(id);
+  const clean = (v)=>String(v ?? '').trim();
+  const normX = (v)=>clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
+  const esc = (v)=>String(v ?? '').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  function say(msg,type='ok'){ try{ if(typeof window.notify==='function') return window.notify(msg,type); if(typeof window.toast==='function') return window.toast(msg,type); }catch(_e){} if(type==='error') alert(msg); }
+  async function callApi(url, opts={}){
+    const fn = window.api || window.requestJSON;
+    if(typeof fn === 'function') return fn(url, opts);
+    const res = await fetch(url, {headers:{'Content-Type':'application/json'}, credentials:'same-origin', ...opts});
+    const data = await res.json().catch(()=>({success:false,error:'伺服器回應格式錯誤'}));
+    if(!res.ok || data.success === false) throw new Error(data.error || data.message || '操作失敗');
+    return data;
+  }
+  function sourceTitle(source){ return source==='inventory'?'庫存':source==='orders'?'訂單':'總單'; }
+  function sourceFromRenderName(name){
+    return name==='renderInventoryRows' ? 'inventory' : name==='renderOrdersRows' ? 'orders' : name==='renderMasterRows' ? 'master_order' : '';
+  }
+  function rowsOf(source){
+    try{ return Array.isArray(window.__yx63Rows?.[source]) ? window.__yx63Rows[source] : []; }catch(_e){ return []; }
+  }
+  function materialOf(r){
+    const p=normX(r?.product_text || r?.size || '').toLowerCase();
+    let v=clean(r?.material || r?.product_code || '').toUpperCase();
+    if(v && normX(v).toLowerCase()===p) v='';
+    if(v && /x/.test(v) && /\d/.test(v)) v='';
+    return v;
+  }
+  function productOf(r){ return normX(r?.product_text || [r?.size,r?.support||r?.support_text].filter(Boolean).join('=')).toLowerCase(); }
+  function customerOf(r){ return clean(r?.customer_name || r?.customer || ''); }
+  function locationOf(r){ return clean(r?.location || ''); }
+  function duplicateGroups(source){
+    const map = new Map();
+    rowsOf(source).forEach(r=>{
+      const id=Number(r?.id||0);
+      if(!id) return;
+      const product=productOf(r);
+      if(!product) return;
+      const key=[source, customerOf(r), source==='inventory'?locationOf(r):'', materialOf(r), product].join('|');
+      if(!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    });
+    return [...map.entries()].map(([key,rows])=>({key, rows:rows.filter(r=>Number(r.id||0)>0)})).filter(g=>g.rows.length>1);
+  }
+  let mergeBusy=false;
+  async function promptDuplicateMerge(source){
+    if(mergeBusy) return;
+    const groups=duplicateGroups(source);
+    if(!groups.length) return;
+    const g=groups[0];
+    const ids=g.rows.map(r=>Number(r.id||0)).sort((a,b)=>a-b);
+    const skipKey='yx76_merge_skip_'+source+'_'+ids.join('_');
+    if(sessionStorage.getItem(skipKey)==='1') return;
+    const r=g.rows[0]||{};
+    const msg=`${sourceTitle(source)}偵測到相同尺寸 + 材質的商品：\n\n${normX(r.product_text || '')}\n材質：${materialOf(r) || '未填'}\n共 ${g.rows.length} 筆，要合併成一筆嗎？`;
+    if(!confirm(msg)){ sessionStorage.setItem(skipKey,'1'); return; }
+    mergeBusy=true;
+    try{
+      const data=await callApi('/api/customer-items/merge',{method:'POST',body:JSON.stringify({source,ids})});
+      say('已合併重複商品','ok');
+      if(source==='inventory' && typeof window.renderInventoryRows==='function' && Array.isArray(data.items)) window.renderInventoryRows(data.items);
+      else if(source==='orders' && typeof window.renderOrdersRows==='function' && Array.isArray(data.items)) window.renderOrdersRows(data.items);
+      else if(source==='master_order' && typeof window.renderMasterRows==='function' && Array.isArray(data.items)) window.renderMasterRows(data.items);
+      else {
+        if(source==='inventory' && typeof window.loadInventory==='function') await window.loadInventory();
+        if(source==='orders' && typeof window.loadOrdersList==='function') await window.loadOrdersList();
+        if(source==='master_order' && typeof window.loadMasterList==='function') await window.loadMasterList();
+      }
+      setTimeout(()=>promptDuplicateMerge(source),300);
+    }catch(e){ say(e.message || '合併商品失敗','error'); }
+    finally{ mergeBusy=false; }
+  }
+  function wrapRender(name){
+    const source=sourceFromRenderName(name);
+    const old=window[name];
+    if(!source || typeof old!=='function' || old.__yx76Wrapped) return;
+    const wrapped=function(){
+      const ret=old.apply(this,arguments);
+      setTimeout(()=>promptDuplicateMerge(source),500);
+      return ret;
+    };
+    wrapped.__yx76Wrapped=true;
+    window[name]=wrapped;
+  }
+
+  function currentCellPayload(){
+    const c=window.state?.currentCell || {};
+    let zone=clean(c.zone||'A').toUpperCase();
+    let columnIndex=Number(c.column_index ?? c.column ?? c.col ?? 0);
+    let slotNumber=Number(c.slot_number ?? c.num ?? c.slot ?? 0);
+    const meta=clean($('warehouse-modal-meta')?.textContent || '');
+    const m=meta.match(/([AB])\s*區\s*\/?\s*第\s*(\d+)\s*欄\s*\/?\s*第\s*(\d+)\s*格/);
+    if((!columnIndex || !slotNumber) && m){
+      zone=m[1]; columnIndex=Number(m[2]); slotNumber=Number(m[3]);
+    }
+    return {zone, column_index:columnIndex, slot_type:'direct', slot_number:slotNumber};
+  }
+  window.saveWarehouseCell = async function(){
+    const payload=currentCellPayload();
+    if(!payload.zone || !payload.column_index || !payload.slot_number) return say('格位參數錯誤，請關閉後重新點選格子','error');
+    try{
+      const note=$('warehouse-note')?.value || '';
+      const items=Array.isArray(window.state?.currentCellItems) ? window.state.currentCellItems : [];
+      await callApi('/api/warehouse/cell',{method:'POST',body:JSON.stringify({...payload,items,note})});
+      say('格位已儲存','ok');
+      try{ window.closeWarehouseModal && window.closeWarehouseModal(); }catch(_e){}
+      try{ if(typeof window.renderWarehouse==='function') await window.renderWarehouse(); }catch(_e){}
+      try{ if(typeof window.loadInventory==='function') await window.loadInventory(); }catch(_e){}
+      try{
+        const d=await callApi('/api/warehouse/available-items?ts='+Date.now(),{method:'GET'});
+        if(window.state?.warehouse) window.state.warehouse.availableItems=Array.isArray(d.items)?d.items:[];
+      }catch(_e){}
+    }catch(e){ say(e.message || '格位更新失敗','error'); }
+  };
+
+  function cleanupShipSelectedSection(){
+    if((document.querySelector('.module-screen')?.dataset.module || '') !== 'ship') return;
+    const section=$('ship-selected-section');
+    const box=$('ship-selected-items');
+    if(section){
+      section.classList.add('yx76-ship-selected-clean');
+      const note=section.querySelector('.section-head .muted');
+      if(note) note.textContent='已選商品直接在上方「商品資料」編輯；這裡只保留一鍵清空。';
+    }
+    if(box){
+      box.innerHTML='';
+      box.style.display='none';
+      box.setAttribute('aria-hidden','true');
+    }
+  }
+
+  function boot(){
+    try{ document.documentElement.dataset.yxFix76=VERSION; document.body && document.body.setAttribute('data-yx-fix76','1'); }catch(_e){}
+    ['renderInventoryRows','renderOrdersRows','renderMasterRows'].forEach(wrapRender);
+    cleanupShipSelectedSection();
+    setTimeout(()=>{ ['inventory','orders','master_order'].forEach(promptDuplicateMerge); },1200);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
+  window.addEventListener('pageshow',boot);
+  try{ new MutationObserver(()=>cleanupShipSelectedSection()).observe(document.body || document.documentElement,{childList:true,subtree:true}); }catch(_e){}
+})();
+/* ==== FIX76 end ==== */
+
+/* fix76-merge-warehouse-ship-clean */

@@ -1433,6 +1433,66 @@ def api_customer_items_batch_delete():
         log_error("customer_items_batch_delete", str(e))
         return error_response(str(e) or "批量刪除失敗")
 
+@app.route("/api/customer-items/merge", methods=["POST"])
+@login_required_json
+def api_customer_items_merge():
+    """FIX76：合併同來源、同客戶/位置、同商品的重複資料。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        source = (data.get("source") or "").strip()
+        ids = []
+        for v in (data.get("ids") or []):
+            try:
+                iv = int(v)
+                if iv > 0 and iv not in ids:
+                    ids.append(iv)
+            except Exception:
+                pass
+        table_map = {
+            "庫存": "inventory", "inventory": "inventory",
+            "訂單": "orders", "orders": "orders",
+            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
+        }
+        table = table_map.get(source)
+        if not table or len(ids) < 2:
+            return error_response("合併參數不足")
+        placeholders = ",".join(["?"] * len(ids))
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute(sql(f"SELECT * FROM {table} WHERE id IN ({placeholders}) ORDER BY id ASC"), tuple(ids))
+            rows = rows_to_dict(cur)
+            if len(rows) < 2:
+                return error_response("找不到可合併商品")
+            keep = rows[0]
+            keep_id = int(keep.get("id") or 0)
+            total_qty = sum(int(r.get("qty") or 0) for r in rows)
+            material = clean_material_value(keep.get("material") or keep.get("product_code") or "", keep.get("product_text") or "")
+            product_text = format_product_text_height2(keep.get("product_text") or "")
+            cur.execute(sql(f"UPDATE {table} SET qty = ?, product_text = ?, product_code = ?, material = ?, operator = ?, updated_at = ? WHERE id = ?"),
+                        (total_qty, product_text, material, material, current_username(), now(), keep_id))
+            delete_ids = [int(r.get("id") or 0) for r in rows[1:] if int(r.get("id") or 0) != keep_id]
+            if delete_ids:
+                delete_ph = ",".join(["?"] * len(delete_ids))
+                cur.execute(sql(f"DELETE FROM {table} WHERE id IN ({delete_ph})"), tuple(delete_ids))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        add_audit_trail(current_username(), "merge", table, str(keep_id), before_json={"rows": rows}, after_json={"keep_id": keep_id, "deleted_ids": delete_ids, "qty": total_qty})
+        log_action(current_username(), f"合併重複商品 {table} #{keep_id}，共 {len(rows)} 筆")
+        notify_sync_event(kind="refresh", module="all", message="重複商品已合併", extra={"source": source, "keep_id": keep_id, "count": len(rows)})
+        if table == "inventory":
+            return jsonify(success=True, items=grouped_inventory(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
+        if table == "orders":
+            return jsonify(success=True, items=get_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
+        return jsonify(success=True, items=get_master_orders(), keep_id=keep_id, deleted_ids=delete_ids, qty=total_qty)
+    except Exception as e:
+        log_error("customer_items_merge", str(e))
+        return error_response(str(e) or "合併商品失敗")
+
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
 def api_backup():
