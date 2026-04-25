@@ -755,8 +755,8 @@ def _parse_items_from_request(data):
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
-            # FIX80：保留出貨借貨來源客戶，避免 normalize 後被吃掉。
-            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed'):
+            # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
                 if isinstance(it, dict) and it.get(_k) not in (None, ''):
                     fixed[_k] = it.get(_k)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):

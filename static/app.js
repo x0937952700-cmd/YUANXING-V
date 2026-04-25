@@ -8317,10 +8317,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 })();
 /* ==== FIX88: final QC guard + no wrapper rewrap + stable table refresh end ==== */
 
-/* ==== FIX89: ship actual source + stable warehouse batch master start ==== */
+/* ==== FIX90: ship preview SQL/source stable master start ==== */
 (function(){
   'use strict';
-  const VERSION='FIX89_SOURCE_WAREHOUSE_BATCH_STABLE';
+  const VERSION='FIX90_SHIP_PREVIEW_STABLE';
   if(window.__YX89_SOURCE_WAREHOUSE_BATCH_STABLE__) return;
   window.__YX89_SOURCE_WAREHOUSE_BATCH_STABLE__=true;
   const $=id=>document.getElementById(id);
@@ -8569,4 +8569,4 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow',install);
   [650,1800,3600].forEach(ms=>setTimeout(install,ms));
 })();
-/* ==== FIX89: ship actual source + stable warehouse batch master end ==== */
+/* ==== FIX90: ship preview SQL/source stable master end ==== */

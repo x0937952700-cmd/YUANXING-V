@@ -1622,7 +1622,7 @@ def _fetch_shipping_match_rows(cur, table, product_text, material='', customer_n
     wheres = ['qty > 0']
     params = []
     if customer_name is not None:
-        wheres.append('COALESCE(customer_name, '') = COALESCE(?, '')')
+        wheres.append("COALESCE(customer_name, '') = COALESCE(?, '')")
         params.append(customer_name or '')
     query = f"SELECT id, qty, product_text, product_code, material FROM {table} WHERE " + ' AND '.join(wheres) + ' ORDER BY id ASC'
     cur.execute(sql(query), tuple(params))
@@ -2092,24 +2092,31 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
             product_text = format_product_text_height2(item["product_text"])
             material = clean_material_value(item.get("material") or item.get("product_code") or "", product_text)
             qty_needed = int(item.get("qty") or effective_product_qty(product_text, 0) or 0)
+            if qty_needed <= 0:
+                continue
             borrow_from = (item.get('borrow_from_customer_name') or item.get('source_customer_name') or '').strip()
             source_customer = borrow_from or customer_name
             is_borrowed = bool(borrow_from and borrow_from != customer_name)
             source_pref = _normalize_ship_source_preference(item.get('source_preference') or item.get('deduct_source') or item.get('source'))
-            source_label = _ship_source_label(source_pref)
 
             master_available = _sum_available_size_material(cur, "master_orders", source_customer, product_text, material)
             order_available = _sum_available_size_material(cur, "orders", source_customer, product_text, material)
             inventory_available = _sum_inventory_size_material(cur, product_text, material)
             before = {'master': master_available, 'order': order_available, 'inventory': inventory_available}
 
+            available_map = {'master_orders': master_available, 'orders': order_available, 'inventory': inventory_available}
             if source_pref:
-                used_master, used_order, used_inv = [], [], []
-                if source_pref == 'master_orders':
-                    auto_source = _auto_ship_source(master_available, order_available, inventory_available, qty_needed)
-            if not auto_source:
-                conn.rollback()
-                return {"success": False, "error": f"{product_text} 無可扣來源：總單 {master_available}/{qty_needed}、訂單 {order_available}/{qty_needed}、庫存 {inventory_available}/{qty_needed}"}
+                auto_source = source_pref
+                selected_available = int(available_map.get(auto_source, 0) or 0)
+                if selected_available < qty_needed:
+                    conn.rollback()
+                    label = _ship_source_label(auto_source) or '指定來源'
+                    return {"success": False, "error": f"{product_text} {label}不足 {selected_available}/{qty_needed}"}
+            else:
+                auto_source = _auto_ship_source(master_available, order_available, inventory_available, qty_needed)
+                if not auto_source:
+                    conn.rollback()
+                    return {"success": False, "error": f"{product_text} 無可扣來源：總單 {master_available}/{qty_needed}、訂單 {order_available}/{qty_needed}、庫存 {inventory_available}/{qty_needed}"}
 
             used_master, used_order, used_inv = [], [], []
             if auto_source == 'master_orders':
@@ -2118,12 +2125,15 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
             elif auto_source == 'orders':
                 used_order = _deduct_from_table_partial_size_material(cur, "orders", source_customer, product_text, material, qty_needed)
                 note = "訂單出貨" if not is_borrowed else f"向{source_customer}借訂單出貨"
-            else:
+            elif auto_source == 'inventory':
                 ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
                 note = "庫存出貨" if not is_borrowed else f"向{source_customer}借貨後扣庫存出貨"
+            else:
+                conn.rollback()
+                return {"success": False, "error": f"{product_text} 出貨來源錯誤"}
 
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
