@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix73-qty-leading-zero-volume';
+  const PWA_VERSION = 'fix74-preserve-0xx-no-length';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

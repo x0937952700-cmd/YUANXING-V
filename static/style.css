@@ -2443,9 +2443,9 @@ html[data-yx-fix71] #customers-section .customer-detail.yx71-filled{
 }
 /* ==== FIX71 end ==== */
 
-/* ==== FIX73: hide warehouse long-press hint text + repaired shipping preview ==== */
-html[data-yx-fix73] .yx67-warehouse-slot::after,
-html[data-yx-fix73] .vertical-slot::after,
+/* ==== FIX74: hide warehouse long-press hint text + repaired shipping preview ==== */
+html[data-yx-fix74-core] .yx67-warehouse-slot::after,
+html[data-yx-fix74-core] .vertical-slot::after,
 .yx67-warehouse-slot::after,
 .vertical-slot::after{
   content:none!important;
@@ -2469,4 +2469,4 @@ html[data-yx-fix73] .vertical-slot::after,
 .yx72-danger{color:#b91c1c!important;font-weight:900;}
 .yx72-ok{color:#047857!important;font-weight:900;}
 @media(max-width:720px){.yx72-weight-row{grid-template-columns:1fr}.yx72-preview-table{min-width:680px}.yx72-ship-summary{grid-template-columns:1fr 1fr;}}
-/* ==== FIX73 end ==== */
+/* ==== FIX74 end ==== */

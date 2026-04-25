@@ -86,12 +86,17 @@ def clean_material_value(value='', product_text=''):
     return v.upper() if re.fullmatch(r'[A-Za-z0-9_\-\/]+', v) else v
 
 def product_display_size(text):
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    """Return the visible size exactly as the user entered it.
+
+    FIX74: 0xx heights such as 073 / 063 / 006 must not be converted to
+    73 / 63 / 06, because the leading zero is part of the volume rule.
+    """
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw)
-    nums = re.findall(r'\d+', left)
-    if len(nums) >= 3:
-        return f"{int(nums[0])}x{int(nums[1])}x{int(nums[2]):02d}"
-    return left
+    parts = [p.strip() for p in re.split(r'x', left, flags=re.I) if p.strip() != '']
+    if len(parts) >= 3:
+        return 'x'.join(_format_dim_token_preserve_zero(parts[i], i == 2) for i in range(3))
+    return re.sub(r'\s+', '', left)
 
 
 
@@ -2331,7 +2336,7 @@ def get_customer_spec_stats(customer_name='', limit=20):
 
 
 def update_customer_item(source, item_id, product_text, qty, operator='', material=None):
-    table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
+    table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     table = table_map.get(source)
     if not table:
         raise ValueError('不支援的來源')
@@ -2375,7 +2380,7 @@ def update_items_material(items, material, operator=''):
     return count
 
 def delete_customer_item(source, item_id):
-    table_map = {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}
+    table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     table = table_map.get(source)
     if not table:
         raise ValueError('不支援的來源')

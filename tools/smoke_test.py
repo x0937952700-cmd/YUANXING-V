@@ -10,7 +10,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "fix73-qty-leading-zero-volume",
+        "fix74-preserve-0xx-no-length",
         "window.__YX70_FINAL_CONFLICT_CONVERGENCE__",
         "yx70SmokeCheck",
         "ship-add-selected-item",
@@ -18,9 +18,9 @@ required = {
         "deleteWarehouseCell",
     ],
     "static/style.css": ["FIX70 final conflict convergence", "yx70-busy", "warehouse-plusminus-btn"],
-    "templates/base.html": ["fix73-qty-leading-zero-volume", "app.js", "pwa.js"],
-    "static/service-worker.js": ["fix73-qty-leading-zero-volume"],
-    "static/pwa.js": ["fix73-qty-leading-zero-volume"],
+    "templates/base.html": ["fix74-preserve-0xx-no-length", "app.js", "pwa.js"],
+    "static/service-worker.js": ["fix74-preserve-0xx-no-length"],
+    "static/pwa.js": ["fix74-preserve-0xx-no-length"],
     "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"'],
 }
 for rel, tokens in required.items():
@@ -49,4 +49,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX73 smoke test OK")
+print("FIX74 smoke test OK")

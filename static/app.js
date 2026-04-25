@@ -2826,7 +2826,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     panel.classList.remove('hidden'); panel.style.display='';
     const items=preview.items||[];
     const tq=items.reduce((s,it)=>s+Number(it.qty||it.need_qty||0),0), tl=items.reduce((s,it)=>s+Number(it.length_total||it.total_length||0),0), tv=items.reduce((s,it)=>s+Number(it.volume||it.volume_total||0),0);
-    panel.innerHTML=`<div class="section-title">出貨預覽</div><div class="yx63-ship-summary"><div>件數：<b>${tq}</b></div><div>長度：<b>${tl.toLocaleString()}</b></div><div>材積：<b>${Number(tv||0).toLocaleString()}</b></div></div><div class="yx63-table-wrap"><table class="yx63-summary-table"><thead><tr><th>商品</th><th>件數</th><th>長度</th><th>材積</th><th>可扣來源</th><th>倉庫圖位置</th></tr></thead><tbody>${items.map(it=>{ const locs=(it.locations||[]).map(loc=>`${esc(loc.zone||'')}-${esc(loc.column_index||'')}-${String(loc.visual_slot||loc.slot_number||'').padStart(2,'0')}`).join('、')||'倉庫圖尚未找到位置'; const shortage=Number(it.shortage||it.shortage_qty||0); const src=`總單 ${it.master_available??it.master_qty??0}｜訂單 ${it.order_available??it.order_qty??0}｜庫存 ${it.inventory_available??it.inventory_qty??0}${shortage>0?`<br><span class="danger-text">不足 ${shortage}</span>`:''}`; return `<tr><td>${esc(it.product_text||'')}</td><td>${it.qty||it.need_qty||0}</td><td>${Number(it.length_total||it.total_length||0).toLocaleString()}</td><td>${Number(it.volume||it.volume_total||0).toLocaleString()}</td><td>${src}</td><td>${locs}</td></tr>`; }).join('')}</tbody></table></div><div class="btn-row"><button class="ghost-btn" type="button" id="yx63-ship-cancel">取消</button><button class="primary-btn" type="button" id="yx63-ship-confirm">確認扣除</button></div>`;
+    panel.innerHTML=`<div class="section-title">出貨預覽</div><div class="yx63-ship-summary"><div>件數：<b>${tq}</b></div><div>材積：<b>${Number(tv||0).toLocaleString()}</b></div></div><div class="yx63-table-wrap"><table class="yx63-summary-table"><thead><tr><th>商品</th><th>件數</th><th>材積</th><th>可扣來源</th><th>倉庫圖位置</th></tr></thead><tbody>${items.map(it=>{ const locs=(it.locations||[]).map(loc=>`${esc(loc.zone||'')}-${esc(loc.column_index||'')}-${String(loc.visual_slot||loc.slot_number||'').padStart(2,'0')}`).join('、')||'倉庫圖尚未找到位置'; const shortage=Number(it.shortage||it.shortage_qty||0); const src=`總單 ${it.master_available??it.master_qty??0}｜訂單 ${it.order_available??it.order_qty??0}｜庫存 ${it.inventory_available??it.inventory_qty??0}${shortage>0?`<br><span class="danger-text">不足 ${shortage}</span>`:''}`; return `<tr><td>${esc(it.product_text||'')}</td><td>${it.qty||it.need_qty||0}</td><td>${Number(it.volume||it.volume_total||0).toLocaleString()}</td><td>${src}</td><td>${locs}</td></tr>`; }).join('')}</tbody></table></div><div class="btn-row"><button class="ghost-btn" type="button" id="yx63-ship-cancel">取消</button><button class="primary-btn" type="button" id="yx63-ship-confirm">確認扣除</button></div>`;
     $('yx63-ship-cancel')?.addEventListener('click',()=>panel.classList.add('hidden'));
     $('yx63-ship-confirm')?.addEventListener('click',async()=>{ try{ await api('/api/ship',{method:'POST',body:JSON.stringify({...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:`ship_${Date.now()}_${Math.random().toString(36).slice(2)}`})}); panel.innerHTML='<div class="section-title">出貨完成</div><div class="muted">已扣除總單 / 訂單 / 庫存。</div>'; notify('出貨完成','ok'); }catch(e){ notify(e.message||'出貨失敗','error'); } });
   }
@@ -4994,10 +4994,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX71 end ==== */
 
 
-/* ==== FIX73: leading-zero height + shipping qty/volume repair ==== */
+/* ==== FIX74: leading-zero height + shipping qty/volume repair ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix73-qty-leading-zero-volume';
+  const VERSION = 'fix74-preserve-0xx-no-length';
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
   const clean = v => String(v ?? '').trim();
@@ -5014,8 +5014,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function setFixFlag(){
     try {
-      document.documentElement.dataset.yxFix73 = VERSION;
-      document.body && document.body.setAttribute('data-yx-fix73','1');
+      document.documentElement.dataset.yxFix74Core = VERSION;
+      document.body && document.body.setAttribute('data-yx-fix74-core','1');
     } catch(_e) {}
   }
 
@@ -5172,7 +5172,6 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       return `<tr>
         <td><strong>${esc(product)}</strong></td>
         <td>${qty}</td>
-        <td>${fmt(calc.lengthTotal)}<div class="small-note">${esc(supportExpression(product) || '無支數')}</div></td>
         <td>${fmt(calc.volume)}<div class="small-note">${esc(calc.formula)}</div></td>
         <td>${source}</td>
         <td>${locationsHTML(item)}</td>
@@ -5187,10 +5186,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
     panel.innerHTML = `<div class="yx72-ship-preview-card">
       <div class="section-title">出貨預覽</div>
-      <div class="small-note">已整理商品倉庫圖位置、材積計算、長度計算與可扣來源。確認無誤後再按「確認扣除」。</div>
+      <div class="small-note">已整理商品倉庫圖位置、材積計算與可扣來源。確認無誤後再按「確認扣除」。</div>
       <div class="yx72-ship-summary">
         <div>本次件數<span>${fmt(totalQty)}</span></div>
-        <div>長度合計<span>${fmt(totalLength)}</span></div>
         <div>材積合計<span>${fmt(totalVolume)}</span></div>
         <div>總可扣量<span>${fmt(totalAvailable)}</span></div>
         <div>不足數量<span class="${totalShortage ? 'yx72-danger' : 'yx72-ok'}">${fmt(totalShortage)}</span></div>
@@ -5200,7 +5198,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         <input id="yx72-ship-weight" class="text-input" type="number" min="0" step="0.01" placeholder="輸入重量">
         <div id="yx72-ship-weight-result" class="yx72-weight-result">材積合計：${fmt(totalVolume)}</div>
       </div>
-      <div class="yx72-preview-table-wrap"><table class="yx72-preview-table"><thead><tr><th>商品</th><th>件數</th><th>長度計算</th><th>材積計算</th><th>可扣來源</th><th>商品倉庫圖位置</th></tr></thead><tbody>${rows || '<tr><td colspan="6">沒有可預覽商品</td></tr>'}</tbody></table></div>
+      <div class="yx72-preview-table-wrap"><table class="yx72-preview-table"><thead><tr><th>商品</th><th>件數</th><th>材積計算</th><th>可扣來源</th><th>商品倉庫圖位置</th></tr></thead><tbody>${rows || '<tr><td colspan="5">沒有可預覽商品</td></tr>'}</tbody></table></div>
       <div class="btn-row" style="margin-top:12px;"><button class="ghost-btn" type="button" id="yx72-ship-preview-cancel">取消</button><button class="primary-btn" type="button" id="yx72-ship-preview-confirm">確認扣除</button></div>
     </div>`;
     $('yx72-ship-weight')?.addEventListener('input', () => updateWeightResult(totalVolume));
@@ -5285,4 +5283,37 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', install);
   setTimeout(install, 250);
 })();
-/* ==== FIX73 end ==== */
+/* ==== FIX74 core end ==== */
+
+
+/* ==== FIX74: preserve 0xx display + no length column in shipping preview ==== */
+(function(){
+  'use strict';
+  const VERSION='fix74-preserve-0xx-no-length';
+  function clean(v){ return String(v ?? '').trim(); }
+  function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,''); }
+  function formatDimToken(v,isHeight){
+    const s=clean(v);
+    if(!s) return '';
+    if(/^\d*\.\d+$/.test(s)){ return (s.startsWith('.') ? '0'+s : s).replace('.',''); }
+    if(/^\d+$/.test(s)){ return (isHeight && s.length===1) ? s.padStart(2,'0') : s; }
+    return s;
+  }
+  window.yx74NormalizeProductText=function(text){
+    const raw=normalizeX(text);
+    const parts=raw.split('=');
+    const left=parts.shift()||'';
+    const dims=left.split(/x/i).filter(Boolean);
+    const size=dims.length>=3 ? [0,1,2].map(i=>formatDimToken(dims[i], i===2)).join('x') : left;
+    return parts.length ? size+'='+parts.join('=') : size;
+  };
+  // Old card edit code can send master_orders / inventory / orders; backend accepts them now.
+  // This marker forces cache refresh and makes it easy to verify the correct JS loaded.
+  function install(){
+    try{ document.documentElement.dataset.yxFix74=VERSION; document.body && document.body.setAttribute('data-yx-fix74','1'); }catch(_e){}
+  }
+  install();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  window.addEventListener('pageshow', install);
+})();
+/* ==== FIX74 end ==== */
