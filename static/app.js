@@ -5822,3 +5822,334 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', boot);
 })();
 /* ==== FIX76 end ==== */
+
+/* ==== FIX77: order-only customer board + customer autocomplete + warehouse batch add ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix77-order-customers-autocomplete-warehouse-batch';
+  const $ = id => document.getElementById(id);
+  const qsa = (sel, root=document) => Array.from((root || document).querySelectorAll(sel));
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url, { credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})} });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  });
+  window.yxApi = api;
+
+  function moduleKey(){
+    return document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule === 'function' ? window.currentModule() : '');
+  }
+  function notify(msg, kind='ok'){
+    try { (window.toast || window.showToast || window.alert)(msg, kind); } catch(_e) { console.log(msg); }
+  }
+  function injectStyle(){
+    if ($('yx77-style')) return;
+    const st = document.createElement('style');
+    st.id = 'yx77-style';
+    st.textContent = `
+      .yx77-customer-suggest{margin-top:8px;border:1px solid #e5e7eb;border-radius:18px;background:#fff;box-shadow:0 14px 36px rgba(15,23,42,.08);padding:8px;display:none;max-height:260px;overflow:auto;z-index:20;}
+      .yx77-customer-suggest.open{display:block;}
+      .yx77-customer-suggest button{width:100%;border:0;background:#fff;border-radius:14px;padding:12px 14px;text-align:left;font-weight:700;color:#0f172a;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+      .yx77-customer-suggest button:active,.yx77-customer-suggest button:hover{background:#f3f4f6;}
+      .yx77-customer-region{font-size:12px;font-weight:500;color:#64748b;}
+      .yx77-batch-panel{margin:14px 0;padding:12px;border:1px dashed #d1d5db;border-radius:18px;background:rgba(255,255,255,.62);}
+      .yx77-batch-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-weight:800;color:#111827;}
+      .yx77-batch-row{display:grid;grid-template-columns:82px minmax(0,1fr) 92px;gap:8px;align-items:center;margin:8px 0;}
+      .yx77-batch-label{font-size:13px;font-weight:800;color:#374151;white-space:nowrap;}
+      .yx77-batch-row select,.yx77-batch-row input{width:100%;min-width:0;}
+      .yx77-batch-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+      @media (max-width:640px){.yx77-batch-row{grid-template-columns:1fr;}.yx77-batch-label{font-size:14px;}}
+    `;
+    document.head.appendChild(st);
+  }
+
+  function orderCountOfCustomer(c){
+    const r = c?.relation_counts || {};
+    return Number(r.order_rows || 0) || Number(r.order_qty || 0) || Number(c?.order_rows || 0) || Number(c?.order_qty || 0);
+  }
+  async function getOrderCustomerSet(customers){
+    const byCounts = new Set((customers || []).filter(c => orderCountOfCustomer(c) > 0).map(c => clean(c.name)).filter(Boolean));
+    if (byCounts.size) return byCounts;
+    try {
+      const data = await api('/api/orders', {method:'GET'});
+      return new Set((data.items || []).map(r => clean(r.customer_name)).filter(Boolean));
+    } catch(_e) {
+      return byCounts;
+    }
+  }
+  async function filterOrderCustomerBoard(customers){
+    if (moduleKey() !== 'orders') return;
+    const ids = ['region-north','region-center','region-south'];
+    if (!ids.some(id => !!$(id))) return;
+    const allowed = await getOrderCustomerSet(customers || window.state?.customerDirectory || []);
+    ids.forEach(id => {
+      const box = $(id);
+      if (!box) return;
+      qsa('.customer-region-card', box).forEach(card => {
+        const name = clean(card.dataset.customer || card.textContent || '');
+        if (!allowed.has(name)) card.remove();
+      });
+      if (!box.querySelector('.customer-region-card')) box.innerHTML = '<div class="empty-state-card compact-empty">目前沒有已建立訂單的客戶</div>';
+    });
+  }
+  const oldLoadCustomerBlocks = window.loadCustomerBlocks;
+  if (typeof oldLoadCustomerBlocks === 'function' && !oldLoadCustomerBlocks.__yx77OrderFilter) {
+    const wrapped = async function(){
+      const result = await oldLoadCustomerBlocks.apply(this, arguments);
+      try { await filterOrderCustomerBoard(Array.isArray(result) ? result : (window.state?.customerDirectory || [])); } catch(_e) {}
+      return result;
+    };
+    wrapped.__yx77OrderFilter = true;
+    window.loadCustomerBlocks = wrapped;
+  }
+
+  async function getCustomerDirectory(){
+    if (Array.isArray(window.state?.customerDirectory) && window.state.customerDirectory.length) return window.state.customerDirectory;
+    try {
+      const data = await api('/api/customers', {method:'GET'});
+      const items = Array.isArray(data.items) ? data.items : [];
+      window.state = window.state || {};
+      window.state.customerDirectory = items;
+      return items;
+    } catch(_e) { return []; }
+  }
+  function sortCustomerSuggestions(items, q){
+    const key = q.toLowerCase();
+    return (items || [])
+      .filter(c => clean(c.name).toLowerCase().includes(key))
+      .sort((a,b) => {
+        const an = clean(a.name).toLowerCase(), bn = clean(b.name).toLowerCase();
+        const as = an.startsWith(key) ? 0 : 1, bs = bn.startsWith(key) ? 0 : 1;
+        return (as - bs) || an.localeCompare(bn, 'zh-Hant');
+      })
+      .slice(0, 20);
+  }
+  function ensureCustomerSuggestBox(input){
+    let box = $('yx77-customer-suggestions');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'yx77-customer-suggestions';
+      box.className = 'yx77-customer-suggest';
+      input.insertAdjacentElement('afterend', box);
+    }
+    return box;
+  }
+  async function renderCustomerSuggestions(){
+    const mod = moduleKey();
+    if (!['orders','master_order','ship'].includes(mod)) return;
+    const input = $('customer-name');
+    if (!input) return;
+    const box = ensureCustomerSuggestBox(input);
+    const q = clean(input.value);
+    if (!q) { box.classList.remove('open'); box.innerHTML = ''; return; }
+    const items = sortCustomerSuggestions(await getCustomerDirectory(), q);
+    if (!items.length) {
+      box.innerHTML = '<div class="small-note" style="padding:10px 12px;">沒有找到已建立客戶，可直接輸入新客戶名稱</div>';
+      box.classList.add('open');
+      return;
+    }
+    box.innerHTML = items.map(c => `<button type="button" data-name="${esc(c.name || '')}"><span>${esc(c.name || '')}</span><span class="yx77-customer-region">${esc(c.region || '')}</span></button>`).join('');
+    box.classList.add('open');
+    qsa('button[data-name]', box).forEach(btn => {
+      btn.onclick = async () => {
+        const name = btn.dataset.name || '';
+        input.value = name;
+        box.classList.remove('open');
+        try {
+          const found = (window.state?.customerDirectory || []).find(c => c.name === name);
+          if (found?.region) window.state.selectedCustomerRegion = found.region;
+          input.dispatchEvent(new Event('input', {bubbles:true}));
+          input.dispatchEvent(new Event('change', {bubbles:true}));
+          if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(name);
+        } catch(_e) {}
+      };
+    });
+  }
+  function bindCustomerAutocomplete(){
+    const mod = moduleKey();
+    if (!['orders','master_order','ship'].includes(mod)) return;
+    const input = $('customer-name');
+    if (!input || input.dataset.yx77Autocomplete === '1') return;
+    input.dataset.yx77Autocomplete = '1';
+    input.setAttribute('autocomplete', 'off');
+    input.addEventListener('input', () => { renderCustomerSuggestions(); });
+    input.addEventListener('focus', () => { renderCustomerSuggestions(); });
+    input.addEventListener('change', () => {
+      const name = clean(input.value);
+      if (name && typeof window.selectCustomerForModule === 'function') setTimeout(() => window.selectCustomerForModule(name), 80);
+    });
+    document.addEventListener('click', e => {
+      const box = $('yx77-customer-suggestions');
+      if (!box || e.target === input || box.contains(e.target)) return;
+      box.classList.remove('open');
+    }, true);
+  }
+
+  function parseOptionValue(value){
+    if (!value) return null;
+    try { return JSON.parse(value); } catch(_e) { return null; }
+  }
+  function itemFullQty(item){
+    const n = Number(item?.unplaced_qty ?? item?.qty ?? item?.total_qty ?? 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  }
+  function normalizeProductTextSafe(text){
+    try { return typeof window.yxNormalizeProductText === 'function' ? window.yxNormalizeProductText(text || '') : clean(text); } catch(_e) { return clean(text); }
+  }
+  function materialOf(item){
+    const p = normalizeProductTextSafe(item?.product_text || item?.product_size || '');
+    const v = clean(item?.material || item?.product_code || '');
+    return v && v !== p ? v : '';
+  }
+  function mainWarehouseOptionsHTML(){
+    const main = $('warehouse-item-select');
+    if (main && main.options && main.options.length) {
+      return '<option value="">選擇商品</option>' + Array.from(main.options).filter(o => o.value).map(o => `<option value="${esc(o.value)}">${esc(o.textContent || '')}</option>`).join('');
+    }
+    const q = clean($('warehouse-item-search')?.value || '').toLowerCase();
+    const list = Array.isArray(window.state?.warehouse?.availableItems) ? window.state.warehouse.availableItems : [];
+    return '<option value="">選擇商品</option>' + list
+      .filter(it => !q || `${it.product_text || ''} ${it.customer_name || ''}`.toLowerCase().includes(q))
+      .map(it => {
+        const label = `${it.product_text || ''}${it.customer_name ? '｜' + it.customer_name : ''}｜剩餘 ${itemFullQty(it)}`;
+        return `<option value="${esc(JSON.stringify(it))}">${esc(label)}</option>`;
+      }).join('');
+  }
+  function refreshBatchIndexes(){
+    qsa('#yx77-warehouse-batch-list .yx77-batch-row').forEach((row, idx) => {
+      const label = row.querySelector('.yx77-batch-label');
+      const names = ['前面','中間','後面'];
+      if (label) label.textContent = `第 ${idx + 1} 筆${names[idx] ? '（' + names[idx] + '）' : ''}`;
+    });
+  }
+  function fillBatchQty(row){
+    const sel = row.querySelector('.yx77-batch-select');
+    const qty = row.querySelector('.yx77-batch-qty');
+    const item = parseOptionValue(sel?.value || '');
+    if (!qty || !item) return;
+    const max = itemFullQty(item);
+    qty.value = String(max);
+    qty.max = String(max);
+  }
+  function addBatchRow(defaultOptions){
+    const list = $('yx77-warehouse-batch-list');
+    if (!list) return null;
+    const row = document.createElement('div');
+    row.className = 'yx77-batch-row';
+    row.innerHTML = `
+      <div class="yx77-batch-label"></div>
+      <select class="text-input yx77-batch-select">${defaultOptions || mainWarehouseOptionsHTML()}</select>
+      <input class="text-input yx77-batch-qty" type="number" min="1" value="1" placeholder="數量">
+    `;
+    list.appendChild(row);
+    const sel = row.querySelector('.yx77-batch-select');
+    sel.addEventListener('change', () => fillBatchQty(row));
+    refreshBatchIndexes();
+    return row;
+  }
+  function syncBatchOptions(){
+    const html = mainWarehouseOptionsHTML();
+    qsa('#yx77-warehouse-batch-list .yx77-batch-select').forEach(sel => {
+      const old = sel.value;
+      sel.innerHTML = html;
+      if (old && Array.from(sel.options).some(o => o.value === old)) sel.value = old;
+    });
+  }
+  function selectedBatchItems(){
+    const rows = qsa('#yx77-warehouse-batch-list .yx77-batch-row');
+    const out = [];
+    rows.forEach(row => {
+      const item = parseOptionValue(row.querySelector('.yx77-batch-select')?.value || '');
+      if (!item) return;
+      const max = itemFullQty(item);
+      let qty = parseInt(row.querySelector('.yx77-batch-qty')?.value || String(max), 10);
+      if (!Number.isFinite(qty) || qty <= 0) qty = max;
+      qty = Math.min(qty, max);
+      const product = normalizeProductTextSafe(item.product_text || item.product_size || '');
+      if (!product) return;
+      out.push({
+        ...item,
+        product_text: product,
+        product_code: materialOf(item),
+        material: materialOf(item),
+        qty,
+        customer_name: item.customer_name || '',
+        source: item.source || 'unplaced',
+        source_summary: item.source_summary || ((item.sources || []).map(s => `${s.source}${s.qty}`).join('、'))
+      });
+    });
+    return out;
+  }
+  function batchAddWarehouseItems(){
+    if (!window.state?.currentCell) return notify('請先點選格位', 'error');
+    const items = selectedBatchItems();
+    if (!items.length) return notify('請至少選擇一筆批量商品', 'warn');
+    window.state.currentCellItems = Array.isArray(window.state.currentCellItems) ? window.state.currentCellItems : [];
+    items.forEach(it => window.state.currentCellItems.push(it));
+    try { window.renderWarehouseCellItems && window.renderWarehouseCellItems(); } catch(_e) {}
+    notify(`已依序加入 ${items.length} 筆商品，記得按「儲存格位」`, 'ok');
+  }
+  function ensureWarehouseBatchUI(){
+    const modal = $('warehouse-modal');
+    const qty = $('warehouse-add-qty');
+    if (!modal || !qty) return;
+    let panel = $('yx77-warehouse-batch-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'yx77-warehouse-batch-panel';
+      panel.className = 'yx77-batch-panel';
+      panel.innerHTML = `
+        <div class="yx77-batch-title"><span>批量加入同一格</span><span class="small-note">第 1 筆在前面，第 2 筆在中間，第 3 筆在後面</span></div>
+        <div id="yx77-warehouse-batch-list"></div>
+        <div class="yx77-batch-actions">
+          <button type="button" class="primary-btn" id="yx77-batch-add-to-cell">批量加入格位</button>
+          <button type="button" class="ghost-btn" id="yx77-batch-add-row">添加更多批量</button>
+        </div>
+      `;
+      qty.insertAdjacentElement('afterend', panel);
+      $('yx77-batch-add-row').onclick = () => addBatchRow(mainWarehouseOptionsHTML());
+      $('yx77-batch-add-to-cell').onclick = batchAddWarehouseItems;
+    }
+    const list = $('yx77-warehouse-batch-list');
+    if (list && !list.children.length) {
+      const options = mainWarehouseOptionsHTML();
+      addBatchRow(options); addBatchRow(options); addBatchRow(options);
+    } else {
+      syncBatchOptions();
+    }
+    refreshBatchIndexes();
+  }
+  const oldOpenWarehouseModal = window.openWarehouseModal;
+  if (typeof oldOpenWarehouseModal === 'function' && !oldOpenWarehouseModal.__yx77BatchWrapped) {
+    const wrapped = async function(){
+      const result = await oldOpenWarehouseModal.apply(this, arguments);
+      setTimeout(() => { ensureWarehouseBatchUI(); syncBatchOptions(); }, 40);
+      return result;
+    };
+    wrapped.__yx77BatchWrapped = true;
+    window.openWarehouseModal = wrapped;
+  }
+  document.addEventListener('input', e => {
+    if (e.target?.id === 'warehouse-item-search') setTimeout(() => { syncBatchOptions(); }, 80);
+  }, true);
+  document.addEventListener('change', e => {
+    if (e.target?.id === 'warehouse-item-select') setTimeout(() => { syncBatchOptions(); }, 80);
+  }, true);
+
+  function boot(){
+    injectStyle();
+    try { document.documentElement.dataset.yxFix77 = VERSION; document.body && document.body.setAttribute('data-yx-fix77','1'); } catch(_e) {}
+    bindCustomerAutocomplete();
+    if (moduleKey() === 'orders') setTimeout(() => filterOrderCustomerBoard(window.state?.customerDirectory || []), 220);
+    ensureWarehouseBatchUI();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot);
+  try { new MutationObserver(() => { bindCustomerAutocomplete(); ensureWarehouseBatchUI(); }).observe(document.body || document.documentElement, {childList:true, subtree:true}); } catch(_e) {}
+})();
+/* ==== FIX77 end ==== */
