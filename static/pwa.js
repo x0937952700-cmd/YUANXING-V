@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix64-mobile-fast-select';
+  const PWA_VERSION = 'fix70-final-conflict-convergence';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

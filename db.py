@@ -354,6 +354,13 @@ def log_error(source, message):
 
 
 def ensure_fixed_warehouse_grid(conn=None, cur=None):
+    """建立倉庫格位表，但不再強制每欄固定 20 格。
+
+    FIX67：
+    - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 20 格作為起始版面。
+    - 之後使用者刪除或插入格子後，不再於每次啟動 / 查詢時補回 20 格。
+    - 每欄至少保留 1 格，避免前台完全無法點選插入。
+    """
     own_conn = False
     if conn is None or cur is None:
         conn = get_db()
@@ -374,17 +381,6 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                     UNIQUE(zone, column_index, slot_type, slot_number)
                 )
             """)
-            for zone in ('A', 'B'):
-                for col in range(1, 7):
-                    for num in range(1, 21):
-                        cur.execute("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            SELECT %s, %s, %s, %s, %s, %s, %s
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM warehouse_cells
-                                WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
-                            )
-                        """, (zone, col, 'direct', num, '[]', '', now(), zone, col, 'direct', num))
         else:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS warehouse_cells (
@@ -399,13 +395,34 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                     UNIQUE(zone, column_index, slot_type, slot_number)
                 )
             """)
+
+        cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
+        row = fetchone_dict(cur) or {}
+        total = int(row.get('cnt') or 0)
+
+        # 只有全新空表時，才建立起始 20 格；後續不再強制補回 20 格。
+        if total == 0:
             for zone in ('A', 'B'):
                 for col in range(1, 7):
                     for num in range(1, 21):
-                        cur.execute("""
-                            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (zone, col, 'direct', num, '[]', '', now()))
+                        """), (zone, col, 'direct', num, '[]', '', now()))
+        else:
+            # 不固定 20 格，但每欄至少保留 1 格，避免欄位完全空掉無法再插入。
+            for zone in ('A', 'B'):
+                for col in range(1, 7):
+                    cur.execute(sql("""
+                        SELECT COUNT(*) AS cnt FROM warehouse_cells
+                        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ?
+                    """), (zone, col, 'direct'))
+                    r = fetchone_dict(cur) or {}
+                    if int(r.get('cnt') or 0) == 0:
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """), (zone, col, 'direct', 1, '[]', '', now()))
         if own_conn:
             conn.commit()
     finally:
@@ -797,17 +814,16 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 ON warehouse_cells(zone, column_index, slot_type, slot_number)
             """)
 
-        for zone in ('A', 'B'):
-            for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        SELECT %s, %s, %s, %s, %s, %s, %s
-                        WHERE NOT EXISTS (
-                            SELECT 1 FROM warehouse_cells
-                            WHERE zone = %s AND column_index = %s AND slot_type = %s AND slot_number = %s
-                        )
-                    """, (zone, col, 'direct', num, '[]', '', now(), zone, col, 'direct', num))
+        cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
+        _wh_count = int((fetchone_dict(cur) or {}).get('cnt') or 0)
+        if _wh_count == 0:
+            for zone in ('A', 'B'):
+                for col in range(1, 7):
+                    for num in range(1, 21):
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """), (zone, col, 'direct', num, '[]', '', now()))
     else:
         cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
             id {pk},
@@ -820,13 +836,16 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             updated_at {text},
             UNIQUE(zone, column_index, slot_type, slot_number)
         )""")
-        for zone in ('A', 'B'):
-            for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute("""
-                        INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (zone, col, 'direct', num, '[]', '', now()))
+        cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
+        _wh_count = int((fetchone_dict(cur) or {}).get('cnt') or 0)
+        if _wh_count == 0:
+            for zone in ('A', 'B'):
+                for col in range(1, 7):
+                    for num in range(1, 21):
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """), (zone, col, 'direct', num, '[]', '', now()))
 
     # normalize warehouse to direct 1-20 model
     try:
@@ -853,7 +872,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute(sql("DELETE FROM warehouse_cells"))
         for zone in ('A','B'):
             for col in range(1, 7):
-                max_slot = max([20] + [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col])
+                _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
+                max_slot = max(_slots) if _slots else 1
                 for num in range(1, max_slot + 1):
                     row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
                     cur.execute(sql("""
@@ -1920,7 +1940,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
         ensure_fixed_warehouse_grid(conn, cur)
         cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
         row = fetchone_dict(cur) or {}
-        max_slot = max(20, int(row.get('max_slot') or 0))
+        max_slot = int(row.get('max_slot') or 0)
         if insert_after is None or insert_after == '':
             insert_after = max_slot
         insert_after = int(insert_after)
@@ -1950,7 +1970,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
         conn.close()
 
 def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
-    """刪除指定空白格，後面的格子自動往前補位；每欄至少保留 20 格。"""
+    """刪除指定空白格，後面的格子自動往前補位；每欄至少保留 1 格。"""
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index)
     slot_number = int(slot_number)
@@ -1961,9 +1981,9 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         ensure_fixed_warehouse_grid(conn, cur)
         cur.execute(sql("SELECT COALESCE(MAX(slot_number), 0) AS max_slot FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?"), (zone, column_index, 'direct'))
         max_row = fetchone_dict(cur) or {}
-        max_slot = max(20, int(max_row.get('max_slot') or 0))
-        if max_slot <= 20:
-            return {'success': False, 'error': '每欄至少要保留 20 格'}
+        max_slot = int(max_row.get('max_slot') or 0)
+        if max_slot <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
         if slot_number < 1 or slot_number > max_slot:
             return {'success': False, 'error': '格號超出範圍'}
         cur.execute(sql("SELECT items_json FROM warehouse_cells WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (zone, column_index, 'direct', slot_number))

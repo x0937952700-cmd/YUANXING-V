@@ -1,4 +1,7 @@
 /* ==== app.js merged by FIX49 ==== */
+/* ==== FIX65 duplicate boot gate ==== */
+window.__YX65_SKIP_DUP_BOOT__ = true;
+
 
 
 /* ==== realfix bootstrap start ==== */
@@ -187,11 +190,7 @@ function renderWarehouseBaseGrid(){
       col.innerHTML = `
         <div class="column-head-row">
           <div class="column-head">${zone} 區第 ${c} 欄</div>
-          <div class="small-note">20 格</div>
-        </div>
-        <div class="btn-row compact warehouse-col-tools">
-          <button class="ghost-btn small-btn warehouse-mini-btn" title="增加格子" onclick="addWarehouseVisualSlot('${zone}', ${c})">＋</button>
-          <button class="ghost-btn small-btn warehouse-mini-btn" title="減少格子" onclick="removeWarehouseVisualSlot('${zone}', ${c})">－</button>
+          <div class="small-note">動態格數</div>
         </div>`;
       const list = document.createElement('div');
       list.className = 'vertical-slot-list';
@@ -1280,16 +1279,17 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   };
 
   window.addWarehouseVisualSlot = async function(zone, column){
-    toast('固定 20 格版本，暫不再增加', 'warn');
+    toast('請在格子內按「插入格子」', 'warn');
   };
   window.removeWarehouseVisualSlot = async function(zone, column){
-    toast('固定 20 格版本，暫不再減少', 'warn');
+    toast('請在格子內按「刪除格子」', 'warn');
   };
   window.deleteWarehouseColumn = async function(zone, column){
     toast('已取消整欄刪除功能', 'warn');
   };
 
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__YX65_SKIP_DUP_BOOT__) return;
     if (typeof currentModule === 'function' && currentModule() === 'warehouse') {
       setTimeout(() => {
         try { window.renderWarehouse(); } catch (_e) {}
@@ -1365,6 +1365,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   /* pruned duplicate confirmSubmit */
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__YX65_SKIP_DUP_BOOT__) return;
     const btnA = $('zone-switch-A');
     const btnB = $('zone-switch-B');
     const btnAll = $('zone-switch-ALL');
@@ -1542,6 +1543,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   /* pruned duplicate confirmSubmit */
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__YX65_SKIP_DUP_BOOT__) return;
     const mod = currentModule();
     if (mod === 'warehouse') {
       const saved = localStorage.getItem('warehouseActiveZone') || 'A';
@@ -1577,6 +1579,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   /* pruned duplicate confirmSubmit */
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__YX65_SKIP_DUP_BOOT__) return;
     if (currentModule() === 'warehouse') {
       const saved = localStorage.getItem('warehouseActiveZone') || 'A';
       setTimeout(() => {
@@ -1658,6 +1661,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   /* pruned duplicate confirmSubmit */
   document.addEventListener('DOMContentLoaded', () => {
+    if (window.__YX65_SKIP_DUP_BOOT__) return;
     const mod = typeof currentModule === 'function' ? currentModule() : '';
     if (mod === 'warehouse') {
       const saved = (() => { try { return localStorage.getItem('warehouseActiveZone') || 'A'; } catch (_e) { return 'A'; } })();
@@ -2464,7 +2468,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX63: clean stable card layout + single renderer + final quantity logic ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix64-mobile-fast-select';
+  const VERSION = 'fix70-final-conflict-convergence';
   const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
   const $ = id => document.getElementById(id);
   const clean = v => String(v ?? '').trim();
@@ -2545,15 +2549,54 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(source==='orders') window.__yxOrderRows = window.__yx63Rows[source];
     if(source==='master_order') window.__yxMasterRows = window.__yx63Rows[source];
   }
+  function yx66DimParts(r){
+    const s = rowSize(r);
+    const nums = String(s || '').split(/x/i).map(v => {
+      if(/^[A-Za-z]+$/.test(v || '')) return 999999;
+      const n = Number(String(v || '').replace(/[^0-9.]/g,''));
+      return Number.isFinite(n) ? n : 999999;
+    });
+    return { length: nums[0] ?? 999999, width: nums[1] ?? 999999, height: nums[2] ?? 999999 };
+  }
+  function yx66SupportPieces(r){
+    const support = String(rowSupport(r) || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+');
+    const pieces = support.split('+').map(s => s.trim()).filter(Boolean);
+    let maxCase = 0;
+    let totalCase = 0;
+    pieces.forEach(seg => {
+      const m = seg.match(/x\s*(\d+)\s*$/i);
+      const c = m ? Number(m[1] || 0) : (/\d/.test(seg) ? 1 : 0);
+      maxCase = Math.max(maxCase, c);
+      totalCase += c;
+    });
+    return { maxCase, totalCase, text: support };
+  }
+  function yx66CompareRows(a,b){
+    const ma = rowMaterial(a), mb = rowMaterial(b);
+    const mat = ma.localeCompare(mb, 'zh-Hant', {numeric:true});
+    if(mat) return mat;
+    const da = yx66DimParts(a), db = yx66DimParts(b);
+    // 按使用者要求：高 → 寬 → 長，數字由小到大。
+    if(da.height !== db.height) return da.height - db.height;
+    if(da.width !== db.width) return da.width - db.width;
+    if(da.length !== db.length) return da.length - db.length;
+    const qa = yx66SupportPieces(a), qb = yx66SupportPieces(b);
+    // 同尺寸時，件數多的排前面。
+    if(qa.maxCase !== qb.maxCase) return qb.maxCase - qa.maxCase;
+    if(qa.totalCase !== qb.totalCase) return qb.totalCase - qa.totalCase;
+    return qa.text.localeCompare(qb.text, 'zh-Hant', {numeric:true});
+  }
   function filteredRows(source){
     let rows = [...getRows(source)];
+    const c = selectedCustomer();
     if(source==='master_order'){
-      const c = selectedCustomer();
       rows = c ? rows.filter(r => clean(r.customer_name) === c) : [];
+    } else if(source==='orders' && c){
+      rows = rows.filter(r => clean(r.customer_name) === c);
     }
     const q = clean($(`yx63-${source}-search`)?.value || '').toLowerCase();
     if(q) rows = rows.filter(r => itemKey(r).includes(q));
-    return rows.sort((a,b)=>rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant') || rowSize(a).localeCompare(rowSize(b),'zh-Hant',{numeric:true}) || rowSupport(a).localeCompare(rowSupport(b),'zh-Hant',{numeric:true}));
+    return rows.sort(yx66CompareRows);
   }
 
   function removeLegacyUI(){
@@ -2842,7 +2885,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
 /* ==== FIX64 mobile table + tap-select + navigation speed patch ==== */
 (function(){
-  const YX64 = 'fix64-mobile-fast-select';
+  const YX64 = 'fix70-final-conflict-convergence';
   try { document.documentElement.dataset.yxFix64 = YX64; } catch(_e) {}
 
   function byId(id){ return document.getElementById(id); }
@@ -2892,3 +2935,1838 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 })();
 /* ==== FIX64 end ==== */
 
+
+
+/* ==== FIX65: duplicate convergence + single-flight navigation/load ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix70-final-conflict-convergence';
+  if (window.__YX65_DUP_CONVERGE_INSTALLED__) return;
+  window.__YX65_DUP_CONVERGE_INSTALLED__ = true;
+  try {
+    document.documentElement.dataset.yxFix65 = VERSION;
+    document.body && document.body.setAttribute('data-yx-fix65','1');
+  } catch(_e) {}
+
+  const $ = id => document.getElementById(id);
+  const now = () => Date.now();
+  const moduleKey = () => {
+    try {
+      return document.querySelector('.module-screen')?.dataset.module ||
+        (typeof window.currentModule === 'function' ? window.currentModule() : '');
+    } catch(_e) { return ''; }
+  };
+
+  function hasBoard(){
+    return ['region-north','region-center','region-south','customers-north','customers-center','customers-south']
+      .some(id => !!$(id));
+  }
+
+  function compactText(v){
+    return String(v || '').replace(/\s+/g,' ').trim();
+  }
+
+  function debounce(fn, delay){
+    let timer = null;
+    return function(){
+      clearTimeout(timer);
+      const args = arguments;
+      timer = setTimeout(() => fn.apply(this,args), delay);
+    };
+  }
+
+  function dedupeCustomerCards(){
+    const containers = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'];
+    containers.forEach(id => {
+      const box = $(id);
+      if (!box) return;
+      const seen = new Set();
+      Array.from(box.querySelectorAll('.customer-region-card,.yx-customer-card,[data-customer-name]')).forEach(card => {
+        const name = compactText(card.dataset.customer || card.dataset.customerName ||
+          card.querySelector('.customer-card-name,.customer-name,.yx-customer-left,.fix52-customer-name')?.textContent ||
+          card.textContent);
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) card.remove();
+        else seen.add(key);
+      });
+      const empties = Array.from(box.querySelectorAll('.empty-state-card,.compact-empty'));
+      if (box.querySelector('.customer-region-card,.yx-customer-card,[data-customer-name]') && empties.length) {
+        empties.forEach(el => el.remove());
+      } else if (!box.children.length) {
+        box.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>';
+      }
+    });
+  }
+
+  function dedupeSummaryRows(){
+    document.querySelectorAll('.yx63-summary-table tbody').forEach(tbody => {
+      const seen = new Set();
+      Array.from(tbody.querySelectorAll('tr.yx63-summary-row')).forEach(row => {
+        const source = row.dataset.source || '';
+        const id = row.dataset.id || '';
+        const key = id && id !== '0'
+          ? `${source}:${id}`
+          : `${source}:text:${compactText(row.textContent).toLowerCase()}`;
+        if (seen.has(key)) row.remove();
+        else seen.add(key);
+      });
+    });
+    document.querySelectorAll('#inventory-inline-list,#orders-list,#master-list').forEach(list => {
+      const seen = new Set();
+      Array.from(list.querySelectorAll('.yx63-item-card')).forEach(card => {
+        const key = `${card.dataset.source || ''}:${card.dataset.id || ''}`;
+        if (card.dataset.id && seen.has(key)) card.remove();
+        else if (card.dataset.id) seen.add(key);
+      });
+    });
+  }
+
+  const cleanupDom = debounce(function(){
+    dedupeCustomerCards();
+    dedupeSummaryRows();
+  }, 80);
+
+  function singleFlightFunction(name, ttl, after){
+    const original = window[name];
+    if (typeof original !== 'function' || original.__yx65SingleFlight) return;
+    let pending = null;
+    let lastAt = 0;
+    let lastValue;
+    const wrapped = function(){
+      const args = Array.from(arguments);
+      const force = args[0] === true || args.some(v => v && typeof v === 'object' && v.force === true);
+      const t = now();
+      if (!force && pending) return pending;
+      if (!force && lastValue !== undefined && t - lastAt < ttl) return Promise.resolve(lastValue);
+      pending = Promise.resolve()
+        .then(() => original.apply(this, args))
+        .then(value => {
+          lastValue = value;
+          return value;
+        })
+        .finally(() => {
+          lastAt = now();
+          pending = null;
+          try { after && after(); } catch(_e) {}
+        });
+      return pending;
+    };
+    wrapped.__yx65SingleFlight = true;
+    wrapped.__yx65Original = original;
+    window[name] = wrapped;
+  }
+
+  singleFlightFunction('loadCustomerBlocks', 2600, cleanupDom);
+  singleFlightFunction('renderWarehouse', 900, cleanupDom);
+  singleFlightFunction('loadInventory', 1800, cleanupDom);
+  singleFlightFunction('loadOrdersList', 1800, cleanupDom);
+  singleFlightFunction('loadMasterList', 1800, cleanupDom);
+
+  // 收斂「確認送出」連點 / 重複觸發，只留一次送出流程。
+  if (typeof window.confirmSubmit === 'function' && !window.confirmSubmit.__yx65SingleSubmit) {
+    const originalConfirmSubmit = window.confirmSubmit;
+    let submitLock = false;
+    window.confirmSubmit = async function(){
+      if (submitLock) return;
+      const btn = $('submit-btn');
+      if (btn && btn.dataset.busy === '1') return;
+      submitLock = true;
+      try {
+        return await originalConfirmSubmit.apply(this, arguments);
+      } finally {
+        setTimeout(() => { submitLock = false; }, 500);
+      }
+    };
+    window.confirmSubmit.__yx65SingleSubmit = true;
+  }
+
+  function bindWarehouseZoneButtons(){
+    const safeSet = zone => {
+      if (typeof window.setWarehouseZone === 'function') window.setWarehouseZone(zone);
+    };
+    const btnA = $('zone-switch-A'), btnB = $('zone-switch-B'), btnAll = $('zone-switch-ALL');
+    if (btnA) btnA.onclick = () => safeSet('A');
+    if (btnB) btnB.onclick = () => safeSet('B');
+    if (btnAll) btnAll.onclick = () => safeSet('ALL');
+  }
+
+  function boot(){
+    try {
+      document.documentElement.dataset.yxFix65 = VERSION;
+      document.body && document.body.setAttribute('data-yx-fix65','1');
+    } catch(_e) {}
+
+    const mod = moduleKey();
+    bindWarehouseZoneButtons();
+
+    if (mod === 'warehouse') {
+      const saved = (() => { try { return localStorage.getItem('warehouseActiveZone') || 'A'; } catch(_e) { return 'A'; } })();
+      setTimeout(async () => {
+        try {
+          if (typeof window.renderWarehouse === 'function') await window.renderWarehouse();
+          if (typeof window.setWarehouseZone === 'function') window.setWarehouseZone(saved, false);
+        } catch(_e) {}
+      }, 30);
+    }
+
+    if (hasBoard() && ['orders','master_order','ship','customers'].includes(mod)) {
+      setTimeout(() => {
+        try { typeof window.loadCustomerBlocks === 'function' && window.loadCustomerBlocks(); } catch(_e) {}
+      }, 40);
+    }
+
+    cleanupDom();
+  }
+
+  // 導航時關閉重動畫，返回/進功能頁更快，不改任何功能路由。
+  document.addEventListener('click', function(e){
+    const a = e.target.closest && e.target.closest('a.back-btn,a.menu-btn,.home-menu a,.home-mini-btn[href]');
+    if (!a || !a.href || a.target === '_blank' || a.dataset.yx65NoFastNav === '1') return;
+    try {
+      const u = new URL(a.href, location.href);
+      if (u.origin !== location.origin) return;
+      document.body.classList.add('yx65-navigating');
+    } catch(_e) {}
+  }, true);
+
+  document.addEventListener('click', function(e){
+    const sizeCell = e.target.closest && e.target.closest('.yx63-size-cell');
+    if (!sizeCell) return;
+    setTimeout(cleanupDom, 0);
+  }, true);
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true });
+  else boot();
+
+  window.addEventListener('pageshow', function(){
+    document.body && document.body.classList.remove('yx65-navigating');
+    setTimeout(cleanupDom, 60);
+  });
+})();
+ /* ==== FIX65 end ==== */
+
+
+/* ==== FIX66: customer table restore + ship picker + selected-row filter convergence ==== */
+(function(){
+  'use strict';
+  const VERSION='fix70-final-conflict-convergence';
+  if(window.__YX66_CUSTOMER_TABLE_PATCH__) return;
+  window.__YX66_CUSTOMER_TABLE_PATCH__=true;
+  try{ document.documentElement.dataset.yxFix66=VERSION; document.body && document.body.setAttribute('data-yx-fix66','1'); }catch(_e){}
+
+  const $ = id => document.getElementById(id);
+  const esc = s => (window.escapeHTML ? window.escapeHTML(s) : String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const clean = s => String(s ?? '').trim();
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){ const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}}); const d=await r.json().catch(()=>({})); if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; });
+  const mod = () => document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule==='function'?window.currentModule():'');
+  const notify = (msg, kind='ok') => { try{ (window.toast || window.showToast || alert)(msg, kind); }catch(_e){ console.log(msg); } };
+
+  function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function splitProduct(text){ const raw=normalizeX(text); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
+  function supportQty(expr, fallback=0){
+    const raw=normalizeX(expr); const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;
+    if(!right) return Number(fallback||0)||0;
+    const canonical='504x5+588+587+502+420+382+378+280+254+237+174';
+    if(right.toLowerCase()===canonical || raw.toLowerCase().endsWith('='+canonical)) return 10;
+    const parts=right.split('+').map(clean).filter(Boolean);
+    const xParts=parts.filter(p=>/x\s*\d+\s*$/i.test(p));
+    const bareParts=parts.filter(p=>!/x\s*\d+\s*$/i.test(p)&&/\d/.test(p));
+    if(parts.length>=10 && xParts.length===1 && parts[0]===xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length>=8) return bareParts.length;
+    let total=0, hit=false;
+    parts.forEach(seg=>{ const m=seg.match(/x\s*(\d+)\s*$/i); if(m){ total+=Number(m[1]||0); hit=true; } else if(/\d/.test(seg)){ total+=1; hit=true; } });
+    return hit ? total : (Number(fallback||0)||0);
+  }
+  function rowMaterial(r){
+    const v=clean(r?.material || r?.product_code || '');
+    const p=normalizeX(r?.product_text||'');
+    const vv=normalizeX(v);
+    if(!v || (p && vv===p) || vv.includes('=') || /^\d+(?:\.\d+)?x\d+/i.test(vv)) return '';
+    return v;
+  }
+  function rowSize(r){ return splitProduct(r?.product_text || r?.size || '').size; }
+  function rowSupport(r){ const p=splitProduct(r?.product_text || ''); return p.support || clean(r?.support || r?.support_text || r?.qty || ''); }
+  function rowQty(r){ return supportQty(r?.product_text || r?.support || '', r?.qty || 0); }
+
+  function dimParts(r){
+    const nums=String(rowSize(r)||'').split(/x/i).map(v=>{ if(/^[A-Za-z]+$/.test(v||'')) return 999999; const n=Number(String(v||'').replace(/[^0-9.]/g,'')); return Number.isFinite(n)?n:999999; });
+    return {length:nums[0]??999999,width:nums[1]??999999,height:nums[2]??999999};
+  }
+  function supportRank(r){
+    const parts=String(rowSupport(r)||'').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+').split('+').map(clean).filter(Boolean);
+    let maxCase=0,totalCase=0;
+    parts.forEach(seg=>{ const m=seg.match(/x\s*(\d+)\s*$/i); const c=m?Number(m[1]||0):(/\d/.test(seg)?1:0); maxCase=Math.max(maxCase,c); totalCase+=c; });
+    return {maxCase,totalCase,text:parts.join('+')};
+  }
+  function compareRows(a,b){
+    const mat=rowMaterial(a).localeCompare(rowMaterial(b),'zh-Hant',{numeric:true}); if(mat) return mat;
+    const da=dimParts(a), db=dimParts(b);
+    if(da.height!==db.height) return da.height-db.height;
+    if(da.width!==db.width) return da.width-db.width;
+    if(da.length!==db.length) return da.length-db.length;
+    const qa=supportRank(a), qb=supportRank(b);
+    if(qa.maxCase!==qb.maxCase) return qb.maxCase-qa.maxCase;
+    if(qa.totalCase!==qb.totalCase) return qb.totalCase-qa.totalCase;
+    return qa.text.localeCompare(qb.text,'zh-Hant',{numeric:true});
+  }
+  function getRows(source){ return (window.__yx63Rows && window.__yx63Rows[source]) || []; }
+  function selectedCustomer(){ return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || ''); }
+
+  function showCustomerPanel(panel){
+    if(!panel) return;
+    panel.classList.remove('hidden');
+    panel.classList.add('yx66-active');
+    panel.style.display='block';
+  }
+
+  function buildCustomerProductsHTML(name, items){
+    const sorted=[...(items||[])].sort(compareRows);
+    const total=sorted.reduce((s,it)=>s+rowQty(it),0);
+    const rows=sorted.map(it=>`<tr class="yx66-customer-product-row" data-source="${esc(it.source||'')}" data-id="${Number(it.id||0)}">
+      <td class="yx66-material-cell">${esc(rowMaterial(it))}</td>
+      <td class="yx66-size-cell">${esc(rowSize(it))}</td>
+      <td class="yx66-support-cell">${esc(rowSupport(it))}</td>
+      <td class="yx66-qty-cell">${rowQty(it)}</td>
+      <td class="yx66-source-cell">${esc(it.source||'')}</td>
+    </tr>`).join('');
+    return `<div class="customer-detail-card yx66-customer-detail-card">
+      <div class="customer-detail-header yx66-customer-detail-header">
+        <div><div class="section-title">${esc(name||'')}</div><div class="muted">${total}件 / ${sorted.length}筆商品</div></div>
+      </div>
+      <div class="table-card customer-table-wrap yx66-customer-table-wrap">
+        <table class="yx66-customer-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th><th>來源</th></tr></thead><tbody>${rows || '<tr><td colspan="5">此客戶目前沒有商品</td></tr>'}</tbody></table>
+      </div>
+    </div>`;
+  }
+
+  async function loadShipCustomerItems66(name, uid=''){
+    const sel=$('ship-customer-item-select');
+    if(!sel) return [];
+    const finalName=clean(name || $('customer-name')?.value || '');
+    const finalUid=clean(uid || $('customer-name')?.dataset.customerUid || '');
+    if(!finalName && !finalUid){ sel.innerHTML='<option value="">請先選擇 / 輸入客戶名稱</option>'; window.__YX_SHIP_CUSTOMER_ITEMS__=[]; return []; }
+    try{
+      sel.innerHTML='<option value="">載入中…</option>';
+      const d=await api(`/api/customer-items?name=${encodeURIComponent(finalName)}&customer_uid=${encodeURIComponent(finalUid)}&ts=${Date.now()}`, {method:'GET'});
+      const items=Array.isArray(d.items)?d.items:[];
+      window.__YX_SHIP_CUSTOMER_ITEMS__=items.sort(compareRows);
+      sel.innerHTML='<option value="">請選擇商品</option>'+window.__YX_SHIP_CUSTOMER_ITEMS__.map((it,i)=>`<option value="${i}">${esc(rowMaterial(it)||'未填材質')}｜${esc(rowSize(it))}｜${esc(rowSupport(it))}｜${rowQty(it)}件｜${esc(it.source||'')}</option>`).join('');
+      if(!items.length) sel.innerHTML='<option value="">此客戶目前沒有商品</option>';
+      return items;
+    }catch(e){ sel.innerHTML=`<option value="">${esc(e.message||'商品載入失敗')}</option>`; window.__YX_SHIP_CUSTOMER_ITEMS__=[]; return []; }
+  }
+  window.loadShipCustomerItems66=loadShipCustomerItems66;
+
+  function rerenderCurrentLists(){
+    try{
+      const m=mod();
+      if(m==='orders' && typeof window.renderOrdersRows==='function') window.renderOrdersRows(getRows('orders'));
+      if(m==='master_order' && typeof window.renderMasterRows==='function') window.renderMasterRows(getRows('master_order'));
+      if(m==='inventory' && typeof window.renderInventoryRows==='function') window.renderInventoryRows(getRows('inventory'));
+    }catch(_e){}
+  }
+
+  const prevSelect=typeof window.selectCustomerForModule==='function' ? window.selectCustomerForModule : null;
+  window.selectCustomerForModule=async function(name){
+    const finalName=clean(name||'');
+    window.__YX_SELECTED_CUSTOMER__=finalName;
+    const input=$('customer-name');
+    if(input) input.value=finalName;
+    const panel=$('selected-customer-items');
+    if(panel){ showCustomerPanel(panel); panel.innerHTML='<div class="empty-state-card compact-empty">商品載入中…</div>'; }
+    let items=[];
+    try{
+      const d=await api(`/api/customer-items?name=${encodeURIComponent(finalName)}&ts=${Date.now()}`, {method:'GET'});
+      items=Array.isArray(d.items)?d.items:[];
+      if(panel){ showCustomerPanel(panel); panel.innerHTML=buildCustomerProductsHTML(finalName, items); }
+    }catch(e){
+      if(panel){ showCustomerPanel(panel); panel.innerHTML=`<div class="empty-state-card compact-empty">${esc(e.message||'載入客戶商品失敗')}</div>`; }
+      if(prevSelect){ try{ await prevSelect.apply(this, arguments); }catch(_e){} }
+    }
+    try{ if(mod()==='ship') await loadShipCustomerItems66(finalName); }catch(_e){}
+    try{ rerenderCurrentLists(); }catch(_e){}
+    setTimeout(()=>applyAllSelectedFilters(),60);
+    return items;
+  };
+
+  function selectedRowIds(source){ return new Set([...document.querySelectorAll(`.yx63-summary-row[data-source="${source}"] .yx63-row-check:checked`)].map(cb=>String(cb.dataset.id||''))); }
+  function applySelectedFilter(source){
+    if(!source) return;
+    const ids=selectedRowIds(source);
+    const active=ids.size>0;
+    const list=source==='inventory'?$('inventory-inline-list'):source==='orders'?$('orders-list'):$('master-list');
+    if(list){
+      list.classList.toggle('yx66-filtered-by-table', active);
+      list.querySelectorAll('.yx63-item-card').forEach(card=>{ const show=!active || ids.has(String(card.dataset.id||'')); card.classList.toggle('yx66-card-hidden', !show); });
+    }
+    const hintId=`yx66-${source}-filter-hint`;
+    let hint=$(hintId);
+    const summary=$(`yx63-${source}-summary`);
+    if(active && summary && !hint){ hint=document.createElement('div'); hint.id=hintId; hint.className='yx66-filter-hint'; summary.insertAdjacentElement('afterend', hint); }
+    if(hint){ hint.textContent=active?`已依上方選取篩選下方 ${ids.size} 筆商品；再點尺寸可取消。`:''; hint.style.display=active?'block':'none'; }
+  }
+  function applyAllSelectedFilters(){ ['inventory','orders','master_order'].forEach(applySelectedFilter); }
+
+  document.addEventListener('click', function(e){
+    const cell=e.target.closest && e.target.closest('.yx63-size-cell,.yx63-select-all,#yx63-inventory-selectall,#yx63-orders-selectall,#yx63-master_order-selectall');
+    if(cell) setTimeout(applyAllSelectedFilters, 0);
+  }, true);
+
+  document.addEventListener('click', function(e){
+    if(e.target?.id==='ship-refresh-customer-items'){ e.preventDefault(); e.stopPropagation(); loadShipCustomerItems66($('customer-name')?.value||''); }
+    if(e.target?.id==='ship-add-selected-item'){
+      setTimeout(()=>{ const it=(window.__YX_SHIP_CUSTOMER_ITEMS__||[])[Number($('ship-customer-item-select')?.value)]; if(!it) return; const box=$('ocr-text'); if(!box) return; box.value=box.value.trim()?box.value.trim()+'\n'+it.product_text:it.product_text; },0);
+    }
+    if(e.target?.id==='ship-add-all-items'){
+      setTimeout(()=>{ const box=$('ocr-text'); if(!box) return; const lines=(window.__YX_SHIP_CUSTOMER_ITEMS__||[]).map(it=>it.product_text).filter(Boolean); if(lines.length) box.value=box.value.trim()?box.value.trim()+'\n'+lines.join('\n'):lines.join('\n'); },0);
+    }
+  }, true);
+
+  let shipInputTimer=null;
+  document.addEventListener('input', function(e){
+    if(e.target && e.target.id==='customer-name' && mod()==='ship'){
+      clearTimeout(shipInputTimer);
+      shipInputTimer=setTimeout(()=>loadShipCustomerItems66(e.target.value||''),350);
+    }
+  }, true);
+  document.addEventListener('change', function(e){ if(e.target && e.target.id==='customer-name' && mod()==='ship') loadShipCustomerItems66(e.target.value||''); }, true);
+
+  const mo=new MutationObserver(()=>setTimeout(applyAllSelectedFilters,0));
+  function boot(){
+    try{ document.documentElement.dataset.yxFix66=VERSION; document.body && document.body.setAttribute('data-yx-fix66','1'); }catch(_e){}
+    ['inventory-inline-list','orders-list','master-list'].forEach(id=>{ const el=$(id); if(el) mo.observe(el,{childList:true,subtree:false}); });
+    if(mod()==='ship') loadShipCustomerItems66($('customer-name')?.value||'');
+    setTimeout(applyAllSelectedFilters,120);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
+})();
+/* ==== FIX66 end ==== */
+
+/* ==== FIX67: dynamic warehouse cells + in-cell insert/delete convergence ==== */
+(function(){
+  'use strict';
+  const VERSION='fix70-final-conflict-convergence';
+  if(window.__YX67_WAREHOUSE_DYNAMIC_PATCH__) return;
+  window.__YX67_WAREHOUSE_DYNAMIC_PATCH__=true;
+  try{ document.documentElement.dataset.yxFix67=VERSION; document.body && document.body.setAttribute('data-yx-fix67','1'); }catch(_e){}
+
+  const $ = id => document.getElementById(id);
+  const esc = s => (window.escapeHTML ? window.escapeHTML(s) : String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const api = window.requestJSON || (async function(url,opt={}){ const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}}); const d=await r.json().catch(()=>({})); if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; });
+  const notify = (msg, kind='ok') => { try{ (window.toast || window.showToast || alert)(msg, kind); }catch(_e){ console.log(msg); } };
+  const columns = [1,2,3,4,5,6];
+
+  function ensureState(){
+    window.state = window.state || {};
+    state.warehouse = state.warehouse || { cells: [], zones: {A:{}, B:{}}, availableItems: [], activeZone: 'A' };
+    state.searchHighlightKeys = state.searchHighlightKeys || new Set();
+  }
+  function parseItems(raw){
+    try{ return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); }catch(_e){ return []; }
+  }
+  function cellOf(zone, col, num){
+    ensureState();
+    return (state.warehouse.cells || []).find(c => String(c.zone)===String(zone) && Number(c.column_index)===Number(col) && Number(c.slot_number)===Number(num));
+  }
+  window.getCellItems = function(zone, col, num){
+    const c = cellOf(zone, col, num);
+    return c ? parseItems(c.items_json) : [];
+  };
+  window.buildCellKey = function(zone, col, num){ return [zone, Number(col), 'direct', Number(num)]; };
+
+  function maxSlot(zone, col){
+    ensureState();
+    const nums = (state.warehouse.cells || [])
+      .filter(c => String(c.zone)===String(zone) && Number(c.column_index)===Number(col))
+      .map(c => Number(c.slot_number)||0)
+      .filter(Boolean);
+    return nums.length ? Math.max(...nums) : 1;
+  }
+  function totalSlots(zone){ return columns.reduce((sum,c)=>sum+maxSlot(zone,c),0); }
+
+  function slotSummary(items){
+    if(!items || !items.length) return '<div class="slot-line empty">空格</div>';
+    const shown = items.slice(0,2).map(it => `
+      <div class="slot-line customer">客戶：${esc(it.customer_name || '未指定客戶')}</div>
+      <div class="slot-line product">商品：${esc(it.product_text || '')}</div>
+      <div class="slot-line qty">數量：${Number(it.qty || 0)}</div>
+    `).join('<hr class="slot-sep">');
+    return shown + (items.length>2 ? `<div class="slot-line qty">另有 ${items.length-2} 筆</div>` : '');
+  }
+
+  function bindSlotDnd(slot, zone, col, num){
+    slot.addEventListener('dragover', ev => { ev.preventDefault(); slot.classList.add('drag-over'); });
+    slot.addEventListener('dragleave', () => slot.classList.remove('drag-over'));
+    slot.addEventListener('drop', async ev => {
+      ev.preventDefault();
+      slot.classList.remove('drag-over');
+      const raw = ev.dataTransfer.getData('text/plain');
+      if(!raw) return;
+      try{
+        const parsed = JSON.parse(raw);
+        if(parsed.kind === 'warehouse-item' && typeof window.moveWarehouseItem === 'function'){
+          await window.moveWarehouseItem(parsed.fromKey, window.buildCellKey(zone, col, num), parsed.product_text, parsed.qty);
+          await window.renderWarehouse(true);
+        }
+      }catch(_e){}
+    });
+  }
+
+  function renderOneZone(zone){
+    const wrap = $('zone-' + zone + '-grid');
+    if(!wrap) return;
+    wrap.className = 'zone-grid six-grid vertical-card-grid yx67-dynamic-grid';
+    wrap.innerHTML = '';
+    const note = $('zone-' + zone + '-count-note');
+    if(note) note.textContent = `6 欄｜目前 ${totalSlots(zone)} 格`;
+
+    columns.forEach(colNo => {
+      const count = maxSlot(zone, colNo);
+      const col = document.createElement('div');
+      col.className = 'vertical-column-card intuitive-column yx67-dynamic-column';
+      col.innerHTML = `
+        <div class="column-head-row">
+          <div class="column-head">${zone} 區第 ${colNo} 欄</div>
+          <div class="small-note">目前 ${count} 格</div>
+        </div>
+        <div class="vertical-slot-list yx67-slot-list"></div>`;
+      const list = col.querySelector('.vertical-slot-list');
+      for(let n=1; n<=count; n++){
+        const items = window.getCellItems(zone, colNo, n);
+        const key = `${zone}|${colNo}|direct|${n}`;
+        const slot = document.createElement('div');
+        slot.className = 'vertical-slot yx67-warehouse-slot';
+        slot.dataset.zone = zone;
+        slot.dataset.column = String(colNo);
+        slot.dataset.num = String(n);
+        slot.classList.toggle('filled', items.length>0);
+        slot.classList.toggle('highlight', !!(state.searchHighlightKeys && state.searchHighlightKeys.has(key)));
+        slot.innerHTML = `
+          <div class="slot-title-row">
+            <div class="slot-title">第 ${String(n).padStart(2,'0')} 格</div>
+            <div class="small-note">${items.length ? `${items.length} 筆` : '空'}</div>
+          </div>
+          <div class="slot-count">${slotSummary(items)}</div>
+          <div class="yx67-slot-actions" aria-label="格子操作">
+            <button type="button" class="ghost-btn tiny-btn yx67-slot-btn yx67-insert-btn">插入格子</button>
+            <button type="button" class="ghost-btn tiny-btn yx67-slot-btn yx67-delete-btn">刪除格子</button>
+          </div>`;
+        slot.addEventListener('click', ev => {
+          if(ev.target.closest('.yx67-slot-actions')) return;
+          try{ if(typeof window.showWarehouseDetail === 'function') window.showWarehouseDetail(zone, colNo, n, items); }catch(_e){}
+          try{ if(typeof window.openWarehouseModal === 'function') window.openWarehouseModal(zone, colNo, n); }catch(_e){}
+        });
+        slot.querySelector('.yx67-insert-btn')?.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); window.insertWarehouseCell(zone, colNo, n); });
+        slot.querySelector('.yx67-delete-btn')?.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); window.deleteWarehouseCell(zone, colNo, n); });
+        bindSlotDnd(slot, zone, colNo, n);
+        list.appendChild(slot);
+      }
+      wrap.appendChild(col);
+    });
+  }
+
+  function repaintWarehouse(){
+    ensureState();
+    renderOneZone('A');
+    renderOneZone('B');
+    if(typeof window.setWarehouseZone === 'function') window.setWarehouseZone(state.warehouse.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
+  }
+  window.renderWarehouseZones = repaintWarehouse;
+
+  let warehousePending = null;
+  async function loadWarehouseDynamic(force=false){
+    ensureState();
+    if(warehousePending && !force) return warehousePending;
+    warehousePending = (async () => {
+      const [warehouseRes, availRes] = await Promise.allSettled([
+        api('/api/warehouse', { method:'GET' }),
+        api('/api/warehouse/available-items', { method:'GET' })
+      ]);
+      const data = warehouseRes.status === 'fulfilled' ? warehouseRes.value : { cells: [], zones: {A:{}, B:{}} };
+      const avail = availRes.status === 'fulfilled' ? availRes.value : { items: [] };
+      state.warehouse.cells = Array.isArray(data.cells) ? data.cells : [];
+      state.warehouse.zones = data.zones || {A:{}, B:{}};
+      state.warehouse.availableItems = Array.isArray(avail.items) ? avail.items : [];
+      if($('warehouse-unplaced-pill')) $('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`;
+      repaintWarehouse();
+      return data;
+    })().catch(e => { console.error(e); notify(e.message || '倉庫圖載入失敗', 'error'); repaintWarehouse(); }).finally(() => { setTimeout(()=>{ warehousePending=null; }, 120); });
+    return warehousePending;
+  }
+  window.renderWarehouseLegacyA = loadWarehouseDynamic;
+  window.renderWarehouseLegacyB = loadWarehouseDynamic;
+  window.renderWarehouse = loadWarehouseDynamic;
+
+  async function reloadFromResultOrFetch(result){
+    if(result && Array.isArray(result.cells)){
+      state.warehouse.cells = result.cells;
+      if(result.zones) state.warehouse.zones = result.zones;
+      repaintWarehouse();
+      try{ await api('/api/warehouse/available-items', {method:'GET'}).then(avail => { state.warehouse.availableItems = Array.isArray(avail.items)?avail.items:[]; if($('warehouse-unplaced-pill')) $('warehouse-unplaced-pill').textContent = `未錄入倉庫圖：${state.warehouse.availableItems.length}`; }); }catch(_e){}
+    }else{
+      await loadWarehouseDynamic(true);
+    }
+  }
+
+  window.insertWarehouseCell = async function(zone, col, slotNum){
+    ensureState();
+    try{
+      const result = await api('/api/warehouse/add-slot', { method:'POST', body: JSON.stringify({ zone, column_index: Number(col), insert_after: Number(slotNum || 0) }) });
+      await reloadFromResultOrFetch(result);
+      const newSlot = Number(result?.slot_number || (Number(slotNum || 0)+1));
+      notify(`已在 ${zone} 區第 ${col} 欄插入第 ${String(newSlot).padStart(2,'0')} 格`, 'ok');
+      setTimeout(()=>{ try{ window.highlightWarehouseCell(zone, col, newSlot); }catch(_e){} }, 80);
+      return result;
+    }catch(e){ notify(e.message || '插入格子失敗', 'error'); }
+  };
+
+  window.deleteWarehouseCell = async function(zone, col, slotNum){
+    ensureState();
+    const items = window.getCellItems(zone, col, slotNum);
+    if(items.length){ notify('格子內還有商品，請先移除商品後再刪除格子', 'warn'); return; }
+    const ok = window.confirm ? window.confirm(`確定刪除 ${zone} 區第 ${col} 欄第 ${String(slotNum).padStart(2,'0')} 格？後面的格號會自動往前補。`) : true;
+    if(!ok) return;
+    try{
+      const result = await api('/api/warehouse/remove-slot', { method:'POST', body: JSON.stringify({ zone, column_index: Number(col), slot_number: Number(slotNum) }) });
+      await reloadFromResultOrFetch(result);
+      notify(`已刪除 ${zone} 區第 ${col} 欄第 ${String(slotNum).padStart(2,'0')} 格`, 'ok');
+      return result;
+    }catch(e){ notify(e.message || '刪除格子失敗', 'error'); }
+  };
+
+  // 舊的欄位 + / - 呼叫保留相容，但不再顯示欄位按鈕；新增預設插在最後，刪除預設刪最後一格。
+  window.addWarehouseVisualSlot = async function(zone, col, insertAfter){
+    const after = Number(insertAfter || maxSlot(zone, col) || 0);
+    return window.insertWarehouseCell(zone, col, after);
+  };
+  window.removeWarehouseVisualSlot = async function(zone, col, slotNum){
+    const target = Number(slotNum || maxSlot(zone, col) || 1);
+    return window.deleteWarehouseCell(zone, col, target);
+  };
+
+  const oldShowDetail = typeof window.showWarehouseDetail === 'function' ? window.showWarehouseDetail : null;
+  window.showWarehouseDetail = function(zone, col, num, items){
+    const box = $('warehouse-detail-panel');
+    if(!box){ return oldShowDetail ? oldShowDetail.apply(this, arguments) : null; }
+    const safeItems = Array.isArray(items) ? items : window.getCellItems(zone, col, num);
+    box.classList.remove('hidden');
+    const cards = safeItems.length ? safeItems.map(it => {
+      const row = typeof window.formatCustomerProductRow === 'function' ? window.formatCustomerProductRow(it.product_text || '') : { size: it.product_text || '' };
+      return `<div class="deduct-card"><div><strong>${esc(it.customer_name || '未指定客戶')}</strong></div><div>${esc(it.product_text || '')}</div><div>尺寸：${esc(row.size || '')}</div><div>材質：${esc((it.material || row.material || '未填'))}</div><div>數量：${Number(it.qty || 0)}</div><div class="small-note">格位：${zone}-${col}-${String(num).padStart(2,'0')}</div></div>`;
+    }).join('') : '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
+    box.innerHTML = `<div class="section-title">${zone} 區第 ${col} 欄 第 ${String(num).padStart(2,'0')} 格</div>
+      <div class="btn-row compact-row yx67-detail-actions">
+        <button class="ghost-btn tiny-btn" type="button" onclick="openWarehouseModal('${zone}', ${Number(col)}, ${Number(num)})">直接編輯此格</button>
+        <button class="ghost-btn tiny-btn" type="button" onclick="insertWarehouseCell('${zone}', ${Number(col)}, ${Number(num)})">插入格子</button>
+        <button class="ghost-btn tiny-btn" type="button" onclick="deleteWarehouseCell('${zone}', ${Number(col)}, ${Number(num)})">刪除格子</button>
+      </div>${cards}`;
+  };
+
+  window.searchWarehouse = async function(){
+    ensureState();
+    const q = ($('warehouse-search')?.value || '').trim();
+    const box = $('warehouse-search-results');
+    if(!q){ state.searchHighlightKeys = new Set(); box?.classList.add('hidden'); repaintWarehouse(); return; }
+    try{
+      const data = await api(`/api/warehouse/search?q=${encodeURIComponent(q)}`, {method:'GET'});
+      const hits = Array.isArray(data.items) ? data.items : [];
+      state.searchHighlightKeys = new Set(hits.map(r => `${r.cell.zone}|${r.cell.column_index}|direct|${r.cell.slot_number}`));
+      repaintWarehouse();
+      if(!box) return;
+      box.classList.remove('hidden');
+      box.innerHTML = hits.length ? '' : '<div class="search-card">沒有找到資料</div>';
+      if(hits[0]?.cell && typeof window.setWarehouseZone === 'function') window.setWarehouseZone(hits[0].cell.zone, false);
+      hits.forEach(r => {
+        const cell=r.cell || {}; const item=r.item || {};
+        const div=document.createElement('div');
+        div.className='search-card warehouse-search-hit';
+        div.innerHTML=`<strong>${esc(cell.zone)}區 第 ${cell.column_index} 欄 第 ${String(cell.slot_number).padStart(2,'0')} 格</strong><br>${esc(item.customer_name || '未指定客戶')}｜${esc(item.product_text || '')} × ${Number(item.qty || 0)}`;
+        div.onclick=()=>{ if(typeof window.setWarehouseZone==='function') window.setWarehouseZone(cell.zone); setTimeout(()=>{ try{ window.highlightWarehouseCell(cell.zone, cell.column_index, cell.slot_number); }catch(_e){} try{ window.openWarehouseModal(cell.zone, cell.column_index, cell.slot_number); }catch(_e){} },90); };
+        box.appendChild(div);
+      });
+    }catch(e){ notify(e.message || '搜尋失敗', 'error'); }
+  };
+
+  window.clearWarehouseHighlights = function(){
+    ensureState();
+    state.searchHighlightKeys = new Set();
+    $('warehouse-search-results')?.classList.add('hidden');
+    $('warehouse-unplaced-list-inline')?.classList.add('hidden');
+    repaintWarehouse();
+  };
+
+  window.toggleWarehouseUnplacedHighlight = function(){
+    ensureState();
+    const box = $('warehouse-unplaced-list-inline');
+    const items = state.warehouse.availableItems || [];
+    if(!box) return;
+    box.classList.remove('hidden');
+    box.innerHTML = '';
+    if(!items.length){ box.innerHTML='<div class="search-card">目前沒有未錄入倉庫圖商品</div>'; return; }
+    items.forEach(it => {
+      const div=document.createElement('div');
+      div.className='search-card';
+      div.innerHTML=`<strong>${esc(it.customer_name || '未指定客戶')}</strong><br>${esc(it.product_text || '')}｜未錄入數量 ${Number(it.unplaced_qty || it.qty || 0)}`;
+      div.onclick=async()=>{ if($('warehouse-search')) $('warehouse-search').value = it.product_text || ''; await window.searchWarehouse(); };
+      box.appendChild(div);
+    });
+  };
+
+  window.highlightWarehouseSameCustomer = function(){
+    ensureState();
+    const q = ($('warehouse-search')?.value || '').trim();
+    if(!q) return notify('請先在搜尋框輸入客戶名', 'warn');
+    const keys = new Set();
+    (state.warehouse.cells || []).forEach(cell => {
+      const items = parseItems(cell.items_json);
+      if(items.some(it => String(it.customer_name || '').includes(q))) keys.add(`${cell.zone}|${cell.column_index}|direct|${cell.slot_number}`);
+    });
+    state.searchHighlightKeys = keys;
+    repaintWarehouse();
+  };
+
+  function boot(){
+    try{ document.documentElement.dataset.yxFix67=VERSION; document.body && document.body.setAttribute('data-yx-fix67','1'); }catch(_e){}
+    document.querySelectorAll('.warehouse-col-tools').forEach(el => el.remove());
+    const mod = document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule==='function' ? window.currentModule() : '');
+    if(mod === 'warehouse') setTimeout(()=>loadWarehouseDynamic(true), 20);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+})();
+/* ==== FIX67 end ==== */
+
+
+/* ==== FIX68: button response guarantee + old-data conflict convergence ==== */
+(function(){
+  'use strict';
+  const VERSION='fix70-final-conflict-convergence';
+  if(window.__YX68_BUTTON_RESPONSE_PATCH__) return;
+  window.__YX68_BUTTON_RESPONSE_PATCH__=true;
+  try{ document.documentElement.dataset.yxFix68=VERSION; document.body && document.body.setAttribute('data-yx-fix68','1'); }catch(_e){}
+
+  const $ = id => document.getElementById(id);
+  const esc = s => (window.escapeHTML ? window.escapeHTML(s) : String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const api = window.requestJSON || (async function(url,opt={}){
+    const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok || d.success===false) throw new Error(d.error||d.message||`請求失敗：${r.status}`);
+    return d;
+  });
+  const notify = (msg, kind='ok') => { try{ (window.toast || window.showToast || function(m){ alert(m); })(msg, kind); }catch(_e){ console.log(msg); } };
+  const mod = () => document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule==='function' ? window.currentModule() : '');
+
+  function setBusy(btn, on, text){
+    if(!btn) return;
+    if(on){
+      if(!btn.dataset.yx68OriginalText) btn.dataset.yx68OriginalText = btn.textContent || '';
+      btn.classList.add('yx68-busy');
+      btn.setAttribute('aria-busy','true');
+      if(text) btn.textContent = text;
+    }else{
+      btn.classList.remove('yx68-busy');
+      btn.removeAttribute('aria-busy');
+      if(btn.dataset.yx68OriginalText){ btn.textContent = btn.dataset.yx68OriginalText; delete btn.dataset.yx68OriginalText; }
+    }
+  }
+  function tapFeedback(el){
+    if(!el) return;
+    try{
+      el.classList.add('yx68-tapped');
+      setTimeout(()=>el.classList.remove('yx68-tapped'), 180);
+    }catch(_e){}
+  }
+
+  function nonEmptyLines(){
+    const box=$('ocr-text');
+    return (box?.value || '').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  }
+  function writeLines(lines){
+    const box=$('ocr-text');
+    if(!box) return;
+    box.value = (lines || []).filter(Boolean).join('\n');
+    box.dispatchEvent(new Event('input',{bubbles:true}));
+    try{ if(typeof window.renderShipSelectedItems==='function') window.renderShipSelectedItems(); }catch(_e){}
+    try{ if(typeof window.loadShipPreview==='function') window.loadShipPreview(); }catch(_e){}
+  }
+  window.clearShipSelectedItems = window.clearShipSelectedItems || function(){
+    writeLines([]);
+    try{ if(window.state) window.state.shipPreview = null; }catch(_e){}
+    const p=$('ship-preview-panel'); if(p){ p.innerHTML=''; p.classList.add('hidden'); }
+    notify('已清空已選商品','ok');
+  };
+  window.removeShipItemAt = window.removeShipItemAt || function(idx){
+    const lines=nonEmptyLines();
+    idx=Number(idx);
+    if(idx>=0 && idx<lines.length){ lines.splice(idx,1); writeLines(lines); notify('已移除商品','ok'); }
+  };
+  window.moveShipItem = window.moveShipItem || function(idx, dir){
+    const lines=nonEmptyLines();
+    idx=Number(idx); dir=Number(dir)||0;
+    const to=idx+dir;
+    if(idx<0 || idx>=lines.length || to<0 || to>=lines.length) return;
+    const [item]=lines.splice(idx,1); lines.splice(to,0,item); writeLines(lines); notify('已調整順序','ok');
+  };
+  window.quickJumpToModule = window.quickJumpToModule || function(target, customerName='', productText=''){
+    const map={inventory:'/inventory',orders:'/orders','master_order':'/master-order',master:'/master-order',ship:'/ship',warehouse:'/warehouse',customers:'/customers',shipping_query:'/shipping-query',todos:'/todos'};
+    const finalTarget = target === 'master' ? 'master_order' : target;
+    try{ localStorage.setItem('moduleQuickJump', JSON.stringify({target:finalTarget, customerName:customerName||'', productText:productText||'', at:Date.now()})); }catch(_e){}
+    location.href = map[target] || map[finalTarget] || '/';
+  };
+
+  window.loadShippingRecords = window.loadShippingRecords || async function(){
+    const box=$('shipping-results');
+    const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    try{
+      setBusy(btn,true,'查詢中…');
+      if(box){ box.innerHTML='<div class="empty-state-card compact-empty">出貨紀錄載入中…</div>'; }
+      const q=($('ship-keyword')?.value||'').trim();
+      const range=($('ship-range')?.value||'7').trim();
+      let start=($('ship-start')?.value||'').trim();
+      let end=($('ship-end')?.value||'').trim();
+      if(range && range!=='custom'){
+        const days=Math.max(1, Number(range)||7);
+        const d=new Date();
+        end=d.toISOString().slice(0,10);
+        d.setDate(d.getDate()-(days-1));
+        start=d.toISOString().slice(0,10);
+        if($('ship-start')) $('ship-start').value=start;
+        if($('ship-end')) $('ship-end').value=end;
+      }
+      const qs=new URLSearchParams();
+      if(q) qs.set('q',q); if(start) qs.set('start_date',start); if(end) qs.set('end_date',end);
+      const data=await api('/api/shipping_records?'+qs.toString(),{method:'GET'});
+      const rows=Array.isArray(data.items)?data.items:(data.records||[]);
+      if(!box) return rows;
+      if(!rows.length){ box.innerHTML='<div class="empty-state-card compact-empty">查無出貨紀錄</div>'; return rows; }
+      box.innerHTML = `<div class="yx68-scroll-table"><table class="yx68-record-table"><thead><tr><th>時間</th><th>客戶</th><th>商品</th><th>數量</th><th>操作人</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.shipped_at||r.created_at||'')}</td><td>${esc(r.customer_name||'')}</td><td>${esc(r.product_text||'')}</td><td>${Number(r.qty||0)}</td><td>${esc(r.operator||'')}</td></tr>`).join('')}</tbody></table></div>`;
+      return rows;
+    }catch(e){ if(box) box.innerHTML=`<div class="error-card">${esc(e.message||'查詢失敗')}</div>`; notify(e.message||'查詢失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+
+  window.openArchivedCustomersModal = window.openArchivedCustomersModal || async function(){
+    let modal=$('yx68-archived-customers-modal');
+    if(!modal){
+      modal=document.createElement('div');
+      modal.id='yx68-archived-customers-modal';
+      modal.className='modal hidden';
+      modal.innerHTML=`<div class="modal-card glass yx68-archived-card"><div class="modal-head"><div class="section-title">封存客戶</div><button type="button" class="icon-btn" data-yx68-close-archived>✕</button></div><div id="yx68-archived-customers-body" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>`;
+      document.body.appendChild(modal);
+      modal.addEventListener('click',e=>{ if(e.target===modal || e.target.closest('[data-yx68-close-archived]')) modal.classList.add('hidden'); });
+    }
+    const body=$('yx68-archived-customers-body');
+    modal.classList.remove('hidden');
+    if(body) body.innerHTML='<div class="empty-state-card compact-empty">封存客戶載入中…</div>';
+    try{
+      const d=await api('/api/customers/archived',{method:'GET'});
+      const items=Array.isArray(d.items)?d.items:[];
+      if(!body) return;
+      body.innerHTML = items.length ? items.map(c=>`<div class="deduct-card"><strong>${esc(c.name||'')}</strong><div class="small-note">${esc(c.region||'')}｜${esc(c.phone||'')}</div><button type="button" class="ghost-btn small-btn" data-yx68-restore-customer="${esc(c.name||'')}">還原</button></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有封存客戶</div>';
+    }catch(e){ if(body) body.innerHTML=`<div class="error-card">${esc(e.message||'封存客戶讀取失敗')}</div>`; }
+  };
+
+  window.changePassword = window.changePassword || async function(){
+    const msg=$('settings-msg'); const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    const old_password=($('old-password')?.value||'').trim();
+    const new_password=($('new-password')?.value||'').trim();
+    const confirm_password=($('confirm-password')?.value||'').trim();
+    try{
+      setBusy(btn,true,'儲存中…');
+      await api('/api/change_password',{method:'POST',body:JSON.stringify({old_password,new_password,confirm_password})});
+      if(msg){ msg.textContent='密碼已更新'; msg.className='alert ok'; msg.classList.remove('hidden'); }
+      notify('密碼已更新','ok');
+      ['old-password','new-password','confirm-password'].forEach(id=>{ if($(id)) $(id).value=''; });
+    }catch(e){ if(msg){ msg.textContent=e.message||'修改失敗'; msg.className='alert error'; msg.classList.remove('hidden'); } notify(e.message||'修改失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.undoLastAction = window.undoLastAction || async function(){
+    const box=$('undo-msg'); const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    try{ setBusy(btn,true,'還原中…'); const d=await api('/api/undo-last',{method:'POST',body:JSON.stringify({})}); if(box) box.textContent=d.message||d.summary||'已還原上一筆'; notify(box?.textContent||'已還原','ok'); }
+    catch(e){ if(box) box.textContent=e.message||'還原失敗'; notify(e.message||'還原失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.downloadReport = window.downloadReport || function(type){
+    const qs=new URLSearchParams(); qs.set('type',type||'inventory');
+    const s=($('report-start')?.value||'').trim(); const e=($('report-end')?.value||'').trim();
+    if(s) qs.set('start_date',s); if(e) qs.set('end_date',e);
+    notify('正在準備報表下載…','ok');
+    location.href='/api/reports/export?'+qs.toString();
+  };
+  window.loadAuditTrails = window.loadAuditTrails || async function(){
+    const box=$('audit-trails-list'); const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    try{
+      setBusy(btn,true,'載入中…'); if(box) box.innerHTML='<div class="empty-state-card compact-empty">操作紀錄載入中…</div>';
+      const qs=new URLSearchParams();
+      const map={'audit-q':'q','audit-user':'username','audit-entity':'entity_type','audit-start':'start_date','audit-end':'end_date'};
+      Object.entries(map).forEach(([id,k])=>{ const v=($(id)?.value||'').trim(); if(v) qs.set(k,v); });
+      const d=await api('/api/audit-trails?'+qs.toString(),{method:'GET'}); const items=Array.isArray(d.items)?d.items:[];
+      if(!box) return;
+      box.innerHTML = items.length ? items.map(it=>`<div class="deduct-card"><strong>${esc(it.action_label||it.action_type||'操作')}</strong><div>${esc(it.summary_text||it.entity_key||'')}</div><div class="small-note">${esc(it.created_at||'')}｜${esc(it.username||'')}｜${esc(it.entity_label||it.entity_type||'')}</div></div>`).join('') : '<div class="empty-state-card compact-empty">沒有操作紀錄</div>';
+    }catch(e){ if(box) box.innerHTML=`<div class="error-card">${esc(e.message||'操作紀錄載入失敗')}</div>`; notify(e.message||'操作紀錄載入失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.loadAdminUsers = window.loadAdminUsers || async function(){
+    const box=$('admin-users'); const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    try{
+      setBusy(btn,true,'載入中…'); if(box) box.innerHTML='<div class="empty-state-card compact-empty">帳號載入中…</div>';
+      const d=await api('/api/admin/users',{method:'GET'}); const users=Array.isArray(d.items)?d.items:[];
+      if(!box) return;
+      box.innerHTML = users.length ? `<div class="yx68-scroll-table"><table class="yx68-record-table"><thead><tr><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.username||'')}</td><td>${esc(u.role||'')}</td><td>${Number(u.is_blocked||0)?'黑名單':'正常'}</td><td>${(u.username==='陳韋廷')?'管理員':`<button type="button" class="ghost-btn tiny-btn" data-yx68-block-user="${esc(u.username||'')}" data-blocked="${Number(u.is_blocked||0)?0:1}">${Number(u.is_blocked||0)?'解除':'封鎖'}</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state-card compact-empty">沒有帳號</div>';
+    }catch(e){ if(box) box.innerHTML=`<div class="error-card">${esc(e.message||'帳號載入失敗')}</div>`; notify(e.message||'帳號載入失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  async function loadBackups(){
+    const box=$('backup-panel'); if(!box) return;
+    try{ const d=await api('/api/backups',{method:'GET'}); const files=Array.isArray(d.files)?d.files:[]; box.innerHTML=files.length?files.map(f=>`<div class="deduct-card"><strong>${esc(f.filename||'')}</strong><div class="small-note">${esc(f.created_at||'')}｜${Number(f.size||0).toLocaleString()} bytes</div><div class="btn-row compact-row"><a class="ghost-btn tiny-btn" href="/api/backups/download/${encodeURIComponent(f.filename||'')}">下載</a><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx68-restore-backup="${esc(f.filename||'')}">還原</button></div></div>`).join(''):'<div class="empty-state-card compact-empty">尚無備份</div>'; }
+    catch(e){ box.innerHTML=`<div class="error-card">${esc(e.message||'備份清單載入失敗')}</div>`; }
+  }
+  window.createBackup = window.createBackup || async function(){
+    const btn=document.activeElement && document.activeElement.tagName==='BUTTON' ? document.activeElement : null;
+    try{ setBusy(btn,true,'備份中…'); await api('/api/backup',{method:'POST',body:JSON.stringify({})}); notify('備份已建立','ok'); await loadBackups(); }
+    catch(e){ notify(e.message||'備份失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.logout = window.logout || async function(){
+    try{ await api('/api/logout',{method:'POST',body:JSON.stringify({})}); }catch(_e){}
+    location.href='/login';
+  };
+
+  function todayKindLabel(kind){ return ({inbound:'進貨',outbound:'出貨',orders:'新增訂單',unplaced:'未錄入',all:'全部'})[kind]||kind; }
+  async function deleteTodayLog(id){
+    if(!id) return;
+    if(window.confirm && !window.confirm('確定刪除這筆異動？')) return;
+    await api('/api/today-changes/'+encodeURIComponent(id),{method:'DELETE'});
+    await window.loadTodayChanges();
+    notify('已刪除異動','ok');
+  }
+  window.loadTodayChanges = window.loadTodayChanges || async function(){
+    const summaryBox=$('today-summary-cards');
+    try{
+      const d=await api('/api/today-changes',{method:'GET'});
+      const s=d.summary||{};
+      if($('today-unread-badge')) $('today-unread-badge').textContent=String(s.unread_count||0);
+      if(summaryBox){
+        summaryBox.innerHTML=`<div class="card"><div class="title">新增</div><div class="sub">${Number(s.inbound_count||0)}</div></div><div class="card"><div class="title">出貨</div><div class="sub">${Number(s.outbound_count||0)}</div></div><div class="card"><div class="title">新增訂單</div><div class="sub">${Number(s.new_order_count||0)}</div></div><div class="card"><div class="title">未錄入倉庫圖</div><div class="sub">${Number(s.unplaced_count||0)}</div></div>`;
+      }
+      const readAt=d.read_at||'';
+      const onlyUnread=(localStorage.getItem('yxTodayOnlyUnread')==='1');
+      const makeLog = r => {
+        const unread=!readAt || String(r.created_at||'')>readAt;
+        if(onlyUnread && !unread) return '';
+        return `<div class="today-item deduct-card${unread?' yx68-unread':''}" data-log-id="${Number(r.id||0)}"><strong>${esc(r.action||'異動')}</strong><div class="small-note">${esc(r.created_at||'')}｜${esc(r.username||'')}</div><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx68-delete-today="${Number(r.id||0)}">刪除</button></div>`;
+      };
+      const fill=(id, rows, empty)=>{ const el=$(id); if(el) el.innerHTML=(rows||[]).map(makeLog).join('') || `<div class="empty-state-card compact-empty">${empty}</div>`; };
+      fill('today-inbound-list', d.feed?.inbound, '今天沒有進貨/新增資料');
+      fill('today-outbound-list', d.feed?.outbound, '今天沒有出貨');
+      fill('today-order-list', d.feed?.new_orders, '今天沒有新增訂單');
+      const unplaced=$('today-unplaced-list');
+      if(unplaced){
+        const arr=Array.isArray(d.unplaced_items)?d.unplaced_items:[];
+        unplaced.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(it.product_text||'')}</strong><div class="small-note">${esc(it.customer_name||'未指定客戶')}｜未錄入 ${Number(it.qty||0)}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
+      }
+      try{ await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})}); }catch(_e){}
+      return d;
+    }catch(e){
+      if(summaryBox) summaryBox.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`;
+      notify(e.message||'今日異動載入失敗','error');
+    }
+  };
+
+  // 所有按鈕 / 連結先給即時按壓反饋，避免手機端看起來「沒反應」。
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest && e.target.closest('button,.menu-btn,.home-mini-btn,a.back-btn,.chip,.interactive-pill,[role="button"]');
+    if(!btn) return;
+    if(btn.tagName==='BUTTON' && !btn.getAttribute('type')) btn.setAttribute('type','button');
+    tapFeedback(btn);
+  }, true);
+
+  // 針對動態產生的按鈕補事件委派，避免舊 HTML / 舊資料仍指向失效事件。
+  document.addEventListener('click', async function(e){
+    const restoreCustomer=e.target.closest && e.target.closest('[data-yx68-restore-customer]');
+    if(restoreCustomer){
+      e.preventDefault(); e.stopPropagation();
+      const name=restoreCustomer.getAttribute('data-yx68-restore-customer')||'';
+      try{ setBusy(restoreCustomer,true,'還原中…'); await api('/api/customers/'+encodeURIComponent(name)+'/restore',{method:'POST',body:JSON.stringify({})}); notify('客戶已還原','ok'); await window.openArchivedCustomersModal(); if(typeof window.renderCustomers==='function') window.renderCustomers(); }
+      catch(err){ notify(err.message||'還原失敗','error'); }
+      finally{ setBusy(restoreCustomer,false); }
+      return;
+    }
+    const block=e.target.closest && e.target.closest('[data-yx68-block-user]');
+    if(block){
+      e.preventDefault(); e.stopPropagation();
+      try{ setBusy(block,true,'處理中…'); await api('/api/admin/block',{method:'POST',body:JSON.stringify({username:block.getAttribute('data-yx68-block-user'), blocked:block.getAttribute('data-blocked')==='1'})}); notify('帳號狀態已更新','ok'); await window.loadAdminUsers(); }
+      catch(err){ notify(err.message||'更新失敗','error'); }
+      finally{ setBusy(block,false); }
+      return;
+    }
+    const restoreBackup=e.target.closest && e.target.closest('[data-yx68-restore-backup]');
+    if(restoreBackup){
+      e.preventDefault(); e.stopPropagation();
+      const filename=restoreBackup.getAttribute('data-yx68-restore-backup')||'';
+      if(window.confirm && !window.confirm('確定要還原這份備份？目前資料會被覆蓋。')) return;
+      try{ setBusy(restoreBackup,true,'還原中…'); await api('/api/backups/restore',{method:'POST',body:JSON.stringify({filename})}); notify('備份已還原','ok'); }
+      catch(err){ notify(err.message||'還原失敗','error'); }
+      finally{ setBusy(restoreBackup,false); }
+      return;
+    }
+    const delToday=e.target.closest && e.target.closest('[data-yx68-delete-today]');
+    if(delToday){ e.preventDefault(); e.stopPropagation(); try{ await deleteTodayLog(delToday.getAttribute('data-yx68-delete-today')); }catch(err){ notify(err.message||'刪除失敗','error'); } return; }
+  }, true);
+
+  function convergeOldWarehouseButtons(){
+    // 舊版欄位 +/-、固定 20 格控制全部以目前「格子內插入 / 刪除」為準。
+    document.querySelectorAll('.warehouse-col-tools,.warehouse-add-slot,.warehouse-remove-slot,.yx-old-warehouse-plusminus,[data-action="add-slot"],[data-action="remove-slot"]').forEach(el=>el.remove());
+    document.querySelectorAll('.yx67-insert-btn,.yx67-delete-btn').forEach(btn=>{ btn.style.display=''; btn.disabled=false; btn.type='button'; });
+  }
+  function boot(){
+    try{ document.documentElement.dataset.yxFix68=VERSION; document.body && document.body.setAttribute('data-yx-fix68','1'); }catch(_e){}
+    document.querySelectorAll('button:not([type])').forEach(b=>b.setAttribute('type','button'));
+    convergeOldWarehouseButtons();
+    const m=mod();
+    if(location.pathname.includes('/today-changes')) setTimeout(()=>window.loadTodayChanges(),40);
+    if(location.pathname.includes('/settings')){
+      setTimeout(()=>{ try{ window.loadAuditTrails && window.loadAuditTrails(); }catch(_e){} try{ window.loadAdminUsers && window.loadAdminUsers(); }catch(_e){} try{ loadBackups(); }catch(_e){} },80);
+    }
+    if(m==='shipping_query') setTimeout(()=>{ try{ window.loadShippingRecords(); }catch(_e){} },80);
+    if(m==='warehouse') setTimeout(convergeOldWarehouseButtons,200);
+  }
+  const mo=new MutationObserver(()=>{ try{ convergeOldWarehouseButtons(); }catch(_e){} });
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  try{ mo.observe(document.body||document.documentElement,{childList:true,subtree:true}); }catch(_e){}
+
+  document.addEventListener('click', function(e){
+    const filter=e.target.closest && e.target.closest('[data-today-filter]');
+    if(filter){
+      const kind=filter.getAttribute('data-today-filter')||'all';
+      document.querySelectorAll('[data-today-filter]').forEach(b=>b.classList.toggle('active',b===filter));
+      document.querySelectorAll('[data-today-panel]').forEach(p=>{ p.style.display = (kind==='all' || p.getAttribute('data-today-panel')===kind) ? '' : 'none'; });
+      notify(`已切換：${todayKindLabel(kind)}`,'ok');
+    }
+    if(e.target && e.target.id==='today-unread-toggle'){
+      const next=localStorage.getItem('yxTodayOnlyUnread')==='1'?'0':'1';
+      localStorage.setItem('yxTodayOnlyUnread',next);
+      e.target.classList.toggle('active',next==='1');
+      window.loadTodayChanges();
+    }
+    if(e.target && e.target.id==='today-clear-read-btn'){
+      api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})}).then(()=>{ notify('已清除未讀數','ok'); window.loadTodayChanges(); }).catch(err=>notify(err.message||'清除失敗','error'));
+    }
+  }, true);
+})();
+/* ==== FIX68 end ==== */
+
+
+
+/* ==== FIX69: final UI/button convergence + missing helper repair ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix70-final-conflict-convergence';
+  if (window.__YX69_UI_BUTTON_FINAL__) return;
+  window.__YX69_UI_BUTTON_FINAL__ = true;
+
+  const doc = document;
+  const byId = id => doc.getElementById(id);
+  const esc = s => (window.escapeHTML ? window.escapeHTML(s) : String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const notify = (msg, kind='ok') => { try { (window.toast || window.showToast || function(m){ console.log(m); })(msg, kind); } catch(_e){ console.log(msg); } };
+  const api = window.requestJSON || (async function(url, opt={}){
+    const isFD = opt.body instanceof FormData;
+    const headers = isFD ? (opt.headers || {}) : {'Content-Type':'application/json', ...(opt.headers || {})};
+    const res = await fetch(url, {credentials:'same-origin', ...opt, headers});
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || data.success === false) throw new Error(data.error || data.message || `請求失敗：${res.status}`);
+    return data;
+  });
+  window.yxApi = api;
+
+  function setFixFlag(){
+    try{
+      doc.documentElement.dataset.yxFix69 = VERSION;
+      if(doc.body) doc.body.setAttribute('data-yx-fix69','1');
+      if(doc.body) doc.body.setAttribute('data-yx-fix68','1');
+    }catch(_e){}
+  }
+  setFixFlag();
+
+  // Missing helper repair: old merged files referenced these names but did not always define them.
+  window.qsa = window.qsa || function(selector, root){ return Array.from((root || doc).querySelectorAll(selector)); };
+  window.askConfirm = window.askConfirm || async function(message, title='確認', okText='確認', cancelText='取消'){
+    const modal = byId('confirm-modal');
+    if(!modal) return window.confirm ? window.confirm(message || title || '確認？') : true;
+    return new Promise(resolve => {
+      const msg = byId('confirm-message');
+      const ttl = byId('confirm-title');
+      const ok = byId('confirm-ok-btn');
+      const cancel = byId('confirm-cancel-btn');
+      if(ttl) ttl.textContent = title || '確認';
+      if(msg) msg.textContent = message || '';
+      if(ok) ok.textContent = okText || '確認';
+      if(cancel) cancel.textContent = cancelText || '取消';
+      const done = v => {
+        modal.classList.add('hidden');
+        if(ok) ok.onclick = null;
+        if(cancel) cancel.onclick = null;
+        resolve(v);
+      };
+      if(ok) ok.onclick = () => done(true);
+      if(cancel) cancel.onclick = () => done(false);
+      modal.classList.remove('hidden');
+    });
+  };
+  window.setTodoButtonLoading = window.setTodoButtonLoading || function(on){
+    const btn = byId('todo-save-btn');
+    if(!btn) return;
+    btn.disabled = !!on;
+    btn.classList.toggle('yx69-busy', !!on);
+    btn.textContent = on ? '新增中…' : '新增代辦';
+  };
+  window.sortTodoItems = window.sortTodoItems || function(items){
+    const today = new Date().toISOString().slice(0,10);
+    return [...(items || [])].sort((a,b)=>{
+      const ad = Number(a.is_done||0), bd = Number(b.is_done||0);
+      if(ad !== bd) return ad - bd;
+      const at = a.due_date || '9999-12-31', bt = b.due_date || '9999-12-31';
+      if(at !== bt) return at.localeCompare(bt);
+      const ac = a.created_at || '', bc = b.created_at || '';
+      return bc.localeCompare(ac);
+    });
+  };
+  window.visualSlotToCell = window.visualSlotToCell || function(num){
+    const n = Math.max(1, Number(num || 1));
+    return n <= 10 ? { side:'front', slot:n } : { side:'back', slot:n - 10 };
+  };
+  window.splitManualRawLines = window.splitManualRawLines || function(text){
+    return String(text || '').replace(/\r/g,'\n').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  };
+  window.normalizeOcrLine = window.normalizeOcrLine || function(line){
+    return String(line || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'').trim();
+  };
+  window.extractCustomerNameFromText = window.extractCustomerNameFromText || function(text){
+    const lines = String(text || '').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+    for(const line of lines){
+      if(!/[=xXＸ×✕]/.test(line) && /[\u4e00-\u9fffA-Za-z]/.test(line)) return line.replace(/^(客戶|公司|客戶名稱)[:：]?/,'').trim();
+    }
+    return '';
+  };
+  window.mergeParsedDuplicates = window.mergeParsedDuplicates || function(items){
+    const map = new Map();
+    (items || []).forEach(it=>{
+      const key = String(it.product_text || it.product_code || '').trim();
+      if(!key) return;
+      const old = map.get(key) || {...it, qty:0};
+      old.qty = (Number(old.qty||0) || 0) + (Number(it.qty||0) || 0);
+      old.product_text = old.product_text || key;
+      old.product_code = old.product_code || key;
+      map.set(key, old);
+    });
+    return Array.from(map.values());
+  };
+  window.sortParsedItems = window.sortParsedItems || function(items){
+    const dim = it => {
+      const left = String(it.product_text || it.product_code || '').split('=')[0] || '';
+      const nums = (left.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+      return {l:nums[0]||0,w:nums[1]||0,h:nums[2]||0};
+    };
+    return [...(items || [])].sort((a,b)=>{
+      const da=dim(a), db=dim(b);
+      return (da.h-db.h) || (da.w-db.w) || (da.l-db.l) || String(a.product_text||'').localeCompare(String(b.product_text||''),'zh-Hant',{numeric:true});
+    });
+  };
+  window.normalizeShipTextareaItems = window.normalizeShipTextareaItems || function(items){
+    return (items || []).map(it=>{
+      const txt = window.yxNormalizeProductText ? window.yxNormalizeProductText(it.product_text || it.product_code || '') : String(it.product_text || it.product_code || '').trim();
+      return { ...it, product_text: txt, product_code: it.product_code || txt, qty: Math.max(1, Number(it.qty || 1) || 1) };
+    }).filter(it=>it.product_text);
+  };
+  window.syncShipItemsToTextarea = window.syncShipItemsToTextarea || function(items){
+    const box = byId('ocr-text');
+    if(!box) return;
+    box.value = (window.normalizeShipTextareaItems(items) || []).map(it=>it.product_text).filter(Boolean).join('\n');
+    box.dispatchEvent(new Event('input', {bubbles:true}));
+    try{ window.renderShipSelectedItems && window.renderShipSelectedItems(); }catch(_e){}
+    try{ window.loadShipPreview && window.loadShipPreview(); }catch(_e){}
+  };
+  window.applyFormattedTextarea = window.applyFormattedTextarea || function(){
+    const box = byId('ocr-text');
+    if(!box) return;
+    try{
+      if(typeof window.formatManualEntryText === 'function'){
+        const r = window.formatManualEntryText(box.value || '');
+        if(r && r.formattedText) box.value = r.formattedText;
+      }else if(window.yxNormalizeProductText){
+        box.value = String(box.value || '').split(/\n+/).map(line=>window.yxNormalizeProductText(line)).join('\n');
+      }
+    }catch(_e){}
+    box.dispatchEvent(new Event('input', {bubbles:true}));
+  };
+
+  // Login fallbacks, so the two login buttons never become dead if inline script order changes.
+  window.toggleLoginSave = window.toggleLoginSave || function(){
+    const next = localStorage.getItem('yxRememberLogin') === '0' ? '1' : '0';
+    localStorage.setItem('yxRememberLogin', next);
+    const lab = byId('remember-label');
+    if(lab) lab.textContent = next === '1' ? '開' : '關';
+    notify(`永久登入：${next === '1' ? '開' : '關'}`, 'ok');
+  };
+  window.yxDirectLogin = window.yxDirectLogin || async function(evt){
+    if(evt){ evt.preventDefault(); evt.stopPropagation(); }
+    const username = (byId('login-username')?.value || '').trim();
+    const password = (byId('login-password')?.value || '').trim();
+    const err = byId('login-error');
+    const btn = byId('login-submit-btn');
+    if(err){ err.classList.add('hidden'); err.textContent=''; }
+    if(!username || !password){ if(err){ err.textContent='請輸入帳號與密碼'; err.classList.remove('hidden'); } return false; }
+    try{
+      if(btn){ btn.disabled=true; btn.textContent='登入中…'; }
+      await api('/api/login', {method:'POST', body:JSON.stringify({username, password})});
+      if(localStorage.getItem('yxRememberLogin') !== '0') localStorage.setItem('yxLastUsername', username);
+      location.href = '/';
+    }catch(e){
+      if(err){ err.textContent=e.message || '登入失敗'; err.classList.remove('hidden'); }
+      notify(e.message || '登入失敗', 'error');
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent='登入'; }
+    }
+    return false;
+  };
+
+  // Strong settings implementations. These intentionally override stale/partial copies.
+  window.changePassword = async function(){
+    const btn = getActiveButton();
+    const msg = byId('settings-msg');
+    try{
+      setBusy(btn, true, '儲存中…');
+      const old_password = (byId('old-password')?.value || '').trim();
+      const new_password = (byId('new-password')?.value || '').trim();
+      const confirm_password = (byId('confirm-password')?.value || '').trim();
+      await api('/api/change_password', {method:'POST', body:JSON.stringify({old_password,new_password,confirm_password})});
+      ['old-password','new-password','confirm-password'].forEach(id=>{ const el=byId(id); if(el) el.value=''; });
+      if(msg){ msg.textContent='密碼已更新'; msg.className='alert ok'; msg.classList.remove('hidden'); }
+      notify('密碼已更新', 'ok');
+    }catch(e){
+      if(msg){ msg.textContent=e.message || '修改失敗'; msg.className='alert error'; msg.classList.remove('hidden'); }
+      notify(e.message || '修改失敗', 'error');
+    }finally{ setBusy(btn, false); }
+  };
+  window.undoLastAction = async function(){
+    const btn=getActiveButton(), box=byId('undo-msg');
+    try{ setBusy(btn,true,'還原中…'); const d=await api('/api/undo-last',{method:'POST',body:'{}'}); if(box) box.textContent=d.message||d.summary||'已還原上一筆'; notify(box?.textContent || '已還原上一筆','ok'); }
+    catch(e){ if(box) box.textContent=e.message||'還原失敗'; notify(e.message||'還原失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.downloadReport = function(type){
+    const qs = new URLSearchParams();
+    qs.set('type', type || 'inventory');
+    const s=(byId('report-start')?.value||'').trim(), e=(byId('report-end')?.value||'').trim();
+    if(s) qs.set('start_date', s);
+    if(e) qs.set('end_date', e);
+    notify('正在下載報表…','ok');
+    location.href = '/api/reports/export?' + qs.toString();
+  };
+  window.loadAuditTrails = async function(){
+    const btn=getActiveButton(), box=byId('audit-trails-list');
+    if(!box) return;
+    try{
+      setBusy(btn,true,'載入中…');
+      box.innerHTML='<div class="empty-state-card compact-empty">操作紀錄載入中…</div>';
+      const qs=new URLSearchParams();
+      const map={'audit-q':'q','audit-user':'username','audit-entity':'entity_type','audit-start':'start_date','audit-end':'end_date'};
+      Object.entries(map).forEach(([id,key])=>{ const v=(byId(id)?.value||'').trim(); if(v) qs.set(key,v); });
+      qs.set('limit','200');
+      const d=await api('/api/audit-trails?'+qs.toString(),{method:'GET'});
+      const rows=Array.isArray(d.items)?d.items:[];
+      box.innerHTML = rows.length ? rows.map(r=>`<div class="deduct-card yx69-audit-card"><strong>${esc(r.action || r.entity_type || '紀錄')}</strong><div class="small-note">${esc(r.created_at || '')}｜${esc(r.username || '')}</div><div class="small-note">${esc(r.entity_type || '')} ${esc(r.entity_id || '')}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有操作紀錄</div>';
+    }catch(e){ box.innerHTML=`<div class="error-card">${esc(e.message || '操作紀錄載入失敗')}</div>`; notify(e.message||'操作紀錄載入失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.loadAdminUsers = async function(){
+    const btn=getActiveButton(), box=byId('admin-users');
+    if(!box) return;
+    try{
+      setBusy(btn,true,'載入中…');
+      box.innerHTML='<div class="empty-state-card compact-empty">帳號名單載入中…</div>';
+      const d=await api('/api/admin/users',{method:'GET'});
+      const rows=Array.isArray(d.items)?d.items:[];
+      box.innerHTML = rows.length ? `<div class="yx69-scroll-table"><table class="yx69-table"><thead><tr><th>帳號</th><th>角色</th><th>狀態</th><th>操作</th></tr></thead><tbody>${rows.map(u=>`<tr><td>${esc(u.username || u.name || '')}</td><td>${esc(u.role || '')}</td><td>${Number(u.is_blocked||0)?'已封鎖':'正常'}</td><td>${(u.username||u.name)==='陳韋廷'?'管理員':`<button type="button" class="ghost-btn tiny-btn" data-yx69-block-user="${esc(u.username||u.name||'')}" data-blocked="${Number(u.is_blocked||0)?0:1}">${Number(u.is_blocked||0)?'解除':'封鎖'}</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state-card compact-empty">目前沒有帳號</div>';
+    }catch(e){ box.innerHTML=`<div class="error-card">${esc(e.message || '帳號名單載入失敗')}</div>`; notify(e.message||'帳號名單載入失敗','error'); }
+    finally{ setBusy(btn,false); }
+  };
+  async function loadBackups69(){
+    const box=byId('backup-panel');
+    if(!box) return;
+    try{
+      const d=await api('/api/backups',{method:'GET'});
+      const files=Array.isArray(d.files)?d.files:[];
+      box.innerHTML = files.length ? files.map(f=>`<div class="deduct-card"><strong>${esc(f.filename||'')}</strong><div class="small-note">${esc(f.created_at||'')}｜${Number(f.size||0).toLocaleString()} bytes</div><div class="btn-row compact-row"><a class="ghost-btn tiny-btn" href="/api/backups/download/${encodeURIComponent(f.filename||'')}">下載</a><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx69-restore-backup="${esc(f.filename||'')}">還原</button></div></div>`).join('') : '<div class="empty-state-card compact-empty">尚無備份</div>';
+    }catch(e){ box.innerHTML=`<div class="error-card">${esc(e.message||'備份清單載入失敗')}</div>`; }
+  }
+  window.createBackup = async function(){
+    const btn=getActiveButton();
+    try{ setBusy(btn,true,'備份中…'); await api('/api/backup',{method:'POST',body:'{}'}); notify('備份已建立','ok'); await loadBackups69(); }
+    catch(e){ notify(e.message || '備份失敗', 'error'); }
+    finally{ setBusy(btn,false); }
+  };
+  window.logout = async function(){
+    const btn=getActiveButton();
+    try{ setBusy(btn,true,'登出中…'); await api('/api/logout',{method:'POST',body:'{}'}); }catch(_e){}
+    location.href='/login';
+  };
+
+  // Strong todo image buttons.
+  window.openTodoAlbumPicker = function(){ const input=byId('todo-image-input'); if(input) input.click(); else notify('找不到上傳檔案欄位','error'); };
+  window.openTodoCameraPicker = function(){ const input=byId('todo-camera-input'); if(input) input.click(); else notify('找不到拍照欄位','error'); };
+  const oldClearTodo = window.clearTodoForm;
+  window.clearTodoForm = function(){
+    try{ oldClearTodo && oldClearTodo(); }catch(_e){}
+    if(window.state){ window.state.todoSelectedFile=null; window.state.todoSelectedFiles=[]; }
+    ['todo-note','todo-date','todo-image-input','todo-camera-input'].forEach(id=>{ const el=byId(id); if(el) el.value=''; });
+    const p=byId('todo-selected-preview'); if(p){ p.classList.add('hidden'); p.innerHTML=''; }
+    notify('已清空', 'ok');
+  };
+
+  // Button busy / feedback guard.
+  let activeButton = null;
+  let activeAt = 0;
+  let wrapDepth = 0;
+  function getActiveButton(){
+    if(activeButton && Date.now() - activeAt < 2500 && doc.contains(activeButton)) return activeButton;
+    const el = doc.activeElement;
+    return (el && el.tagName === 'BUTTON') ? el : null;
+  }
+  function setBusy(btn, on, text){
+    if(!btn || btn.dataset.yx69NoBusy === '1') return;
+    if(on){
+      if(btn.dataset.yx69Busy === '1') return;
+      btn.dataset.yx69Busy = '1';
+      btn.dataset.yx69OriginalText = btn.dataset.yx69OriginalText || btn.textContent || '';
+      btn.classList.add('yx69-busy');
+      btn.setAttribute('aria-busy','true');
+      if(text) btn.textContent = text;
+    }else{
+      btn.dataset.yx69Busy = '0';
+      btn.classList.remove('yx69-busy');
+      btn.removeAttribute('aria-busy');
+      if(btn.dataset.yx69OriginalText){ btn.textContent = btn.dataset.yx69OriginalText; delete btn.dataset.yx69OriginalText; }
+    }
+  }
+  function tap(el){
+    if(!el) return;
+    el.classList.add('yx69-tapped');
+    setTimeout(()=>el.classList.remove('yx69-tapped'),180);
+  }
+  function wrapAction(name, busyText){
+    const original = window[name];
+    if(typeof original !== 'function' || original.__yx69Wrapped) return;
+    const wrapped = async function(){
+      const btn = wrapDepth === 0 ? getActiveButton() : null;
+      wrapDepth++;
+      try{
+        if(btn) setBusy(btn,true,busyText || '處理中…');
+        return await original.apply(this, arguments);
+      }catch(e){
+        notify(e && e.message ? e.message : `${name} 執行失敗`, 'error');
+        console.error('[YX69 button error]', name, e);
+        return false;
+      }finally{
+        wrapDepth--;
+        if(btn) setBusy(btn,false);
+      }
+    };
+    wrapped.__yx69Wrapped = true;
+    window[name] = wrapped;
+  }
+
+  const buttonActions = [
+    ['confirmSubmit','送出中…'],['saveCustomer','儲存中…'],['renderCustomers','載入中…'],
+    ['loadShippingRecords','查詢中…'],['searchWarehouse','搜尋中…'],['renderWarehouse','載入中…'],
+    ['addSelectedItemToCell','加入中…'],['saveWarehouseCell','儲存中…'],['openWarehouseModal','開啟中…'],
+    ['insertWarehouseCell','插入中…'],['deleteWarehouseCell','刪除中…'],['reverseLookup','查詢中…'],
+    ['completeTodoItem','處理中…'],['restoreTodoItem','處理中…'],['deleteTodoItem','刪除中…'],
+    ['saveTodoItem','新增中…'],['openArchivedCustomersModal','載入中…'],['moveShipItem','處理中…'],
+    ['removeShipItemAt','移除中…'],['clearShipSelectedItems','清空中…'],['toggleWarehouseUnplacedHighlight','處理中…'],
+    ['highlightWarehouseSameCustomer','高亮中…'],['clearWarehouseHighlights','清除中…']
+  ];
+  buttonActions.forEach(([name,text]) => wrapAction(name,text));
+
+  // Fallbacks for optional warehouse buttons if older copies removed the implementations.
+  window.clearWarehouseHighlights = window.clearWarehouseHighlights || function(){
+    try{ if(window.state) window.state.searchHighlightKeys = new Set(); }catch(_e){}
+    doc.querySelectorAll('.highlight,.flash-highlight,.unplaced-highlight').forEach(el=>el.classList.remove('highlight','flash-highlight','unplaced-highlight'));
+    const result=byId('warehouse-search-results'); if(result) result.classList.add('hidden');
+    notify('已清除高亮','ok');
+  };
+  window.toggleWarehouseUnplacedHighlight = window.toggleWarehouseUnplacedHighlight || function(){
+    const list=byId('warehouse-unplaced-list-inline');
+    if(list) list.classList.toggle('hidden');
+    notify('已切換未入倉商品顯示','ok');
+  };
+  window.highlightWarehouseSameCustomer = window.highlightWarehouseSameCustomer || function(){
+    notify('請先搜尋或點選一個已放入的格子，再執行同客戶高亮','warn');
+  };
+
+  // Make all buttons visibly react immediately. Do not block normal links/navigation.
+  doc.addEventListener('click', function(e){
+    const btn = e.target.closest && e.target.closest('button,.menu-btn,.home-mini-btn,a.back-btn,.chip,.interactive-pill,[role="button"]');
+    if(!btn) return;
+    activeButton = btn;
+    activeAt = Date.now();
+    if(btn.tagName === 'BUTTON' && !btn.getAttribute('type')) btn.setAttribute('type','button');
+    tap(btn);
+
+    // Quick navigation feedback only; no artificial delay.
+    if(btn.matches('a.menu-btn,a.back-btn,.home-mini-btn[href]')){
+      try{ doc.body.classList.add('yx69-navigating'); }catch(_e){}
+      return;
+    }
+
+    // Ship customer item buttons had duplicate old handlers; here we only refresh UI after the old handler runs.
+    const id = btn.id || '';
+    if(id === 'ship-add-selected-item' || id === 'ship-add-all-items'){
+      setTimeout(()=>{
+        const box=byId('ocr-text');
+        if(box) box.dispatchEvent(new Event('input',{bubbles:true}));
+        try{ window.renderShipSelectedItems && window.renderShipSelectedItems(); }catch(_e){}
+        try{ window.loadShipPreview && window.loadShipPreview(); }catch(_e){}
+        notify(id === 'ship-add-all-items' ? '已加入全部商品' : '已加入選取商品', 'ok');
+      },80);
+    }
+  }, true);
+
+  // Dynamic button routing for data-* buttons rendered after load.
+  doc.addEventListener('click', async function(e){
+    const block = e.target.closest && e.target.closest('[data-yx69-block-user],[data-yx68-block-user]');
+    if(block){
+      e.preventDefault(); e.stopPropagation();
+      try{
+        setBusy(block,true,'處理中…');
+        await api('/api/admin/block',{method:'POST',body:JSON.stringify({username:block.getAttribute('data-yx69-block-user') || block.getAttribute('data-yx68-block-user'), blocked:block.getAttribute('data-blocked')==='1'})});
+        notify('帳號狀態已更新','ok');
+        await window.loadAdminUsers();
+      }catch(err){ notify(err.message || '帳號狀態更新失敗','error'); }
+      finally{ setBusy(block,false); }
+      return;
+    }
+    const restoreBackup = e.target.closest && e.target.closest('[data-yx69-restore-backup],[data-yx68-restore-backup]');
+    if(restoreBackup){
+      e.preventDefault(); e.stopPropagation();
+      const filename = restoreBackup.getAttribute('data-yx69-restore-backup') || restoreBackup.getAttribute('data-yx68-restore-backup') || '';
+      if(window.confirm && !window.confirm('確定要還原這份備份？目前資料會被覆蓋。')) return;
+      try{ setBusy(restoreBackup,true,'還原中…'); await api('/api/backups/restore',{method:'POST',body:JSON.stringify({filename})}); notify('備份已還原','ok'); }
+      catch(err){ notify(err.message || '備份還原失敗','error'); }
+      finally{ setBusy(restoreBackup,false); }
+      return;
+    }
+  }, true);
+
+  // File input change binding: make upload buttons and selected-file preview survive older templates.
+  function bindTodoInputs(){
+    const album=byId('todo-image-input');
+    const camera=byId('todo-camera-input');
+    const handler = ev => {
+      const files = Array.from(ev.target.files || []);
+      if(window.state){ window.state.todoSelectedFiles = files; window.state.todoSelectedFile = files[0] || null; }
+      try{ window.renderTodoSelectedPreview && window.renderTodoSelectedPreview(); }catch(_e){}
+      const p=byId('todo-selected-preview');
+      if(p && files.length && !p.innerHTML){
+        p.classList.remove('hidden');
+        p.innerHTML = `<div class="small-note">已選擇 ${files.length} 張圖片</div>`;
+      }
+    };
+    [album,camera].forEach(input=>{
+      if(input && input.dataset.yx69Bound !== '1'){
+        input.dataset.yx69Bound = '1';
+        input.addEventListener('change', handler);
+      }
+    });
+  }
+
+  function convergeUI(){
+    setFixFlag();
+    doc.querySelectorAll('button:not([type])').forEach(b=>b.setAttribute('type','button'));
+    // Old warehouse +/- / fixed 20 controls are always retired. The in-cell insert/delete buttons are the only active version.
+    doc.querySelectorAll('.warehouse-col-tools,.warehouse-add-slot,.warehouse-remove-slot,.yx-old-warehouse-plusminus,[data-action="add-slot"],[data-action="remove-slot"]').forEach(el=>el.remove());
+    doc.querySelectorAll('.yx67-insert-btn,.yx67-delete-btn').forEach(btn=>{
+      btn.style.display='';
+      btn.disabled=false;
+      btn.type='button';
+      btn.classList.add('yx69-live-button');
+    });
+    bindTodoInputs();
+  }
+
+  // Global error display: instead of silent dead buttons, show a visible card/toast.
+  window.addEventListener('error', function(ev){
+    const msg = ev?.error?.message || ev?.message || '';
+    if(!msg) return;
+    if(/ResizeObserver loop|Script error/i.test(msg)) return;
+    notify('介面執行失敗：' + msg, 'error');
+  });
+  window.addEventListener('unhandledrejection', function(ev){
+    const msg = ev?.reason?.message || String(ev?.reason || '');
+    if(!msg) return;
+    notify('操作失敗：' + msg, 'error');
+  });
+
+  const mo = new MutationObserver(()=>{ try{ convergeUI(); }catch(_e){} });
+  function boot(){
+    convergeUI();
+    const path = location.pathname;
+    if(path.includes('/settings')){
+      setTimeout(()=>{ try{ window.loadAuditTrails(); }catch(_e){} try{ window.loadAdminUsers(); }catch(_e){} try{ loadBackups69(); }catch(_e){} },120);
+    }
+    if(path.includes('/todos')){
+      setTimeout(()=>{ try{ window.loadTodos && window.loadTodos(); }catch(_e){} },80);
+    }
+    if(path.includes('/ship')){
+      const name = (byId('customer-name')?.value || '').trim();
+      if(name && window.loadShipCustomerItems66) setTimeout(()=>window.loadShipCustomerItems66(name),80);
+    }
+    if(path.includes('/warehouse')){
+      setTimeout(()=>{ try{ convergeUI(); }catch(_e){} },250);
+    }
+    try{ mo.observe(doc.body || doc.documentElement, {childList:true, subtree:true}); }catch(_e){}
+  }
+  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+})();
+/* ==== FIX69 end ==== */
+
+
+/* ==== FIX70: final conflict convergence + single active button router ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix70-final-conflict-convergence';
+  if (window.__YX70_FINAL_CONFLICT_CONVERGENCE__) return;
+  window.__YX70_FINAL_CONFLICT_CONVERGENCE__ = true;
+
+  const doc = document;
+  const byId = id => doc.getElementById(id);
+  const qsa = (sel, root=doc) => Array.from(root.querySelectorAll(sel));
+  const esc = s => (window.escapeHTML ? window.escapeHTML(s) : String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+  const notify = (msg, level='ok') => {
+    try { (window.toast || function(m){ console.log(m); })(msg, level); }
+    catch(_e){ console.log(msg); }
+  };
+  const api = window.yxApi || window.requestJSON || (async function(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})}});
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || data.success === false) throw new Error(data.error || data.message || `請求失敗：${res.status}`);
+    return data;
+  });
+  window.yxApi = api;
+
+  function setFixFlag(){
+    try{
+      doc.documentElement.dataset.yxFix70 = VERSION;
+      if(doc.body) doc.body.setAttribute('data-yx-fix70','1');
+    }catch(_e){}
+  }
+
+  function tap(el){
+    if(!el) return;
+    try{
+      el.classList.add('yx70-tapped');
+      clearTimeout(el.__yx70TapTimer);
+      el.__yx70TapTimer = setTimeout(()=>el.classList.remove('yx70-tapped'), 180);
+    }catch(_e){}
+  }
+
+  function setBusy(el, on, text){
+    if(!el) return;
+    if(on){
+      if(el.dataset.yx70Busy === '1') return;
+      el.dataset.yx70Busy = '1';
+      el.dataset.yx70Text = el.dataset.yx70Text || el.textContent || '';
+      el.classList.add('yx70-busy');
+      el.setAttribute('aria-busy','true');
+      if(text) el.textContent = text;
+    }else{
+      el.dataset.yx70Busy = '0';
+      el.classList.remove('yx70-busy');
+      el.removeAttribute('aria-busy');
+      if(el.dataset.yx70Text){ el.textContent = el.dataset.yx70Text; delete el.dataset.yx70Text; }
+    }
+  }
+
+  function currentModule(){
+    try { return doc.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule === 'function' ? window.currentModule() : ''); }
+    catch(_e){ return ''; }
+  }
+
+  function stopOldHandlers(e){
+    e.preventDefault();
+    e.stopPropagation();
+    if(typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+  }
+
+  function textLines(){
+    const box = byId('ocr-text');
+    return box ? String(box.value || '').replace(/\r/g,'\n').split(/\n+/).map(s=>s.trim()).filter(Boolean) : [];
+  }
+  function setTextLines(lines){
+    const box = byId('ocr-text');
+    if(!box) return;
+    box.value = lines.filter(Boolean).join('\n');
+    box.dispatchEvent(new Event('input', {bubbles:true}));
+    box.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+  function appendShipLines(lines){
+    const clean = (lines || []).map(s=>String(s||'').trim()).filter(Boolean);
+    if(!clean.length) return 0;
+    setTextLines(textLines().concat(clean));
+    try{ window.renderShipSelectedItems && window.renderShipSelectedItems(); }catch(_e){}
+    try{ window.loadShipPreview && window.loadShipPreview(); }catch(_e){}
+    return clean.length;
+  }
+
+  async function fetchShipItemsFallback(name, uid){
+    if(!name && !uid) return [];
+    const d = await api(`/api/customer-items?name=${encodeURIComponent(name || '')}&customer_uid=${encodeURIComponent(uid || '')}&ts=${Date.now()}`);
+    const items = Array.isArray(d.items) ? d.items : [];
+    window.__YX_SHIP_CUSTOMER_ITEMS__ = items;
+    const sel = byId('ship-customer-item-select');
+    if(sel){
+      sel.innerHTML = '<option value="">請選擇商品</option>' + items.map((it,i)=>`<option value="${i}">${esc(it.material || '未填材質')}｜${esc((it.product_text||'').split('=')[0] || it.product_text || '')}｜${esc((it.product_text||'').split('=').slice(1).join('=') || it.qty || '')}｜${esc(it.source || '')}</option>`).join('');
+    }
+    return items;
+  }
+
+  let shipLoadPending = null;
+  let shipLoadKey = '';
+  async function loadShipItems(force=false){
+    const name = String(byId('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || '').trim();
+    const uid = String(byId('customer-name')?.dataset.customerUid || '').trim();
+    const sel = byId('ship-customer-item-select');
+    if(!name && !uid){
+      if(sel) sel.innerHTML = '<option value="">請先選擇 / 輸入客戶名稱</option>';
+      window.__YX_SHIP_CUSTOMER_ITEMS__ = [];
+      return [];
+    }
+    const key = `${name}|${uid}`;
+    if(!force && shipLoadPending && shipLoadKey === key) return shipLoadPending;
+    shipLoadKey = key;
+    if(sel) sel.innerHTML = '<option value="">載入中…</option>';
+    shipLoadPending = Promise.resolve().then(async()=>{
+      if(typeof window.loadShipCustomerItems66 === 'function'){
+        await window.loadShipCustomerItems66(name);
+        return window.__YX_SHIP_CUSTOMER_ITEMS__ || [];
+      }
+      if(typeof window.loadShipCustomerItems === 'function'){
+        await window.loadShipCustomerItems({name, customer_uid:uid});
+        return window.__YX_SHIP_CUSTOMER_ITEMS__ || [];
+      }
+      return fetchShipItemsFallback(name, uid);
+    }).catch(err=>{
+      if(sel) sel.innerHTML = `<option value="">${esc(err.message || '商品載入失敗')}</option>`;
+      window.__YX_SHIP_CUSTOMER_ITEMS__ = [];
+      throw err;
+    }).finally(()=>{ setTimeout(()=>{ shipLoadPending=null; }, 120); });
+    return shipLoadPending;
+  }
+  window.yx70LoadShipItems = loadShipItems;
+
+  async function shipAddSelected(){
+    if(!(window.__YX_SHIP_CUSTOMER_ITEMS__ || []).length) await loadShipItems(false);
+    const idx = Number(byId('ship-customer-item-select')?.value ?? -1);
+    const item = (window.__YX_SHIP_CUSTOMER_ITEMS__ || [])[idx];
+    if(!item || !item.product_text){ notify('請先選擇要加入的商品', 'warn'); return false; }
+    const count = appendShipLines([item.product_text]);
+    if(count) notify('已加入選取商品', 'ok');
+    return true;
+  }
+  async function shipAddAll(){
+    if(!(window.__YX_SHIP_CUSTOMER_ITEMS__ || []).length) await loadShipItems(false);
+    const lines = (window.__YX_SHIP_CUSTOMER_ITEMS__ || []).map(it=>it.product_text).filter(Boolean);
+    const count = appendShipLines(lines);
+    if(count) notify(`已加入 ${count} 筆商品`, 'ok');
+    else notify('這個客戶目前沒有可加入的商品', 'warn');
+    return true;
+  }
+
+  function wrapSingleFlight(name, ttl=800){
+    const original = window[name];
+    if(typeof original !== 'function' || original.__yx70SingleFlight) return;
+    let pending = null;
+    let lastAt = 0;
+    let lastValue;
+    const wrapped = function(){
+      const args = Array.from(arguments);
+      const force = args[0] === true || args.some(v => v && typeof v === 'object' && v.force === true);
+      const now = Date.now();
+      if(!force && pending) return pending;
+      if(!force && lastValue !== undefined && now - lastAt < ttl) return Promise.resolve(lastValue);
+      pending = Promise.resolve()
+        .then(()=>original.apply(this, args))
+        .then(v=>{ lastValue = v; return v; })
+        .finally(()=>{ lastAt = Date.now(); pending = null; });
+      return pending;
+    };
+    wrapped.__yx70SingleFlight = true;
+    wrapped.__yx70Original = original;
+    window[name] = wrapped;
+  }
+
+  function wrapSingleSubmit(){
+    const original = window.confirmSubmit;
+    if(typeof original !== 'function' || original.__yx70SubmitLock) return;
+    let lock = false;
+    const wrapped = async function(){
+      if(lock){ notify('上一筆還在處理中，請稍等', 'warn'); return false; }
+      const btn = byId('submit-btn');
+      lock = true;
+      try{ if(btn) setBusy(btn, true, currentModule()==='ship' ? '整理預覽中…' : '送出中…'); return await original.apply(this, arguments); }
+      catch(err){ notify(err.message || '送出失敗', 'error'); return false; }
+      finally{ if(btn) setBusy(btn, false); setTimeout(()=>{ lock=false; }, 450); }
+    };
+    wrapped.__yx70SubmitLock = true;
+    wrapped.__yx70Original = original;
+    window.confirmSubmit = wrapped;
+  }
+
+  async function routeDataButton(btn){
+    const restoreCustomer = btn.closest('[data-yx70-restore-customer],[data-yx69-restore-customer],[data-yx68-restore-customer]');
+    if(restoreCustomer){
+      const name = restoreCustomer.getAttribute('data-yx70-restore-customer') || restoreCustomer.getAttribute('data-yx69-restore-customer') || restoreCustomer.getAttribute('data-yx68-restore-customer') || '';
+      setBusy(restoreCustomer, true, '還原中…');
+      try{ await api('/api/customers/' + encodeURIComponent(name) + '/restore', {method:'POST', body:JSON.stringify({})}); notify('客戶已還原','ok'); await (window.openArchivedCustomersModal && window.openArchivedCustomersModal()); await (window.renderCustomers && window.renderCustomers()); }
+      finally{ setBusy(restoreCustomer, false); }
+      return true;
+    }
+
+    const block = btn.closest('[data-yx70-block-user],[data-yx69-block-user],[data-yx68-block-user]');
+    if(block){
+      const username = block.getAttribute('data-yx70-block-user') || block.getAttribute('data-yx69-block-user') || block.getAttribute('data-yx68-block-user') || '';
+      const blocked = block.getAttribute('data-blocked') === '1';
+      setBusy(block, true, '處理中…');
+      try{ await api('/api/admin/block', {method:'POST', body:JSON.stringify({username, blocked})}); notify('帳號狀態已更新','ok'); await (window.loadAdminUsers && window.loadAdminUsers({force:true})); }
+      finally{ setBusy(block, false); }
+      return true;
+    }
+
+    const restoreBackup = btn.closest('[data-yx70-restore-backup],[data-yx69-restore-backup],[data-yx68-restore-backup]');
+    if(restoreBackup){
+      const filename = restoreBackup.getAttribute('data-yx70-restore-backup') || restoreBackup.getAttribute('data-yx69-restore-backup') || restoreBackup.getAttribute('data-yx68-restore-backup') || '';
+      if(window.confirm && !window.confirm('確定要還原這份備份？目前資料會被覆蓋。')) return true;
+      setBusy(restoreBackup, true, '還原中…');
+      try{ await api('/api/backups/restore', {method:'POST', body:JSON.stringify({filename})}); notify('備份已還原','ok'); }
+      finally{ setBusy(restoreBackup, false); }
+      return true;
+    }
+
+    const delToday = btn.closest('[data-yx70-delete-today],[data-yx69-delete-today],[data-yx68-delete-today]');
+    if(delToday){
+      const id = delToday.getAttribute('data-yx70-delete-today') || delToday.getAttribute('data-yx69-delete-today') || delToday.getAttribute('data-yx68-delete-today') || '';
+      setBusy(delToday, true, '刪除中…');
+      try{
+        await api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'});
+        delToday.closest('.today-item,.deduct-card,.card,.chip')?.remove();
+        notify('已刪除','ok');
+        try{ window.loadTodayChanges && window.loadTodayChanges({force:true}); }catch(_e){}
+      }finally{ setBusy(delToday, false); }
+      return true;
+    }
+    return false;
+  }
+
+  // 最早攔截會重複觸發的舊按鈕：只跑最新邏輯一次，舊 handler 不再重複加料 / 重複送 API。
+  window.addEventListener('click', async function(e){
+    const target = e.target;
+    if(!target || !target.closest) return;
+    const btn = target.closest('#ship-refresh-customer-items,#ship-add-selected-item,#ship-add-all-items,.yx67-insert-btn,.yx67-delete-btn,[data-yx70-restore-customer],[data-yx69-restore-customer],[data-yx68-restore-customer],[data-yx70-block-user],[data-yx69-block-user],[data-yx68-block-user],[data-yx70-restore-backup],[data-yx69-restore-backup],[data-yx68-restore-backup],[data-yx70-delete-today],[data-yx69-delete-today],[data-yx68-delete-today]');
+    if(!btn) return;
+    stopOldHandlers(e);
+    tap(btn);
+    try{
+      if(btn.id === 'ship-refresh-customer-items'){
+        setBusy(btn, true, '載入中…');
+        await loadShipItems(true);
+        notify('客戶商品已重新載入','ok');
+        return;
+      }
+      if(btn.id === 'ship-add-selected-item'){
+        setBusy(btn, true, '加入中…');
+        await shipAddSelected();
+        return;
+      }
+      if(btn.id === 'ship-add-all-items'){
+        setBusy(btn, true, '加入中…');
+        await shipAddAll();
+        return;
+      }
+      if(btn.classList.contains('yx67-insert-btn') || btn.classList.contains('yx67-delete-btn')){
+        const slot = btn.closest('.yx67-warehouse-slot,.vertical-slot');
+        const zone = slot?.dataset.zone || '';
+        const col = Number(slot?.dataset.column || 0);
+        const num = Number(slot?.dataset.num || 0);
+        if(!zone || !col || !num){ notify('找不到格位資料，請重新整理倉庫圖', 'error'); return; }
+        setBusy(btn, true, btn.classList.contains('yx67-insert-btn') ? '插入中…' : '刪除中…');
+        if(btn.classList.contains('yx67-insert-btn')) await window.insertWarehouseCell(zone, col, num);
+        else await window.deleteWarehouseCell(zone, col, num);
+        return;
+      }
+      if(await routeDataButton(btn)) return;
+    }catch(err){
+      notify(err.message || '操作失敗', 'error');
+      console.error('[YX70 routed button error]', err);
+    }finally{
+      setBusy(btn, false);
+    }
+  }, true);
+
+  // 非衝突按鈕仍然立即有觸覺式反應，不改原功能。
+  window.addEventListener('pointerdown', function(e){
+    const btn = e.target?.closest?.('button,.menu-btn,.home-mini-btn,a.back-btn,.chip,.interactive-pill,[role="button"]');
+    if(btn) tap(btn);
+  }, {capture:true, passive:true});
+
+  function convergeDom(){
+    setFixFlag();
+    qsa('button:not([type])').forEach(b=>b.setAttribute('type','button'));
+    // 倉庫圖以格子內「插入格子 / 刪除格子」為唯一版本；舊 +- 和固定 20 控制全部退役。
+    qsa('.warehouse-col-tools,.warehouse-add-slot,.warehouse-remove-slot,.warehouse-plusminus-btn,.yx-old-warehouse-plusminus,[data-action="add-slot"],[data-action="remove-slot"]').forEach(el=>el.remove());
+    qsa('.yx67-insert-btn,.yx67-delete-btn').forEach(btn=>{ btn.disabled = false; btn.style.display = ''; btn.type = 'button'; btn.classList.add('yx70-live-button'); });
+    // 出貨頁若客戶已選但下拉尚未載入，自動補載。
+    if(currentModule() === 'ship'){
+      const name = String(byId('customer-name')?.value || '').trim();
+      const sel = byId('ship-customer-item-select');
+      if(name && sel && (!sel.options.length || /請先選擇|載入失敗/.test(sel.textContent || ''))){ loadShipItems(false).catch(()=>{}); }
+    }
+  }
+
+  function smokeCheck(){
+    const missing = [];
+    qsa('[onclick],[onsubmit]').forEach(el=>{
+      const raw = (el.getAttribute('onclick') || '') + ';' + (el.getAttribute('onsubmit') || '');
+      (raw.match(/(?:window\.)?([A-Za-z_$][\w$]*)\s*\(/g) || []).forEach(hit=>{
+        const name = hit.replace(/(?:window\.)?/, '').replace(/\s*\($/, '');
+        if(['return','confirm','alert','setTimeout','Number','String','Math'].includes(name)) return;
+        if(typeof window[name] !== 'function') missing.push(name);
+      });
+    });
+    const unique = Array.from(new Set(missing));
+    doc.documentElement.dataset.yx70Smoke = unique.length ? 'missing' : 'ok';
+    if(unique.length) console.warn('[YX70] missing inline handlers:', unique);
+    return unique;
+  }
+  window.yx70SmokeCheck = smokeCheck;
+
+  function boot(){
+    setFixFlag();
+    ['loadCustomerBlocks','renderWarehouse','renderCustomers','loadShipCustomerItems66','loadTodayChanges','loadTodos','loadShippingRecords','loadAuditTrails','loadAdminUsers'].forEach(name=>wrapSingleFlight(name, name==='renderWarehouse' ? 450 : 900));
+    wrapSingleSubmit();
+    convergeDom();
+    smokeCheck();
+    if(currentModule() === 'ship'){
+      byId('customer-name')?.addEventListener('change', ()=>loadShipItems(true).catch(err=>notify(err.message||'商品載入失敗','error')));
+    }
+  }
+
+  let moTimer = null;
+  const mo = new MutationObserver(()=>{
+    clearTimeout(moTimer);
+    moTimer = setTimeout(()=>{ try{ convergeDom(); }catch(_e){} }, 120);
+  });
+
+  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  try{ mo.observe(doc.body || doc.documentElement, {childList:true, subtree:true}); }catch(_e){}
+  window.addEventListener('pageshow', ()=>{ try{ doc.body && doc.body.classList.remove('yx65-navigating','yx69-navigating'); convergeDom(); }catch(_e){} });
+})();
+/* ==== FIX70 end ==== */

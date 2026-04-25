@@ -28,8 +28,8 @@
     { "src": "/static/icons/icon-maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "庫存", "short_name": "庫存", "url": "/module/inventory", "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "倉庫圖", "short_name": "倉庫圖", "url": "/module/warehouse", "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "庫存", "short_name": "庫存", "url": "/inventory", "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "倉庫圖", "short_name": "倉庫圖", "url": "/warehouse", "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }] },
     { "name": "今日異動", "short_name": "異動", "url": "/today-changes", "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

@@ -1178,7 +1178,7 @@ def api_warehouse_cell():
         # 防止手動輸入不存在的格位（例如 A-1-99）造成倉庫圖被拉出異常超長格數。
         existing_cells = warehouse_get_cells()
         if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
-            return error_response("格位不存在，請先用＋新增格子")
+            return error_response("格位不存在，請先在格子內點「插入格子」")
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
