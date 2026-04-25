@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix74-preserve-0xx-no-length';
+  const PWA_VERSION = 'fix75-card-warehouse-support-return';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

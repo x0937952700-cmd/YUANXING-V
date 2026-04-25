@@ -5317,3 +5317,334 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', install);
 })();
 /* ==== FIX74 end ==== */
+
+
+/* ==== FIX75: card actions + warehouse full qty + return unplaced + support label ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix75-card-warehouse-support-return';
+  if (window.__YX75_CARD_WAREHOUSE_SUPPORT_RETURN__) return;
+  window.__YX75_CARD_WAREHOUSE_SUPPORT_RETURN__ = true;
+
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const notify = (msg, kind='ok') => { try { (window.toast || window.showToast || window.alert)(msg, kind); } catch(_e) { console.log(msg); } };
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url, { credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})} });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  });
+  window.yxApi = api;
+
+  function setFlag(){
+    try { document.documentElement.dataset.yxFix75 = VERSION; document.body && document.body.setAttribute('data-yx-fix75','1'); } catch(_e) {}
+  }
+  function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function formatDimToken(v, isHeight){
+    const s = clean(v);
+    if (!s) return '';
+    if (/^\d*\.\d+$/.test(s)) return (s.startsWith('.') ? '0' + s : s).replace('.', '');
+    if (/^\d+$/.test(s)) return (isHeight && s.length === 1) ? s.padStart(2, '0') : s;
+    return s.replace(/\s+/g,'');
+  }
+  function normalizeProductText(text){
+    const raw = normalizeX(text);
+    if (!raw) return '';
+    const parts = raw.split('=');
+    const left = parts.shift() || '';
+    const dims = left.split(/x/i).filter(x => x !== '');
+    const size = dims.length >= 3 ? [0,1,2].map(i => formatDimToken(dims[i], i === 2)).join('x') : left;
+    return parts.length ? `${size}=${parts.join('=')}` : size;
+  }
+  window.yx75NormalizeProductText = normalizeProductText;
+
+  function splitProduct(text){ const raw = normalizeProductText(text); const i = raw.indexOf('='); return {size:i >= 0 ? raw.slice(0,i) : raw, support:i >= 0 ? raw.slice(i+1) : ''}; }
+  function qtyFromProduct(productText, fallback=1){
+    const right = splitProduct(productText).support;
+    if (!right) return Number(fallback || 1) || 1;
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (right.toLowerCase() === canonical) return 10;
+    const parts = right.split('+').map(clean).filter(Boolean);
+    const xParts = parts.filter(p => /x\s*\d+$/i.test(p));
+    const bareParts = parts.filter(p => !/x\s*\d+$/i.test(p) && /\d/.test(p));
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
+    let total = 0;
+    parts.forEach(seg => {
+      const explicit = seg.match(/(\d+)\s*[件片]/);
+      if (explicit) { total += Number(explicit[1] || 0); return; }
+      const m = seg.match(/x\s*(\d+)$/i);
+      if (m) total += Number(m[1] || 0);
+      else if (/\d/.test(seg)) total += 1;
+    });
+    return total || Number(fallback || 1) || 1;
+  }
+  function rowQty(row){
+    if (typeof window.yxEffectiveQty === 'function') return window.yxEffectiveQty(row?.product_text || row?.support || '', row?.qty || 0);
+    return qtyFromProduct(row?.product_text || row?.support || '', row?.qty || 1);
+  }
+  function rowMaterial(row){
+    const v = clean(row?.material || row?.product_code || '');
+    const p = normalizeX(row?.product_text || '');
+    const vv = normalizeX(v);
+    if (!v || (p && vv === p) || vv.includes('=') || /^\d+(?:\.\d+)?x\d+/i.test(vv)) return '';
+    return v.toUpperCase();
+  }
+  function selectedCustomer(){ return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || window.state?.currentCustomer || ''); }
+  function sourceKey(source){
+    const s = clean(source);
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    if (s === '訂單' || s === 'order' || s === 'orders') return 'orders';
+    if (s === '總單' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    return s;
+  }
+  function sourceRows(source){
+    const s = sourceKey(source);
+    return (window.__yx63Rows && (window.__yx63Rows[s] || window.__yx63Rows[source])) || [];
+  }
+  function endpointForItem(source, id){
+    const s = sourceKey(source);
+    if (s === 'inventory') return `/api/inventory/${encodeURIComponent(id)}`;
+    if (s === 'orders') return `/api/orders/${encodeURIComponent(id)}`;
+    if (s === 'master_order') return `/api/master_orders/${encodeURIComponent(id)}`;
+    return '';
+  }
+  function refreshAfter(source){
+    const s = sourceKey(source);
+    try { if (typeof window.refreshSource === 'function') return window.refreshSource(s, true); } catch(_e) {}
+    try {
+      if (s === 'inventory' && typeof window.loadInventory === 'function') return window.loadInventory();
+      if (s === 'orders' && typeof window.loadOrdersList === 'function') return window.loadOrdersList();
+      if (s === 'master_order' && typeof window.loadMasterList === 'function') return window.loadMasterList();
+    } catch(_e) {}
+  }
+  function rowFromCard(card){
+    const source = sourceKey(card?.dataset.source || '');
+    const id = Number(card?.dataset.id || 0);
+    const row = sourceRows(source).find(r => Number(r.id || 0) === id) || {};
+    const labels = Array.from(card?.querySelectorAll('.yx63-item-grid > div') || []);
+    const get = name => {
+      const box = labels.find(div => clean(div.querySelector('span')?.textContent || '') === name);
+      return clean(box?.querySelector('b')?.textContent || '');
+    };
+    const parsedText = [get('尺寸'), get('支數 x 件數')].filter(Boolean).join('=');
+    return {
+      ...row,
+      id,
+      source,
+      customer_name: row.customer_name || clean(card?.dataset.customer || '') || selectedCustomer(),
+      material: rowMaterial(row) || get('材質'),
+      product_text: row.product_text || parsedText,
+      qty: rowQty(row) || Number(get('數量') || 0) || qtyFromProduct(parsedText, 1)
+    };
+  }
+  async function robustCardAction(card, action){
+    const row = rowFromCard(card);
+    const endpoint = endpointForItem(row.source, row.id);
+    if (!row.id || !row.source) return notify('找不到商品資料，請重新整理', 'error');
+    if (action === 'edit') {
+      if (!endpoint) return notify('這個來源不支援編輯，請重新整理', 'error');
+      const nextTextRaw = prompt('修改商品資料', normalizeProductText(row.product_text || ''));
+      if (nextTextRaw === null) return;
+      const nextText = normalizeProductText(nextTextRaw);
+      const nextQtyRaw = prompt('修改數量', String(rowQty({...row, product_text:nextText}) || row.qty || 1));
+      if (nextQtyRaw === null) return;
+      const nextQty = Math.max(0, parseInt(nextQtyRaw || String(qtyFromProduct(nextText, row.qty || 1)), 10) || qtyFromProduct(nextText, row.qty || 1));
+      try {
+        const payload = { product_text: nextText, qty: nextQty, material: rowMaterial(row), product_code: rowMaterial(row), customer_name: row.customer_name || selectedCustomer() };
+        await api(endpoint, { method:'PUT', body:JSON.stringify(payload) });
+        notify('商品已更新', 'ok');
+        await refreshAfter(row.source);
+        try { if (row.customer_name && typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(row.customer_name); } catch(_e) {}
+      } catch(e) { notify(e.message || '更新失敗', 'error'); }
+      return;
+    }
+    if (action === 'delete') {
+      if (!endpoint) return notify('這個來源不支援刪除，請重新整理', 'error');
+      if (!confirm('確定刪除此商品？')) return;
+      try {
+        await api(endpoint, { method:'DELETE' });
+        notify('商品已刪除', 'ok');
+        await refreshAfter(row.source);
+        try { if (row.customer_name && typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(row.customer_name); } catch(_e) {}
+      } catch(e) { notify(e.message || '刪除失敗', 'error'); }
+      return;
+    }
+    if (action === 'ship') {
+      const customer = row.customer_name || selectedCustomer();
+      if (!customer) return notify('直接出貨需要客戶名稱', 'warn');
+      const product = normalizeProductText(row.product_text || '');
+      if (!product) return notify('找不到商品資料', 'error');
+      const draft = { customer_name:customer, product_text:product, qty:rowQty(row), source:row.source, id:row.id, at:Date.now() };
+      try { localStorage.setItem('yxShipDraft', JSON.stringify(draft)); } catch(_e) {}
+      if ((document.querySelector('.module-screen')?.dataset.module || '') === 'ship') {
+        if ($('customer-name')) $('customer-name').value = customer;
+        if ($('ocr-text')) { $('ocr-text').value = product; $('ocr-text').dispatchEvent(new Event('input', {bubbles:true})); }
+        try { if (typeof window.loadShipCustomerItems66 === 'function') await window.loadShipCustomerItems66(customer); } catch(_e) {}
+        notify('已帶入出貨資料，請按確認送出產生預覽', 'ok');
+      } else {
+        location.href = '/ship';
+      }
+      return;
+    }
+  }
+
+  // Window-capture runs before the old document-capture handler that stops propagation.
+  window.addEventListener('click', function(e){
+    const btn = e.target?.closest?.('[data-yx63-action]');
+    if (!btn) return;
+    const card = btn.closest('.yx63-item-card');
+    if (!card) return;
+    e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    robustCardAction(card, btn.dataset.yx63Action || btn.getAttribute('data-yx63-action'));
+  }, true);
+
+  function replaceLengthLabels(){
+    const root = document.body || document.documentElement;
+    if (!root) return;
+    try {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(node){
+          if (!node.nodeValue || !node.nodeValue.includes('長度計算')) return NodeFilter.FILTER_REJECT;
+          const p = node.parentElement;
+          if (p && /SCRIPT|STYLE|TEXTAREA|INPUT/.test(p.tagName)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(node => { node.nodeValue = node.nodeValue.replace(/長度計算/g, '支數計算'); });
+    } catch(_e) {}
+  }
+
+  function selectedWarehouseItem(){
+    const sel = $('warehouse-item-select');
+    if (!sel || !sel.value) return null;
+    try { return JSON.parse(sel.value); } catch(_e) { return null; }
+  }
+  function fullWarehouseQty(item){
+    const n = Number(item?.unplaced_qty ?? item?.qty ?? item?.total_qty ?? 0);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
+  }
+  function fillWarehouseQtyFromSelection(){
+    const input = $('warehouse-add-qty');
+    const item = selectedWarehouseItem();
+    if (!input || !item) return;
+    input.value = String(fullWarehouseQty(item));
+    input.max = String(fullWarehouseQty(item));
+  }
+  const oldOpenWarehouseModal = window.openWarehouseModal;
+  if (typeof oldOpenWarehouseModal === 'function' && !oldOpenWarehouseModal.__yx75Wrapped) {
+    const wrapped = async function(){
+      const result = await oldOpenWarehouseModal.apply(this, arguments);
+      setTimeout(() => { fillWarehouseQtyFromSelection(); bindWarehouseModalButtons(); }, 30);
+      return result;
+    };
+    wrapped.__yx75Wrapped = true;
+    window.openWarehouseModal = wrapped;
+  }
+  function addSelectedItemToCellFixed(){
+    if (!window.state) return notify('倉庫狀態尚未載入，請重新整理', 'error');
+    const item = selectedWarehouseItem();
+    if (!item) return notify('請先選擇商品', 'warn');
+    const maxQty = fullWarehouseQty(item);
+    const qtyInput = $('warehouse-add-qty');
+    let qty = parseInt(qtyInput?.value || String(maxQty), 10);
+    if (!Number.isFinite(qty) || qty <= 0) qty = maxQty;
+    qty = Math.min(qty, maxQty);
+    const product = normalizeProductText(item.product_text || item.product_size || '');
+    if (!product) return notify('商品資料不完整', 'error');
+    window.state.currentCellItems = Array.isArray(window.state.currentCellItems) ? window.state.currentCellItems : [];
+    const next = {
+      ...item,
+      product_text: product,
+      product_code: item.product_code || '',
+      material: rowMaterial(item),
+      qty,
+      customer_name: item.customer_name || '',
+      source: item.source || 'unplaced',
+      source_summary: item.source_summary || ((item.sources || []).map(s => `${s.source}${s.qty}`).join('、'))
+    };
+    window.state.currentCellItems.push(next);
+    try { window.renderWarehouseCellItems && window.renderWarehouseCellItems(); } catch(_e) {}
+    notify(`已加入 ${qty} 件，記得按「儲存格位」`, 'ok');
+  }
+  window.addSelectedItemToCell = addSelectedItemToCellFixed;
+
+  function bindWarehouseModalButtons(){
+    const sel = $('warehouse-item-select');
+    if (sel && sel.dataset.yx75Bound !== '1') {
+      sel.dataset.yx75Bound = '1';
+      sel.addEventListener('change', fillWarehouseQtyFromSelection);
+      fillWarehouseQtyFromSelection();
+    }
+    const addBtn = Array.from(document.querySelectorAll('#warehouse-modal button')).find(b => (b.getAttribute('onclick') || '').includes('addSelectedItemToCell'));
+    if (addBtn) { addBtn.type = 'button'; addBtn.onclick = function(ev){ ev && ev.preventDefault && ev.preventDefault(); addSelectedItemToCellFixed(); return false; }; }
+  }
+  document.addEventListener('change', function(e){ if (e.target?.id === 'warehouse-item-select') fillWarehouseQtyFromSelection(); }, true);
+
+  async function returnCellToUnplaced(zone, col, num){
+    if (!zone || !col || !num) return notify('找不到格位資料', 'error');
+    if (!confirm(`${zone} 區第 ${col} 欄第 ${String(num).padStart(2,'0')} 格的商品要返回「未錄入倉庫圖」嗎？`)) return;
+    try {
+      await api('/api/warehouse/return-unplaced', { method:'POST', body:JSON.stringify({zone, column_index:Number(col), slot_number:Number(num)}) });
+      notify('已返回未錄入倉庫圖', 'ok');
+      try { window.closeWarehouseModal && window.closeWarehouseModal(); } catch(_e) {}
+      try { await (window.renderWarehouse && window.renderWarehouse()); } catch(_e) {}
+      try { await api('/api/warehouse/available-items', {method:'GET'}).then(d => { if (window.state?.warehouse) window.state.warehouse.availableItems = Array.isArray(d.items) ? d.items : []; }); } catch(_e) {}
+    } catch(e) { notify(e.message || '返回上一步失敗', 'error'); }
+  }
+  function ensureReturnButton(){
+    const menu = $('yx71-warehouse-cell-menu');
+    if (!menu) return;
+    if (!$('yx75-warehouse-menu-return')) {
+      const del = $('yx71-warehouse-menu-delete');
+      const btn = document.createElement('button');
+      btn.className = 'ghost-btn';
+      btn.type = 'button';
+      btn.id = 'yx75-warehouse-menu-return';
+      btn.textContent = '返回上一步（回到未錄入倉庫圖）';
+      if (del && del.parentElement) del.parentElement.insertBefore(btn, del);
+    }
+    const btn = $('yx75-warehouse-menu-return');
+    if (btn && btn.dataset.yx75Bound !== '1') {
+      btn.dataset.yx75Bound = '1';
+      btn.addEventListener('click', function(e){
+        e.preventDefault(); e.stopPropagation();
+        const title = clean($('yx71-warehouse-menu-title')?.textContent || '');
+        const m = title.match(/([AB])\s*區第\s*(\d+)\s*欄\s*第\s*(\d+)\s*格/);
+        const menu = $('yx71-warehouse-cell-menu');
+        if (menu) menu.classList.add('hidden');
+        if (!m) return notify('找不到格位資料，請重新長按一次', 'error');
+        returnCellToUnplaced(m[1], Number(m[2]), Number(m[3]));
+      });
+    }
+  }
+
+  function applyShipDraft(){
+    if ((document.querySelector('.module-screen')?.dataset.module || '') !== 'ship') return;
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem('yxShipDraft') || 'null'); } catch(_e) {}
+    if (!draft || Date.now() - Number(draft.at || 0) > 15 * 60 * 1000) return;
+    const product = normalizeProductText(draft.product_text || '');
+    if (draft.customer_name && $('customer-name')) $('customer-name').value = draft.customer_name;
+    if (product && $('ocr-text')) { $('ocr-text').value = product; $('ocr-text').dispatchEvent(new Event('input', {bubbles:true})); }
+    try { localStorage.removeItem('yxShipDraft'); } catch(_e) {}
+    try { if (typeof window.loadShipCustomerItems66 === 'function') window.loadShipCustomerItems66(draft.customer_name || ''); } catch(_e) {}
+  }
+
+  function boot(){
+    setFlag();
+    replaceLengthLabels();
+    bindWarehouseModalButtons();
+    ensureReturnButton();
+    applyShipDraft();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot);
+  try { new MutationObserver(() => { replaceLengthLabels(); bindWarehouseModalButtons(); ensureReturnButton(); }).observe(document.body || document.documentElement, {childList:true, subtree:true, characterData:true}); } catch(_e) {}
+})();
+/* ==== FIX75 end ==== */

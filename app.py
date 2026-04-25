@@ -1466,6 +1466,38 @@ def api_admin_block():
     notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
     return jsonify(success=True, items=list_users())
 
+
+
+@app.route("/api/warehouse/return-unplaced", methods=["POST"])
+@login_required_json
+def api_warehouse_return_unplaced():
+    """FIX75：把某格已放入的商品清回未錄入倉庫圖狀態。
+
+    倉庫圖的「未錄入」是由來源總量 - 已放入格位數量即時計算，
+    所以這裡只要清空該格商品，商品就會自動回到尚未添加倉庫圖清單。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index") or 0)
+        slot_number = int(data.get("slot_number") or 0)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        cells = warehouse_get_cells()
+        cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
+        if not cell:
+            return error_response("找不到格位")
+        items = safe_cell_items(cell)
+        note = cell.get('note') or ''
+        warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
+        log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
+        return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_return_unplaced", str(e))
+        return error_response("返回上一步失敗")
+
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
 def api_warehouse_add_slot():
