@@ -1,5 +1,5 @@
-/* 沅興木業 PWA Service Worker - fix75-card-warehouse-support-return */
-const YX_PWA_VERSION='fix75-card-warehouse-support-return';
+/* 沅興木業 PWA Service Worker - fix88-final-qc-stable - FIX88_FINAL_QC_STABLE */
+const YX_PWA_VERSION='fix88-final-qc-stable';
 const STATIC_CACHE=`yuanxing-pwa-icons-${YX_PWA_VERSION}`;
 const ICON_ASSETS=['/static/manifest.webmanifest','/static/favicon.png','/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(ICON_ASSETS)).then(()=>self.skipWaiting()))});

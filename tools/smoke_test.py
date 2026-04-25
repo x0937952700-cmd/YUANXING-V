@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX81_UNIQUE_MASTER_CONVERGENCE",
+        "FIX88_FINAL_QC_STABLE_GUARD",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -24,12 +24,13 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/style.css": ["FIX70 final conflict convergence", "yx70-busy", "warehouse-plusminus-btn"],
-    "templates/base.html": ["fix81-unique-master", "app.js", "pwa.js"],
-    "static/service-worker.js": ["fix75-card-warehouse-support-return"],
-    "static/pwa.js": ["fix75-card-warehouse-support-return"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"'],
+    "static/style.css": ["FIX88_FINAL_QC_STABLE_CSS", "yx88-hidden-legacy", "yx85-month-badge"],
+    "templates/base.html": ["FIX88_FINAL_QC_STABLE", "app.js", "pwa.js", "fix88-final-qc-stable"],
+    "static/service-worker.js": ["FIX88_FINAL_QC_STABLE", "fix88-final-qc-stable"],
+    "static/pwa.js": ["fix88-final-qc-stable"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix88-final-qc-stable"'],
 }
+
 for rel, tokens in required.items():
     text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
     missing = [t for t in tokens if t not in text]
@@ -57,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX81 smoke test OK")
+print("FIX88 smoke test OK")

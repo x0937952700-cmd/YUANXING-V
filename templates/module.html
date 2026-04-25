@@ -270,17 +270,13 @@
       <div id="warehouse-modal-meta" class="muted"></div>
       <label class="field-label">搜尋已錄入商品</label>
       <input id="warehouse-item-search" class="text-input" placeholder="輸入 113 直接篩選">
-      <!-- FIX83：舊版單筆加入 / 手動儲存入口保留為隱藏相容元素，畫面只使用「批量加入格位」自動儲存母版。 -->
+      <!-- FIX88：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
       <div class="yx83-legacy-warehouse-controls" style="display:none" aria-hidden="true">
         <label class="field-label">加入商品</label>
         <select id="warehouse-item-select" class="text-input"></select>
         <label class="field-label">加入數量</label>
         <input id="warehouse-add-qty" class="text-input" type="number" min="1" value="1">
         <div id="warehouse-recent-slots" class="chip-list"></div>
-        <div class="btn-row">
-          <button class="primary-btn" onclick="addSelectedItemToCell()">加入格位</button>
-          <button class="ghost-btn" onclick="saveWarehouseCell()">儲存格位</button>
-        </div>
       </div>
       <label class="field-label">格位備註</label>
       <textarea id="warehouse-note" class="text-area small"></textarea>

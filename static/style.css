@@ -2642,3 +2642,8 @@ html[data-yx-fix74-core] .vertical-slot::after,
   .yx66-customer-table .yx66-size-cell{min-width:150px;}
 }
 /* ==== FIX85 end ==== */
+
+
+/* ==== FIX88_FINAL_QC_STABLE_CSS ==== */
+.yx88-hidden-legacy{display:none!important;}
+html[data-yx-fix88="FIX88_FINAL_QC_STABLE_GUARD"] .yx83-legacy-warehouse-controls{display:none!important;}

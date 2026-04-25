@@ -190,11 +190,11 @@ def login_required_json(f):
 
 @app.after_request
 def add_no_cache_headers(response):
-    # 避免手機 / PWA / 瀏覽器一直吃到舊的 HTML、JS、CSS。
-    if request.path.startswith('/static/') or not request.path.startswith('/api/'):
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+    # FIX87：所有頁面 / 靜態檔 / API 都不快取，避免手機、PWA 或 Render 部署後吃到舊 JS。
+    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['Vary'] = 'Cookie'
     return response
 
 @app.before_request
