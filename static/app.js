@@ -4992,3 +4992,279 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try { new MutationObserver(() => { bindWarehouseSlots(); hideMasterDuplicateTables(); }).observe(document.body || document.documentElement, { childList:true, subtree:true }); } catch(_e) {}
 })();
 /* ==== FIX71 end ==== */
+
+
+/* ==== FIX72: hide long-press labels + final shipping preview/submit repair ==== */
+(function(){
+  'use strict';
+  const VERSION = 'fix72-ship-preview-submit-and-hide-longpress-label';
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const clean = v => String(v ?? '').trim();
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+  const notify = (msg, kind='ok') => { try { (window.toast || window.showToast || window.alert)(msg, kind); } catch(_e) { console.log(msg); } };
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url, { credentials:'same-origin', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})} });
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || ('請求失敗 ' + res.status)); e.payload = data; throw e; }
+    return data;
+  });
+
+  function setFixFlag(){
+    try {
+      document.documentElement.dataset.yxFix72 = VERSION;
+      document.body && document.body.setAttribute('data-yx-fix72','1');
+    } catch(_e) {}
+  }
+
+  function normalizeX(v){
+    return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');
+  }
+
+  function supportExpression(productText){
+    const raw = normalizeX(productText);
+    const eq = raw.indexOf('=');
+    return eq >= 0 ? raw.slice(eq + 1) : '';
+  }
+
+  function supportTotal(productText){
+    const right = supportExpression(productText);
+    if (!right) return 0;
+    return right.split('+').map(clean).filter(Boolean).reduce((sum, seg) => {
+      const m = seg.match(/^(\d+(?:\.\d+)?)x(\d+)$/i);
+      if (m) return sum + Number(m[1]) * Number(m[2]);
+      const n = seg.match(/\d+(?:\.\d+)?/);
+      return n ? sum + Number(n[0]) : sum;
+    }, 0);
+  }
+
+  function qtyFromProduct(productText, fallback=1){
+    const right = supportExpression(productText);
+    if (!right) return Number(fallback || 1) || 1;
+    const segments = right.split('+').map(clean).filter(Boolean);
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (right.toLowerCase() === canonical) return 10;
+    const xSegments = segments.filter(seg => /x\s*\d+$/i.test(seg));
+    const bareSegments = segments.filter(seg => !/x\s*\d+$/i.test(seg) && /\d/.test(seg));
+    if (segments.length >= 10 && xSegments.length === 1 && segments[0] === xSegments[0] && /^\d{3,}\s*x\s*\d+$/i.test(xSegments[0]) && bareSegments.length >= 8) return bareSegments.length;
+    let total = 0;
+    segments.forEach(seg => {
+      const m = seg.match(/x\s*(\d+)$/i);
+      if (m) total += Number(m[1]);
+      else if (/\d/.test(seg)) total += 1;
+    });
+    return total || Number(fallback || 1) || 1;
+  }
+
+  function parseSubmitItems(rawText){
+    const lines = String(rawText || '').replace(/\r/g,'\n').split(/\n+/).map(normalizeX).filter(Boolean);
+    const items = [];
+    lines.forEach(line => {
+      if (!/[0-9].*x.*[0-9]/i.test(line)) return;
+      const m = line.match(/\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:=[0-9x+\.]+)?/ig);
+      const tokens = m && m.length ? m : [line];
+      tokens.forEach(token => {
+        token = normalizeX(token);
+        if (!token) return;
+        items.push({ product_text: token, product_code:'', material:'', qty: qtyFromProduct(token, 1) });
+      });
+    });
+    return items;
+  }
+
+  function dimensionFactors(productText){
+    const left = normalizeX(productText).split('=')[0] || '';
+    const parts = left.split('x').map(x => Number(String(x).replace(/^0+(?=\d)/,''))).filter(n => Number.isFinite(n));
+    const a = parts[0] || 0, b = parts[1] || 0, c = parts[2] || 0;
+    return {
+      a, b, c,
+      fa: a > 210 ? a / 1000 : a / 100,
+      fb: b / 10,
+      fc: c >= 100 ? c / 100 : c / 10
+    };
+  }
+
+  function calcProduct(productText){
+    const lengthTotal = supportTotal(productText);
+    const f = dimensionFactors(productText);
+    const volume = lengthTotal && f.fa && f.fb && f.fc ? (lengthTotal * f.fa * f.fb * f.fc) : 0;
+    const formula = lengthTotal && f.fa && f.fb && f.fc
+      ? `${lengthTotal.toLocaleString()} × ${trimNum(f.fa)} × ${trimNum(f.fb)} × ${trimNum(f.fc)}`
+      : '尺寸或支數不足，無法計算';
+    return { lengthTotal, volume, formula };
+  }
+
+  function trimNum(n){
+    const v = Math.round(Number(n || 0) * 1000) / 1000;
+    return String(v).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1');
+  }
+  function fmt(n){
+    const v = Number(n || 0);
+    return (Math.round(v * 1000) / 1000).toLocaleString();
+  }
+  function reqKey(prefix){
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+  }
+  function endpointFor(mod){
+    return mod === 'orders' ? '/api/orders' : mod === 'master_order' ? '/api/master_orders' : mod === 'ship' ? '/api/ship' : '/api/inventory';
+  }
+
+  function locationsHTML(item){
+    const locs = Array.isArray(item.locations) ? item.locations : [];
+    if (!locs.length) return '<span class="small-note">倉庫圖尚未找到位置</span>';
+    return locs.map(loc => {
+      const label = `${esc(loc.zone || '')}-${esc(loc.column_index || '')}-${String(loc.visual_slot || loc.slot_number || '').padStart(2,'0')}`;
+      const qty = loc.ship_qty || loc.qty || 0;
+      return `<button type="button" class="yx72-loc-chip" onclick="quickJumpToModule && quickJumpToModule('warehouse','',${JSON.stringify(item.product_text || '')})">${label}｜可出 ${qty}</button>`;
+    }).join('');
+  }
+
+  function updateWeightResult(totalVolume){
+    const input = $('yx72-ship-weight');
+    const out = $('yx72-ship-weight-result');
+    if (!input || !out) return;
+    const weight = Number(input.value || 0);
+    out.textContent = weight ? `材積 × 重量 = ${fmt(totalVolume * weight)}` : `材積合計：${fmt(totalVolume)}`;
+  }
+
+  function renderShipPreview(preview, payload){
+    const section = $('ship-preview-section');
+    const panel = $('ship-preview-panel') || $('module-result');
+    if (!panel) return;
+    if (section) section.style.display = '';
+    panel.classList.remove('hidden');
+    panel.style.display = '';
+
+    const items = Array.isArray(preview.items) ? preview.items : [];
+    let totalQty = 0, totalLength = 0, totalVolume = 0, totalAvailable = 0, totalShortage = 0;
+    const rows = items.map(item => {
+      const product = item.product_text || '';
+      const calc = calcProduct(product);
+      const qty = Number(item.qty || item.need_qty || qtyFromProduct(product, 1) || 0);
+      const available = Number(item.master_available || 0) + Number(item.order_available || 0) + Number(item.inventory_available || 0);
+      const shortage = Math.max(0, qty - available);
+      totalQty += qty;
+      totalLength += calc.lengthTotal;
+      totalVolume += calc.volume;
+      totalAvailable += available;
+      totalShortage += shortage;
+      const source = `總單 ${item.master_available || 0}｜訂單 ${item.order_available || 0}｜庫存 ${item.inventory_available || 0}` + (shortage ? `<br><span class="yx72-danger">不足 ${shortage}</span>` : '<br><span class="yx72-ok">可扣除</span>');
+      return `<tr>
+        <td><strong>${esc(product)}</strong></td>
+        <td>${qty}</td>
+        <td>${fmt(calc.lengthTotal)}<div class="small-note">${esc(supportExpression(product) || '無支數')}</div></td>
+        <td>${fmt(calc.volume)}<div class="small-note">${esc(calc.formula)}</div></td>
+        <td>${source}</td>
+        <td>${locationsHTML(item)}</td>
+      </tr>`;
+    }).join('');
+
+    try {
+      const keys = [];
+      items.forEach(item => (item.locations || []).forEach(loc => keys.push(`${loc.zone}|${loc.column_index}|direct|${loc.slot_number || loc.visual_slot || 0}`)));
+      localStorage.setItem('shipPreviewWarehouseHighlights', JSON.stringify(keys));
+    } catch(_e) {}
+
+    panel.innerHTML = `<div class="yx72-ship-preview-card">
+      <div class="section-title">出貨預覽</div>
+      <div class="small-note">已整理商品倉庫圖位置、材積計算、長度計算與可扣來源。確認無誤後再按「確認扣除」。</div>
+      <div class="yx72-ship-summary">
+        <div>本次件數<span>${fmt(totalQty)}</span></div>
+        <div>長度合計<span>${fmt(totalLength)}</span></div>
+        <div>材積合計<span>${fmt(totalVolume)}</span></div>
+        <div>總可扣量<span>${fmt(totalAvailable)}</span></div>
+        <div>不足數量<span class="${totalShortage ? 'yx72-danger' : 'yx72-ok'}">${fmt(totalShortage)}</span></div>
+      </div>
+      <div class="yx72-weight-row">
+        <label for="yx72-ship-weight">重量</label>
+        <input id="yx72-ship-weight" class="text-input" type="number" min="0" step="0.01" placeholder="輸入重量">
+        <div id="yx72-ship-weight-result" class="yx72-weight-result">材積合計：${fmt(totalVolume)}</div>
+      </div>
+      <div class="yx72-preview-table-wrap"><table class="yx72-preview-table"><thead><tr><th>商品</th><th>件數</th><th>長度計算</th><th>材積計算</th><th>可扣來源</th><th>商品倉庫圖位置</th></tr></thead><tbody>${rows || '<tr><td colspan="6">沒有可預覽商品</td></tr>'}</tbody></table></div>
+      <div class="btn-row" style="margin-top:12px;"><button class="ghost-btn" type="button" id="yx72-ship-preview-cancel">取消</button><button class="primary-btn" type="button" id="yx72-ship-preview-confirm">確認扣除</button></div>
+    </div>`;
+    $('yx72-ship-weight')?.addEventListener('input', () => updateWeightResult(totalVolume));
+    $('yx72-ship-preview-cancel')?.addEventListener('click', () => panel.classList.add('hidden'));
+    $('yx72-ship-preview-confirm')?.addEventListener('click', async function(){
+      const btn = this;
+      if (btn.dataset.busy === '1') return;
+      btn.dataset.busy = '1'; btn.disabled = true; btn.textContent = '扣除中…';
+      try {
+        const result = await api('/api/ship', { method:'POST', body:JSON.stringify({ ...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:reqKey('ship_confirm') }) });
+        const list = (result.breakdown || []).map(row => {
+          const locs = locationsHTML(row);
+          return `<div class="deduct-card"><div><strong>${esc(row.product_text || '')}</strong>｜本次出貨 ${row.qty || 0}</div><div>扣總單：${row.master_deduct || 0}｜扣訂單：${row.order_deduct || 0}｜扣庫存：${row.inventory_deduct || 0}</div><div class="small-note">剩餘：總單 ${row.remaining_after?.master ?? '-'}｜訂單 ${row.remaining_after?.order ?? '-'}｜庫存 ${row.remaining_after?.inventory ?? '-'}</div><div>${locs}</div></div>`;
+        }).join('');
+        panel.innerHTML = `<div class="success-card"><div class="section-title">出貨完成</div><div class="small-note">已扣除總單 / 訂單 / 庫存，下面是本次扣除摘要。</div></div>${list || '<div class="empty-state-card compact-empty">已出貨，但沒有扣除摘要。</div>'}`;
+        notify('出貨完成','ok');
+        try { window.loadCustomerBlocks && await window.loadCustomerBlocks(true); } catch(_e) {}
+        try { window.selectCustomerForModule && payload.customer_name && await window.selectCustomerForModule(payload.customer_name); } catch(_e) {}
+      } catch(e) {
+        notify(e.message || '出貨失敗','error');
+        btn.dataset.busy = '0'; btn.disabled = false; btn.textContent = '確認扣除';
+      }
+    });
+    setTimeout(() => { try { panel.scrollIntoView({behavior:'smooth', block:'start'}); } catch(_e) {} }, 60);
+  }
+
+  async function fixedConfirmSubmit(){
+    setFixFlag();
+    const btn = $('submit-btn');
+    if (!btn || btn.dataset.yx72Busy === '1') return false;
+    const mod = moduleKey() || 'inventory';
+    const raw = $('ocr-text')?.value || '';
+    const items = parseSubmitItems(raw);
+    const customer = clean($('customer-name')?.value || '');
+    const needCustomer = ['orders','master_order','ship'].includes(mod);
+    const resultPanel = $('module-result');
+    if (!items.length) {
+      notify('沒有可送出的商品資料','warn');
+      if (resultPanel) { resultPanel.classList.remove('hidden'); resultPanel.style.display=''; resultPanel.innerHTML = '<div class="section-title">送出失敗</div><div class="muted">請貼上商品資料，例如 80x30x125=111+132x3。</div>'; }
+      return false;
+    }
+    if (needCustomer && !customer) { notify('請先輸入客戶名稱','warn'); return false; }
+    const payload = { customer_name:customer, ocr_text:raw, items, location:clean($('location-input')?.value || ''), request_key:reqKey(mod) };
+    btn.dataset.yx72Busy = '1'; btn.disabled = true; btn.textContent = mod === 'ship' ? '整理預覽中…' : '送出中…';
+    try {
+      if (needCustomer) await api('/api/customers', { method:'POST', body:JSON.stringify({ name:customer, preserve_existing:true }) }).catch(() => null);
+      if (mod === 'ship') {
+        const preview = await api('/api/ship-preview', { method:'POST', body:JSON.stringify(payload) });
+        renderShipPreview(preview, payload);
+        notify('已產生出貨預覽','ok');
+        return true;
+      }
+      const data = await api(endpointFor(mod), { method:'POST', body:JSON.stringify(payload) });
+      if (resultPanel) { resultPanel.classList.remove('hidden'); resultPanel.style.display=''; resultPanel.innerHTML = `<div class="section-title">送出完成</div><div class="muted">已建立 / 更新 ${items.length} 筆資料。</div>`; }
+      notify(mod === 'inventory' ? '庫存送出成功' : mod === 'orders' ? '訂單送出成功' : '總單送出成功', 'ok');
+      try { if (mod === 'inventory' && window.refreshSource) await window.refreshSource('inventory', true); } catch(_e) {}
+      try { if (mod === 'orders' && window.refreshSource) await window.refreshSource('orders', true); } catch(_e) {}
+      try { if (mod === 'master_order' && window.refreshSource) await window.refreshSource('master_order', true); } catch(_e) {}
+      try { if (needCustomer && window.loadCustomerBlocks) await window.loadCustomerBlocks(true); } catch(_e) {}
+      try { if (needCustomer && window.selectCustomerForModule) await window.selectCustomerForModule(customer); } catch(_e) {}
+      return data;
+    } catch(e) {
+      const msg = e.message || '送出失敗';
+      if (resultPanel) { resultPanel.classList.remove('hidden'); resultPanel.style.display=''; resultPanel.innerHTML = `<div class="section-title">送出失敗</div><div class="muted">${esc(msg)}</div>`; }
+      notify(msg, 'error');
+      return false;
+    } finally {
+      btn.dataset.yx72Busy = '0'; btn.disabled = false; btn.textContent = '確認送出';
+    }
+  }
+
+  function install(){
+    setFixFlag();
+    window.confirmSubmit = fixedConfirmSubmit;
+    document.querySelectorAll('.yx67-warehouse-slot,.vertical-slot').forEach(el => {
+      el.querySelectorAll('.yx71-longpress-label,.longpress-label,.long-press-label').forEach(x => x.remove());
+    });
+  }
+
+  install();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  window.addEventListener('pageshow', install);
+  setTimeout(install, 250);
+})();
+/* ==== FIX72 end ==== */

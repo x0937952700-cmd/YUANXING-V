@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix71-table-warehouse-customer-master-cleanup';
+  const PWA_VERSION = 'fix72-ship-preview-submit-and-hide-longpress-label';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

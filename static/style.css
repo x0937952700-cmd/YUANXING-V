@@ -2442,3 +2442,31 @@ html[data-yx-fix71] #customers-section .customer-detail.yx71-filled{
   html[data-yx-fix71] .yx63-summary-table .yx63-support-cell{display:table-cell!important;width:48%!important;}
 }
 /* ==== FIX71 end ==== */
+
+/* ==== FIX72: hide warehouse long-press hint text + repaired shipping preview ==== */
+html[data-yx-fix72] .yx67-warehouse-slot::after,
+html[data-yx-fix72] .vertical-slot::after,
+.yx67-warehouse-slot::after,
+.vertical-slot::after{
+  content:none!important;
+  display:none!important;
+  visibility:hidden!important;
+}
+.yx72-ship-preview-card{padding:14px;border-radius:18px;background:#fff;border:1px solid rgba(15,23,42,.08);box-shadow:var(--shadow-soft);margin:10px 0;}
+.yx72-ship-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:12px 0;}
+.yx72-ship-summary>div{background:#f8fafc;border:1px solid rgba(15,23,42,.08);border-radius:16px;padding:12px;font-weight:900;}
+.yx72-ship-summary span{display:block;margin-top:4px;color:#64748b;font-size:13px;font-weight:800;}
+.yx72-weight-row{display:grid;grid-template-columns:110px minmax(160px,1fr) minmax(180px,1fr);gap:10px;align-items:center;margin:12px 0;padding:12px;border-radius:16px;background:#f8fafc;border:1px solid rgba(15,23,42,.08);}
+.yx72-weight-row label{font-weight:900;color:#334155;}
+.yx72-weight-row input{width:100%;}
+.yx72-weight-result{font-weight:900;color:#14532d;}
+.yx72-preview-table-wrap{overflow:auto;border-radius:16px;border:1px solid rgba(15,23,42,.08);background:#fff;margin-top:10px;}
+.yx72-preview-table{width:100%;border-collapse:collapse;min-width:760px;}
+.yx72-preview-table th,.yx72-preview-table td{padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.08);text-align:left;vertical-align:top;}
+.yx72-preview-table th{background:#f8fafc;font-weight:900;color:#334155;white-space:nowrap;}
+.yx72-preview-table td{font-size:14px;}
+.yx72-loc-chip{display:inline-flex;align-items:center;margin:3px 4px 3px 0;padding:5px 9px;border-radius:999px;background:#eef6ff;border:1px solid rgba(37,99,235,.14);color:#1d4ed8;font-weight:800;font-size:12px;}
+.yx72-danger{color:#b91c1c!important;font-weight:900;}
+.yx72-ok{color:#047857!important;font-weight:900;}
+@media(max-width:720px){.yx72-weight-row{grid-template-columns:1fr}.yx72-preview-table{min-width:680px}.yx72-ship-summary{grid-template-columns:1fr 1fr;}}
+/* ==== FIX72 end ==== */
