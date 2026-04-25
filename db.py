@@ -1676,6 +1676,201 @@ def _warehouse_locations_for_product(product_text, qty_needed=None, customer_nam
         remain -= take
     return plan
 
+
+
+# ==== FIX78：出貨穩定收斂補強 ====
+def _shipping_relaxed_size_key(text):
+    """出貨比對用尺寸 key：保留顯示的 0xx，但比對時可相容舊資料 73/073。"""
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    left = (raw.split('=', 1)[0].strip() or raw).lower().replace(' ', '')
+    parts = [p for p in left.split('x') if p != '']
+    out = []
+    for part in parts[:3]:
+        if re.fullmatch(r'\d+(?:\.\d+)?', part or ''):
+            try:
+                n = float(part)
+                if n.is_integer():
+                    out.append(str(int(n)))
+                else:
+                    out.append(str(n).replace('.', ''))
+            except Exception:
+                out.append(part.lstrip('0') or '0')
+        elif (part or '').isdigit():
+            out.append(part.lstrip('0') or '0')
+        else:
+            out.append(part)
+    if len(out) >= 3:
+        return 'x'.join(out[:3])
+    return _normalize_size_key(text)
+
+
+def _row_dict_from_select(row, columns):
+    if USE_POSTGRES:
+        return dict(zip(columns, row))
+    return dict(row)
+
+
+def _fetch_shipping_match_rows(cur, table, product_text, customer_name=None):
+    """出貨專用比對：先精準商品，再同尺寸相容舊 0xx 資料。
+
+    目的：
+    - 使用者把 73 修回 073 後，仍可扣到舊資料 73。
+    - 出貨只改本次件數/支數時，仍可用同尺寸商品扣總單/訂單/庫存。
+    - 不改一般訂單/總單儲存的合併規則，避免影響其他功能。
+    """
+    target_full = _normalize_product_key(product_text)
+    target_size = _normalize_size_key(product_text)
+    target_relaxed = _shipping_relaxed_size_key(product_text)
+    columns = ['id', 'qty', 'product_text', 'material', 'product_code', 'customer_name', 'customer_uid']
+    uid = ''
+    name = (customer_name or '').strip() if customer_name is not None else None
+    try:
+        if name:
+            uid = _customer_uid_for_name_cur(cur, name) or ''
+    except Exception:
+        uid = ''
+    select_sql = f"""
+        SELECT id, qty, product_text,
+               COALESCE(material, '') AS material,
+               COALESCE(product_code, '') AS product_code,
+               COALESCE(customer_name, '') AS customer_name,
+               COALESCE(customer_uid, '') AS customer_uid
+        FROM {table}
+        WHERE qty > 0
+    """
+    params = []
+    if name is not None:
+        if uid:
+            select_sql += " AND (customer_uid = ? OR customer_name = ?)"
+            params.extend([uid, name])
+        else:
+            select_sql += " AND customer_name = ?"
+            params.append(name)
+    select_sql += " ORDER BY id ASC"
+    cur.execute(sql(select_sql), tuple(params))
+    fetched = [_row_dict_from_select(r, columns) for r in cur.fetchall()]
+    exact, loose = [], []
+    for row in fetched:
+        product = row.get('product_text') or ''
+        row_full = _normalize_product_key(product)
+        row_size = _normalize_size_key(product)
+        row_relaxed = _shipping_relaxed_size_key(product)
+        if row_full == target_full:
+            exact.append(row)
+        elif target_size and (row_size == target_size or row_relaxed == target_relaxed):
+            loose.append(row)
+    seen = set()
+    out = []
+    for row in exact + loose:
+        rid = row.get('id')
+        if rid in seen:
+            continue
+        seen.add(rid)
+        row['qty'] = int(row.get('qty') or 0)
+        out.append(row)
+    return out
+
+
+def _sum_available(cur, table, customer_name, product_text):
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_shipping_match_rows(cur, table, product_text, customer_name=customer_name)))
+
+
+def _sum_inventory(cur, product_text):
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_shipping_match_rows(cur, 'inventory', product_text, customer_name=None)))
+
+
+def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_target):
+    qty_target = int(qty_target or 0)
+    if qty_target <= 0:
+        return []
+    rows = _fetch_shipping_match_rows(cur, table, product_text, customer_name=customer_name)
+    remain = qty_target
+    used = []
+    for row in rows:
+        if remain <= 0:
+            break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
+    return used
+
+
+def _deduct_from_inventory(cur, product_text, qty_needed):
+    rows = _fetch_shipping_match_rows(cur, 'inventory', product_text, customer_name=None)
+    rows.sort(key=lambda r: (-int(r.get('qty') or 0), int(r.get('id') or 0)))
+    total = sum(int(r.get('qty') or 0) for r in rows)
+    if total < int(qty_needed or 0):
+        return False, []
+    remain = int(qty_needed or 0)
+    used = []
+    for row in rows:
+        if remain <= 0:
+            break
+        use_qty = min(int(row.get('qty') or 0), remain)
+        if use_qty <= 0:
+            continue
+        cur.execute(sql("UPDATE inventory SET qty = qty - ?, updated_at = ? WHERE id = ?"), (use_qty, now(), row['id']))
+        used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
+        remain -= use_qty
+    return True, used
+
+
+def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None):
+    target_size = _warehouse_size_key(product_text or '')
+    target_relaxed = _shipping_relaxed_size_key(product_text or '')
+    want_customer = (customer_name or '').strip()
+    cells = warehouse_get_cells()
+    out = []
+    for cell in cells:
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+        except Exception:
+            items = []
+        for it in items:
+            item_text = it.get('product_text') or it.get('product') or ''
+            item_size = _warehouse_size_key(item_text)
+            item_relaxed = _shipping_relaxed_size_key(item_text)
+            item_customer = (it.get('customer_name') or '').strip()
+            try:
+                qty = int(it.get('qty') or 0)
+            except Exception:
+                qty = 0
+            if qty <= 0:
+                continue
+            if not target_size or not (item_size == target_size or item_relaxed == target_relaxed):
+                continue
+            if want_customer and item_customer and item_customer != want_customer:
+                continue
+            visual_num = int(cell.get('slot_number') or 0)
+            out.append({
+                'zone': cell.get('zone'),
+                'column_index': int(cell.get('column_index') or 0),
+                'slot_type': 'direct',
+                'slot_number': visual_num,
+                'visual_slot': visual_num,
+                'qty': qty,
+                'product_text': item_text or product_text or '',
+                'customer_name': item_customer,
+            })
+    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
+    if qty_needed is None:
+        return out
+    remain = int(qty_needed or 0)
+    plan = []
+    for row in out:
+        if remain <= 0:
+            break
+        take = min(int(row.get('qty') or 0), remain)
+        if take <= 0:
+            continue
+        plan.append({**row, 'ship_qty': take, 'remain_after': max(0, int(row.get('qty') or 0) - take)})
+        remain -= take
+    return plan
+# ==== FIX78 end ====
+
 def preview_ship_order(customer_name, items):
     """FIX77 母版：出貨預覽改成真正的「總單 → 訂單 → 庫存」順序。
 
@@ -1820,7 +2015,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     except Exception as e:
         conn.rollback()
         log_error('ship_order', e)
-        return {'success': False, 'error': '出貨失敗'}
+        return {'success': False, 'error': f'出貨失敗：{e}'}
     finally:
         conn.close()
 

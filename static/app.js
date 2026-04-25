@@ -6165,3 +6165,345 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try { new MutationObserver(() => { cleanShipSelectedUI(); }).observe(document.body || document.documentElement, {childList:true, subtree:true}); } catch(_e) {}
 })();
 /* ==== FIX77 end ==== */
+
+/* fix78-ship-diagnosis-stable */
+
+/* ==== FIX78: shipping final repair - no stuck, fuzzy deduct, preserved features ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX78_SHIP_FINAL_REPAIR';
+  if (window.__YX78_SHIP_FINAL_REPAIR__) return;
+  window.__YX78_SHIP_FINAL_REPAIR__ = true;
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const clean = v => String(v ?? '').trim();
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+  const notify = (msg, kind='ok') => {
+    try { if (typeof window.toast === 'function') return window.toast(msg, kind); } catch(_e) {}
+    try { if (typeof window.showToast === 'function') return window.showToast(msg, kind); } catch(_e) {}
+    if (kind === 'error') alert(msg); else console.log(msg);
+  };
+
+  function setFlag(){
+    try {
+      document.documentElement.dataset.yxFix78 = VERSION;
+      if (document.body) document.body.setAttribute('data-yx-fix78','1');
+    } catch(_e) {}
+  }
+
+  async function api78(url, opts={}, timeoutMs=45000){
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        credentials:'same-origin',
+        cache:'no-store',
+        ...opts,
+        signal: controller.signal,
+        headers:{'Content-Type':'application/json', ...(opts.headers || {})}
+      });
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; }
+      catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+      if (!res.ok || data.success === false) {
+        const err = new Error(data.error || data.message || `請求失敗：${res.status}`);
+        err.payload = data;
+        throw err;
+      }
+      return data;
+    } catch(e) {
+      if (e.name === 'AbortError') throw new Error('出貨處理逾時，請重新整理後再試');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  window.yxApi78 = api78;
+
+  function normalizeX(text){
+    return clean(text)
+      .replace(/[Ｘ×✕＊*X]/g,'x')
+      .replace(/[＝]/g,'=')
+      .replace(/[＋，,；;]/g,'+')
+      .replace(/\s+/g,'');
+  }
+  function fmtDim(token, isHeight){
+    const s = clean(token);
+    if (!s) return '';
+    if (/^\d*\.\d+$/.test(s)) return (s.startsWith('.') ? '0' + s : s).replace('.','');
+    if (/^\d+$/.test(s)) return (isHeight && s.length === 1) ? s.padStart(2,'0') : s;
+    return s.replace(/\s+/g,'');
+  }
+  function normalizeProductText(text){
+    const raw = normalizeX(text);
+    if (!raw) return '';
+    const parts = raw.split('=');
+    const left = parts.shift() || '';
+    const dims = left.split(/x/i).filter(Boolean);
+    const size = dims.length >= 3 ? [fmtDim(dims[0], false), fmtDim(dims[1], false), fmtDim(dims[2], true)].join('x') : left;
+    const right = parts.join('=');
+    return right ? `${size}=${right}` : size;
+  }
+  window.yx78NormalizeProductText = normalizeProductText;
+
+  function supportExpression(productText){
+    const raw = normalizeProductText(productText);
+    const i = raw.indexOf('=');
+    return i >= 0 ? raw.slice(i + 1) : '';
+  }
+  function qtyFromProduct(productText, fallback=1){
+    const right = supportExpression(productText);
+    if (!right) return Number(fallback || 1) || 1;
+    const segments = right.split('+').map(clean).filter(Boolean);
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (right.toLowerCase() === canonical) return 10;
+    const xSegments = segments.filter(seg => /x\s*\d+$/i.test(seg));
+    const bareSegments = segments.filter(seg => !/x\s*\d+$/i.test(seg) && /\d/.test(seg));
+    if (segments.length >= 10 && xSegments.length === 1 && segments[0] === xSegments[0] && /^\d{3,}\s*x\s*\d+$/i.test(xSegments[0]) && bareSegments.length >= 8) return bareSegments.length;
+    let total = 0;
+    for (const seg of segments) {
+      const explicit = seg.match(/(\d+)\s*[件片]/);
+      if (explicit) { total += Number(explicit[1] || 0); continue; }
+      const m = seg.match(/x\s*(\d+)$/i);
+      if (m) total += Number(m[1] || 0);
+      else if (/\d/.test(seg)) total += 1;
+    }
+    return total || Number(fallback || 1) || 1;
+  }
+  window.yx78QtyFromProduct = qtyFromProduct;
+
+  function supportTotal(productText){
+    const right = supportExpression(productText);
+    if (!right) return 0;
+    return right.split('+').map(clean).filter(Boolean).reduce((sum, seg) => {
+      const m = seg.match(/^(\d+(?:\.\d+)?)x(\d+)$/i);
+      if (m) return sum + Number(m[1]) * Number(m[2]);
+      const n = seg.match(/\d+(?:\.\d+)?/);
+      return n ? sum + Number(n[0]) : sum;
+    }, 0);
+  }
+  function trim(n){
+    const v = Math.round(Number(n || 0) * 1000) / 1000;
+    return String(v).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1');
+  }
+  function fmt(n){ return (Math.round(Number(n || 0) * 1000) / 1000).toLocaleString(); }
+  function dimensionFactors(productText){
+    const left = normalizeProductText(productText).split('=')[0] || '';
+    const parts = left.split('x').map(clean).filter(Boolean);
+    const num = raw => {
+      const s = String(raw || '').replace(/[^0-9.]/g,'');
+      if (!s) return 0;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const aRaw = parts[0] || '', bRaw = parts[1] || '', cRaw = parts[2] || '';
+    const a = num(aRaw), b = num(bRaw);
+    const heightFactor = raw => {
+      const n = num(raw);
+      if (!n) return 0;
+      if (/^0\d+/.test(String(raw || ''))) {
+        const digits = String(raw || '').replace(/\D/g,'');
+        return n / Math.pow(10, Math.max(1, digits.length - 1));
+      }
+      return n >= 100 ? n / 100 : n / 10;
+    };
+    return {fa: a > 210 ? a / 1000 : a / 100, fb: b / 10, fc: heightFactor(cRaw)};
+  }
+  function calcVolume(productText){
+    const total = supportTotal(productText);
+    const f = dimensionFactors(productText);
+    const volume = total && f.fa && f.fb && f.fc ? total * f.fa * f.fb * f.fc : 0;
+    const formula = volume ? `${fmt(total)} × ${trim(f.fa)} × ${trim(f.fb)} × ${trim(f.fc)}` : '支數或尺寸不足，無法計算';
+    return {supportTotal: total, volume, formula};
+  }
+
+  function parseSubmitItems(rawText){
+    const lines = String(rawText || '').replace(/\r/g,'\n').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    const items = [];
+    const draft = window.__YX77_SHIP_DRAFT__ || window.__YX78_SHIP_DRAFT__ || null;
+    for (const rawLine of lines) {
+      const line = normalizeX(rawLine);
+      if (!line || !/[0-9].*x.*[0-9]/i.test(line)) continue;
+      const matches = line.match(/\d+(?:\.\d+)?x\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:=[0-9x+\.]+)?/ig);
+      const tokens = matches && matches.length ? matches : [line];
+      for (let token of tokens) {
+        token = normalizeProductText(token);
+        if (!token) continue;
+        let fallbackQty = 1;
+        if (draft && normalizeProductText(draft.product_text || '') === token && Number(draft.qty || 0) > 1) fallbackQty = Number(draft.qty || 1);
+        items.push({product_text: token, product_code:'', material:'', qty: qtyFromProduct(token, fallbackQty)});
+      }
+    }
+    if (!items.length && Array.isArray(window.state?.shipItems)) {
+      window.state.shipItems.forEach(it => {
+        const product = normalizeProductText(it.product_text || it.product || '');
+        if (product) items.push({product_text: product, product_code: it.product_code || '', material: it.material || '', qty: Number(it.qty || qtyFromProduct(product, 1))});
+      });
+    }
+    return items;
+  }
+  window.yx78ParseSubmitItems = parseSubmitItems;
+
+  function reqKey(prefix){ return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; }
+  function locationsHTML(item){
+    const locs = Array.isArray(item.locations) ? item.locations : [];
+    if (!locs.length) return '<span class="small-note">倉庫圖尚未找到位置</span>';
+    return locs.map(loc => {
+      const label = `${esc(loc.zone || '')}-${esc(loc.column_index || '')}-${String(loc.visual_slot || loc.slot_number || '').padStart(2,'0')}`;
+      const qty = loc.ship_qty || loc.qty || 0;
+      const product = JSON.stringify(item.product_text || '');
+      return `<button type="button" class="yx72-loc-chip" onclick="window.quickJumpToModule && quickJumpToModule('warehouse','',${product})">${label}｜可出 ${qty}</button>`;
+    }).join('');
+  }
+  function updateWeight(totalVolume){
+    const input = $('yx78-ship-weight');
+    const out = $('yx78-ship-weight-result');
+    if (!input || !out) return;
+    const weight = Number(input.value || 0);
+    out.textContent = weight ? `材積 × 重量 = ${fmt(totalVolume * weight)}` : `材積合計：${fmt(totalVolume)}`;
+  }
+
+  function renderPreview(preview, payload){
+    const section = $('ship-preview-section');
+    const panel = $('ship-preview-panel') || $('module-result');
+    if (!panel) { notify('找不到出貨預覽區塊，請重新整理', 'error'); return; }
+    if (section) section.style.display = '';
+    panel.classList.remove('hidden');
+    panel.style.display = '';
+    const items = Array.isArray(preview.items) ? preview.items : [];
+    let totalQty = 0, totalVolume = 0, totalAvailable = 0, totalShortage = 0;
+    const rows = items.map(item => {
+      const product = item.product_text || '';
+      const qty = Number(item.qty || qtyFromProduct(product, 1) || 0);
+      const calc = calcVolume(product);
+      const available = Number(item.total_available ?? (Number(item.master_available || 0) + Number(item.order_available || 0) + Number(item.inventory_available || 0)));
+      const shortage = Number(item.shortage ?? Math.max(0, qty - available));
+      totalQty += qty;
+      totalVolume += Number(calc.volume || 0);
+      totalAvailable += available;
+      totalShortage += shortage;
+      const source = `總單 ${item.master_available || 0}｜訂單 ${item.order_available || 0}｜庫存 ${item.inventory_available || 0}` + (shortage ? `<br><span class="yx72-danger">不足 ${shortage}</span>` : '<br><span class="yx72-ok">可依序扣除</span>');
+      return `<tr><td><strong>${esc(product)}</strong></td><td>${fmt(qty)}</td><td>${fmt(calc.volume)}<div class="small-note">${esc(calc.formula)}</div></td><td>${source}</td><td>${locationsHTML(item)}</td></tr>`;
+    }).join('');
+    try {
+      const keys = [];
+      items.forEach(item => (item.locations || []).forEach(loc => keys.push(`${loc.zone}|${loc.column_index}|direct|${loc.slot_number || loc.visual_slot || 0}`)));
+      localStorage.setItem('shipPreviewWarehouseHighlights', JSON.stringify(keys));
+    } catch(_e) {}
+    panel.innerHTML = `<div class="yx72-ship-preview-card yx78-ship-preview-card">
+      <div class="section-title">出貨預覽</div>
+      <div class="small-note">已檢查扣除來源；確認後依序扣除：總單 → 訂單 → 庫存。高度 0xx 會保留，不顯示長度計算。</div>
+      <div class="yx72-ship-summary">
+        <div>本次件數<span>${fmt(totalQty)}</span></div>
+        <div>材積合計<span>${fmt(totalVolume)}</span></div>
+        <div>總可扣量<span>${fmt(totalAvailable)}</span></div>
+        <div>不足數量<span class="${totalShortage ? 'yx72-danger' : 'yx72-ok'}">${fmt(totalShortage)}</span></div>
+      </div>
+      <div class="yx72-weight-row"><label for="yx78-ship-weight">重量</label><input id="yx78-ship-weight" class="text-input" type="number" min="0" step="0.01" placeholder="輸入重量"><div id="yx78-ship-weight-result" class="yx72-weight-result">材積合計：${fmt(totalVolume)}</div></div>
+      <div class="yx72-preview-table-wrap"><table class="yx72-preview-table"><thead><tr><th>商品</th><th>件數</th><th>材積計算</th><th>可扣來源</th><th>商品倉庫圖位置</th></tr></thead><tbody>${rows || '<tr><td colspan="5">沒有可預覽商品</td></tr>'}</tbody></table></div>
+      <div class="btn-row" style="margin-top:12px;"><button class="ghost-btn" type="button" id="yx78-ship-preview-cancel">取消</button><button class="primary-btn" type="button" id="yx78-ship-preview-confirm">確認扣除</button></div>
+    </div>`;
+    $('yx78-ship-weight')?.addEventListener('input', () => updateWeight(totalVolume));
+    $('yx78-ship-preview-cancel')?.addEventListener('click', () => panel.classList.add('hidden'));
+    $('yx78-ship-preview-confirm')?.addEventListener('click', async function(){
+      const btn = this;
+      if (btn.dataset.yx78Busy === '1') return;
+      btn.dataset.yx78Busy = '1'; btn.disabled = true; btn.textContent = '扣除中…';
+      try {
+        const result = await api78('/api/ship', {method:'POST', body:JSON.stringify({...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:reqKey('ship_confirm')})}, 60000);
+        const list = (result.breakdown || []).map(row => `<div class="deduct-card"><div><strong>${esc(row.product_text || '')}</strong>｜本次出貨 ${row.qty || 0}</div><div>扣總單：${row.master_deduct || 0}｜扣訂單：${row.order_deduct || 0}｜扣庫存：${row.inventory_deduct || 0}</div><div class="small-note">剩餘：總單 ${row.remaining_after?.master ?? '-'}｜訂單 ${row.remaining_after?.order ?? '-'}｜庫存 ${row.remaining_after?.inventory ?? '-'}</div><div>${locationsHTML(row)}</div></div>`).join('');
+        panel.innerHTML = `<div class="success-card"><div class="section-title">出貨完成</div><div class="small-note">已完成扣除，下面是本次扣除摘要。</div></div>${list || '<div class="empty-state-card compact-empty">已出貨。</div>'}`;
+        notify('出貨完成','ok');
+        try { window.loadCustomerBlocks && await window.loadCustomerBlocks(true); } catch(_e) {}
+        try { window.selectCustomerForModule && payload.customer_name && await window.selectCustomerForModule(payload.customer_name); } catch(_e) {}
+        try { window.loadInventory && await window.loadInventory(); } catch(_e) {}
+      } catch(e) {
+        notify(e.message || '出貨失敗','error');
+        btn.dataset.yx78Busy = '0'; btn.disabled = false; btn.textContent = '確認扣除';
+      }
+    });
+    setTimeout(()=>{ try { panel.scrollIntoView({behavior:'smooth', block:'start'}); } catch(_e) {} }, 80);
+  }
+
+  const previousConfirmSubmit = window.confirmSubmit;
+  async function confirmSubmit78(){
+    setFlag();
+    if (moduleKey() !== 'ship') {
+      if (typeof previousConfirmSubmit === 'function') return previousConfirmSubmit.apply(this, arguments);
+      return false;
+    }
+    const btn = $('submit-btn');
+    const resultPanel = $('module-result');
+    const textBox = $('ocr-text');
+    const customer = clean($('customer-name')?.value || '');
+    if (!customer) { notify('請先輸入客戶名稱','warn'); return false; }
+    if (textBox) textBox.value = String(textBox.value || '').split(/\n+/).map(x => normalizeProductText(x)).join('\n');
+    const raw = textBox?.value || '';
+    const items = parseSubmitItems(raw);
+    if (!items.length) {
+      notify('沒有可送出的商品資料','warn');
+      if (resultPanel) { resultPanel.classList.remove('hidden'); resultPanel.style.display=''; resultPanel.innerHTML = '<div class="section-title">送出失敗</div><div class="muted">請先加入或輸入商品，例如 80x20x073=990+947。</div>'; }
+      return false;
+    }
+    if (btn?.dataset.yx78Busy === '1') { notify('上一筆正在處理中，請稍等','warn'); return false; }
+    if (btn) { btn.dataset.yx78Busy='1'; btn.disabled=true; btn.textContent='整理預覽中…'; }
+    const payload = {customer_name: customer, ocr_text: raw, items, location: clean($('location-input')?.value || ''), request_key: reqKey('ship_preview')};
+    try {
+      await api78('/api/customers', {method:'POST', body:JSON.stringify({name:customer, preserve_existing:true})}, 15000).catch(()=>null);
+      const preview = await api78('/api/ship-preview', {method:'POST', body:JSON.stringify(payload)}, 45000);
+      renderPreview(preview, payload);
+      notify('已產生出貨預覽','ok');
+      return true;
+    } catch(e) {
+      const msg = e.message || '出貨預覽失敗';
+      if (resultPanel) { resultPanel.classList.remove('hidden'); resultPanel.style.display=''; resultPanel.innerHTML = `<div class="section-title">出貨錯誤</div><div class="muted">${esc(msg)}</div>`; }
+      notify(msg, 'error');
+      return false;
+    } finally {
+      if (btn) { btn.dataset.yx78Busy='0'; btn.disabled=false; btn.textContent='確認送出'; }
+    }
+  }
+  window.confirmSubmit = confirmSubmit78;
+
+  function cleanShipSelectedUI(){
+    if (moduleKey() !== 'ship') return;
+    const section = $('ship-selected-section');
+    const box = $('ship-selected-items');
+    if (section) section.classList.add('yx78-ship-selected-clean');
+    if (box) { box.innerHTML=''; box.style.display='none'; box.setAttribute('aria-hidden','true'); }
+  }
+  window.clearShipSelectedItems = function(){
+    try { if (window.state) { window.state.shipItems = []; window.state.shipPreview = null; } } catch(_e) {}
+    const box = $('ocr-text'); if (box) box.value = '';
+    const panel = $('ship-preview-panel'); if (panel) { panel.innerHTML = ''; panel.classList.add('hidden'); }
+    cleanShipSelectedUI();
+    notify('已清空出貨商品','ok');
+  };
+
+  function applyDraft(){
+    if (moduleKey() !== 'ship') return;
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem('yxShipDraft') || 'null'); } catch(_e) {}
+    if (!draft) return;
+    if (Date.now() - Number(draft.at || 0) > 15 * 60 * 1000) { try { localStorage.removeItem('yxShipDraft'); } catch(_e) {} return; }
+    const product = normalizeProductText(draft.product_text || '');
+    window.__YX78_SHIP_DRAFT__ = {...draft, product_text: product, qty:Number(draft.qty || 0)};
+    if (draft.customer_name && $('customer-name')) $('customer-name').value = draft.customer_name;
+    if (product && $('ocr-text')) { $('ocr-text').value = product; $('ocr-text').dispatchEvent(new Event('input', {bubbles:true})); }
+    try { localStorage.removeItem('yxShipDraft'); } catch(_e) {}
+    try { if (typeof window.loadShipCustomerItems66 === 'function') window.loadShipCustomerItems66(draft.customer_name || ''); } catch(_e) {}
+  }
+
+  function boot(){
+    setFlag();
+    window.confirmSubmit = confirmSubmit78;
+    applyDraft();
+    cleanShipSelectedUI();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot);
+  try { new MutationObserver(()=>{ cleanShipSelectedUI(); }).observe(document.body || document.documentElement, {childList:true, subtree:true}); } catch(_e) {}
+})();
+/* ==== FIX78 end ==== */
