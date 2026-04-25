@@ -1819,10 +1819,24 @@ def _deduct_from_inventory(cur, product_text, qty_needed):
 
 
 def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None):
+    # FIX79：出貨預覽 / 扣除時只讀取倉庫格位，不在這裡補格或寫入。
+    # 舊版透過 warehouse_get_cells() 會先 ensure_fixed_warehouse_grid()，在單 worker/SQLite/Render 冷啟動時
+    # 可能與出貨預覽的資料庫讀取互相等待，前端就會一直停在「整理預覽中」。
     target_size = _warehouse_size_key(product_text or '')
     target_relaxed = _shipping_relaxed_size_key(product_text or '')
     want_customer = (customer_name or '').strip()
-    cells = warehouse_get_cells()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        cells = rows_to_dict(cur)
+        conn.close()
+    except Exception as e:
+        try:
+            log_error('warehouse_locations_readonly', e)
+        except Exception:
+            pass
+        cells = []
     out = []
     for cell in cells:
         try:
