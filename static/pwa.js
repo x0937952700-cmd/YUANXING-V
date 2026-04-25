@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix81-merge-warehouse-save-master';
+  const PWA_VERSION = 'fix75-card-warehouse-support-return';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

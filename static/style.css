@@ -2470,23 +2470,3 @@ html[data-yx-fix74-core] .vertical-slot::after,
 .yx72-ok{color:#047857!important;font-weight:900;}
 @media(max-width:720px){.yx72-weight-row{grid-template-columns:1fr}.yx72-preview-table{min-width:680px}.yx72-ship-summary{grid-template-columns:1fr 1fr;}}
 /* ==== FIX74 end ==== */
-
-
-/* FIX76：出貨已選商品區只保留一鍵清空，不再顯示缺貨/上移/下移/移除卡片 */
-body[data-yx-fix76="1"] #ship-selected-items,
-html[data-yx-fix76="FIX76"] #ship-selected-items{
-  display:none !important;
-}
-body[data-yx-fix76="1"] #ship-selected-section .ship-selected-card,
-body[data-yx-fix76="1"] #ship-selected-section .ship-selected-actions{
-  display:none !important;
-}
-
-
-/* FIX77 母版：出貨只保留一鍵清空，隱藏舊缺貨/移動卡片，防止舊 UI 重疊 */
-body[data-yx-fix77="1"] #ship-selected-items,
-html[data-yx-fix77="FIX77_MASTER_SHIP_STABLE"] #ship-selected-items{display:none!important;}
-body[data-yx-fix77="1"] #ship-selected-section .ship-selected-card,
-body[data-yx-fix77="1"] #ship-selected-section .ship-selected-actions,
-body[data-yx-fix77="1"] #ship-selected-section .ship-shortage-banner{display:none!important;}
-body[data-yx-fix77="1"] .yx77-ship-preview-card{border:1px solid rgba(15,23,42,.08);}
