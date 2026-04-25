@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX88_FINAL_QC_STABLE_GUARD",
+        "FIX89_SOURCE_WAREHOUSE_BATCH_STABLE",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -24,11 +24,11 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/style.css": ["FIX88_FINAL_QC_STABLE_CSS", "yx88-hidden-legacy", "yx85-month-badge"],
-    "templates/base.html": ["FIX88_FINAL_QC_STABLE", "app.js", "pwa.js", "fix88-final-qc-stable"],
-    "static/service-worker.js": ["FIX88_FINAL_QC_STABLE", "fix88-final-qc-stable"],
-    "static/pwa.js": ["fix88-final-qc-stable"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix88-final-qc-stable"'],
+    "static/style.css": ["yx88-hidden-legacy", "yx88-hidden-legacy", "yx85-month-badge"],
+    "templates/base.html": ["FIX89_SOURCE_WAREHOUSE_STABLE", "app.js", "pwa.js", "fix89-source-warehouse-stable"],
+    "static/service-worker.js": ["FIX89_SOURCE_WAREHOUSE_STABLE", "fix89-source-warehouse-stable"],
+    "static/pwa.js": ["fix89-source-warehouse-stable"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix89-source-warehouse-stable"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX88 smoke test OK")
+print("FIX89 smoke test OK")

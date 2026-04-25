@@ -1607,19 +1607,49 @@ def _merge_items_by_size_material(items):
     return [buckets[k] for k in ordered]
 
 
+def _fetch_shipping_match_rows(cur, table, product_text, material='', customer_name=None):
+    """出貨用比對。
+
+    有從下拉選單帶到材質時，使用尺寸+材質嚴格比對；
+    純手打沒有材質時，改用尺寸比對，避免明明有貨卻顯示 0。
+    """
+    material_key = _merge_material_key(material, product_text)
+    if material_key:
+        return _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)
+    target_size = _merge_size_key(product_text)
+    if not target_size:
+        return []
+    wheres = ['qty > 0']
+    params = []
+    if customer_name is not None:
+        wheres.append('COALESCE(customer_name, '') = COALESCE(?, '')')
+        params.append(customer_name or '')
+    query = f"SELECT id, qty, product_text, product_code, material FROM {table} WHERE " + ' AND '.join(wheres) + ' ORDER BY id ASC'
+    cur.execute(sql(query), tuple(params))
+    out = []
+    for row in rows_to_dict(cur):
+        product = format_product_text_height2(row.get('product_text') or '')
+        if _merge_size_key(product) == target_size:
+            row['product_text'] = product
+            row['material'] = _row_material_for_merge(row, product)
+            row['product_code'] = row['material']
+            row['qty'] = int(row.get('qty') or 0)
+            out.append(row)
+    return out
+
 def _sum_available_size_material(cur, table, customer_name, product_text, material=''):
-    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)))
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_shipping_match_rows(cur, table, product_text, material, customer_name=customer_name)))
 
 
 def _sum_inventory_size_material(cur, product_text, material=''):
-    return int(sum(int(r.get('qty') or 0) for r in _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=None)))
+    return int(sum(int(r.get('qty') or 0) for r in _fetch_shipping_match_rows(cur, 'inventory', product_text, material, customer_name=None)))
 
 
 def _deduct_from_table_partial_size_material(cur, table, customer_name, product_text, material='', qty_target=0):
     qty_target = int(qty_target or 0)
     if qty_target <= 0:
         return []
-    rows = _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)
+    rows = _fetch_shipping_match_rows(cur, table, product_text, material, customer_name=customer_name)
     remain = qty_target
     used = []
     for row in rows:
@@ -1636,7 +1666,7 @@ def _deduct_from_table_partial_size_material(cur, table, customer_name, product_
 
 def _deduct_from_inventory_size_material(cur, product_text, material='', qty_needed=0):
     qty_needed = int(qty_needed or 0)
-    rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=None)
+    rows = _fetch_shipping_match_rows(cur, 'inventory', product_text, material, customer_name=None)
     rows.sort(key=lambda r: (-int(r.get('qty') or 0), int(r.get('id') or 0)))
     total = sum(int(r.get('qty') or 0) for r in rows)
     if total < qty_needed:
@@ -1653,6 +1683,7 @@ def _deduct_from_inventory_size_material(cur, product_text, material='', qty_nee
         used.append({'id': row['id'], 'qty': use_qty, 'product_text': row.get('product_text') or product_text})
         remain -= use_qty
     return True, used
+
 
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
     conn = get_db()
@@ -1906,6 +1937,19 @@ def _normalize_ship_source_preference(value):
 def _ship_source_label(source):
     return {'master_orders': '總單', 'orders': '訂單', 'inventory': '庫存'}.get(source or '', '')
 
+def _auto_ship_source(master_available, order_available, inventory_available, qty_needed):
+    """自動判斷真正要扣除的來源：總單 -> 訂單 -> 庫存。"""
+    q = int(qty_needed or 0)
+    if q <= 0:
+        return ''
+    if int(master_available or 0) >= q:
+        return 'master_orders'
+    if int(order_available or 0) >= q:
+        return 'orders'
+    if int(inventory_available or 0) >= q:
+        return 'inventory'
+    return ''
+
 def preview_ship_order(customer_name, items):
     conn = get_db()
     cur = conn.cursor()
@@ -1979,22 +2023,20 @@ def preview_ship_order(customer_name, items):
                 })
                 continue
 
-            master_exceeded = qty_needed > master_available
-            strict_ok = (not master_exceeded) and order_available >= qty_needed and inventory_available >= qty_needed
-            inventory_only_ok = (not master_exceeded) and inventory_available >= qty_needed
-            needs_fallback = (not master_exceeded) and (order_available < qty_needed) and inventory_only_ok
-            if needs_fallback:
-                needs_inventory_fallback = True
+            auto_source = _auto_ship_source(master_available, order_available, inventory_available, qty_needed)
+            auto_label = _ship_source_label(auto_source)
+            selected_available = {'master_orders': master_available, 'orders': order_available, 'inventory': inventory_available}.get(auto_source, 0)
             shortage_reasons = []
-            if master_exceeded:
-                msg_prefix = f"向{source_customer}借貨" if is_borrowed else ''
-                shortage_reasons.append(f"{msg_prefix}超過總單：總單 {master_available}，本次 {qty_needed}")
-                master_errors.append(f"{product_text} {msg_prefix}超過總單：總單 {master_available}，本次 {qty_needed}")
-            if not master_exceeded and order_available < qty_needed:
-                shortage_reasons.append(f"訂單不足 {order_available}/{qty_needed}")
-            if not master_exceeded and inventory_available < qty_needed:
-                shortage_reasons.append(f"庫存不足 {inventory_available}/{qty_needed}")
-            rec = ('不可出貨，已超過總單' if master_exceeded else ('可直接出貨' if strict_ok else ('可改扣庫存' if needs_fallback else '庫存不足')))
+            if not auto_source:
+                shortage_reasons.append(f"無可扣來源：總單 {master_available}/{qty_needed}、訂單 {order_available}/{qty_needed}、庫存 {inventory_available}/{qty_needed}")
+            after = dict(before)
+            if auto_source == 'master_orders':
+                after['master'] = max(0, master_available - qty_needed)
+            elif auto_source == 'orders':
+                after['order'] = max(0, order_available - qty_needed)
+            elif auto_source == 'inventory':
+                after['inventory'] = max(0, inventory_available - qty_needed)
+            rec = (f"將扣除{auto_label}" if auto_source else '不可出貨，總單 / 訂單 / 庫存都不足')
             if is_borrowed:
                 rec = f"向{source_customer}借貨：" + rec
             preview.append({
@@ -2005,16 +2047,16 @@ def preview_ship_order(customer_name, items):
                 'master_available': master_available,
                 'order_available': order_available,
                 'inventory_available': inventory_available,
+                'selected_available': selected_available,
+                'source_preference': auto_source,
+                'source_label': auto_label,
                 'deduct_before': before,
-                'deduct_after': {
-                    'master': max(0, master_available - qty_needed),
-                    'order': max(0, order_available - qty_needed),
-                    'inventory': max(0, inventory_available - qty_needed),
-                },
-                'master_exceeded': master_exceeded,
-                'strict_ok': strict_ok,
-                'inventory_only_ok': inventory_only_ok,
-                'needs_inventory_fallback': needs_fallback,
+                'deduct_after': after,
+                'shortage_qty': max(0, qty_needed - int(selected_available or 0)),
+                'master_exceeded': False,
+                'strict_ok': bool(auto_source),
+                'inventory_only_ok': auto_source == 'inventory',
+                'needs_inventory_fallback': False,
                 'shortage_reasons': shortage_reasons,
                 'recommendation': rec,
                 'borrow_from_customer_name': borrow_from,
@@ -2022,11 +2064,11 @@ def preview_ship_order(customer_name, items):
                 'ship_customer_name': customer_name,
                 'is_borrowed': is_borrowed,
                 'source_breakdown': [
-                    {'source': ('總單' if not is_borrowed else f'{source_customer}總單'), 'available': master_available},
-                    {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available},
-                    {'source': '庫存', 'available': inventory_available},
+                    {'source': ('總單' if not is_borrowed else f'{source_customer}總單'), 'available': master_available, 'selected': auto_source == 'master_orders'},
+                    {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': auto_source == 'orders'},
+                    {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer),
+                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None),
             })
         return {
             'success': True,
@@ -2064,101 +2106,24 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
             if source_pref:
                 used_master, used_order, used_inv = [], [], []
                 if source_pref == 'master_orders':
-                    if master_available < qty_needed:
-                        conn.rollback()
-                        return {"success": False, "error": f"{product_text} 總單不足：扣除前 {master_available}，本次 {qty_needed}"}
-                    used_master = _deduct_from_table_partial_size_material(cur, "master_orders", source_customer, product_text, material, qty_needed)
-                    note = "總單出貨" if not is_borrowed else f"向{source_customer}借總單出貨"
-                elif source_pref == 'orders':
-                    if order_available < qty_needed:
-                        conn.rollback()
-                        return {"success": False, "error": f"{product_text} 訂單不足：扣除前 {order_available}，本次 {qty_needed}"}
-                    used_order = _deduct_from_table_partial_size_material(cur, "orders", source_customer, product_text, material, qty_needed)
-                    note = "訂單出貨" if not is_borrowed else f"向{source_customer}借訂單出貨"
-                elif source_pref == 'inventory':
-                    if inventory_available < qty_needed:
-                        conn.rollback()
-                        return {"success": False, "error": f"{product_text} 庫存不足：扣除前 {inventory_available}，本次 {qty_needed}"}
-                    ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
-                    if not ok3:
-                        conn.rollback()
-                        return {"success": False, "error": f"{product_text} 庫存不足"}
-                    note = "庫存出貨" if not is_borrowed else f"向{source_customer}借貨後扣庫存出貨"
-                else:
-                    source_pref = ''
-
-                if source_pref:
-                    cur.execute(sql("""
-                        INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """), (customer_name, ship_customer_uid, product_text, material, material, qty_needed, operator, now(), note))
-                    breakdown.append({
-                        "product_text": product_text,
-                        "product_code": material,
-                        "material": material,
-                        "qty": qty_needed,
-                        "source_preference": source_pref,
-                        "source_label": source_label,
-                        "master_deduct": sum(x["qty"] for x in used_master),
-                        "order_deduct": sum(x["qty"] for x in used_order),
-                        "inventory_deduct": sum(x["qty"] for x in used_inv),
-                        "master_available": master_available,
-                        "order_available": order_available,
-                        "inventory_available": inventory_available,
-                        "used_inventory_fallback": False,
-                        "master_details": used_master,
-                        "order_details": used_order,
-                        "inventory_details": used_inv,
-                        "note": note,
-                        "borrow_from_customer_name": borrow_from,
-                        "source_customer_name": source_customer,
-                        "ship_customer_name": customer_name,
-                        "is_borrowed": is_borrowed,
-                        "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None),
-                        "deduct_before": before,
-                        "remaining_after": {
-                            "master": max(0, master_available - sum(x["qty"] for x in used_master)),
-                            "order": max(0, order_available - sum(x["qty"] for x in used_order)),
-                            "inventory": max(0, inventory_available - sum(x["qty"] for x in used_inv)),
-                        },
-                    })
-                    continue
-
-            if master_available < qty_needed:
+                    auto_source = _auto_ship_source(master_available, order_available, inventory_available, qty_needed)
+            if not auto_source:
                 conn.rollback()
-                prefix = f"向{source_customer}借貨" if is_borrowed else ""
-                return {"success": False, "error": f"{product_text} {prefix}超過總單：總單 {master_available}，本次 {qty_needed}"}
+                return {"success": False, "error": f"{product_text} 無可扣來源：總單 {master_available}/{qty_needed}、訂單 {order_available}/{qty_needed}、庫存 {inventory_available}/{qty_needed}"}
 
-            strict_ok = order_available >= qty_needed and inventory_available >= qty_needed
-
-            if strict_ok:
+            used_master, used_order, used_inv = [], [], []
+            if auto_source == 'master_orders':
                 used_master = _deduct_from_table_partial_size_material(cur, "master_orders", source_customer, product_text, material, qty_needed)
+                note = "總單出貨" if not is_borrowed else f"向{source_customer}借總單出貨"
+            elif auto_source == 'orders':
                 used_order = _deduct_from_table_partial_size_material(cur, "orders", source_customer, product_text, material, qty_needed)
-                ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
-                if not ok3:
-                    conn.rollback()
-                    return {"success": False, "error": f"{product_text} 庫存不足"}
-                note = "已出貨" if not is_borrowed else f"向{source_customer}借貨出貨"
+                note = "訂單出貨" if not is_borrowed else f"向{source_customer}借訂單出貨"
             else:
-                if not allow_inventory_fallback:
-                    conn.rollback()
-                    reasons = []
-                    if order_available < qty_needed:
-                        reasons.append(f"訂單不足({order_available}/{qty_needed})")
-                    if inventory_available < qty_needed:
-                        reasons.append(f"庫存不足({inventory_available}/{qty_needed})")
-                    prefix = f"向{source_customer}借貨" if is_borrowed else ""
-                    return {"success": False, "requires_inventory_fallback": True, "error": f"{product_text}{prefix}「{'、'.join(reasons)}」，是否改扣庫存？"}
-                if inventory_available < qty_needed:
-                    conn.rollback()
-                    return {"success": False, "error": f"{product_text} 庫存不足，無法改扣庫存"}
-                used_master = _deduct_from_table_partial_size_material(cur, "master_orders", source_customer, product_text, material, min(master_available, qty_needed))
-                used_order = _deduct_from_table_partial_size_material(cur, "orders", source_customer, product_text, material, min(order_available, qty_needed))
                 ok3, used_inv = _deduct_from_inventory_size_material(cur, product_text, material, qty_needed)
                 if not ok3:
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 庫存不足"}
-                note = "庫存補扣出貨" if not is_borrowed else f"向{source_customer}借貨庫存補扣出貨"
+                note = "庫存出貨" if not is_borrowed else f"向{source_customer}借貨後扣庫存出貨"
 
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
@@ -2170,13 +2135,15 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "product_code": material,
                 "material": material,
                 "qty": qty_needed,
+                "source_preference": auto_source,
+                "source_label": _ship_source_label(auto_source),
                 "master_deduct": sum(x["qty"] for x in used_master),
                 "order_deduct": sum(x["qty"] for x in used_order),
                 "inventory_deduct": sum(x["qty"] for x in used_inv),
                 "master_available": master_available,
                 "order_available": order_available,
                 "inventory_available": inventory_available,
-                "used_inventory_fallback": (not strict_ok),
+                "used_inventory_fallback": auto_source == 'inventory',
                 "master_details": used_master,
                 "order_details": used_order,
                 "inventory_details": used_inv,
@@ -2185,7 +2152,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "source_customer_name": source_customer,
                 "ship_customer_name": customer_name,
                 "is_borrowed": is_borrowed,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer),
+                "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None),
                 "deduct_before": before,
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
