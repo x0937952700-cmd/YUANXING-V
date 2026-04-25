@@ -4994,10 +4994,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX71 end ==== */
 
 
-/* ==== FIX72: hide long-press labels + final shipping preview/submit repair ==== */
+/* ==== FIX73: leading-zero height + shipping qty/volume repair ==== */
 (function(){
   'use strict';
-  const VERSION = 'fix72-ship-preview-submit-and-hide-longpress-label';
+  const VERSION = 'fix73-qty-leading-zero-volume';
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
   const clean = v => String(v ?? '').trim();
@@ -5014,8 +5014,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function setFixFlag(){
     try {
-      document.documentElement.dataset.yxFix72 = VERSION;
-      document.body && document.body.setAttribute('data-yx-fix72','1');
+      document.documentElement.dataset.yxFix73 = VERSION;
+      document.body && document.body.setAttribute('data-yx-fix73','1');
     } catch(_e) {}
   }
 
@@ -5076,13 +5076,31 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function dimensionFactors(productText){
     const left = normalizeX(productText).split('=')[0] || '';
-    const parts = left.split('x').map(x => Number(String(x).replace(/^0+(?=\d)/,''))).filter(n => Number.isFinite(n));
-    const a = parts[0] || 0, b = parts[1] || 0, c = parts[2] || 0;
+    const rawParts = left.split('x').map(x => String(x || '').trim()).filter(Boolean);
+    const num = raw => {
+      const cleaned = String(raw || '').replace(/[^0-9.]/g, '');
+      if (!cleaned) return 0;
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const aRaw = rawParts[0] || '', bRaw = rawParts[1] || '', cRaw = rawParts[2] || '';
+    const a = num(aRaw), b = num(bRaw), c = num(cRaw);
+    const hasLeadingZero = raw => /^0\d+/.test(String(raw || ''));
+    const heightFactor = raw => {
+      const n = num(raw);
+      if (!n) return 0;
+      // Preserve leading zero in height: 06 => 0.6, 073 => 0.73, 006 => 0.06.
+      if (hasLeadingZero(raw)) {
+        const digits = String(raw).replace(/\D/g,'');
+        return n / Math.pow(10, Math.max(1, digits.length - 1));
+      }
+      return n >= 100 ? n / 100 : n / 10;
+    };
     return {
       a, b, c,
       fa: a > 210 ? a / 1000 : a / 100,
       fb: b / 10,
-      fc: c >= 100 ? c / 100 : c / 10
+      fc: heightFactor(cRaw)
     };
   }
 
@@ -5267,4 +5285,4 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', install);
   setTimeout(install, 250);
 })();
-/* ==== FIX72 end ==== */
+/* ==== FIX73 end ==== */

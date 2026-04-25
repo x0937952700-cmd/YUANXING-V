@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix72-ship-preview-submit-and-hide-longpress-label';
+  const PWA_VERSION = 'fix73-qty-leading-zero-volume';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
