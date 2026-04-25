@@ -807,10 +807,9 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 updated_at {text},
                 UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
-            # FIX77: SQLite 不支援「ALTER TABLE ... ADD COLUMN IF NOT EXISTS」，
-            # 這裡改成先讀 PRAGMA table_info 再補欄位，避免本機 / 手機 SQLite 初始化直接失敗。
-            cur.execute("PRAGMA table_info(warehouse_cells)")
-            _wh_existing_cols = {r[1] for r in cur.fetchall()}
+            # FIX78: Render/PostgreSQL 不能執行 SQLite 的 PRAGMA。
+            # 已存在的 PostgreSQL 表，用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 補齊欄位；
+            # SQLite 的 PRAGMA 補欄位流程只放在下方 not USE_POSTGRES 分支。
             for _col, _def in (
                 ('zone', 'TEXT'),
                 ('column_index', 'INTEGER'),
@@ -820,12 +819,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 ('note', 'TEXT'),
                 ('updated_at', 'TEXT'),
             ):
-                if _col not in _wh_existing_cols:
-                    cur.execute(f"ALTER TABLE warehouse_cells ADD COLUMN {_col} {_def}")
-            cur.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot
-                ON warehouse_cells(zone, column_index, slot_type, slot_number)
-            """)
+                cur.execute(f"ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS {_col} {_def}")
 
         cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
         _wh_count = int((fetchone_dict(cur) or {}).get('cnt') or 0)
