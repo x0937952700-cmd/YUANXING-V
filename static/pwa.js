@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix96-warehouse-clean-ab-master';
+  const PWA_VERSION = 'fix95-final-master-consolidated';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

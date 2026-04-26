@@ -2860,14 +2860,3 @@ html[data-yx-fix95="FIX95_FINAL_MASTER_CONSOLIDATED"] [data-today-panel].yx95-hi
 
 
 /* yx95-final-master */
-
-
-/* ==== FIX96: warehouse modal clean-open + A/B display master ==== */
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx96-hidden-legacy{display:none!important;}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx96-cell-customer-line{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin:5px 0;border-radius:13px;background:rgba(255,255,255,.9);border:1px solid rgba(15,23,42,.08);box-shadow:0 3px 10px rgba(15,23,42,.04);cursor:grab;}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx96-cell-customer-line:active{cursor:grabbing;transform:scale(.99);}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx96-cell-customer-line b{font-weight:950;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx96-cell-customer-line span{font-size:14px;font-weight:900;color:#334155;white-space:nowrap;}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] #yx91-warehouse-batch-panel .yx91-batch-qty[value="0"]{color:#64748b;}
-html[data-yx-fix96="FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER"] .yx92-drag-over{outline:2px solid rgba(15,118,110,.45)!important;outline-offset:2px!important;background:rgba(240,253,250,.72)!important;}
-/* ==== FIX96 end ==== */

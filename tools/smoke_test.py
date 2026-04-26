@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER",
+        "FIX95_FINAL_MASTER_CONSOLIDATED",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -25,10 +25,10 @@ required = {
         "deleteWarehouseCell",
     ],
     "static/style.css": ["yx95-final-master", "yx85-month-badge"],
-    "templates/base.html": ["FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER", "app.js", "pwa.js", "fix96-warehouse-clean-ab-master"],
-    "static/service-worker.js": ["FIX96_WAREHOUSE_MODAL_CLEAN_AB_MASTER", "fix96-warehouse-clean-ab-master"],
-    "static/pwa.js": ["fix96-warehouse-clean-ab-master"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix96-warehouse-clean-ab-master"'],
+    "templates/base.html": ["FIX95_FINAL_MASTER_CONSOLIDATED", "app.js", "pwa.js", "fix95-final-master-consolidated"],
+    "static/service-worker.js": ["FIX95_FINAL_MASTER_CONSOLIDATED", "fix95-final-master-consolidated"],
+    "static/pwa.js": ["fix95-final-master-consolidated"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix95-final-master-consolidated"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX96 smoke test OK")
+print("FIX95 smoke test OK")
