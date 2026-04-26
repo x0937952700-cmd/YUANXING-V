@@ -1,0 +1,66 @@
+import re
+import ast
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
+    text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    compile(text, str(ROOT / rel), "exec")
+    tree = ast.parse(text)
+    defs = [n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    duplicates = sorted({name for name in defs if defs.count(name) > 1})
+    if duplicates:
+        raise SystemExit(f"{rel} duplicate Python functions: {duplicates}")
+
+required = {
+    "static/app.js": [
+        "FIX113_CONSOLIDATED_LATEST_MASTER",
+        "window.YX_MASTER",
+        "confirmSubmit",
+        "saveWarehouseCell",
+        "loadCustomerBlocks",
+        "ship-add-selected-item",
+        "insertWarehouseCell",
+        "deleteWarehouseCell",
+        "loadTodayChanges113",
+    ],
+    "static/style.css": ["yx113-today-stack", "yx113-navigating", "FIX113 consolidated latest master"],
+    "templates/base.html": ["FIX113_CONSOLIDATED_LATEST_MASTER", "app.js", "pwa.js", "fix113-consolidated-latest-master"],
+    "static/service-worker.js": ["fix113-consolidated-latest-master"],
+    "static/pwa.js": ["fix113-consolidated-latest-master"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix113-consolidated-latest-master"'],
+}
+
+for rel, tokens in required.items():
+    text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
+    missing = [t for t in tokens if t not in text]
+    if missing:
+        raise SystemExit(f"{rel} missing {missing}")
+
+js = (ROOT / "static/app.js").read_text(encoding="utf-8", errors="ignore")
+html = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in (ROOT / "templates").glob("*.html"))
+
+old_blocks = re.findall(r"====\s+FIX(?:6[3-9]|7\d|8\d|9\d|10[0-2])\b", js)
+if old_blocks:
+    raise SystemExit(f"Old FIX63-FIX102 blocks still present: {old_blocks[:10]}")
+
+names = set(re.findall(r"function\s+([A-Za-z_$][\w$]*)\s*\(", js))
+names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:window\.[A-Za-z_$][\w$]*\s*\|\|\s*)?(?:async\s*)?function\b", js))
+names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>", js))
+names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=", html))
+names.update(["confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks", "renderCustomers", "loadTodayChanges", "toggleLoginSave", "renderWarehouse", "searchWarehouse"])
+called = set()
+for attr in ["onclick", "onsubmit"]:
+    for raw in re.findall(attr + r'="([^"]+)"', html):
+        called.update(re.findall(r"(?:window\.)?\b([A-Za-z_$][\w$]*)\s*\(", raw))
+exclude = {"return", "confirm", "alert", "setTimeout", "console", "Math", "Number", "String"}
+missing_handlers = sorted(x for x in called if x not in names and x not in exclude)
+if missing_handlers:
+    raise SystemExit(f"Missing inline handlers: {missing_handlers}")
+
+old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|warehouse-remove-slot|data-action=\"(?:add|remove)-slot\"", html)
+if old_template_controls:
+    raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
+
+print("FIX113 smoke test OK")
