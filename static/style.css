@@ -3056,3 +3056,67 @@ html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #yx96-
 #warehouse-modal.yx101-final-cell-editor #warehouse-note{min-height:92px;}
 .yx96-slot[data-yx101-direct="1"]{cursor:pointer;}
 .yx96-slot[data-yx101-direct="1"]:active{transform:scale(.985);}
+
+/* ==== FIX102 final warehouse card/modal cleanup ==== */
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-slot-edit,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-slot-detail,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-warehouse-slot-actions,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx98-warehouse-slot-actions,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx97-warehouse-slot-actions{display:none!important;}
+.yx102-warehouse-grid{gap:14px!important;align-items:start;}
+.yx102-warehouse-column{background:#fff;border-radius:20px;padding:14px;border:1px solid rgba(15,23,42,.08);box-shadow:0 8px 20px rgba(15,23,42,.06);}
+.yx102-warehouse-column-title{display:flex;justify-content:space-between;align-items:center;font-weight:900;margin-bottom:10px;color:#111827;}
+.yx102-slot-list{display:flex;flex-direction:column;gap:10px;}
+.yx102-slot{min-height:74px;border:1px solid #d9e0ea;border-radius:14px;background:#fff;padding:12px 14px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:4px!important;color:#111827!important;font-size:17px!important;font-weight:900!important;line-height:1.25!important;cursor:pointer;white-space:normal!important;}
+.yx102-slot *{font-size:17px!important;font-weight:900!important;line-height:1.25!important;}
+.yx102-slot.filled{border-color:#b8d0f5;background:linear-gradient(180deg,#fff,#f8fbff);}
+.yx102-slot.highlight{box-shadow:0 0 0 3px rgba(59,130,246,.18)!important;border-color:#3b82f6!important;}
+.yx102-slot-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.yx102-slot-customer{color:#d92323!important;}
+.yx102-slot-empty{color:#64748b!important;}
+.yx102-slot-qty{display:flex;justify-content:space-between;gap:14px;align-items:center;width:100%;}
+.yx102-slot-group + .yx102-slot-group{margin-top:8px;border-top:1px dashed rgba(15,23,42,.15);padding-top:8px;}
+.yx96-slot-title,.yx96-slot-product,.yx96-slot-material,.yx96-slot-empty,.yx96-slot-summary,.yx95-slot-product,.yx95-slot-empty{font-size:inherit!important;font-weight:inherit!important;line-height:inherit!important;}
+.yx102-final-cell-editor #warehouse-cell-items,.yx102-hidden-legacy{display:none!important;}
+.yx102-warehouse-detail-panel{margin-top:14px;margin-bottom:14px;}
+.yx102-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px;}
+.yx102-detail-card{border-left:4px solid #99f6e4!important;margin-bottom:10px!important;}
+.yx102-detail-title{display:flex;gap:8px;align-items:center;font-weight:900;color:#111827;}
+.yx102-placement-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#ecfeff;color:#0f766e;padding:3px 8px;font-size:12px!important;font-weight:900;}
+.yx102-detail-main{font-weight:900;margin-top:4px;color:#111827;}
+.yx102-detail-line{font-size:13px;color:#334155;font-weight:700;}
+.yx102-detail-line.qty{font-weight:900;color:#111827;}
+.yx102-slot-action-card .yx102-action-stack{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
+/* ==== FIX102 end ==== */
+
+/* ==== FIX102 final warehouse card/modal cleanup ==== */
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-slot-edit,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-slot-detail,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx99-warehouse-slot-actions,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx98-warehouse-slot-actions,
+html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx97-warehouse-slot-actions{display:none!important;}
+.yx102-warehouse-grid{gap:14px!important;align-items:start;}
+.yx102-warehouse-column{background:#fff;border-radius:20px;padding:14px;border:1px solid rgba(15,23,42,.08);box-shadow:0 8px 20px rgba(15,23,42,.06);}
+.yx102-warehouse-column-title{display:flex;justify-content:space-between;align-items:center;font-weight:900;margin-bottom:10px;color:#111827;}
+.yx102-slot-list{display:flex;flex-direction:column;gap:10px;}
+.yx102-slot{min-height:74px;border:1px solid #d9e0ea;border-radius:14px;background:#fff;padding:12px 14px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:4px!important;color:#111827!important;font-size:17px!important;font-weight:900!important;line-height:1.25!important;cursor:pointer;white-space:normal!important;}
+.yx102-slot *{font-size:17px!important;font-weight:900!important;line-height:1.25!important;}
+.yx102-slot.filled{border-color:#b8d0f5;background:linear-gradient(180deg,#fff,#f8fbff);}
+.yx102-slot.highlight{box-shadow:0 0 0 3px rgba(59,130,246,.18)!important;border-color:#3b82f6!important;}
+.yx102-slot-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.yx102-slot-customer{color:#d92323!important;}
+.yx102-slot-empty{color:#64748b!important;}
+.yx102-slot-qty{display:flex;justify-content:space-between;gap:14px;align-items:center;width:100%;}
+.yx102-slot-group + .yx102-slot-group{margin-top:8px;border-top:1px dashed rgba(15,23,42,.15);padding-top:8px;}
+.yx96-slot-title,.yx96-slot-product,.yx96-slot-material,.yx96-slot-empty,.yx96-slot-summary,.yx95-slot-product,.yx95-slot-empty{font-size:inherit!important;font-weight:inherit!important;line-height:inherit!important;}
+.yx102-final-cell-editor #warehouse-cell-items,.yx102-hidden-legacy{display:none!important;}
+.yx102-warehouse-detail-panel{margin-top:14px;margin-bottom:14px;}
+.yx102-detail-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 10px;}
+.yx102-detail-card{border-left:4px solid #99f6e4!important;margin-bottom:10px!important;}
+.yx102-detail-title{display:flex;gap:8px;align-items:center;font-weight:900;color:#111827;}
+.yx102-placement-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;background:#ecfeff;color:#0f766e;padding:3px 8px;font-size:12px!important;font-weight:900;}
+.yx102-detail-main{font-weight:900;margin-top:4px;color:#111827;}
+.yx102-detail-line{font-size:13px;color:#334155;font-weight:700;}
+.yx102-detail-line.qty{font-weight:900;color:#111827;}
+.yx102-slot-action-card .yx102-action-stack{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
+/* ==== FIX102 end ==== */
