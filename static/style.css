@@ -3480,23 +3480,3 @@ html[data-yx-fix106="FIX106_MANUAL_TODAY_CARD_SPEED"] .today-filter-bar,
 .yx108-hidden-empty-card{display:none!important;}
 @media(max-width:720px){#today-summary-cards .yx108-today-card{height:70px!important;min-height:70px!important;max-height:70px!important;}.yx108-product-formula{font-size:23px!important;}.yx108-product-meta{font-size:17px!important;}}
 /* ==== FIX108 end ==== */
-
-
-/* ==== FIX110 legacy UI hard hide + speed-safe today cards ==== */
-#today-summary-cards > :not(.yx110-today-stack):not(.yx108-today-stack){display:none!important;}
-.yx110-today-root,.yx108-today-root{display:block!important;}
-.yx110-today-stack,.yx108-today-stack{display:flex!important;flex-direction:column!important;gap:12px!important;width:100%!important;}
-.yx110-today-card,.yx108-today-card{width:100%;border:1px solid rgba(120,84,54,.16);background:rgba(255,255,255,.92);border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;text-align:left;box-shadow:0 10px 28px rgba(68,45,30,.08);transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;}
-.yx110-today-card:active,.yx108-today-card:active{transform:scale(.985);}
-.yx110-today-card.active,.yx108-today-card.active{border-color:rgba(123,74,38,.45);box-shadow:0 12px 30px rgba(123,74,38,.13);}
-.yx110-today-title,.yx108-today-title{font-weight:800;color:#3b2b20;}
-.yx110-today-count,.yx108-today-count{display:flex;align-items:baseline;gap:4px;color:#7b4a26;}
-.yx110-today-count b,.yx108-today-count b{font-size:24px;line-height:1;font-weight:900;}
-.yx110-today-count em,.yx108-today-count em{font-style:normal;font-size:13px;font-weight:700;opacity:.78;}
-.yx110-clean-product-card .yx110-product-main,.yx108-clean-product-card .yx108-product-main{display:flex;flex-direction:column;gap:6px;min-width:0;}
-.yx110-product-meta,.yx108-product-meta{font-weight:800;color:#7b4a26;font-size:14px;}
-.yx110-product-formula,.yx108-product-formula{font-weight:800;color:#2f251e;word-break:break-word;}
-.yx110-hidden-empty-card,.yx108-hidden-empty-card{display:none!important;}
-html[data-yx-fix110] .today-filter-bar{display:none!important;}
-html[data-yx-fix110] .yx101-today-grid,html[data-yx-fix110] .yx102-today-grid,html[data-yx-fix110] .yx103-today-grid,html[data-yx-fix110] .yx104-today-grid,html[data-yx-fix110] .yx105-today-stack,html[data-yx-fix110] .yx106-today-stack{display:none!important;}
-/* ==== FIX110 end ==== */

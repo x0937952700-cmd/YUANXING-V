@@ -1,110 +1,3 @@
-/* ==== FIX110: early legacy throttle + navigation speed hard lock start ==== */
-(function(){
-  'use strict';
-  if(window.__YX110_EARLY_LEGACY_THROTTLE__) return;
-  window.__YX110_EARLY_LEGACY_THROTTLE__ = true;
-  window.__YX110_BLOCKED = window.__YX110_BLOCKED || {pageshow:0, mutation:0, todayFetch:0};
-  try{
-    window.__YX103_SPEED_FONT_STABLE__ = true;
-    window.__YX105_TODAY_SPEED_FINAL__ = true;
-    window.__YX106_FINAL__ = true;
-    window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__ = true;
-  }catch(_e){}
-
-  // 1) 舊版 pageshow 會在返回主頁 / 開功能頁時大量重跑。FIX110 直接擋掉舊註冊，只保留明確標記安全的 listener。
-  try{
-    if(!window.__YX110_NATIVE_ADD_EVENT__){
-      window.__YX110_NATIVE_ADD_EVENT__ = window.addEventListener.bind(window);
-      window.addEventListener = function(type, listener, options){
-        if(type === 'pageshow' && typeof listener === 'function' && !(listener.__yx110SafePageshow || listener.__yx108SafePageshow)){
-          window.__YX110_BLOCKED.pageshow++;
-          return;
-        }
-        return window.__YX110_NATIVE_ADD_EVENT__(type, listener, options);
-      };
-    }
-  }catch(_e){}
-
-  // 2) 舊版全頁 MutationObserver 是畫面卡頓、跳舊 UI 的主因；保留局部 observer，擋 body/html/document + 今日異動 summary。
-  try{
-    const NativeMO = window.MutationObserver;
-    if(NativeMO && !NativeMO.__yx110Wrapped){
-      function YX110MutationObserver(callback){
-        let queued = false, lastMutations = null, lastObserver = null;
-        const safeCallback = function(mutations, observer){
-          lastMutations = mutations; lastObserver = observer;
-          if(queued) return;
-          queued = true;
-          const runner = () => { queued = false; try{ callback.call(this, lastMutations || [], lastObserver || observer); }catch(err){ try{ console.warn('YX110 skipped MutationObserver callback', err); }catch(_e){} } };
-          (window.requestAnimationFrame || function(fn){ return setTimeout(fn, 80); })(runner);
-        };
-        const obs = new NativeMO(safeCallback);
-        const nativeObserve = obs.observe.bind(obs);
-        obs.observe = function(target, options){
-          try{
-            const fullPage = (target === document || target === document.body || target === document.documentElement);
-            const subtree = !!(options && options.subtree);
-            const todaySummary = target && target.id === 'today-summary-cards';
-            if((fullPage && subtree) || todaySummary){
-              window.__YX110_BLOCKED.mutation++;
-              return undefined;
-            }
-          }catch(_e){}
-          return nativeObserve(target, options);
-        };
-        return obs;
-      }
-      YX110MutationObserver.prototype = NativeMO.prototype;
-      YX110MutationObserver.__yx110Wrapped = true;
-      window.MutationObserver = YX110MutationObserver;
-    }
-  }catch(_e){}
-
-  // 3) 舊今日異動 loader 如果偷偷開頁打 API，直接回空殼，避免未入倉自動重算。
-  try{
-    if(!window.__YX110_NATIVE_FETCH__ && typeof window.fetch === 'function'){
-      window.__YX110_NATIVE_FETCH__ = window.fetch.bind(window);
-      window.fetch = function(input, init){
-        try{
-          const raw = (typeof input === 'string') ? input : (input && input.url) || '';
-          const url = new URL(raw, location.origin);
-          const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-          const isToday = url.pathname === '/api/today-changes';
-          const manual = url.searchParams.get('refresh') === '1' || url.searchParams.get('include_unplaced') === '1' || window.__YX110_ALLOW_TODAY_FETCH__ === true;
-          if(location.pathname.indexOf('/today-changes') >= 0 && method === 'GET' && isToday && !manual){
-            window.__YX110_BLOCKED.todayFetch++;
-            const empty = {success:true, summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0}, feed:{inbound:[],outbound:[],new_orders:[],others:[]}, unplaced_items:[], anomalies:[], anomaly_groups:{unplaced:[]}, read_at:''};
-            return Promise.resolve(new Response(JSON.stringify(empty), {status:200, headers:{'Content-Type':'application/json'}}));
-          }
-        }catch(_e){}
-        return window.__YX110_NATIVE_FETCH__(input, init);
-      };
-    }
-  }catch(_e){}
-
-  // 4) 今日異動按鈕用最前面的 capture handler 攔截，避免舊 click handler 先跑。
-  try{
-    document.addEventListener('click', function(ev){
-      const t = ev.target;
-      const refresh = t && t.closest && t.closest('#today-manual-refresh-btn');
-      if(refresh){
-        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation();
-        try{ if(typeof window.__YX110_refreshToday === 'function') window.__YX110_refreshToday(); }
-        catch(_e){}
-        return false;
-      }
-      const card = t && t.closest && t.closest('[data-yx110-today-filter],[data-yx108-today-filter],[data-yx107-today-filter],[data-yx106-today-filter],[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter]');
-      if(card && location.pathname.indexOf('/today-changes') >= 0){
-        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation();
-        try{ if(typeof window.__YX110_filterToday === 'function') window.__YX110_filterToday(card.getAttribute('data-yx110-today-filter') || card.getAttribute('data-yx108-today-filter') || card.getAttribute('data-yx107-today-filter') || card.getAttribute('data-yx106-today-filter') || card.getAttribute('data-yx105-today-filter') || card.getAttribute('data-yx104-today-filter') || card.getAttribute('data-yx103-today-filter') || card.getAttribute('data-yx102-today-filter') || 'all'); }
-        catch(_e){}
-        return false;
-      }
-    }, true);
-  }catch(_e){}
-})();
-/* ==== FIX110: early legacy throttle + navigation speed hard lock end ==== */
-
 /* ==== app.js merged by FIX49 ==== */
 /* ==== FIX65 duplicate boot gate ==== */
 window.__YX65_SKIP_DUP_BOOT__ = true;
@@ -11346,7 +11239,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   async function loadTodayChanges107(opts={}){
     if(!isTodayPage()) return window.__YX107_TODAY_LAST__||{success:true,summary:{}};
     const manual=!!(opts&& (opts.manual||opts.refresh||opts.force));
-    if(!manual){bootLoaded=true;renderTodayPayload(window.__YX107_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX107_TODAY_LAST__||{success:true,summary:{}};}
+    if(!manual && bootLoaded && !opts.forceBoot){renderTodayPayload(window.__YX107_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX107_TODAY_LAST__||{success:true,summary:{}};}
     if(loading)return loading;
     const btn=$('today-manual-refresh-btn');
     if(btn&&manual){btn.disabled=true;btn.textContent='刷新中…';}
@@ -11380,7 +11273,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   document.addEventListener('click',ev=>{const refresh=ev.target.closest&&ev.target.closest('#today-manual-refresh-btn');if(refresh){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();loadTodayChanges107({manual:true}).catch(()=>{});return;}const card=ev.target.closest&&ev.target.closest('[data-yx106-today-filter],[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter]');if(!card)return;ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();const key=card.dataset.yx106TodayFilter||card.dataset.yx105TodayFilter||card.dataset.yx104TodayFilter||card.dataset.yx103TodayFilter||card.dataset.yx102TodayFilter||'all';activeFilter=(activeFilter===key?'all':key);renderTodaySummary(window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||{summary:{}});applyTodayFilter();},true);
 
-  function install(){document.documentElement.dataset.yxFix107=VERSION;lockLoader();const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}document.querySelectorAll('#today-summary-cards .yx105-today-stack,#today-summary-cards .yx104-today-grid,#today-summary-cards .yx103-today-grid,#today-summary-cards .yx102-today-grid,#today-summary-cards .yx101-today-grid').forEach(el=>el.remove());cleanProductCards107();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards107));if(isTodayPage()){renderTodaySummary(window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||{summary:{}});applyTodayFilter();/* FIX110 disabled old FIX107 automatic today API load; manual refresh only. */}try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges107,cleanProductCards:cleanProductCards107});}catch(_){} }
+  function install(){document.documentElement.dataset.yxFix107=VERSION;lockLoader();const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}document.querySelectorAll('#today-summary-cards .yx105-today-stack,#today-summary-cards .yx104-today-grid,#today-summary-cards .yx103-today-grid,#today-summary-cards .yx102-today-grid,#today-summary-cards .yx101-today-grid').forEach(el=>el.remove());cleanProductCards107();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards107));if(isTodayPage()){renderTodaySummary(window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||{summary:{}});applyTodayFilter();if(!bootLoaded)setTimeout(()=>loadTodayChanges107({initial:true}).catch(()=>{}),0);}try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges107,cleanProductCards:cleanProductCards107});}catch(_){} }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
   window.addEventListener('pageshow',()=>setTimeout(install,0));
 })();
@@ -11457,7 +11350,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   async function loadTodayChanges108(opts={}){
     if(!isTodayPage()) return window.__YX108_TODAY_LAST__||{success:true,summary:{},feed:{}};
     const manual=!!(opts&& (opts.manual||opts.refresh||opts.force));
-    if(!manual){bootLoaded=true;renderToday(window.__YX108_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX108_TODAY_LAST__||{success:true,summary:{},feed:{}};}
+    if(!manual && bootLoaded){renderToday(window.__YX108_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX108_TODAY_LAST__||{success:true,summary:{},feed:{}};}
     if(loading) return loading;
     const btn=$('today-manual-refresh-btn');
     if(btn&&manual){btn.disabled=true;btn.textContent='刷新中…';}
@@ -11474,7 +11367,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return loading;
   }
   loadTodayChanges108.__yx108=true;
-  try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges108;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges108;}
+  try{Object.defineProperty(window,'loadTodayChanges',{configurable:false,enumerable:true,get(){return loadTodayChanges108;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges108;}
 
   function normalizeX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');}
   function qtyFromFormula(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return qty(window.yxEffectiveQty(text,fallback||0));}catch(_){}const raw=normalizeX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
@@ -11518,9 +11411,12 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(isTodayPage()){
       renderTodaySummary(window.__YX108_TODAY_LAST__||{summary:{}});
       applyTodayFilter();
-      /* FIX110 disabled old FIX108 automatic today API load; manual refresh only. */
+      if(!bootLoaded) setTimeout(()=>loadTodayChanges108({initial:true}).catch(()=>{}),0);
       const box=$('today-summary-cards');
-      if(box){ box.dataset.yx108Observed='disabled-by-fix110'; }
+      if(box&&!box.dataset.yx108Observed){
+        box.dataset.yx108Observed='1';
+        try{new MutationObserver(()=>{ if(!box.querySelector('.yx108-today-stack')) renderTodaySummary(window.__YX108_TODAY_LAST__||{summary:{}}); }).observe(box,{childList:true,subtree:false});}catch(_e){}
+      }
     }
     try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges108,cleanProductCards:cleanProductCards108});}catch(_e){}
   }
@@ -11529,58 +11425,3 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow',install);
 })();
 /* ==== FIX108: speed hard lock + single today UI + stale cache killer end ==== */
-
-/* ==== FIX110: final legacy removal + single manual today UI + speed master start ==== */
-(function(){
-  'use strict';
-  const VERSION='FIX110_LEGACY_REMOVAL_SPEED_MASTER';
-  if(window.__YX110_FINAL_INSTALLED__) return;
-  window.__YX110_FINAL_INSTALLED__=true;
-  const $=id=>document.getElementById(id);
-  const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
-  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
-  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await r.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗：${r.status}`);return d;});
-  window.yxApi=api;
-  let loading=null;
-  let activeFilter='all';
-  const isToday=()=>location.pathname.indexOf('/today-changes')>=0;
-  function emptyData(){return {success:true,summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0},feed:{inbound:[],outbound:[],new_orders:[],others:[]},unplaced_items:[],anomalies:[],anomaly_groups:{unplaced:[]},read_at:''};}
-  function summaryOf(data){const s=(data&&data.summary)||{};return {inbound:qty(s.inbound_count),outbound:qty(s.outbound_count),orders:qty(s.new_order_count),unplaced:qty(s.unplaced_count)};}
-  function todayCard(key,title,num,unit){return `<button type="button" class="yx110-today-card${activeFilter===key?' active':''}" data-yx110-today-filter="${key}"><span class="yx110-today-title">${esc(title)}</span><span class="yx110-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
-  function renderSummary(data){const box=$('today-summary-cards');if(!box)return;const s=summaryOf(data||window.__YX110_TODAY_LAST__||emptyData());const html=`<div class="yx110-today-stack">${todayCard('inbound','進貨',s.inbound,'筆')}${todayCard('outbound','出貨',s.outbound,'筆')}${todayCard('orders','新增訂單',s.orders,'筆')}${todayCard('unplaced','未入倉',s.unplaced,'件')}</div>`;box.className='card-list yx110-today-root';if(box.dataset.yx110Html!==html){box.innerHTML=html;box.dataset.yx110Html=html;}}
-  function fmt24(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
-  function logCard(r){return `<div class="today-item deduct-card yx110-log-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt24(r?.created_at))}｜${esc(r?.username||'')}</div><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx110-delete-today="${Number(r?.id||0)}">刪除</button></div>`;}
-  function fill(id,rows,empty){const el=$(id);if(el)el.innerHTML=(Array.isArray(rows)?rows:[]).map(logCard).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
-  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
-  function customerOf(it){return clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';}
-  function fillUnplaced(data,manual){const el=$('today-unplaced-list');if(!el)return;const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];if(!manual){el.innerHTML='<div class="empty-state-card compact-empty">未入倉件數不自動重算，請按右上「刷新」更新。</div>';return;}el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card yx110-unplaced-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
-  function applyFilter(){document.querySelectorAll('[data-yx110-today-filter]').forEach(c=>c.classList.toggle('active',(c.dataset.yx110TodayFilter||'')===activeFilter));document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||'';panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'none';});}
-  function render(data,manual){data=data||window.__YX110_TODAY_LAST__||emptyData();renderSummary(data);fill('today-inbound-list',data?.feed?.inbound,'今天沒有進貨');fill('today-outbound-list',data?.feed?.outbound,'今天沒有出貨');fill('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單');fillUnplaced(data,!!manual);applyFilter();}
-  async function loadTodayChanges110(opts={}){if(!isToday())return window.__YX110_TODAY_LAST__||emptyData();const manual=!!(opts&& (opts.manual||opts.refresh||opts.force));if(!manual){render(window.__YX110_TODAY_LAST__||emptyData(),false);return window.__YX110_TODAY_LAST__||emptyData();}if(loading)return loading;const btn=$('today-manual-refresh-btn');if(btn){btn.disabled=true;btn.textContent='刷新中…';}loading=(async()=>{window.__YX110_ALLOW_TODAY_FETCH__=true;let data;try{data=await api('/api/today-changes?refresh=1&ts='+Date.now(),{method:'GET'});}finally{window.__YX110_ALLOW_TODAY_FETCH__=false;}window.__YX110_TODAY_LAST__=data;window.__YX108_TODAY_LAST__=data;window.__YX107_TODAY_LAST__=data;window.__YX106_TODAY_LAST__=data;render(data,true);try{await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})});}catch(_){}return data;})().catch(e=>{const box=$('today-summary-cards');if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動刷新失敗')}</div>`;try{(window.notify||window.toast||alert)(e.message||'今日異動刷新失敗','error');}catch(_){}throw e;}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}setTimeout(()=>{loading=null;},260);});return loading;}
-  loadTodayChanges110.__yx110=true;
-  function filterToday(key){activeFilter=(activeFilter===key?'all':(key||'all'));renderSummary(window.__YX110_TODAY_LAST__||emptyData());applyFilter();}
-  window.__YX110_refreshToday=()=>loadTodayChanges110({manual:true}).catch(()=>{});
-  window.__YX110_filterToday=filterToday;
-  try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges110;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges110;}
-
-  function normX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');}
-  function qtyFromFormula(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return qty(window.yxEffectiveQty(text,fallback||0));}catch(_){}const raw=normX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
-  function sourceRows(source){return(window.__yx63Rows&&window.__yx63Rows[source])||[];}
-  function rowByCard(card){const source=card.dataset.source||'';const id=Number(card.dataset.id||0);return sourceRows(source).find(r=>Number(r.id||0)===id)||null;}
-  function rowFormula(row){const p=clean(row?.product_text||row?.product_size||row?.size||'');if(p)return normX(p);const size=clean(row?.size||'');const support=clean(row?.support||row?.support_text||'');return normX(support?`${size}=${support}`:size);}
-  function rowMaterial(row){let m=clean(row?.material||row?.product_code||row?.wood_type||'');const prod=normX(row?.product_text||'');if(!m||normX(m)===prod||/^未填/.test(m))return '';return m;}
-  function fallbackFormula(card){let txt=clean(card.textContent).replace(/編輯|直接出貨|刪除|未填材質|材質|尺寸|支數\s*[xX]\s*件數|數量|客戶[:：]?[^\n]*/g,' ');const m=txt.match(/(?:\d{1,2}月)?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*=\s*[0-9xX+＋\s]+/);return normX(m?m[0]:'');}
-  function fallbackMaterial(card){const text=clean(card.textContent).replace(/未填材質/g,'');return(text.match(/(RDT|尤加利|SPF|HF|DF|SPY|SP|RP|TD|MKJ|LVL|南方松|花旗|鐵杉)/i)||[])[1]||'';}
-  function actionButtons(card){const existing=card.querySelector('.yx63-card-actions,.yx108-card-actions,.yx110-card-actions');if(existing)return existing.outerHTML;const btns=Array.from(card.querySelectorAll('button')).map(b=>b.outerHTML).join('');return btns?`<div class="yx110-card-actions">${btns}</div>`:'';}
-  function cleanProductCards110(){document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{if(card.closest('#today-summary-cards,#today-inbound-list,#today-outbound-list,#today-order-list,#today-unplaced-list'))return;const row=rowByCard(card);const formula=row?rowFormula(row):fallbackFormula(card);if(!formula)return;const q=row?qty(row.qty||qtyFromFormula(formula,0)):qtyFromFormula(formula,0);if(q<=0&&/未填材質/.test(clean(card.textContent))){card.classList.add('yx110-hidden-empty-card');return;}const material=row?rowMaterial(row):fallbackMaterial(card);const meta=material?`${material} ${q}件`:`${q}件`;const actions=actionButtons(card);const html=`<div class="yx110-product-main"><div class="yx110-product-meta">${esc(meta)}</div><div class="yx110-product-formula">${esc(formula)}</div></div>${actions}`;if(card.dataset.yx110Html!==html){card.innerHTML=html;card.dataset.yx110Html=html;}card.classList.add('yx110-clean-product-card');});}
-  function wrapAfter(name,fn){const cur=window[name];if(typeof cur!=='function'||cur.__yx110)return;const wrapped=async function(){const r=await cur.apply(this,arguments);setTimeout(fn,25);return r;};Object.defineProperty(wrapped,'__yx110',{value:true});window[name]=wrapped;}
-  document.addEventListener('click',async ev=>{const del=ev.target?.closest?.('[data-yx110-delete-today]');if(del){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();const id=del.getAttribute('data-yx110-delete-today');try{await api('/api/today-changes/'+encodeURIComponent(id),{method:'DELETE'});del.closest('.today-item,.deduct-card,.card')?.remove();}catch(e){try{(window.notify||window.toast||alert)(e.message||'刪除失敗','error');}catch(_){}}}},true);
-  function install(){document.documentElement.dataset.yxFix110=VERSION;const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}cleanProductCards110();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards110));if(isToday()){render(window.__YX110_TODAY_LAST__||emptyData(),false);}try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges110,cleanProductCards:cleanProductCards110});}catch(_){} }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
-  install.__yx110SafePageshow=true;
-  window.addEventListener('pageshow',install);
-})();
-/* ==== FIX110: final legacy removal + single manual today UI + speed master end ==== */
-
-/* FIX110_LEGACY_SPEED_MASTER */

@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix110-legacy-speed-master';
+  const PWA_VERSION = 'fix108-speed-old-ui-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

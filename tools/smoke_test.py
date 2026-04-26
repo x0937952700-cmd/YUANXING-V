@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX110_LEGACY_SPEED_MASTER",
+        "FIX108_SPEED_OLD_UI_HARD_LOCK",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,13 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "FIX110_LEGACY_SPEED_MASTER",
+        "FIX108_SPEED_OLD_UI_HARD_LOCK",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX110 legacy UI hard hide"],
-    "templates/base.html": ["FIX110_LEGACY_SPEED_MASTER", "app.js", "pwa.js", "fix110-legacy-speed-master"],
-    "static/service-worker.js": ["FIX110_LEGACY_SPEED_MASTER", "fix110-legacy-speed-master"],
-    "static/pwa.js": ["fix110-legacy-speed-master"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix110-legacy-speed-master"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX108: single today vertical cards"],
+    "templates/base.html": ["FIX108_SPEED_OLD_UI_HARD_LOCK", "app.js", "pwa.js", "fix108-speed-old-ui-hardlock"],
+    "static/service-worker.js": ["FIX108_SPEED_OLD_UI_HARD_LOCK", "fix108-speed-old-ui-hardlock"],
+    "static/pwa.js": ["fix108-speed-old-ui-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix108-speed-old-ui-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -59,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX110 smoke test OK")
+print("FIX108 smoke test OK")
