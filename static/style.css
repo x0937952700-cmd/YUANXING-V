@@ -3044,3 +3044,15 @@ html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #yx96-
 .yx99-unplaced-pill{font-weight:950!important;}
 @media(max-width:720px){.yx99-global-undo-btn{top:10px!important;right:10px!important;padding:8px 11px!important;font-size:12px!important}.yx99-batch-row{grid-template-columns:48px minmax(0,1fr) 72px!important}.yx99-today-section-label{font-size:16px!important}.yx99-today-section-label strong{font-size:18px!important}.yx99-today-section-label small{display:none!important}}
 /* ==== FIX99 final unique UI cleanup end ==== */
+
+/* FIX101：倉庫格子點擊直接開啟最終格位編輯；固定彈窗順序 */
+#warehouse-modal.yx101-final-cell-editor .modal-card{max-width:720px;}
+#warehouse-modal.yx101-final-cell-editor #warehouse-modal-meta{font-weight:800;margin-bottom:10px;}
+#warehouse-modal.yx101-final-cell-editor .yx99-warehouse-detail-panel,
+#warehouse-modal.yx101-final-cell-editor .yx101-warehouse-detail-panel{margin:10px 0 14px;}
+#warehouse-modal.yx101-final-cell-editor #warehouse-item-search{margin-bottom:12px;}
+#warehouse-modal.yx101-final-cell-editor #yx99-warehouse-batch-panel,
+#warehouse-modal.yx101-final-cell-editor #yx101-warehouse-batch-panel{margin:12px 0 14px;}
+#warehouse-modal.yx101-final-cell-editor #warehouse-note{min-height:92px;}
+.yx96-slot[data-yx101-direct="1"]{cursor:pointer;}
+.yx96-slot[data-yx101-direct="1"]:active{transform:scale(.985);}
