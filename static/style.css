@@ -3455,28 +3455,3 @@ html[data-yx-fix106="FIX106_MANUAL_TODAY_CARD_SPEED"] .today-filter-bar,
 .yx106-hidden-empty-card{display:none!important;}
 @media(max-width:720px){#today-summary-cards .yx106-today-card{height:70px!important;min-height:70px!important;max-height:70px!important;}.yx106-product-formula{font-size:23px!important;}.yx106-product-meta{font-size:17px!important;}}
 /* ==== FIX106 end ==== */
-
-/* ==== FIX108: single today vertical cards + product text cleanup ==== */
-.yx108-hidden{display:none!important;}
-.yx106-today-head,.yx108-today-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;}
-.today-filter-bar{display:none!important;}
-#today-summary-cards.yx108-today-root{display:block!important;width:100%!important;margin:0 0 14px!important;padding:0!important;min-height:0!important;height:auto!important;overflow:visible!important;contain:layout paint!important;}
-#today-summary-cards.yx108-today-root > :not(.yx108-today-stack){display:none!important;}
-#today-summary-cards .yx108-today-stack{display:flex!important;flex-direction:column!important;width:100%!important;gap:0!important;}
-#today-summary-cards .yx108-today-card{width:100%!important;height:72px!important;min-height:72px!important;max-height:72px!important;margin:0!important;padding:0 18px!important;border:1px solid rgba(15,23,42,.08)!important;border-radius:18px!important;background:#fff!important;box-shadow:none!important;display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:space-between!important;text-align:left!important;transform:none!important;appearance:none!important;-webkit-appearance:none!important;font-family:inherit!important;overflow:hidden!important;}
-#today-summary-cards .yx108-today-card + .yx108-today-card{margin-top:-1px!important;}
-#today-summary-cards .yx108-today-title{display:block!important;font-size:14px!important;line-height:20px!important;font-weight:900!important;color:#0f172a!important;white-space:nowrap!important;margin:0!important;padding:0!important;}
-#today-summary-cards .yx108-today-count{display:flex!important;flex-direction:row!important;align-items:baseline!important;justify-content:flex-end!important;gap:1px!important;min-width:92px!important;height:36px!important;min-height:36px!important;max-height:36px!important;margin:0!important;padding:0!important;color:#0f172a!important;font-variant-numeric:tabular-nums!important;white-space:nowrap!important;}
-#today-summary-cards .yx108-today-count b{display:inline-block!important;font-size:30px!important;line-height:36px!important;font-weight:950!important;letter-spacing:-.03em!important;margin:0!important;padding:0!important;}
-#today-summary-cards .yx108-today-count em{display:inline-block!important;font-style:normal!important;font-size:18px!important;line-height:22px!important;font-weight:850!important;margin:0!important;padding:0!important;}
-#today-summary-cards .yx108-today-card.active{background:#f0fdfa!important;border-color:rgba(15,118,110,.35)!important;}
-#today-summary-cards .yx106-today-stack,#today-summary-cards .yx105-today-stack,#today-summary-cards .yx104-today-grid,#today-summary-cards .yx103-today-grid,#today-summary-cards .yx102-today-grid,#today-summary-cards .yx101-today-grid{display:none!important;}
-.yx108-clean-product-card{overflow:hidden!important;}
-.yx108-clean-product-card .yx108-product-main{display:block!important;}
-.yx108-product-meta{font-size:18px!important;line-height:1.15!important;font-weight:950!important;color:#059669!important;white-space:nowrap!important;margin:0 0 8px!important;}
-.yx108-product-formula{font-size:24px!important;line-height:1.12!important;font-weight:950!important;color:#0f172a!important;word-break:break-word!important;letter-spacing:-.02em!important;margin:0!important;}
-.yx108-clean-product-card .yx108-card-actions,.yx108-clean-product-card .yx63-card-actions{display:flex!important;gap:8px!important;flex-wrap:wrap!important;margin-top:12px!important;align-items:center!important;}
-.yx108-clean-product-card .yx108-card-actions button,.yx108-clean-product-card .yx63-card-actions button{font-size:12px!important;line-height:1!important;white-space:nowrap!important;}
-.yx108-hidden-empty-card{display:none!important;}
-@media(max-width:720px){#today-summary-cards .yx108-today-card{height:70px!important;min-height:70px!important;max-height:70px!important;}.yx108-product-formula{font-size:23px!important;}.yx108-product-meta{font-size:17px!important;}}
-/* ==== FIX108 end ==== */

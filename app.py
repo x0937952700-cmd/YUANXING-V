@@ -302,12 +302,10 @@ def login_required_json(f):
 
 @app.after_request
 def add_no_cache_headers(response):
-    # FIX108：HTML/API 與核心前端檔案不快取，避免舊 app.js / 舊今日異動介面被瀏覽器或 PWA 留住。
-    # 大圖示仍允許快取，避免每次開頁都重抓 icons。
+    # FIX103：HTML/API 保持不快取；帶版本號的 static 檔允許短快取，避免每次開頁都重抓大 JS/CSS 導致慢與 502 體感。
     path = request.path or ''
-    volatile_static = path.endswith(('/app.js', '/style.css', '/pwa.js', '/service-worker.js', '/manifest.webmanifest'))
-    if path.startswith('/static/') and not volatile_static:
-        response.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+    if path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=3600, stale-while-revalidate=86400'
         response.headers.pop('Pragma', None)
         response.headers.pop('Expires', None)
     else:
