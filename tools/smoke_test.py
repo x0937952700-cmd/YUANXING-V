@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX91_WAREHOUSE_BATCH_SINGLE_MASTER",
+        "FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -25,10 +25,10 @@ required = {
         "deleteWarehouseCell",
     ],
     "static/style.css": ["yx88-hidden-legacy", "yx88-hidden-legacy", "yx85-month-badge"],
-    "templates/base.html": ["FIX91_WAREHOUSE_BATCH_SINGLE_MASTER", "app.js", "pwa.js", "fix91-single-master-stable"],
-    "static/service-worker.js": ["FIX91_WAREHOUSE_BATCH_SINGLE_MASTER", "fix91-single-master-stable"],
-    "static/pwa.js": ["fix91-single-master-stable"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix91-single-master-stable"'],
+    "templates/base.html": ["FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER", "app.js", "pwa.js", "fix93-mobile-batch-today-unplaced-stable"],
+    "static/service-worker.js": ["FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER", "fix93-mobile-batch-today-unplaced-stable"],
+    "static/pwa.js": ["fix93-mobile-batch-today-unplaced-stable"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix93-mobile-batch-today-unplaced-stable"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX91 smoke test OK")
+print("FIX93 smoke test OK")

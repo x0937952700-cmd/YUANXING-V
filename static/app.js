@@ -8869,3 +8869,606 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   [200, 700, 1500, 3200].forEach(ms => setTimeout(install91, ms));
 })();
 /* ==== FIX91: warehouse batch single master + duplicate cleanup end ==== */
+
+/* ==== FIX92: warehouse drag move master start ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX92_WAREHOUSE_DRAG_FRONT_MASTER';
+  if (window.__YX92_WAREHOUSE_DRAG_FRONT_MASTER__) return;
+  window.__YX92_WAREHOUSE_DRAG_FRONT_MASTER__ = true;
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean = v => String(v ?? '').trim();
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e){ data = {success:false,error:text||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false){ const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload=data; throw e; }
+    return data;
+  });
+  window.yxApi = api;
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || function(m){console.log(m);})(msg, kind); } catch(_e){} };
+
+  function cellKey(zone, col, slot){
+    if (typeof window.buildCellKey === 'function') return window.buildCellKey(zone, col, slot);
+    return [String(zone || '').toUpperCase(), Number(col), 'direct', Number(slot)];
+  }
+  function parseItems(raw){ try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch(_e){ return []; } }
+  function cellItems(zone, col, slot){
+    try { if (typeof window.getCellItems === 'function') return window.getCellItems(zone, col, slot) || []; } catch(_e){}
+    const cells = window.state?.warehouse?.cells || [];
+    const c = cells.find(x => String(x.zone) === String(zone) && Number(x.column_index) === Number(col) && Number(x.slot_number) === Number(slot));
+    return parseItems(c?.items_json);
+  }
+  function normKey(key){
+    if (!Array.isArray(key)) return null;
+    if (key.length >= 4) return [String(key[0] || '').toUpperCase(), Number(key[1]), 'direct', Number(key[3])];
+    return [String(key[0] || '').toUpperCase(), Number(key[1]), 'direct', Number(key[2])];
+  }
+  function sameCell(a,b){
+    const x = normKey(a), y = normKey(b);
+    return !!(x && y && x[0] === y[0] && x[1] === y[1] && x[3] === y[3]);
+  }
+  function qtyOf(it){ const n = Number(it?.qty ?? it?.unplaced_qty ?? it?.total_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function productOf(it){ return clean(it?.product_text || it?.product_size || it?.product || ''); }
+  function customerOf(it){ return clean(it?.customer_name || ''); }
+  function displayCustomer(it){ return customerOf(it) || '未指定客戶'; }
+  function enrichDragPayload(parsed){
+    const out = {...(parsed || {})};
+    const from = normKey(out.fromKey || out.from_key);
+    if (!from) return out;
+    const items = cellItems(from[0], from[1], from[3]);
+    const prod = clean(out.product_text || out.product || '');
+    let matches = items.filter(it => !prod || productOf(it) === prod);
+    if (out.customer_name) matches = matches.filter(it => customerOf(it) === clean(out.customer_name));
+    if (matches.length === 1) {
+      out.product_text = productOf(matches[0]);
+      out.customer_name = customerOf(matches[0]);
+      out.qty = Number(out.qty || matches[0].qty || 1);
+    }
+    return out;
+  }
+
+  async function moveWarehouseItem92(fromKey, toKey, productText, qty, customerName, placementLabel='前排'){
+    const from = normKey(fromKey);
+    const to = normKey(toKey);
+    if (!from || !to) throw new Error('格位資料不完整');
+    if (sameCell(from, to)) { toast('已在同一格，不需要搬移', 'warn'); return {success:true, noop:true}; }
+    const body = {
+      from_key: from,
+      to_key: to,
+      product_text: productText,
+      qty: Number(qty || 1),
+      customer_name: customerName || '',
+      placement_label: placementLabel || '前排',
+      layer_label: placementLabel || '前排'
+    };
+    const res = await api('/api/warehouse/move', {method:'POST', body:JSON.stringify(body)});
+    const fromLabel = `${from[0]}-${from[1]}-${String(from[3]).padStart(2,'0')}`;
+    const toLabel = `${to[0]}-${to[1]}-${String(to[3]).padStart(2,'0')}`;
+    toast(`搬移完成：已放到最前排｜${fromLabel} → ${toLabel}`, 'ok');
+    try { await (window.renderWarehouse && window.renderWarehouse(true)); } catch(_e){ try { await window.renderWarehouse(); } catch(_e2){} }
+    setTimeout(() => { try { window.highlightWarehouseCell && window.highlightWarehouseCell(to[0], to[1], to[3]); } catch(_e){} enhanceWarehouseDrag92(); }, 120);
+    return res;
+  }
+
+  function bindDrop(slot, zone, col, num){
+    if (!slot || slot.dataset.yx92DropBound === '1') return;
+    slot.dataset.yx92DropBound = '1';
+    slot.addEventListener('dragover', ev => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      slot.classList.add('drag-over','yx92-drag-over');
+    }, true);
+    slot.addEventListener('dragleave', () => slot.classList.remove('drag-over','yx92-drag-over'), true);
+    slot.addEventListener('drop', async ev => {
+      const raw = ev.dataTransfer?.getData?.('text/plain') || '';
+      if (!raw) return;
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch(_e){ return; }
+      if (parsed.kind !== 'warehouse-item') return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      ev.stopImmediatePropagation();
+      slot.classList.remove('drag-over','yx92-drag-over');
+      parsed = enrichDragPayload(parsed);
+      const from = normKey(parsed.fromKey || parsed.from_key);
+      const to = cellKey(zone, col, num);
+      if (!from) return toast('來源格位不完整，請重新拖拉', 'error');
+      if (sameCell(from, to)) return toast('已在同一格，不需要搬移', 'warn');
+      const productText = clean(parsed.product_text || parsed.product || '');
+      if (!productText) return toast('商品資料不完整，請重新拖拉', 'error');
+      await moveWarehouseItem92(from, to, productText, Number(parsed.qty || 1), clean(parsed.customer_name || ''), '前排');
+    }, true);
+  }
+
+  function makeDragRow(it, idx, zone, col, num){
+    const qty = qtyOf(it);
+    const product = productOf(it);
+    const customer = displayCustomer(it);
+    const row = document.createElement('div');
+    row.className = 'yx92-drag-item';
+    row.draggable = true;
+    row.dataset.yx92Drag = '1';
+    row.dataset.productText = product;
+    row.dataset.customerName = customerOf(it);
+    row.dataset.qty = String(qty);
+    row.title = `${customer}｜${product}｜${qty}件｜拖拉可搬到其他格`;
+    row.innerHTML = `<span class="yx92-drag-customer">${esc(customer)}</span><span class="yx92-drag-qty">${qty}件</span>`;
+    row.addEventListener('dragstart', ev => {
+      const payload = {
+        kind: 'warehouse-item',
+        fromKey: cellKey(zone, col, num),
+        product_text: product,
+        qty,
+        customer_name: customerOf(it),
+        placement_label: '前排',
+        drag_index: idx
+      };
+      ev.dataTransfer.effectAllowed = 'move';
+      ev.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      row.classList.add('yx92-dragging');
+    });
+    row.addEventListener('dragend', () => row.classList.remove('yx92-dragging'));
+    return row;
+  }
+
+  function updateSlotSummary(slot, zone, col, num){
+    const count = slot.querySelector('.slot-count');
+    if (!count) return;
+    const items = cellItems(zone, col, num).filter(it => qtyOf(it) > 0);
+    const sig = JSON.stringify(items.map(it => [customerOf(it), productOf(it), qtyOf(it), clean(it.placement_label || it.layer_label || '')]));
+    if (slot.dataset.yx92Sig === sig && count.querySelector('.yx92-drag-item')) return;
+    slot.dataset.yx92Sig = sig;
+    if (!items.length) {
+      count.innerHTML = '<div class="slot-line empty">空格</div>';
+      return;
+    }
+    count.innerHTML = '';
+    const shown = items.slice(0, 4);
+    shown.forEach((it, idx) => count.appendChild(makeDragRow(it, idx, zone, col, num)));
+    if (items.length > shown.length) {
+      const more = document.createElement('div');
+      more.className = 'slot-line qty yx92-more';
+      more.textContent = `另有 ${items.length - shown.length} 筆`;
+      count.appendChild(more);
+    }
+  }
+
+  function enhanceDetailCards92(){
+    const panel = $('yx91-warehouse-detail-panel');
+    const items = Array.isArray(window.state?.currentCellItems) ? window.state.currentCellItems : [];
+    if (!panel || !items.length) return;
+    const cell = window.state?.currentCell || {};
+    const zone = cell.zone;
+    const col = Number(cell.column_index || cell.column || cell.col || 0);
+    const num = Number(cell.slot_number || cell.num || cell.slot || 0);
+    panel.querySelectorAll('.yx82-warehouse-detail-card').forEach((card, idx) => {
+      const it = items[idx];
+      if (!it || card.dataset.yx92DetailDrag === '1') return;
+      card.dataset.yx92DetailDrag = '1';
+      card.draggable = true;
+      card.classList.add('yx92-detail-drag-card');
+      card.title = '拖拉這筆商品到其他格，會放在目標格最前排';
+      card.addEventListener('dragstart', ev => {
+        ev.dataTransfer.effectAllowed = 'move';
+        ev.dataTransfer.setData('text/plain', JSON.stringify({
+          kind:'warehouse-item',
+          fromKey: cellKey(zone, col, num),
+          product_text: productOf(it),
+          qty: qtyOf(it),
+          customer_name: customerOf(it),
+          placement_label:'前排',
+          drag_index: idx
+        }));
+        card.classList.add('yx92-dragging');
+      });
+      card.addEventListener('dragend', () => card.classList.remove('yx92-dragging'));
+    });
+  }
+
+  function enhanceWarehouseDrag92(){
+    if ((typeof window.currentModule === 'function' && window.currentModule() !== 'warehouse') && !document.querySelector('#zone-A-grid,#zone-B-grid')) return;
+    document.querySelectorAll('.vertical-slot,.yx67-warehouse-slot').forEach(slot => {
+      const zone = slot.dataset.zone;
+      const col = Number(slot.dataset.column || slot.dataset.col || 0);
+      const num = Number(slot.dataset.num || slot.dataset.slot || 0);
+      if (!zone || !col || !num) return;
+      bindDrop(slot, zone, col, num);
+      updateSlotSummary(slot, zone, col, num);
+    });
+    enhanceDetailCards92();
+  }
+
+  function wrapRender(){
+    if (window.renderWarehouse && !window.renderWarehouse.__yx92Wrapped) {
+      const old = window.renderWarehouse;
+      const wrapped = async function(){
+        const r = await old.apply(this, arguments);
+        setTimeout(enhanceWarehouseDrag92, 80);
+        return r;
+      };
+      wrapped.__yx92Wrapped = true;
+      window.renderWarehouse = wrapped;
+    }
+    if (window.renderWarehouseZones && !window.renderWarehouseZones.__yx92Wrapped) {
+      const oldZones = window.renderWarehouseZones;
+      const wrappedZones = function(){
+        const r = oldZones.apply(this, arguments);
+        setTimeout(enhanceWarehouseDrag92, 40);
+        return r;
+      };
+      wrappedZones.__yx92Wrapped = true;
+      window.renderWarehouseZones = wrappedZones;
+    }
+    if (window.renderWarehouseCellItems && !window.renderWarehouseCellItems.__yx92Wrapped) {
+      const oldCellItems = window.renderWarehouseCellItems;
+      const wrappedCellItems = function(){
+        const r = oldCellItems.apply(this, arguments);
+        setTimeout(enhanceDetailCards92, 40);
+        return r;
+      };
+      wrappedCellItems.__yx92Wrapped = true;
+      window.renderWarehouseCellItems = wrappedCellItems;
+    }
+  }
+
+  function install92(){
+    document.documentElement.dataset.yxFix92 = VERSION;
+    wrapRender();
+    window.moveWarehouseItem = moveWarehouseItem92;
+    window.enhanceWarehouseDrag92 = enhanceWarehouseDrag92;
+    try {
+      if (window.YX_MASTER) window.YX_MASTER = Object.freeze({
+        ...window.YX_MASTER,
+        version: VERSION,
+        moveWarehouseItem: moveWarehouseItem92,
+        enhanceWarehouseDrag: enhanceWarehouseDrag92
+      });
+    } catch(_e){}
+    setTimeout(enhanceWarehouseDrag92, 120);
+  }
+
+  const mo = new MutationObserver(() => {
+    clearTimeout(window.__yx92EnhanceTimer);
+    window.__yx92EnhanceTimer = setTimeout(enhanceWarehouseDrag92, 80);
+  });
+  function observe(){
+    ['zone-A-grid','zone-B-grid','yx91-warehouse-detail-panel'].forEach(id => {
+      const el = $(id);
+      if (el && !el.dataset.yx92Observed) {
+        el.dataset.yx92Observed = '1';
+        mo.observe(el, {childList:true, subtree:true});
+      }
+    });
+  }
+  function boot(){ install92(); observe(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot);
+  [250, 800, 1600, 3400].forEach(ms => setTimeout(boot, ms));
+})();
+/* ==== FIX92: warehouse drag move master end ==== */
+
+
+/* ==== FIX93: mobile customer layout + batch action sheet + today cards + unplaced count master start ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER';
+  if (window.__YX93_MASTER_INSTALLED__) return;
+  window.__YX93_MASTER_INSTALLED__ = true;
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || alert)(msg, kind); } catch(_e) { console.log(msg); } };
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const text = await res.text(); let data={};
+    try{ data=text?JSON.parse(text):{}; }catch(_e){ data={success:false,error:text||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success===false){ const e=new Error(data.error||data.message||`請求失敗：${res.status}`); e.payload=data; throw e; }
+    return data;
+  });
+  window.yxApi = api;
+  const sourceApi = source => source === 'master_order' ? 'master_orders' : source;
+  const titleOf = source => source === 'inventory' ? '庫存' : source === 'orders' ? '訂單' : '總單';
+  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'];
+
+  function syncSelectedRowClasses(){
+    document.querySelectorAll('.yx63-summary-row').forEach(row => {
+      const checked = !!row.querySelector('.yx63-row-check')?.checked;
+      row.classList.toggle('yx93-selected-row', checked);
+    });
+  }
+  function toggleSummaryRow(row, force){
+    const ch = row?.querySelector?.('.yx63-row-check');
+    if (!ch) return;
+    ch.checked = typeof force === 'boolean' ? force : !ch.checked;
+    try { if (typeof window.setRowSelected === 'function') window.setRowSelected(row, ch.checked); } catch(_e) {}
+    row.classList.toggle('yx93-selected-row', ch.checked);
+    const source = row.dataset.source || ch.dataset.source || '';
+    const btn = $(`yx63-${source}-selectall`);
+    if (btn) {
+      const n = document.querySelectorAll(`.yx63-row-check[data-source="${source}"]:checked`).length;
+      btn.textContent = n ? `已選 ${n} 筆` : '全選目前清單';
+    }
+  }
+  function selectedItems(source){
+    return Array.from(document.querySelectorAll(`.yx63-row-check[data-source="${source}"]:checked`))
+      .map(ch => ({source: sourceApi(ch.dataset.source || source), id: Number(ch.dataset.id || 0)}))
+      .filter(x => x.id > 0);
+  }
+  function refreshSource(source){
+    try {
+      if (source === 'inventory' && typeof window.loadInventory === 'function') return window.loadInventory();
+      if (source === 'orders' && typeof window.loadOrdersList === 'function') return window.loadOrdersList();
+      if (source === 'master_order' && typeof window.loadMasterList === 'function') return window.loadMasterList();
+    } catch(_e) {}
+  }
+  function ensureBatchSheet(){
+    let sheet = $('yx93-batch-sheet');
+    if (!sheet) {
+      sheet = document.createElement('div');
+      sheet.id = 'yx93-batch-sheet';
+      sheet.className = 'yx93-batch-sheet hidden';
+      sheet.innerHTML = `<div class="yx93-batch-card"><div class="batch-title">批量操作</div><div class="batch-note" id="yx93-batch-note"></div><label class="field-label">套用材質</label><select id="yx93-batch-material" class="text-input"><option value="">選擇材質</option>${materialList.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')}</select><div class="btn-row compact-row"><button type="button" class="ghost-btn" id="yx93-batch-cancel">取消</button><button type="button" class="ghost-btn" id="yx93-batch-apply">套用材質</button><button type="button" class="ghost-btn danger-btn" id="yx93-batch-delete">刪除選取</button></div></div>`;
+      document.body.appendChild(sheet);
+      sheet.addEventListener('click', e => { if (e.target === sheet || e.target.id === 'yx93-batch-cancel') closeBatchSheet(); });
+      $('yx93-batch-apply')?.addEventListener('click', applyBatchMaterial);
+      $('yx93-batch-delete')?.addEventListener('click', deleteBatchItems);
+    }
+    return sheet;
+  }
+  function closeBatchSheet(){ $('yx93-batch-sheet')?.classList.add('hidden'); }
+  function openBatchSheet(source){
+    const items = selectedItems(source);
+    if (!items.length) { toast('請先選取要批量操作的商品', 'warn'); return; }
+    const sheet = ensureBatchSheet();
+    sheet.dataset.source = source;
+    const note = $('yx93-batch-note');
+    if (note) note.textContent = `已選 ${items.length} 筆${titleOf(source)}商品。`;
+    const select = $('yx93-batch-material');
+    if (select) select.value = '';
+    sheet.classList.remove('hidden');
+  }
+  async function applyBatchMaterial(){
+    const sheet = ensureBatchSheet();
+    const source = sheet.dataset.source || '';
+    const material = clean($('yx93-batch-material')?.value || '');
+    const items = selectedItems(source);
+    if (!material) return toast('請先選擇材質', 'warn');
+    if (!items.length) return toast('沒有選取商品', 'warn');
+    try {
+      await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
+      closeBatchSheet();
+      toast(`已套用材質 ${material}`, 'ok');
+      await refreshSource(source);
+    } catch(e) { toast(e.message || '批量套用材質失敗', 'error'); }
+  }
+  async function deleteBatchItems(){
+    const sheet = ensureBatchSheet();
+    const source = sheet.dataset.source || '';
+    const items = selectedItems(source);
+    if (!items.length) return toast('沒有選取商品', 'warn');
+    if (!confirm(`確定刪除已選取的 ${items.length} 筆商品？`)) return;
+    try {
+      await api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})});
+      closeBatchSheet();
+      toast(`已刪除 ${items.length} 筆`, 'ok');
+      await refreshSource(source);
+    } catch(e) { toast(e.message || '批量刪除失敗', 'error'); }
+  }
+
+  function installSummaryInteractions(){
+    document.querySelectorAll('.yx63-summary-table').forEach(table => {
+      if (table.dataset.yx93Bound === '1') return;
+      table.dataset.yx93Bound = '1';
+      let timer = null;
+      let pressedRow = null;
+      const start = e => {
+        const row = e.target?.closest?.('.yx63-summary-row');
+        if (!row) return;
+        pressedRow = row;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const source = row.dataset.source || row.querySelector('.yx63-row-check')?.dataset.source || '';
+          toggleSummaryRow(row, true);
+          openBatchSheet(source);
+        }, 650);
+      };
+      const cancel = () => { clearTimeout(timer); pressedRow = null; };
+      table.addEventListener('touchstart', start, {passive:true});
+      table.addEventListener('mousedown', start);
+      ['touchend','touchmove','mouseup','mouseleave'].forEach(ev => table.addEventListener(ev, cancel, {passive:true}));
+    });
+  }
+  document.addEventListener('click', e => {
+    const cell = e.target?.closest?.('.yx63-support-cell,.yx63-qty-cell');
+    if (!cell) return;
+    const row = cell.closest('.yx63-summary-row');
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSummaryRow(row);
+  }, true);
+
+  function cleanToolbar93(){
+    document.querySelectorAll('.yx63-toolbar').forEach(bar => {
+      bar.querySelectorAll('[id$="-material"],[id$="-apply"],[id$="-delete"],[id$="-refresh"]').forEach(el => el.style.display = 'none');
+    });
+  }
+  function renameWarehouseButtons(){
+    const same = Array.from(document.querySelectorAll('button')).find(b => clean(b.textContent) === '同客戶一鍵高亮');
+    if (same) same.textContent = '同客戶';
+    const unplaced = Array.from(document.querySelectorAll('button')).find(b => clean(b.textContent) === '未入倉商品高亮');
+    if (unplaced) unplaced.textContent = '未入倉';
+  }
+
+  async function getAvailableItems(){
+    window.state = window.state || {};
+    window.state.warehouse = window.state.warehouse || {};
+    let items = Array.isArray(window.state.warehouse.availableItems) ? window.state.warehouse.availableItems : [];
+    if (!items.length) {
+      try {
+        const d = await api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
+        items = Array.isArray(d.items) ? d.items : [];
+        window.state.warehouse.availableItems = items;
+      } catch(_e) {}
+    }
+    return items;
+  }
+  function unplacedTotal(items){ return (items || []).reduce((sum,it) => sum + (Number(it.unplaced_qty ?? it.qty ?? 0) || 0), 0); }
+  async function updateUnplacedPill93(){
+    const pill = $('warehouse-unplaced-pill');
+    if (!pill) return;
+    const items = await getAvailableItems();
+    const total = unplacedTotal(items);
+    pill.textContent = `未入倉：${total}件`;
+    pill.title = `庫存、訂單、總單尚未加入倉庫圖的總件數：${total}件；點擊可查看全部明細`;
+  }
+  function renderUnplacedList93(items){
+    const box = $('warehouse-unplaced-list-inline');
+    if (!box) return;
+    if (!items.length) {
+      box.innerHTML = '<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+      return;
+    }
+    box.innerHTML = items.map(it => {
+      const sources = it.source_summary ? `｜來源：${esc(it.source_summary)}` : '';
+      return `<div class="deduct-card"><strong>${esc(it.customer_name || '未指定客戶')}</strong><div class="small-note">${esc(it.product_text || it.product_size || '')}</div><div class="small-note">未入倉 ${Number(it.unplaced_qty ?? it.qty ?? 0)} 件${sources}</div></div>`;
+    }).join('');
+  }
+  async function toggleUnplaced93(){
+    const box = $('warehouse-unplaced-list-inline');
+    if (!box) return;
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    const items = await getAvailableItems();
+    renderUnplacedList93(items);
+    box.classList.remove('hidden');
+    updateUnplacedPill93();
+  }
+
+  // 今日異動：取消上方按鈕，改成點卡片切換；沒選卡片就顯示全部。
+  let todayFilter = '';
+  function fmt24(v){
+    const raw = clean(v);
+    const m = raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);
+    return m ? `${m[1]} ${m[2]}` : raw;
+  }
+  function showTodayPanels(filter){
+    document.querySelectorAll('[data-today-panel]').forEach(panel => {
+      const key = panel.dataset.todayPanel || '';
+      panel.classList.toggle('yx93-hidden', !!filter && key !== filter);
+    });
+    document.querySelectorAll('.yx93-today-card').forEach(card => card.classList.toggle('active', (card.dataset.todayCard || '') === filter));
+  }
+  function makeLog(r){
+    return `<div class="today-item deduct-card" data-log-id="${Number(r.id||0)}"><strong>${esc(r.action||'異動')}</strong><div class="small-note">${esc(fmt24(r.created_at))}｜${esc(r.username||'')}</div></div>`;
+  }
+  function fillTodayList(id, rows, empty){
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = (rows || []).map(makeLog).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`;
+  }
+  async function loadTodayChanges93(){
+    try {
+      const d = await api('/api/today-changes?ts=' + Date.now(), {method:'GET'});
+      const s = d.summary || {};
+      const cards = [
+        ['inbound','進貨',Number(s.inbound_count||0),'筆'],
+        ['outbound','出貨',Number(s.outbound_count||0),'筆'],
+        ['orders','新增訂單',Number(s.new_order_count||0),'筆'],
+        ['unplaced','未入倉',Number(s.unplaced_count||0),'件',`${Number(s.unplaced_row_count||0)}筆`],
+      ];
+      const summary = $('today-summary-cards');
+      if (summary) {
+        summary.innerHTML = cards.map(c => `<div class="yx93-today-card" data-today-card="${c[0]}"><div class="title">${esc(c[1])}</div><div class="sub">${c[2]}${esc(c[3])}</div>${c[4]?`<div class="small-note">${esc(c[4])}</div>`:''}</div>`).join('');
+        summary.querySelectorAll('.yx93-today-card').forEach(card => card.addEventListener('click', () => {
+          const key = card.dataset.todayCard || '';
+          todayFilter = todayFilter === key ? '' : key;
+          showTodayPanels(todayFilter);
+        }));
+      }
+      fillTodayList('today-inbound-list', d.feed?.inbound, '今天沒有進貨');
+      fillTodayList('today-outbound-list', d.feed?.outbound, '今天沒有出貨');
+      fillTodayList('today-order-list', d.feed?.new_orders, '今天沒有新增訂單');
+      const unplaced = $('today-unplaced-list');
+      if (unplaced) {
+        const arr = Array.isArray(d.unplaced_items) ? d.unplaced_items : [];
+        unplaced.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card"><strong>${esc(it.product_text||'')}</strong><div class="small-note">${esc(it.customer_name||'未指定客戶')}｜未入倉 ${Number(it.unplaced_qty||it.qty||0)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+      }
+      showTodayPanels(todayFilter);
+      try{ await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})}); }catch(_e){}
+      return d;
+    } catch(e) { toast(e.message || '今日異動載入失敗', 'error'); }
+  }
+
+  function wrapCustomerSelect(){
+    if (typeof window.selectCustomerForModule !== 'function' || window.selectCustomerForModule.__yx93Wrapped) return;
+    const old = window.selectCustomerForModule;
+    const wrapped = async function(name){
+      const r = await old.apply(this, arguments);
+      const mod = moduleKey();
+      if (mod === 'orders' || mod === 'master_order') {
+        setTimeout(() => {
+          const target = $('selected-customer-items') || $('yx63-master_order-summary') || $('yx63-orders-summary');
+          if (target) target.scrollIntoView({behavior:'smooth', block:'start'});
+        }, 220);
+      }
+      return r;
+    };
+    wrapped.__yx93Wrapped = true;
+    window.selectCustomerForModule = wrapped;
+  }
+
+  function decorateCustomerDetailPanel(){
+    const panel = $('selected-customer-items');
+    if (!panel || panel.dataset.yx93Decorated === '1') return;
+    panel.dataset.yx93Decorated = '1';
+    panel.addEventListener('click', e => {
+      const td = e.target?.closest?.('td');
+      if (!td) return;
+      const row = td.closest('tr');
+      if (!row || !panel.contains(row)) return;
+      row.classList.toggle('yx93-selected-row');
+    }, true);
+  }
+
+  function periodicCleanup(){
+    document.documentElement.dataset.yxFix93 = VERSION;
+    cleanToolbar93();
+    installSummaryInteractions();
+    syncSelectedRowClasses();
+    renameWarehouseButtons();
+    decorateCustomerDetailPanel();
+    if (moduleKey() === 'warehouse') updateUnplacedPill93();
+  }
+  function install(){
+    document.documentElement.dataset.yxFix93 = VERSION;
+    wrapCustomerSelect();
+    cleanToolbar93();
+    installSummaryInteractions();
+    renameWarehouseButtons();
+    decorateCustomerDetailPanel();
+    if (moduleKey() === 'warehouse') {
+      window.toggleWarehouseUnplacedHighlight = toggleUnplaced93;
+      updateUnplacedPill93();
+      const oldRender = window.renderWarehouse;
+      if (typeof oldRender === 'function' && !oldRender.__yx93Wrapped) {
+        const wrapped = async function(){ const r = await oldRender.apply(this, arguments); setTimeout(updateUnplacedPill93, 120); setTimeout(renameWarehouseButtons, 120); return r; };
+        wrapped.__yx93Wrapped = true;
+        window.renderWarehouse = wrapped;
+      }
+    }
+    if (location.pathname.includes('/today-changes')) {
+      window.loadTodayChanges = loadTodayChanges93;
+      setTimeout(loadTodayChanges93, 60);
+    }
+    try { if (window.YX_MASTER) window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:VERSION, loadTodayChanges:loadTodayChanges93, toggleWarehouseUnplacedHighlight:toggleUnplaced93}); } catch(_e){}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  window.addEventListener('pageshow', install);
+  [300,900,1800,3600].forEach(ms => setTimeout(periodicCleanup, ms));
+})();
+/* ==== FIX93: mobile customer layout + batch action sheet + today cards + unplaced count master end ==== */

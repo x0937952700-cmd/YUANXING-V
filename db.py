@@ -2444,7 +2444,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     finally:
         conn.close()
 
-def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None):
+def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None, placement_label=None):
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -2503,9 +2503,17 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None)
                 new_src.append(it)
         if remain > 0:
             return {'success': False, 'error': '來源格位數量不足'}
-        # FIX24: 依「尺寸 + 客戶」合併，避免同尺寸不同寫法重複列；同時清掉 0 數量。
+        # FIX92: 拖到有商品的格子也可放入；新拖入商品固定標示為「前排」，並排在目標格最前面。
+        target_label = str(placement_label or '前排').strip() or '前排'
+        moved_front = []
+        for m in moved:
+            nm = dict(m)
+            nm['placement_label'] = target_label
+            nm['layer_label'] = target_label
+            moved_front.append(nm)
+        # FIX24: 依「尺寸 + 客戶 + 層位」合併，避免同尺寸不同寫法重複列；同時清掉 0 數量。
         normalized_src = _normalize_warehouse_items(new_src)
-        normalized_dst = _normalize_warehouse_items(dst_items + moved)
+        normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
         cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))

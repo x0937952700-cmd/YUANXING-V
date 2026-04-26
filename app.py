@@ -1313,10 +1313,11 @@ def api_warehouse_move():
         to_key = data.get("to_key")
         product_text = format_product_text_height2(data.get("product_text"))
         customer_name = (data.get("customer_name") or "").strip()
+        placement_label = (data.get("placement_label") or data.get("layer_label") or "前排").strip() or "前排"
         qty = int(data.get("qty", 1))
         if not (from_key and to_key and product_text):
             return error_response("缺少參數")
-        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty, customer_name=customer_name)
+        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty, customer_name=customer_name, placement_label=placement_label)
         if result.get("success"):
             log_action(current_username(), f"拖曳商品 {product_text}")
             try:
@@ -1324,7 +1325,7 @@ def api_warehouse_move():
                 record_recent_slot(current_username(), customer_name, to_key[0], int(to_key[1]), to_slot)
             except Exception:
                 pass
-            add_audit_trail(current_username(), 'move', 'warehouse_cells', product_text, before_json={'from_key': from_key, 'customer_name': customer_name}, after_json={'to_key': to_key, 'qty': qty, 'product_text': product_text, 'customer_name': customer_name})
+            add_audit_trail(current_username(), 'move', 'warehouse_cells', product_text, before_json={'from_key': from_key, 'customer_name': customer_name}, after_json={'to_key': to_key, 'qty': qty, 'product_text': product_text, 'customer_name': customer_name, 'placement_label': placement_label})
             notify_sync_event(kind='refresh', module='warehouse', message='倉庫位置已移動', extra={'product_text': product_text, 'qty': qty, 'customer_name': customer_name})
         return jsonify(result)
     except Exception as e:
