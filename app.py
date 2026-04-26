@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import uuid
+import threading
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -111,16 +112,43 @@ def log_action(username, action):
     notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
 
 
+_DAILY_BACKUP_LOCK = threading.Lock()
+_DAILY_BACKUP_STARTED_FOR = set()
+
 def ensure_daily_backup():
+    """同步備份：只給手動工具或背景執行緒使用，不放在使用者開頁流程。"""
     try:
         today = datetime.now().strftime('%Y-%m-%d')
         if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
-            return
+            return {'success': True, 'skipped': True, 'reason': 'already-backed-up-today'}
         result = run_daily_backup()
         if result.get('success'):
             set_setting(LAST_DAILY_BACKUP_KEY, today)
+        return result
     except Exception as e:
         log_error('ensure_daily_backup', str(e))
+        return {'success': False, 'error': str(e)}
+
+def ensure_daily_backup_async():
+    """FIX103：每日備份改成背景執行，避免首次開網頁時卡住甚至 502。
+
+    舊版在 before_request 直接 dump 全部 PostgreSQL 表，資料變多時 Render 可能逾時。
+    這裡只在同一天啟動一次背景執行緒，使用者頁面立即回應。
+    """
+    today = datetime.now().strftime('%Y-%m-%d')
+    with _DAILY_BACKUP_LOCK:
+        if today in _DAILY_BACKUP_STARTED_FOR:
+            return
+        _DAILY_BACKUP_STARTED_FOR.add(today)
+    def _worker():
+        try:
+            ensure_daily_backup()
+        except Exception as e:
+            try:
+                log_error('ensure_daily_backup_async', str(e))
+            except Exception:
+                pass
+    threading.Thread(target=_worker, name='yx-daily-backup', daemon=True).start()
 
 
 def request_key_from_payload(data, endpoint=''):
@@ -261,11 +289,17 @@ def login_required_json(f):
 
 @app.after_request
 def add_no_cache_headers(response):
-    # FIX87：所有頁面 / 靜態檔 / API 都不快取，避免手機、PWA 或 Render 部署後吃到舊 JS。
-    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    response.headers['Vary'] = 'Cookie'
+    # FIX103：HTML/API 保持不快取；帶版本號的 static 檔允許短快取，避免每次開頁都重抓大 JS/CSS 導致慢與 502 體感。
+    path = request.path or ''
+    if path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=3600, stale-while-revalidate=86400'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+    else:
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        response.headers['Vary'] = 'Cookie'
     return response
 
 @app.before_request
@@ -274,7 +308,7 @@ def protect_pages():
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
     # FIX100：預設啟用每日自動備份；若要關閉可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=0。
     if os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
-        ensure_daily_backup()
+        ensure_daily_backup_async()
     if path.startswith("/static/") or path in ("/health",):
         return None
     public = [

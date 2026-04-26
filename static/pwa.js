@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix102-final-cleanup';
+  const PWA_VERSION = 'fix103-speed-font-stable';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

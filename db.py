@@ -494,6 +494,15 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
         if own_conn:
             conn.close()
 
+
+def _run_heavy_startup_maintenance():
+    """FIX103：Render 啟動時預設不跑全表重整，避免資料量變大後開站 502。
+
+    需要做舊資料大整理時，可在 Render 環境變數設定：
+    YX_STARTUP_HEAVY_MAINTENANCE=1，部署一次後再關掉。
+    """
+    return (os.getenv('YX_STARTUP_HEAVY_MAINTENANCE', '0') or '0').strip() == '1'
+
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -905,41 +914,42 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
 
-    # normalize warehouse to direct 1-20 model
-    try:
-        cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
-        raw_cells = rows_to_dict(cur)
-        direct_map = {}
-        for cell in raw_cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            col = int(cell.get('column_index') or 1)
-            slot_type = (cell.get('slot_type') or 'direct').strip().lower()
-            slot_no = int(cell.get('slot_number') or 1)
-            if slot_type == 'back':
-                slot_no += 10
-            elif slot_type == 'front':
-                slot_no = slot_no
-            key = (zone, col, slot_no)
-            prev = direct_map.get(key)
-            if prev:
-                prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
-                prev['note'] = prev.get('note') or cell.get('note') or ''
-                prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
-            else:
-                direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
-        cur.execute(sql("DELETE FROM warehouse_cells"))
-        for zone in ('A','B'):
-            for col in range(1, 7):
-                _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
-                max_slot = max(_slots) if _slots else 1
-                for num in range(1, max_slot + 1):
-                    row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
-                    cur.execute(sql("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
-    except Exception as e:
-        log_error('warehouse_normalize_direct_model', str(e))
+    if _run_heavy_startup_maintenance():
+        # normalize warehouse to direct 1-20 model
+        try:
+            cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
+            raw_cells = rows_to_dict(cur)
+            direct_map = {}
+            for cell in raw_cells:
+                zone = (cell.get('zone') or 'A').strip().upper()
+                col = int(cell.get('column_index') or 1)
+                slot_type = (cell.get('slot_type') or 'direct').strip().lower()
+                slot_no = int(cell.get('slot_number') or 1)
+                if slot_type == 'back':
+                    slot_no += 10
+                elif slot_type == 'front':
+                    slot_no = slot_no
+                key = (zone, col, slot_no)
+                prev = direct_map.get(key)
+                if prev:
+                    prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
+                    prev['note'] = prev.get('note') or cell.get('note') or ''
+                    prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
+                else:
+                    direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
+            cur.execute(sql("DELETE FROM warehouse_cells"))
+            for zone in ('A','B'):
+                for col in range(1, 7):
+                    _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
+                    max_slot = max(_slots) if _slots else 1
+                    for num in range(1, max_slot + 1):
+                        row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
+        except Exception as e:
+            log_error('warehouse_normalize_direct_model', str(e))
 
     # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
     try:
@@ -951,11 +961,13 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
 
     ensure_fixed_warehouse_grid(conn, cur)
 
-    # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
-    for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
-        _normalize_product_texts_in_table(cur, _table)
-    _clean_product_like_materials(cur)
-    _normalize_warehouse_item_texts(cur)
+    # FIX103：全表商品文字清理屬於重維護，不再每次 Render 啟動都跑。
+    if _run_heavy_startup_maintenance():
+        # 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
+        for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+            _normalize_product_texts_in_table(cur, _table)
+        _clean_product_like_materials(cur)
+        _normalize_warehouse_item_texts(cur)
     conn.commit()
     conn.close()
 

@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX102_FULL_QA_CLEANUP",
+        "FIX103_SPEED_FONT_STABLE",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,13 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "FIX102_FULL_QA_CLEANUP",
+        "FIX103_SPEED_FONT_STABLE",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "yx102-final-cleanup"],
-    "templates/base.html": ["FIX102_FULL_QA_CLEANUP", "app.js", "pwa.js", "fix102-final-cleanup"],
-    "static/service-worker.js": ["FIX102_FULL_QA_CLEANUP", "fix102-final-cleanup"],
-    "static/pwa.js": ["fix102-final-cleanup"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix102-final-cleanup"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX103: final fixed font today cards"],
+    "templates/base.html": ["FIX103_SPEED_FONT_STABLE", "app.js", "pwa.js", "fix103-speed-font-stable"],
+    "static/service-worker.js": ["FIX103_SPEED_FONT_STABLE", "fix103-speed-font-stable"],
+    "static/pwa.js": ["fix103-speed-font-stable"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix103-speed-font-stable"'],
 }
 
 for rel, tokens in required.items():
@@ -59,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX102 smoke test OK")
+print("FIX103 smoke test OK")
