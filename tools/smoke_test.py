@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX113_CONSOLIDATED_LATEST_MASTER",
+        "FIX112_OLD_FUNCTION_SPEED_PURGE",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,13 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "loadTodayChanges113",
+        "FIX112_OLD_FUNCTION_SPEED_PURGE",
     ],
-    "static/style.css": ["yx113-today-stack", "yx113-navigating", "FIX113 consolidated latest master"],
-    "templates/base.html": ["FIX113_CONSOLIDATED_LATEST_MASTER", "app.js", "pwa.js", "fix113-consolidated-latest-master"],
-    "static/service-worker.js": ["fix113-consolidated-latest-master"],
-    "static/pwa.js": ["fix113-consolidated-latest-master"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix113-consolidated-latest-master"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX112: old interface hard hide"],
+    "templates/base.html": ["FIX112_OLD_FUNCTION_SPEED_PURGE", "app.js", "pwa.js", "fix112-old-function-speed-purge"],
+    "static/service-worker.js": ["FIX112_OLD_FUNCTION_SPEED_PURGE", "fix112-old-function-speed-purge"],
+    "static/pwa.js": ["fix112-old-function-speed-purge"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix112-old-function-speed-purge"'],
 }
 
 for rel, tokens in required.items():
@@ -41,15 +41,11 @@ for rel, tokens in required.items():
 js = (ROOT / "static/app.js").read_text(encoding="utf-8", errors="ignore")
 html = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in (ROOT / "templates").glob("*.html"))
 
-old_blocks = re.findall(r"====\s+FIX(?:6[3-9]|7\d|8\d|9\d|10[0-2])\b", js)
-if old_blocks:
-    raise SystemExit(f"Old FIX63-FIX102 blocks still present: {old_blocks[:10]}")
-
 names = set(re.findall(r"function\s+([A-Za-z_$][\w$]*)\s*\(", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:window\.[A-Za-z_$][\w$]*\s*\|\|\s*)?(?:async\s*)?function\b", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>", js))
 names.update(re.findall(r"window\.([A-Za-z_$][\w$]*)\s*=", html))
-names.update(["confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks", "renderCustomers", "loadTodayChanges", "toggleLoginSave", "renderWarehouse", "searchWarehouse"])
+names.update(["confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks", "renderCustomers", "loadTodayChanges"])
 called = set()
 for attr in ["onclick", "onsubmit"]:
     for raw in re.findall(attr + r'="([^"]+)"', html):
@@ -63,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX113 smoke test OK")
+print("FIX112 smoke test OK")

@@ -3525,7 +3525,7 @@ html[data-yx-fix111] #today-summary-cards .yx110-today-stack{display:none!import
 .yx111-hidden-empty-card,.yx102-hidden{display:none!important;}
 html[data-yx-fix111] .yx63-item-card .small-note:empty, html[data-yx-fix111] .inventory-action-card .small-note:empty{display:none!important;}
 @media(max-width:720px){.yx111-today-card{min-height:68px!important;padding:13px 15px!important;}.yx111-today-count b{font-size:25px!important;}}
-/* FIX113_CONSOLIDATED_LATEST_MASTER */
+/* FIX112_OLD_FUNCTION_SPEED_PURGE */
 
 /* ==== FIX112: old interface hard hide + single vertical today cards ==== */
 html[data-yx-fix112], html[data-yxFix112Early], [data-yx-fix112] {}
@@ -3601,7 +3601,3 @@ html[data-yx-fix112], html[data-yxFix112Early], [data-yx-fix112] {}
 }
 .yx110-hidden-empty-card{display:none!important;}
 /* ==== FIX112 end ==== */
-
-/* ==== FIX113 consolidated latest master ==== */
-.yx113-navigating *{transition:none!important;animation:none!important}.yx113-today-root{display:block!important}.yx113-today-stack{display:flex;flex-direction:column;gap:10px;width:100%}.yx113-today-card{width:100%;border:1px solid rgba(120,75,38,.14);background:rgba(255,255,255,.9);border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 8px 22px rgba(91,60,34,.08);font:inherit;text-align:left}.yx113-today-card.active{outline:2px solid rgba(120,75,38,.24);background:#fff8ef}.yx113-today-title{font-weight:800;color:#3f2b1f}.yx113-today-count{display:flex;align-items:baseline;gap:4px;color:#6f4528}.yx113-today-count b{font-size:24px}.yx113-today-count em{font-style:normal;font-size:12px}.yx113-log-card,.yx113-unplaced-card{margin:8px 0}.today-filter-bar,.today-grid,.today-summary-grid,.yx93-today-card,.yx94-today-card,.yx102-today-card{display:none!important}.today-columns-vertical{display:flex;flex-direction:column;gap:12px}.today-columns-vertical .panel{width:100%;box-sizing:border-box}.inventory-action-card .small-note:empty,.inventory-action-card .muted:empty{display:none!important}
-/* ==== FIX113 end ==== */
