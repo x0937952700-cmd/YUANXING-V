@@ -9472,3 +9472,118 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   [300,900,1800,3600].forEach(ms => setTimeout(periodicCleanup, ms));
 })();
 /* ==== FIX93: mobile customer layout + batch action sheet + today cards + unplaced count master end ==== */
+
+/* ==== FIX94: card display + warehouse same-customer summary + today stable mobile start ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX94_CARD_WAREHOUSE_TODAY_STABLE';
+  if (window.__YX94_CARD_WAREHOUSE_TODAY_STABLE__) return;
+  window.__YX94_CARD_WAREHOUSE_TODAY_STABLE__ = true;
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e){ data = {success:false,error:text||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false){ const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload=data; throw e; }
+    return data;
+  });
+  window.yxApi = api;
+  function normalizeProductLine(size, support){
+    const s = clean(size).replace(/\s+/g,'').replace(/×/g,'x').replace(/^尺寸[:：]?/,'');
+    const p = clean(support).replace(/\s+/g,'').replace(/×/g,'x').replace(/^支數\s*[xX]\s*件數[:：]?/,'');
+    if(!s && !p) return '';
+    return p ? `${s}=${p}` : s;
+  }
+  function decorateItemCards94(){
+    document.querySelectorAll('.yx63-item-card .yx63-item-grid').forEach(grid => {
+      if (grid.dataset.yx94Decorated === '1') return;
+      const values = {material:'', size:'', support:'', qty:''};
+      Array.from(grid.children).forEach(div => {
+        const label = clean(div.querySelector('span')?.textContent || '');
+        const val = clean(div.querySelector('b')?.textContent || div.textContent || '');
+        if (label.includes('材質')) values.material = val.replace(/^材質[:：]?/,'');
+        else if (label.includes('尺寸')) values.size = val.replace(/^尺寸[:：]?/,'');
+        else if (label.includes('支數')) values.support = val.replace(/^支數\s*[xX]\s*件數[:：]?/,'');
+        else if (label.includes('數量')) values.qty = val.replace(/^數量[:：]?/,'');
+      });
+      const product = normalizeProductLine(values.size, values.support);
+      const qty = clean(values.qty || '0').replace(/件$/,'');
+      grid.dataset.yx94Decorated = '1';
+      grid.classList.add('yx94-item-grid');
+      grid.innerHTML = `<div class="yx94-card-meta-row"><span class="yx94-material">${esc(values.material || '未填材質')}</span><span class="yx94-qty">${esc(qty || '0')}件</span></div><div class="yx94-product-formula">${esc(product || values.size || values.support || '')}</div>`;
+    });
+  }
+  function rowQty(it){ const n = Number(it?.qty ?? it?.unplaced_qty ?? it?.total_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function productOf(it){ return clean(it?.product_text || it?.product_size || it?.product || ''); }
+  function customerOf(it){ return clean(it?.customer_name || '未指定客戶') || '未指定客戶'; }
+  function parseItems(raw){ try { return Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch(_e){ return []; } }
+  function itemsForSlot(zone, col, num){
+    try { if (typeof window.getCellItems === 'function') return window.getCellItems(zone, col, num) || []; } catch(_e){}
+    const cells = window.state?.warehouse?.cells || [];
+    const cell = cells.find(c => String(c.zone) === String(zone) && Number(c.column_index) === Number(col) && Number(c.slot_number) === Number(num));
+    return parseItems(cell?.items_json).filter(it => rowQty(it) > 0);
+  }
+  function yx92Signature(items){ return JSON.stringify(items.map(it => [clean(it.customer_name||''), productOf(it), rowQty(it), clean(it.placement_label || it.layer_label || '')])); }
+  function compactWarehouseSlot94(slot){
+    const zone = slot.dataset.zone; const col = Number(slot.dataset.column || slot.dataset.col || 0); const num = Number(slot.dataset.num || slot.dataset.slot || 0);
+    if(!zone || !col || !num) return;
+    const count = slot.querySelector('.slot-count'); if(!count) return;
+    const items = itemsForSlot(zone, col, num);
+    const sig = yx92Signature(items);
+    const alreadyCompact = slot.dataset.yx94Sig === sig && (count.querySelector('.yx94-cell-customer-line') || (!items.length && count.querySelector('.slot-line.empty')));
+    if (alreadyCompact) { slot.dataset.yx92Sig = sig; return; }
+    slot.dataset.yx92Sig = sig; slot.dataset.yx94Sig = sig;
+    if(!items.length){ count.innerHTML = '<div class="slot-line empty">空格</div><span class="yx92-drag-item yx94-hidden-drag-anchor" aria-hidden="true"></span>'; return; }
+    const by = new Map();
+    items.forEach(it => { const c = customerOf(it); if(!by.has(c)) by.set(c, []); by.get(c).push(rowQty(it)); });
+    const lines = Array.from(by.entries()).map(([customer, qtys]) => `<div class="yx94-cell-customer-line"><b>${esc(customer)}</b><span>${esc(qtys.filter(q=>q>0).join('+') || '0')}件</span></div>`).join('');
+    const total = items.reduce((s,it)=>s+rowQty(it),0);
+    count.innerHTML = `${lines}<div class="yx94-cell-total">合計 ${total}件</div><span class="yx92-drag-item yx94-hidden-drag-anchor" aria-hidden="true"></span>`;
+  }
+  function compactWarehouseAll94(){ document.querySelectorAll('.vertical-slot,.yx67-warehouse-slot').forEach(compactWarehouseSlot94); }
+  function wrapWarehouseRender94(){
+    ['renderWarehouse','renderWarehouseZones'].forEach(name => {
+      const fn = window[name]; if(typeof fn !== 'function' || fn.__yx94Wrapped) return;
+      const wrapped = function(){ const r = fn.apply(this, arguments); Promise.resolve(r).finally(() => setTimeout(compactWarehouseAll94, 180)); return r; };
+      wrapped.__yx94Wrapped = true; window[name] = wrapped;
+    });
+  }
+  function scrollToModuleSummary94(){ const mod = moduleKey(); if(mod !== 'orders' && mod !== 'master_order') return; const target = $(`yx63-${mod}-summary`) || $('selected-customer-items'); if(target) setTimeout(() => target.scrollIntoView({behavior:'smooth', block:'start'}), 180); }
+  function installCustomerJump94(){
+    if(document.body.dataset.yx94CustomerJump === '1') return; document.body.dataset.yx94CustomerJump = '1';
+    document.addEventListener('click', e => { const card = e.target?.closest?.('#region-picker-section .customer-region-card,#region-picker-section .yx81-customer-card,[data-customer-name]'); if(!card || !document.querySelector('#region-picker-section')?.contains(card)) return; setTimeout(scrollToModuleSummary94, 260); setTimeout(scrollToModuleSummary94, 700); }, true);
+  }
+  let todayFilter = '';
+  function fmt24(v){ const raw=clean(v); const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/); return m ? `${m[1]} ${m[2]}` : raw; }
+  function showTodayPanels94(filter){ document.querySelectorAll('[data-today-panel]').forEach(panel => { const key = panel.dataset.todayPanel || ''; panel.classList.toggle('yx94-hidden', !!filter && key !== filter); }); document.querySelectorAll('.yx94-today-card').forEach(card => card.classList.toggle('active', (card.dataset.todayCard || '') === filter)); }
+  function logCard94(r){ return `<div class="today-item deduct-card" data-log-id="${Number(r.id||0)}"><strong>${esc(r.action||'異動')}</strong><div class="small-note">${esc(fmt24(r.created_at))}｜${esc(r.username||'')}</div></div>`; }
+  function fillList94(id, rows, empty){ const el=$(id); if(el) el.innerHTML=(rows||[]).map(logCard94).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`; }
+  async function loadTodayChanges94(){
+    try{
+      const d = await api('/api/today-changes?ts=' + Date.now(), {method:'GET'}); const s = d.summary || {};
+      const cards = [['inbound','進貨',Number(s.inbound_count||0),'筆'],['outbound','出貨',Number(s.outbound_count||0),'筆'],['orders','新增訂單',Number(s.new_order_count||0),'筆'],['unplaced','未入倉',Number(s.unplaced_count||0),'件']];
+      const summary = $('today-summary-cards');
+      if(summary){ summary.innerHTML = cards.map(c => `<div class="yx94-today-card" data-today-card="${c[0]}"><div class="title">${esc(c[1])}</div><div class="sub">${c[2]}${esc(c[3])}</div></div>`).join(''); summary.querySelectorAll('.yx94-today-card').forEach(card => card.addEventListener('click', () => { const key = card.dataset.todayCard || ''; todayFilter = todayFilter === key ? '' : key; showTodayPanels94(todayFilter); })); }
+      fillList94('today-inbound-list', d.feed?.inbound, '今天沒有進貨'); fillList94('today-outbound-list', d.feed?.outbound, '今天沒有出貨'); fillList94('today-order-list', d.feed?.new_orders, '今天沒有新增訂單');
+      const unplaced=$('today-unplaced-list'); if(unplaced){ const arr=Array.isArray(d.unplaced_items)?d.unplaced_items:[]; unplaced.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card"><strong>${esc(it.product_text||'')}</strong><div class="small-note">${esc(it.customer_name||'未指定客戶')}｜未入倉 ${Number(it.unplaced_qty||it.qty||0)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>'; }
+      showTodayPanels94(todayFilter); try{ await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})}); }catch(_e){} return d;
+    }catch(e){ const summary=$('today-summary-cards'); if(summary) summary.innerHTML = `<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`; }
+  }
+  function enforceTodaySummary94(){ const summary = $('today-summary-cards'); if(!summary || location.pathname.indexOf('/today-changes') < 0) return; summary.querySelectorAll('.small-note').forEach(n => n.remove()); summary.querySelectorAll('.card').forEach(c => c.classList.add('yx94-today-card')); }
+  function install94(){
+    document.documentElement.dataset.yxFix94 = VERSION; installCustomerJump94(); wrapWarehouseRender94(); setTimeout(decorateItemCards94, 120); setTimeout(compactWarehouseAll94, 320);
+    if(location.pathname.includes('/today-changes')){ window.loadTodayChanges = loadTodayChanges94; setTimeout(loadTodayChanges94, 40); setTimeout(loadTodayChanges94, 900); }
+    try{ if(window.YX_MASTER) window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:VERSION, loadTodayChanges:loadTodayChanges94}); }catch(_e){}
+  }
+  const mo = new MutationObserver(() => { clearTimeout(window.__yx94DomTimer); window.__yx94DomTimer = setTimeout(() => { decorateItemCards94(); enforceTodaySummary94(); if(moduleKey()==='warehouse') compactWarehouseAll94(); }, 90); });
+  function observe94(){ ['inventory-list','orders-list','master-list','today-summary-cards','zone-A-grid','zone-B-grid'].forEach(id => { const el=$(id); if(el && !el.dataset.yx94Observed){ el.dataset.yx94Observed='1'; mo.observe(el,{childList:true,subtree:true}); } }); }
+  function boot94(){ install94(); observe94(); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot94, {once:true}); else boot94();
+  window.addEventListener('pageshow', boot94);
+  [300, 900, 1800, 3600, 7000].forEach(ms => setTimeout(() => { decorateItemCards94(); enforceTodaySummary94(); if(moduleKey()==='warehouse') compactWarehouseAll94(); }, ms));
+})();
+/* ==== FIX94: card display + warehouse same-customer summary + today stable mobile end ==== */
+

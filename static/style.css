@@ -2805,3 +2805,26 @@ html[data-yx-fix93="FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER"] .yx63-size-cell{
   }
 }
 /* ==== FIX93 end ==== */
+
+/* ==== FIX94: card display + warehouse same-customer summary + today mobile stable ==== */
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-item-grid{display:flex!important;flex-direction:column!important;gap:8px!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-card-meta-row{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;width:100%;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-material{font-size:clamp(18px,4vw,28px);font-weight:900;color:#059669;line-height:1.05;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-qty{font-size:clamp(18px,4vw,28px);font-weight:900;color:#0f172a;line-height:1.05;white-space:nowrap;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-product-formula{font-size:clamp(24px,6vw,40px);line-height:1.05;font-weight:950;color:#0f172a;letter-spacing:-.02em;word-break:break-word;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-cell-customer-line{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;margin:4px 0;border-radius:12px;background:rgba(255,255,255,.82);border:1px solid rgba(15,23,42,.06);}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-cell-customer-line b{font-weight:900;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-cell-customer-line span{font-size:13px;font-weight:850;color:#334155;white-space:nowrap;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-cell-total{font-size:12px;color:#64748b;margin-top:4px;text-align:right;}
+.yx94-hidden-drag-anchor{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;overflow:hidden!important;padding:0!important;margin:0!important;border:0!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .today-filter-bar,html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] #today-unread-toggle,html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] #today-clear-read-btn,html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] #today-unread-badge{display:none!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] #today-summary-cards{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important;margin-bottom:14px!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-today-card{cursor:pointer;border:1px solid rgba(15,23,42,.08);border-radius:20px;background:rgba(255,255,255,.9);padding:14px 16px;box-shadow:0 10px 24px rgba(15,23,42,.06);min-width:0;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-today-card.active{border-color:rgba(15,118,110,.36);background:#f0fdfa;box-shadow:0 14px 30px rgba(15,118,110,.12);}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-today-card .title{font-weight:900;color:#0f172a;white-space:nowrap;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-today-card .sub{font-size:clamp(22px,5vw,32px)!important;font-weight:950!important;color:#0f172a!important;margin-top:6px!important;line-height:1!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .yx94-today-card .small-note{display:none!important;}
+html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] [data-today-panel].yx94-hidden{display:none!important;}
+@media(max-width:720px){html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .home-shell{padding-left:10px!important;padding-right:10px!important;}html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .home-shell .feature-card{width:100%!important;max-width:100%!important;padding:14px!important;border-radius:22px!important;}html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] #today-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;}html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .today-columns{display:flex!important;flex-direction:column!important;gap:12px!important;}html[data-yx-fix94="FIX94_CARD_WAREHOUSE_TODAY_STABLE"] .today-columns .panel{padding:12px!important;border-radius:18px!important;}}
+/* ==== FIX94 end ==== */
+
