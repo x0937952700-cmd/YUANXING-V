@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION",
+        "FIX102_FULL_QA_CLEANUP",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,12 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
+        "FIX102_FULL_QA_CLEANUP",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search"],
-    "templates/base.html": ["FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION", "app.js", "pwa.js", "fix101-final-consolidated"],
-    "static/service-worker.js": ["FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION", "fix101-final-consolidated"],
-    "static/pwa.js": ["fix101-final-consolidated"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix101-final-consolidated"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "yx102-final-cleanup"],
+    "templates/base.html": ["FIX102_FULL_QA_CLEANUP", "app.js", "pwa.js", "fix102-final-cleanup"],
+    "static/service-worker.js": ["FIX102_FULL_QA_CLEANUP", "fix102-final-cleanup"],
+    "static/pwa.js": ["fix102-final-cleanup"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix102-final-cleanup"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX101 smoke test OK")
+print("FIX102 smoke test OK")

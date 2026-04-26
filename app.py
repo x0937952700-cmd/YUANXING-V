@@ -2361,7 +2361,7 @@ def api_backup_restore():
     restored_tables = []
     try:
         def table_columns(table):
-            if os.getenv('DATABASE_URL', '').lower().startswith(('postgres://','postgresql://')):
+            if (os.getenv('DATABASE_URL', '') or '').strip().lower().startswith(('postgres://','postgresql://')):
                 cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s", (table,))
                 return {r[0] for r in cur.fetchall()}
             cur.execute(f"PRAGMA table_info({re.sub(r'[^A-Za-z0-9_]', '', table)})")

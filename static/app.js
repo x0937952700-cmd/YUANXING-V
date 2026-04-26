@@ -10814,3 +10814,123 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try{new MutationObserver(()=>schedule()).observe(document.body,{childList:true,subtree:true});}catch(_){}
 })();
 /* ==== FIX101: final UI/warehouse/today consolidation end ==== */
+
+
+/* ==== FIX102: full QA cleanup and last-master guard start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX102_FULL_QA_CLEANUP';
+  if(window.__YX102_FULL_QA_CLEANUP__) return;
+  window.__YX102_FULL_QA_CLEANUP__=true;
+  const $=id=>document.getElementById(id);
+  const clean=v=>String(v??'').trim();
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const api=window.yxApi||window.requestJSON||async function(url,opt={}){const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});let d={};try{d=await r.json();}catch(_){d={};}if(!r.ok||d.success===false){throw new Error(d.error||d.message||`請求失敗：${r.status}`);}return d;};
+  const state=()=>window.state||(window.state={warehouse:{cells:[],availableItems:[],activeZone:'A'}});
+  const toast=(m,k='ok')=>{try{(window.toast||window.showToast||function(x){console.log(x)})(m,k)}catch(_){}};
+  const modKey=()=>document.querySelector('.module-screen')?.dataset.module||(typeof window.currentModule==='function'?window.currentModule():'');
+  const normX=v=>clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
+  const qtyOf=it=>{const n=Number(it?.qty??it?.unplaced_qty??it?.total_qty??0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
+  const customerOf=it=>clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';
+  const productOf=it=>clean(it?.product_text||it?.product_size||it?.size||'');
+  const materialOf=it=>{let m=clean(it?.material||it?.product_code||it?.wood_type||''); if(!m||m===productOf(it)||/^未填/.test(m)) return ''; return m;};
+  function findCell(z,c,n){return (state().warehouse?.cells||[]).find(x=>String(x.zone)===String(z)&&Number(x.column_index)===Number(c)&&Number(x.slot_number)===Number(n));}
+  function parseItemsJson(x){if(Array.isArray(x))return x; try{return JSON.parse(x||'[]')||[];}catch(_){return [];}}
+  function cellItems(z,c,n){const cell=findCell(z,c,n); return parseItemsJson(cell?.items_json).filter(it=>qtyOf(it)>0 && productOf(it));}
+  function cellKey(z,c,n){return [String(z||'A'),Number(c)||1,'direct',Number(n)||1];}
+  function setLocalCellItems(z,c,n,items){const wh=state().warehouse=state().warehouse||{cells:[],availableItems:[],activeZone:'A'};let cell=findCell(z,c,n);if(!cell){cell={zone:z,column_index:Number(c)||1,slot_type:'direct',slot_number:Number(n)||1,items_json:[]};wh.cells.push(cell);}cell.items_json=(items||[]).filter(it=>qtyOf(it)>0&&productOf(it));}
+  async function saveCell(z,c,n,items,note=''){return api('/api/warehouse/cell',{method:'POST',body:JSON.stringify({zone:z,column_index:Number(c)||1,slot_type:'direct',slot_number:Number(n)||1,items_json:(items||[]).filter(it=>qtyOf(it)>0&&productOf(it)),note:note||'',request_key:'yx102_'+Date.now()+'_'+Math.random().toString(36).slice(2)})});}
+
+  function qtyPartsForCustomer(arr){const parts=(arr||[]).map(qtyOf).filter(q=>q>0);return parts.length?parts.join('+'):'0';}
+  function groupSignature(items){return JSON.stringify((items||[]).map(it=>[customerOf(it),productOf(it),qtyOf(it),materialOf(it)]));}
+  function bindGroupDrag(root){(root||document).querySelectorAll('[data-yx102-drag-group]').forEach(el=>{if(el.dataset.yx102DragBound==='1')return;el.dataset.yx102DragBound='1';el.addEventListener('dragstart',ev=>{try{ev.dataTransfer.effectAllowed='move';ev.dataTransfer.setData('text/plain',el.dataset.yx102DragGroup||'');el.classList.add('yx92-dragging');}catch(_){}});el.addEventListener('dragend',()=>el.classList.remove('yx92-dragging'));});}
+  function renderSlotCompact(slot){
+    if(!slot) return;
+    const z=slot.dataset.zone||slot.getAttribute('data-zone')||'A';
+    const c=Number(slot.dataset.column||slot.dataset.col||slot.getAttribute('data-column')||1);
+    const n=Number(slot.dataset.num||slot.dataset.slot||slot.getAttribute('data-num')||1);
+    const count=slot.querySelector('.slot-count')||slot.querySelector('.cell-content')||slot;
+    const items=cellItems(z,c,n);
+    const sig=groupSignature(items);
+    if(slot.dataset.yx102Sig===sig && count.querySelector('[data-yx102-drag-group],.slot-line.empty')) return;
+    slot.dataset.yx102Sig=sig; slot.dataset.yx101Sig=sig; slot.dataset.yx97Sig=sig;
+    if(!items.length){count.innerHTML='<div class="slot-line empty">空格</div>';return;}
+    const groups=new Map();
+    items.forEach((it,idx)=>{const cst=customerOf(it); if(!groups.has(cst))groups.set(cst,[]); groups.get(cst).push({...it,__idx:idx});});
+    count.innerHTML=Array.from(groups.entries()).map(([customer,arr])=>{const payload={kind:'warehouse-group',fromKey:cellKey(z,c,n),customer_name:customer,item_indexes:arr.map(x=>x.__idx)};return `<div class="yx102-cell-customer-line" draggable="true" data-yx102-drag-group="${esc(JSON.stringify(payload))}" title="拖拉到其他格會放最前排"><b>${esc(customer)}</b><span>${esc(qtyPartsForCustomer(arr))}件</span></div>`;}).join('');
+    bindGroupDrag(count);
+  }
+  async function moveGroup(payload,toKey){
+    const from=Array.isArray(payload.fromKey)?payload.fromKey:payload.fromKey||payload.from_key; const to=toKey;
+    if(!from||!to) throw new Error('格位資料不完整');
+    const fz=from[0],fc=Number(from[1]),fn=Number(from[3]??from[2]); const tz=to[0],tc=Number(to[1]),tn=Number(to[3]??to[2]);
+    if(String(fz)===String(tz)&&fc===tc&&fn===tn){toast('已在同一格','warn');return;}
+    const src=cellItems(fz,fc,fn); const dst=cellItems(tz,tc,tn); const wanted=new Set((payload.item_indexes||[]).map(Number));
+    const moved=[],remain=[]; src.forEach((it,idx)=>{if(wanted.has(idx)||customerOf(it)===clean(payload.customer_name)){moved.push({...it,placement_label:'前排',layer_label:'前排'});}else remain.push(it);});
+    if(!moved.length) throw new Error('沒有可搬移的商品');
+    setLocalCellItems(fz,fc,fn,remain); setLocalCellItems(tz,tc,tn,moved.concat(dst));
+    await saveCell(fz,fc,fn,remain,findCell(fz,fc,fn)?.note||''); await saveCell(tz,tc,tn,moved.concat(dst),findCell(tz,tc,tn)?.note||'');
+    toast(`搬移完成：${clean(payload.customer_name||'商品')} 已放到最前排`,'ok');
+    try{await (window.renderWarehouse&&window.renderWarehouse(true));}catch(_){try{await window.renderWarehouse();}catch(__){}}
+    setTimeout(compactWarehouseAll,160);
+  }
+  function bindDrops(){document.querySelectorAll('#zone-A-grid .vertical-slot,#zone-B-grid .vertical-slot,.yx67-warehouse-slot').forEach(slot=>{if(slot.dataset.yx102Drop==='1')return;slot.dataset.yx102Drop='1';slot.addEventListener('dragover',ev=>{ev.preventDefault();try{ev.dataTransfer.dropEffect='move';}catch(_){}slot.classList.add('yx97-drag-over');},true);slot.addEventListener('dragleave',()=>slot.classList.remove('yx97-drag-over'),true);slot.addEventListener('drop',async ev=>{const raw=ev.dataTransfer?.getData?.('text/plain')||'';if(raw.indexOf('warehouse-group')<0)return;let p=null;try{p=JSON.parse(raw);}catch(_){return;}if(p.kind!=='warehouse-group')return;ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();slot.classList.remove('yx97-drag-over');try{await moveGroup(p,cellKey(slot.dataset.zone,Number(slot.dataset.column||slot.dataset.col||0),Number(slot.dataset.num||slot.dataset.slot||0)));}catch(e){toast(e.message||'拖拉搬移失敗','error');}},true);});}
+  function compactWarehouseAll(){document.querySelectorAll('#zone-A-grid .vertical-slot,#zone-B-grid .vertical-slot,.yx67-warehouse-slot').forEach(renderSlotCompact);bindDrops();stabilizeWarehouseToolbar();}
+
+  function stableUnplacedTotal(items){return (items||[]).reduce((s,it)=>s+(Number(it.unplaced_qty??it.qty??0)||0),0);}
+  let unplacedSeq=0;
+  async function refreshUnplacedPill(force=false){
+    const pill=$('warehouse-unplaced-pill'); if(!pill) return;
+    const seq=++unplacedSeq;
+    let items=state().warehouse?.availableItems||[];
+    if(force||!items.length){try{const d=await api('/api/warehouse/available-items?ts='+Date.now(),{method:'GET'}); if(seq!==unplacedSeq)return; items=Array.isArray(d.items)?d.items:[]; state().warehouse.availableItems=items;}catch(_){}}
+    const total=stableUnplacedTotal(items); const text=`未入倉：${total}件`;
+    if(pill.textContent!==text) pill.textContent=text;
+    pill.dataset.yx102Total=String(total); pill.classList.add('yx102-stable-pill'); pill.title=`未入倉總件數：${total}件`;
+  }
+  async function toggleUnplaced(){
+    const box=$('warehouse-unplaced-list-inline'); if(!box) return false;
+    if(!box.classList.contains('hidden')){box.classList.add('hidden'); refreshUnplacedPill(false); return false;}
+    let items=state().warehouse?.availableItems||[];
+    if(!items.length){try{const d=await api('/api/warehouse/available-items?ts='+Date.now(),{method:'GET'}); items=Array.isArray(d.items)?d.items:[]; state().warehouse.availableItems=items;}catch(e){toast(e.message||'未入倉資料讀取失敗','error');}}
+    box.innerHTML=items.length?items.map(it=>`<div class="deduct-card"><strong>${esc(customerOf(it))}</strong><div class="small-note">${esc(productOf(it))}</div><div class="small-note">未入倉 ${Number(it.unplaced_qty??it.qty??0)||0} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+    box.classList.remove('hidden'); refreshUnplacedPill(false); return false;
+  }
+  function stabilizeWarehouseToolbar(){const candidates=[$('warehouse-unplaced-pill')?.parentElement, document.querySelector('.warehouse-toolbar'), document.querySelector('.warehouse-tools')].filter(Boolean);candidates.forEach(el=>el.classList.add('yx102-warehouse-toolbar')); refreshUnplacedPill(false);}
+
+  function formulaLineFromText(text){const t=normX(text); if(!t||!t.includes('=')) return t; const [left,...right]=t.split('='); return `${left}=${right.join('=')}`;}
+  function rewriteProductCards(){
+    document.querySelectorAll('.item-card,.product-card,.summary-card,.yx-product-card,.yx63-item-card,.deduct-card').forEach(card=>{
+      if(card.closest('#today-summary-cards,#today-inbound-list,#today-outbound-list,#today-order-list,#today-unplaced-list,#warehouse-unplaced-list-inline')) return;
+      const txt=clean(card.textContent).replace(/\s+/g,' ');
+      if(/未填材質/.test(txt)&&/0件/.test(txt)&&!/[xX×✕]\s*\d+/.test(txt)){card.classList.add('yx102-hidden');return;}
+      if(card.dataset.yx102ProductDone==='1') return;
+      const formula=(txt.match(/[A-Za-z0-9.]+\s*[xX×✕]\s*[A-Za-z0-9._-]+\s*[xX×✕]\s*[A-Za-z0-9._-]+\s*[=＝]\s*[^\n|｜]+/)||[])[0];
+      if(!formula) return;
+      const material=(txt.match(/(?:材質[:：]?\s*)?(RDT|尤加利|南方松|鐵杉|花旗|杉木|柳安|未填材質)/i)||[])[1]||'';
+      card.classList.add('yx102-stable-card');
+      card.querySelectorAll('.label,.field-label,.muted,.small-note').forEach(el=>{const t=clean(el.textContent); if(/^客戶[:：]/.test(t)||t==='尺寸'||/^支數/.test(t)) el.classList.add('yx102-hidden');});
+      if(!card.querySelector('.yx102-product-line')){const line=document.createElement('div'); line.className='yx102-product-line'; line.innerHTML=`${material?`<span class="yx102-material">${esc(material)}</span>`:''}<span class="yx102-formula">${esc(formulaLineFromText(formula))}</span>`; card.insertBefore(line, card.firstChild);}
+      card.dataset.yx102ProductDone='1';
+    });
+  }
+
+  let todayLoading=null, activeTodayFilter='all';
+  function renderTodaySummary(data){const box=$('today-summary-cards'); if(!box)return; const s=data?.summary||{}; const cards=[['inbound','進貨',Number(s.inbound_count||0),'筆'],['outbound','出貨',Number(s.outbound_count||0),'筆'],['orders','新增訂單',Number(s.new_order_count||0),'筆'],['unplaced','未入倉',Number(s.unplaced_count||0),'件']]; const html=`<div class="yx102-today-grid">`+cards.map(([k,t,n,u])=>`<div class="yx102-today-card ${activeTodayFilter===k?'active':''}" data-yx102-today-filter="${k}"><div class="yx102-today-title">${t}</div><div class="yx102-today-count">${n}${u}</div></div>`).join('')+`</div>`; if(box.dataset.yx102Html!==html){box.innerHTML=html; box.dataset.yx102Html=html;}}
+  function fillTodayLists(data){const make=r=>`<div class="today-item deduct-card" data-log-id="${Number(r.id||0)}"><strong>${esc(r.action||'異動')}</strong><div class="small-note">${esc(String(r.created_at||'').replace('T',' ').slice(0,19))}｜${esc(r.username||'')}</div><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx68-delete-today="${Number(r.id||0)}">刪除</button></div>`; const fill=(id,rows,empty)=>{const el=$(id); if(el) el.innerHTML=(rows||[]).map(make).join('')||`<div class="empty-state-card compact-empty">${empty}</div>`;}; fill('today-inbound-list',data?.feed?.inbound,'今天沒有進貨'); fill('today-outbound-list',data?.feed?.outbound,'今天沒有出貨'); fill('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單'); const unplaced=$('today-unplaced-list'); if(unplaced){const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[]; unplaced.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${Number(it.unplaced_qty??it.qty??0)||0} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}}
+  function applyTodayFilter(){document.querySelectorAll('[data-yx102-today-filter]').forEach(c=>c.classList.toggle('active',c.dataset.yx102TodayFilter===activeTodayFilter)); const map={inbound:'today-inbound-list',outbound:'today-outbound-list',orders:'today-order-list',unplaced:'today-unplaced-list'}; Object.entries(map).forEach(([k,id])=>{const el=$(id); if(el) el.style.display=(activeTodayFilter==='all'||activeTodayFilter===k)?'':'none';});}
+  async function loadTodayChanges102(){if(todayLoading)return todayLoading; todayLoading=(async()=>{let data; try{data=await api('/api/today-changes?ts='+Date.now(),{method:'GET'});}catch(e){const box=$('today-summary-cards'); if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`; throw e;} window.__YX102_TODAY_LAST__=data; renderTodaySummary(data); fillTodayLists(data); applyTodayFilter(); try{await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})});}catch(_){} return data;})().finally(()=>{setTimeout(()=>{todayLoading=null;},250);}); return todayLoading;}
+  document.addEventListener('click',e=>{const card=e.target.closest&&e.target.closest('[data-yx102-today-filter]'); if(card){e.preventDefault(); const k=card.dataset.yx102TodayFilter; activeTodayFilter=(activeTodayFilter===k?'all':k); renderTodaySummary(window.__YX102_TODAY_LAST__||{}); applyTodayFilter();}},true);
+
+  function normalizeTodoDate(){const el=$('todo-date'); if(!el)return; try{el.type='text';}catch(_){} el.placeholder='月/日，例如 4/26'; const m=clean(el.value).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if(m) el.value=`${Number(m[2])}/${Number(m[3])}`;}
+  function normalizeWarehouseModal(){const modal=$('warehouse-modal'); if(!modal)return; modal.querySelectorAll('#yx80-warehouse-batch-panel,#yx82-warehouse-batch-panel,#yx83-warehouse-batch-panel,#yx89-warehouse-batch-panel,#yx91-warehouse-batch-panel ~ #yx91-warehouse-batch-panel').forEach(el=>{try{el.remove();}catch(_){}}); const panel=$('yx91-warehouse-batch-panel'); if(panel){panel.querySelectorAll('select').forEach(sel=>{if(clean(sel.value)==='不加入')sel.value='';});panel.querySelectorAll('input[type="number"]').forEach(inp=>{if(clean(inp.value)===''||Number(inp.value)<0)inp.value='0';});} modal.querySelectorAll('button').forEach(btn=>{const t=clean(btn.textContent); if(['加入格位','儲存格位'].includes(t)){btn.style.display='none';btn.disabled=true;} if(/儲存中|加入中|開啟中/.test(t)&&btn.id!=='yx91-add-batch-items'){btn.disabled=false;btn.dataset.busy='0';}});}
+  let lastCellKey=''; function maybeClearNewCell(){const c=state().currentCell||window.currentCell||{}; const key=[c.zone||'',c.column_index||c.columnIndex||c.col||'',c.slot_number||c.slotNumber||c.slot||''].join('|'); if(key&&key!==lastCellKey){lastCellKey=key; const panel=$('yx91-warehouse-batch-panel'); if(panel){panel.querySelectorAll('select').forEach(sel=>{sel.value='';});panel.querySelectorAll('input[type="number"]').forEach(inp=>{inp.value='0';});}}}
+
+  function install(){document.documentElement.dataset.yxFix102=VERSION; if(location.pathname.includes('/today-changes')){window.loadTodayChanges=loadTodayChanges102; if(!$('today-summary-cards')?.children.length) setTimeout(()=>window.loadTodayChanges().catch(e=>toast(e.message||'今日異動載入失敗','error')),40);} if(modKey()==='warehouse'||document.querySelector('#zone-A-grid,#zone-B-grid')){window.toggleWarehouseUnplacedHighlight=toggleUnplaced; compactWarehouseAll(); stabilizeWarehouseToolbar(); refreshUnplacedPill(false);} normalizeTodoDate(); normalizeWarehouseModal(); rewriteProductCards(); try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:window.loadTodayChanges,toggleWarehouseUnplacedHighlight:window.toggleWarehouseUnplacedHighlight,compactWarehouseAll:compactWarehouseAll});}catch(_){}}
+  if(typeof window.openWarehouseModal==='function'&&!window.openWarehouseModal.__yx102){const old=window.openWarehouseModal; const wrapped=function(){const r=old.apply(this,arguments); setTimeout(()=>{maybeClearNewCell();normalizeWarehouseModal();},120); setTimeout(normalizeWarehouseModal,420); return r;}; Object.defineProperty(wrapped,'__yx102',{value:true}); window.openWarehouseModal=wrapped;}
+  if(typeof window.renderWarehouse==='function'&&!window.renderWarehouse.__yx102){const old=window.renderWarehouse; const wrapped=async function(){const r=await old.apply(this,arguments); setTimeout(compactWarehouseAll,160); return r;}; Object.defineProperty(wrapped,'__yx102',{value:true}); window.renderWarehouse=wrapped;}
+  if(typeof window.loadCustomerBlocks==='function'&&!window.loadCustomerBlocks.__yx102){const old=window.loadCustomerBlocks; const wrapped=async function(){const r=await old.apply(this,arguments); setTimeout(rewriteProductCards,120); return r;}; Object.defineProperty(wrapped,'__yx102',{value:true}); window.loadCustomerBlocks=wrapped;}
+  let scheduled=false; const schedule=()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;install();});};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true}); else install(); window.addEventListener('pageshow',install); [200,700,1500,3000,6000].forEach(ms=>setTimeout(install,ms)); try{new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true});}catch(_){}}
+)();
+/* ==== FIX102: full QA cleanup and last-master guard end ==== */

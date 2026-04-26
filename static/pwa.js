@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix101-final-consolidated';
+  const PWA_VERSION = 'fix102-final-cleanup';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
