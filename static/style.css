@@ -3120,3 +3120,24 @@ html[data-yx-fix102="FIX102_FINAL_CELL_MODAL_SLOT_TEXT"] #yx97-warehouse-slot-ac
 .yx102-detail-line.qty{font-weight:900;color:#111827;}
 .yx102-slot-action-card .yx102-action-stack{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
 /* ==== FIX102 end ==== */
+
+/* ==== FIX103 visual convergence ==== */
+.yx103-today-section-label{font-weight:900!important;color:#111827!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;}
+.yx103-today-section-label strong{font-weight:950!important;font-size:18px!important;color:#111827!important;}
+.yx103-today-section-label small{font-weight:800!important;color:#64748b!important;}
+.yx103-warehouse-grid .yx103-slot,.yx103-slot{font-size:18px!important;font-weight:900!important;line-height:1.22!important;color:#111827!important;}
+.yx103-slot *{font-size:inherit!important;line-height:inherit!important;}
+.yx103-slot-head{font-weight:950!important;display:flex!important;align-items:center!important;gap:6px!important;flex-wrap:wrap!important;}
+.yx103-slot-customer{color:#dc2626!important;font-weight:950!important;}
+.yx103-slot-empty{color:#94a3b8!important;font-weight:900!important;}
+.yx103-slot-qty{display:flex!important;align-items:center!important;gap:14px!important;font-weight:950!important;}
+.yx103-slot-sum{color:#111827!important;}
+.yx103-slot-total{color:#dc2626!important;font-weight:950!important;}
+.yx103-detail-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;margin:8px 0 10px!important;}
+.yx103-detail-card{border-left:4px solid #99f6e4!important;}
+.yx103-placement-badge{display:inline-flex!important;align-items:center!important;border-radius:999px!important;padding:3px 9px!important;background:#ccfbf1!important;color:#0f766e!important;font-weight:900!important;margin-right:8px!important;}
+.yx103-detail-title{display:flex!important;align-items:center!important;gap:6px!important;font-weight:900!important;}
+.yx103-detail-main{font-weight:900!important;margin-top:6px!important;}
+.yx103-batch-row{display:grid!important;grid-template-columns:52px minmax(0,1fr) 74px!important;gap:8px!important;align-items:center!important;margin:8px 0!important;}
+.yx103-batch-row label{font-weight:900!important;color:#111827!important;}
+.yx103-final-cell-editor #yx99-warehouse-detail-panel,.yx103-final-cell-editor #yx101-warehouse-detail-panel,.yx103-final-cell-editor #yx102-warehouse-detail-panel,.yx103-hidden-legacy{display:none!important;}

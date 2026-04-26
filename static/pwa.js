@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix93-mobile-batch-today-unplaced-stable';
+  const PWA_VERSION = 'fix103-auto-today-single-cell-master';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
