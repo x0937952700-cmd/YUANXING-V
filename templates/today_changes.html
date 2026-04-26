@@ -15,14 +15,22 @@
     <div class="section-head">
       <h3>今日異動</h3>
     </div>
-    <div class="today-filter-bar">
+    <div class="today-filter-bar yx104-hidden" hidden>
       <button class="chip active" id="today-filter-all" type="button" data-today-filter="all">全部</button>
       <button class="chip" id="today-filter-inbound" type="button" data-today-filter="inbound">進貨</button>
       <button class="chip" id="today-filter-outbound" type="button" data-today-filter="outbound">出貨</button>
       <button class="chip" id="today-filter-orders" type="button" data-today-filter="orders">新增訂單</button>
       <button class="chip" id="today-filter-unplaced" type="button" data-today-filter="unplaced">未錄入</button>
     </div>
-    <div id="today-summary-cards" class="card-list"></div>
+    <div id="today-summary-cards" class="card-list yx104-today-root" data-yx104-stable="1">
+      <div class="yx104-today-grid">
+        <button type="button" class="yx104-today-card" data-yx104-today-filter="inbound"><span class="yx104-today-title">進貨</span><span class="yx104-today-count"><b>0</b><em>筆</em></span></button>
+        <button type="button" class="yx104-today-card" data-yx104-today-filter="outbound"><span class="yx104-today-title">出貨</span><span class="yx104-today-count"><b>0</b><em>筆</em></span></button>
+        <button type="button" class="yx104-today-card" data-yx104-today-filter="orders"><span class="yx104-today-title">新增訂單</span><span class="yx104-today-count"><b>0</b><em>筆</em></span></button>
+        <button type="button" class="yx104-today-card" data-yx104-today-filter="unplaced"><span class="yx104-today-title">未入倉</span><span class="yx104-today-count"><b>0</b><em>件</em></span></button>
+      </div>
+    </div>
+
     <div class="today-columns today-columns-4 today-columns-vertical">
       <div class="glass panel" data-today-panel="inbound"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"></div></div>
       <div class="glass panel" data-today-panel="outbound"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"></div></div>

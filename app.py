@@ -112,13 +112,24 @@ def log_action(username, action):
     notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
 
 
+def yx_local_now():
+    """Render 多數環境是 UTC；系統操作以台灣時間判斷每日備份。"""
+    return datetime.utcnow() + timedelta(hours=8)
+
+def auto_daily_backup_allowed_now():
+    try:
+        hour = int(os.getenv("YX_AUTO_DAILY_BACKUP_HOUR", "2"))
+    except Exception:
+        hour = 2
+    return int(yx_local_now().hour) == hour
+
 _DAILY_BACKUP_LOCK = threading.Lock()
 _DAILY_BACKUP_STARTED_FOR = set()
 
 def ensure_daily_backup():
     """同步備份：只給手動工具或背景執行緒使用，不放在使用者開頁流程。"""
     try:
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = yx_local_now().strftime('%Y-%m-%d')
         if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
             return {'success': True, 'skipped': True, 'reason': 'already-backed-up-today'}
         result = run_daily_backup()
@@ -135,7 +146,7 @@ def ensure_daily_backup_async():
     舊版在 before_request 直接 dump 全部 PostgreSQL 表，資料變多時 Render 可能逾時。
     這裡只在同一天啟動一次背景執行緒，使用者頁面立即回應。
     """
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = yx_local_now().strftime('%Y-%m-%d')
     with _DAILY_BACKUP_LOCK:
         if today in _DAILY_BACKUP_STARTED_FOR:
             return
@@ -307,7 +318,8 @@ def protect_pages():
     path = request.path
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
     # FIX100：預設啟用每日自動備份；若要關閉可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=0。
-    if os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+    if (os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and auto_daily_backup_allowed_now()
+            and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health")):
         ensure_daily_backup_async()
     if path.startswith("/static/") or path in ("/health",):
         return None
@@ -560,7 +572,7 @@ def customer_groups():
 def home():
     if not require_login():
         return redirect(url_for("login_page"))
-    return render_template("index.html", username=current_username(), title="沅興木業", today=datetime.now().strftime('%Y-%m-%d'))
+    return render_template("index.html", username=current_username(), title="沅興木業", today=yx_local_now().strftime('%Y-%m-%d'))
 
 @app.route("/login")
 def login_page():
@@ -1784,7 +1796,7 @@ def api_orders_to_master():
 
 
 def _today_key():
-    return datetime.now().strftime('%Y-%m-%d')
+    return yx_local_now().strftime('%Y-%m-%d')
 
 def _aggregate_customer_products(rows):
     out = {}

@@ -3207,3 +3207,120 @@ html[data-yx-fix103="FIX103_SPEED_FONT_STABLE"] #today-summary-cards .yx102-toda
   #today-summary-cards .yx103-today-count em{font-size:17px!important;}
 }
 /* ==== FIX103 end ==== */
+
+/* ==== FIX104: one true today layout + clean product cards ==== */
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] .today-filter-bar,
+.today-filter-bar.yx104-hidden{display:none!important;}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards,
+#today-summary-cards.yx104-today-root{
+  display:block!important;
+  min-height:288px!important;
+  contain:layout paint!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx104-today-grid,
+#today-summary-cards .yx104-today-grid,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-grid,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-grid,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards{
+  grid-template-columns:1fr!important;
+  gap:0!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx104-today-grid,
+#today-summary-cards .yx104-today-grid,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-grid,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-grid{
+  display:grid!important;
+  width:100%!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx104-today-card,
+#today-summary-cards .yx104-today-card,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-card,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-card,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx101-today-card,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .card{
+  width:100%!important;
+  height:76px!important;
+  min-height:76px!important;
+  max-height:76px!important;
+  margin:0!important;
+  padding:0 14px!important;
+  border-radius:16px!important;
+  border:1px solid rgba(15,23,42,.08)!important;
+  background:#fff!important;
+  box-shadow:none!important;
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  overflow:hidden!important;
+  text-align:left!important;
+  transform:none!important;
+  appearance:none!important;
+  -webkit-appearance:none!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx104-today-card + .yx104-today-card,
+#today-summary-cards .yx104-today-card + .yx104-today-card{margin-top:-1px!important;}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] .yx104-today-title,
+#today-summary-cards .yx104-today-title,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-title,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-title,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .title{
+  font-size:14px!important;
+  line-height:20px!important;
+  height:auto!important;
+  font-weight:900!important;
+  color:#0f172a!important;
+  white-space:nowrap!important;
+  margin:0!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] .yx104-today-count,
+#today-summary-cards .yx104-today-count,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-count,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-count,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .sub{
+  display:flex!important;
+  align-items:baseline!important;
+  gap:1px!important;
+  height:34px!important;
+  min-height:34px!important;
+  max-height:34px!important;
+  margin:0!important;
+  white-space:nowrap!important;
+  font-variant-numeric:tabular-nums!important;
+  letter-spacing:-.03em!important;
+  color:#0f172a!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] .yx104-today-count b,
+#today-summary-cards .yx104-today-count b,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-count b,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx102-today-count,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .sub{
+  font-size:30px!important;
+  line-height:34px!important;
+  font-weight:950!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] .yx104-today-count em,
+#today-summary-cards .yx104-today-count em,
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx103-today-count em{
+  font-style:normal!important;
+  font-size:18px!important;
+  line-height:22px!important;
+  font-weight:850!important;
+}
+html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .small-note{display:none!important;}
+.yx104-clean-product-card .yx63-item-grid{display:block!important;}
+.yx104-card-meta-row{display:flex!important;align-items:baseline!important;justify-content:space-between!important;gap:10px!important;margin-bottom:8px!important;}
+.yx104-card-material,.yx104-card-qty{font-size:18px!important;line-height:1.15!important;font-weight:950!important;color:#059669!important;white-space:nowrap!important;}
+.yx104-card-qty{color:#0f172a!important;}
+.yx104-card-formula{font-size:24px!important;line-height:1.12!important;font-weight:950!important;color:#0f172a!important;word-break:break-word!important;letter-spacing:-.02em!important;}
+.yx104-clean-product-card .yx63-card-actions{display:flex!important;gap:8px!important;flex-wrap:wrap!important;margin-top:12px!important;}
+.yx104-clean-product-card .yx63-card-actions button{font-size:12px!important;line-height:1!important;}
+@media(max-width:720px){
+  html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards,
+  #today-summary-cards.yx104-today-root{min-height:288px!important;}
+  html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .yx104-today-card,
+  #today-summary-cards .yx104-today-card{height:76px!important;min-height:76px!important;max-height:76px!important;}
+  .yx104-card-formula{font-size:23px!important;}
+  .yx104-card-material,.yx104-card-qty{font-size:17px!important;}
+}
+/* ==== FIX104 end ==== */
