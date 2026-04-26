@@ -11170,7 +11170,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX106: single warehouse cell editor + all-unplaced dropdown master ==== */
 (function(){
   'use strict';
-  const VERSION = 'FIX106_ALL_UNPLACED_DROPDOWN_SINGLE_MASTER';
+  const VERSION = 'FIX107_SLOT_DISPLAY_CLEAN_TOTAL_RED_MASTER';
   if (window.__YX106_WAREHOUSE_MASTER__) return;
   window.__YX106_WAREHOUSE_MASTER__ = true;
 
@@ -11225,7 +11225,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function customerName(raw){
     const s = clean(raw || '未指定客戶');
-    return clean(s.replace(/\s*(FOB代|FOB|CNF)\s*$/i, '')) || s || '未指定客戶';
+    const stripped = clean(s.replace(/\s*(FOB代付|FOB代|FOB|CNF)\s*/gi, ' '));
+    return stripped || '未指定客戶';
   }
   function placement(idx, it){ return clean(it?.placement_label || it?.layer_label || it?.position_label || (idx === 0 ? '後排' : idx === 1 ? '中間' : idx === 2 ? '前排' : `第${idx + 1}筆`)); }
   function optionText(it, isCurrent=false){
@@ -11308,9 +11309,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const key1 = [zone, col, 'direct', slot].join('|'), key2 = `${zone}-${col}-${slot}`;
     const hi = !!(window.state?.searchHighlightKeys && (window.state.searchHighlightKeys.has(key1) || window.state.searchHighlightKeys.has(key2)));
     const body = groups.length
-      ? groups.map(g => `<div class="yx106-slot-group"><div class="yx106-slot-head"><span>第${String(slot).padStart(2,'0')}格</span> <span class="yx106-slot-customer">${esc(g.name)}</span></div><div class="yx106-slot-qty"><span class="yx106-slot-sum">${esc(g.qtys.join('+'))}</span><span class="yx106-slot-total">${g.total}件</span></div></div>`).join('')
-      : `<div class="yx106-slot-head"><span>第${String(slot).padStart(2,'0')}格</span> <span class="yx106-slot-empty">空格</span></div>`;
-    return `<div class="yx106-slot yx105-slot yx103-slot yx102-slot yx96-slot vertical-slot ${groups.length ? 'filled' : ''} ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true">${body}</div>`;
+      ? groups.map(g => `<div class="yx106-slot-group"><div class="yx106-slot-head"><span class="yx106-slot-left"><span class="yx106-slot-title">第${String(slot).padStart(2,'0')}格</span><span class="yx106-slot-customer">${esc(g.name)}</span></span><span class="yx106-slot-total">${g.total}件</span></div><div class="yx106-slot-qty"><span class="yx106-slot-sum">${esc(g.qtys.join('+'))}</span></div></div>`).join('')
+      : `<div class="yx106-slot-head"><span class="yx106-slot-left"><span class="yx106-slot-title">第${String(slot).padStart(2,'0')}格</span><span class="yx106-slot-empty">空格</span></span></div>`;
+    return `<div class="yx106-slot vertical-slot ${groups.length ? 'filled' : ''} ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true">${body}</div>`;
   }
   function bindSlot(el){
     if (!el || el.dataset.yx106Bound === '1') return;
@@ -11646,4 +11647,4 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
   window.addEventListener('pageshow', install);
 })();
-/* ==== FIX106 end ==== */
+/* ==== FIX107 end ==== */

@@ -3196,3 +3196,29 @@ html[data-yx-fix105="FIX105_WAREHOUSE_BATCH_DROPDOWN_CURRENT_CELL_SYNC"] .yx105-
 .yx106-action-stack{display:grid!important;gap:10px!important;}
 @media(max-width:720px){.yx106-batch-row{grid-template-columns:48px minmax(0,1fr) 64px!important}.yx106-slot{font-size:16px!important;}}
 /* ==== FIX106 end ==== */
+
+
+/* ==== FIX107: warehouse slot display clean master ==== */
+html[data-yx-fix106="FIX107_SLOT_DISPLAY_CLEAN_TOTAL_RED_MASTER"] .yx106-slot,
+.yx106-slot{
+  font-size:16px!important;
+  font-weight:950!important;
+  line-height:1.25!important;
+}
+html[data-yx-fix106="FIX107_SLOT_DISPLAY_CLEAN_TOTAL_RED_MASTER"] .yx106-slot *,
+.yx106-slot *{
+  font-size:inherit!important;
+  font-weight:inherit!important;
+  line-height:inherit!important;
+}
+.yx106-slot-group{width:100%!important;display:flex!important;flex-direction:column!important;gap:4px!important;}
+.yx106-slot-head{width:100%!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;flex-wrap:nowrap!important;}
+.yx106-slot-left{display:flex!important;align-items:center!important;gap:6px!important;min-width:0!important;overflow:hidden!important;}
+.yx106-slot-title{white-space:nowrap!important;color:#0f172a!important;}
+.yx106-slot-customer{color:#dc2626!important;font-weight:950!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+.yx106-slot-total{margin-left:auto!important;color:#dc2626!important;font-weight:950!important;white-space:nowrap!important;}
+.yx106-slot-qty{display:block!important;margin-top:2px!important;color:#111827!important;}
+.yx106-slot-sum{color:#111827!important;font-weight:950!important;}
+.yx106-slot-empty{color:#94a3b8!important;font-weight:950!important;}
+.yx106-slot .slot-line,.yx106-slot .slot-count,.yx106-slot .slot-sep,.yx106-slot-product,.yx106-slot-material{display:none!important;}
+/* ==== FIX107 end ==== */

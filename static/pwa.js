@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix103-auto-today-single-cell-master';
+  const PWA_VERSION = 'fix107-slot-display-clean-total-red';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
