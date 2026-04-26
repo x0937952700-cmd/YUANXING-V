@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX99_COMMERCIAL_STABILITY",
+        "FIX98_TRUE_MASTER_UPGRADE",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -25,10 +25,10 @@ required = {
         "deleteWarehouseCell",
     ],
     "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search"],
-    "templates/base.html": ["FIX99_COMMERCIAL_STABILITY", "app.js", "pwa.js", "fix99-commercial-stability"],
-    "static/service-worker.js": ["FIX99_COMMERCIAL_STABILITY", "fix99-commercial-stability"],
-    "static/pwa.js": ["fix99-commercial-stability"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix99-commercial-stability"'],
+    "templates/base.html": ["FIX98_TRUE_MASTER_UPGRADE", "app.js", "pwa.js", "fix98-true-master-upgrade"],
+    "static/service-worker.js": ["FIX98_TRUE_MASTER_UPGRADE", "fix98-true-master-upgrade"],
+    "static/pwa.js": ["fix98-true-master-upgrade"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix98-true-master-upgrade"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX99 smoke test OK")
+print("FIX98 smoke test OK")

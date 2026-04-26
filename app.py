@@ -2286,35 +2286,6 @@ def api_reports_export():
         rows = get_customers(active_only=False)
         columns = [('客戶UID', 'customer_uid'), ('客戶名稱', 'name'), ('電話', 'phone'), ('地址', 'address'), ('區域', 'region'), ('特殊要求', 'notes'), ('封存', 'is_archived'), ('更新時間', 'updated_at')]
         name = '客戶資料.xlsx'
-    elif report_type == 'today_changes':
-        payload = _today_changes_payload()
-        rows = []
-        for group, label in [('inbound', '進貨'), ('outbound', '出貨'), ('new_orders', '新增訂單')]:
-            for r in (payload.get('feed', {}).get(group) or []):
-                rows.append({'type': label, **r})
-        for r in (payload.get('unplaced_items') or []):
-            rows.append({'type': '未入倉', 'created_at': now(), 'username': '', 'action': r.get('message') or '', 'customer_name': r.get('customer_name') or '', 'product_text': r.get('product_text') or '', 'qty': r.get('qty') or r.get('unplaced_qty') or 0})
-        columns = [('類型', 'type'), ('時間', 'created_at'), ('操作人', 'username'), ('內容', 'action'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty')]
-        name = '今日異動.xlsx'
-    elif report_type == 'customer_statement':
-        customer = (request.args.get('customer_name') or request.args.get('customer') or '').strip()
-        rows = []
-        for label, source_rows in [('庫存', list_inventory()), ('訂單', get_orders()), ('總單', get_master_orders()), ('出貨', get_shipping_records(start_date or None, end_date or None, customer))]:
-            for r in source_rows:
-                if customer and customer not in (r.get('customer_name') or ''):
-                    continue
-                rows.append({'source': label, **r})
-        columns = [('來源', 'source'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('材質', 'material'), ('數量', 'qty'), ('操作人員', 'operator'), ('時間', 'updated_at'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
-        name = f"{customer or '全部客戶'}_對帳單.xlsx"
-    elif report_type == 'system_health':
-        payload = _fix99_system_health_payload()
-        rows = []
-        for c in payload.get('checks') or []:
-            rows.append({'name': c.get('name'), 'ok': '正常' if c.get('ok') else '需處理', 'count': c.get('count'), 'message': c.get('message')})
-            for it in (c.get('items') or [])[:300]:
-                rows.append({'name': '  - ' + c.get('name', ''), 'ok': '', 'count': '', 'message': json.dumps(it, ensure_ascii=False)})
-        columns = [('檢查項目', 'name'), ('狀態', 'ok'), ('數量', 'count'), ('內容', 'message')]
-        name = '系統健康檢查.xlsx'
     else:
         return error_response('報表類型不存在')
 
@@ -2335,7 +2306,8 @@ def api_backup_download(filename):
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
 def api_backup_restore():
-    """FIX99：還原前自動先備份；JSON 還原採存在欄位交集，避免新舊版本欄位不同造成失敗。"""
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
     filename = os.path.basename((data.get('filename') or '').strip())
     if not filename:
@@ -2343,59 +2315,34 @@ def api_backup_restore():
     path = os.path.join('backups', filename)
     if not os.path.isfile(path):
         return error_response('找不到備份檔', 404)
-
-    # 還原前先自動備份一次，避免誤還原時沒有退路。
-    pre_backup = run_daily_backup()
-
-    if not filename.endswith('.json'):
-        return error_response('目前只支援 JSON 備份還原')
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-    except Exception as e:
-        log_error('backup_restore_read', str(e))
-        return error_response('備份檔讀取失敗')
-
-    conn = get_db(); cur = conn.cursor()
-    tables = ['users','customer_profiles','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','ocr_usage','submit_requests','warehouse_cells','customer_aliases','warehouse_recent_slots','audit_trails','todo_items','app_settings']
-    restored_tables = []
-    try:
-        def table_columns(table):
-            if os.getenv('DATABASE_URL', '').lower().startswith(('postgres://','postgresql://')):
-                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s", (table,))
-                return {r[0] for r in cur.fetchall()}
-            cur.execute(f"PRAGMA table_info({re.sub(r'[^A-Za-z0-9_]', '', table)})")
-            return {r[1] for r in cur.fetchall()}
-
-        for table in tables:
-            if table not in payload:
-                continue
-            cols_available = table_columns(table)
-            if not cols_available:
-                continue
-            cur.execute(sql(f'DELETE FROM {table}'))
-            rows = payload.get(table) or []
-            for row in rows:
-                if not isinstance(row, dict):
+    if filename.endswith('.json'):
+        payload = json.load(open(path, 'r', encoding='utf-8'))
+        conn = get_db(); cur = conn.cursor()
+        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','app_settings','customer_aliases','warehouse_recent_slots','audit_trails','todo_items']
+        try:
+            for table in tables:
+                if table not in payload:
                     continue
-                keys = [k for k in row.keys() if k in cols_available]
-                if not keys:
-                    continue
-                cols = ','.join(keys)
-                holders = ','.join(['?'] * len(keys))
-                cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row.get(k) for k in keys))
-            restored_tables.append(table)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log_error('backup_restore', str(e))
-        return error_response('還原失敗，已保留還原前自動備份')
-    finally:
-        conn.close()
+                cur.execute(sql(f'DELETE FROM {table}'))
+                rows = payload.get(table) or []
+                for row in rows:
+                    keys = list(row.keys())
+                    if not keys:
+                        continue
+                    cols = ','.join(keys)
+                    holders = ','.join(['?'] * len(keys))
+                    cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row[k] for k in keys))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            log_error('backup_restore', str(e))
+            return error_response('還原失敗')
+        finally:
+            conn.close()
+        notify_sync_event(kind='refresh', module='all', message='已還原備份')
+        return jsonify(success=True)
+    return error_response('目前只支援 JSON 備份還原')
 
-    add_audit_trail(current_username(), 'restore', 'backup', filename, before_json={'pre_backup': pre_backup}, after_json={'filename': filename, 'tables': restored_tables})
-    notify_sync_event(kind='refresh', module='all', message='已還原備份')
-    return jsonify(success=True, pre_backup=pre_backup, restored_tables=restored_tables)
 
 @app.route('/api/undo-last', methods=['POST'])
 @login_required_json
@@ -2483,150 +2430,6 @@ def api_undo_last():
             pass
         log_error('undo_last', str(e))
         return error_response('還原上一筆失敗')
-
-
-# ==== FIX99：商用安全穩定工具（不新增權限分級） ====
-def _fix99_fetch_all_table(table):
-    conn = get_db(); cur = conn.cursor()
-    try:
-        cur.execute(sql(f"SELECT * FROM {table}"))
-        return rows_to_dict(cur)
-    finally:
-        conn.close()
-
-def _fix99_table_count(cur, table):
-    try:
-        cur.execute(sql(f"SELECT COUNT(*) AS cnt FROM {table}"))
-        row = fetchone_dict(cur) or {}
-        return int(row.get('cnt') or 0)
-    except Exception:
-        return 0
-
-def _fix99_system_health_payload():
-    """資料健康檢查：負數、重複、未入倉、倉庫量超過來源量、近期錯誤與備份狀態。"""
-    result = {'ok': True, 'generated_at': now(), 'summary': {}, 'checks': []}
-    problems = []
-
-    def add_check(name, ok=True, count=0, items=None, message=''):
-        nonlocal problems
-        item = {'name': name, 'ok': bool(ok), 'count': int(count or 0), 'items': items or [], 'message': message}
-        result['checks'].append(item)
-        if not ok:
-            problems.append(item)
-
-    try:
-        inv = list_inventory()
-        orders = get_orders()
-        masters = get_master_orders()
-        shipping = get_shipping_records()
-        cells = warehouse_get_cells()
-        backups = list_backups().get('files', []) if callable(list_backups) else []
-
-        result['summary'] = {
-            'inventory_rows': len(inv),
-            'order_rows': len(orders),
-            'master_order_rows': len(masters),
-            'shipping_rows': len(shipping),
-            'warehouse_cells': len(cells),
-            'backup_files': len(backups),
-        }
-
-        negative = []
-        for source, rows in [('庫存', inv), ('訂單', orders), ('總單', masters)]:
-            for r in rows:
-                if int(r.get('qty') or 0) < 0:
-                    negative.append({'source': source, 'id': r.get('id'), 'customer_name': r.get('customer_name') or '', 'product_text': r.get('product_text') or '', 'qty': int(r.get('qty') or 0)})
-        add_check('負數數量', ok=(len(negative) == 0), count=len(negative), items=negative[:80], message='庫存 / 訂單 / 總單不可出現負數')
-
-        source_totals, source_details = warehouse_source_totals()
-        placed = warehouse_placed_totals()
-        over_placed, unplaced = [], []
-        for key, total in source_totals.items():
-            size, customer = key
-            pqty = int(placed.get(key, 0) or 0)
-            total = int(total or 0)
-            if pqty > total:
-                over_placed.append({'customer_name': customer, 'product_text': size, 'source_qty': total, 'warehouse_qty': pqty, 'over_qty': pqty - total})
-            elif total > pqty:
-                source_qty = {}
-                for d in source_details.get(key, []):
-                    source_qty[d.get('source') or '來源'] = int(source_qty.get(d.get('source') or '來源', 0) or 0) + int(d.get('qty') or 0)
-                unplaced.append({'customer_name': customer, 'product_text': size, 'total_qty': total, 'placed_qty': pqty, 'unplaced_qty': total - pqty, 'source_qty': source_qty})
-        add_check('倉庫數量超過來源', ok=(len(over_placed) == 0), count=len(over_placed), items=over_placed[:100], message='倉庫格位數量不可大於庫存 / 訂單 / 總單來源數量')
-        add_check('未錄入倉庫圖', ok=True, count=sum(int(x.get('unplaced_qty') or 0) for x in unplaced), items=unplaced[:150], message='此項為提醒，不算錯誤')
-
-        def duplicate_rows(rows, source):
-            seen = {}
-            for r in rows:
-                key = ((r.get('customer_name') or '').strip(), format_product_text_height2(r.get('product_text') or ''), clean_material_value(r.get('material') or r.get('product_code') or '', r.get('product_text') or ''))
-                if not key[1]:
-                    continue
-                seen.setdefault(key, []).append(r)
-            out = []
-            for key, vals in seen.items():
-                if len(vals) > 1:
-                    out.append({'source': source, 'customer_name': key[0], 'product_text': key[1], 'material': key[2], 'rows': len(vals), 'qty_total': sum(int(v.get('qty') or 0) for v in vals)})
-            return out
-
-        dups = duplicate_rows(inv, '庫存') + duplicate_rows(orders, '訂單') + duplicate_rows(masters, '總單')
-        add_check('同客戶同尺寸材質重複', ok=True, count=len(dups), items=dups[:150], message='此項可用於判斷是否需要合併')
-
-        customers = get_customers(active_only=False)
-        name_counts = {}
-        for c in customers:
-            n = (c.get('name') or '').strip()
-            if n:
-                name_counts[n] = name_counts.get(n, 0) + 1
-        dup_customers = [{'name': k, 'rows': v} for k, v in name_counts.items() if v > 1]
-        add_check('重複客戶名稱', ok=(len(dup_customers) == 0), count=len(dup_customers), items=dup_customers[:50], message='客戶名稱重複會影響自動補全與出貨比對')
-
-        conn = get_db(); cur = conn.cursor()
-        try:
-            result['summary']['audit_rows'] = _fix99_table_count(cur, 'audit_trails')
-            result['summary']['error_rows'] = _fix99_table_count(cur, 'errors')
-            cur.execute(sql("SELECT source, message, created_at FROM errors ORDER BY id DESC LIMIT 20"))
-            errors = rows_to_dict(cur)
-        finally:
-            conn.close()
-        add_check('近期後端錯誤', ok=(len(errors) == 0), count=len(errors), items=errors[:20], message='若這裡有項目，表示後端曾記錄錯誤')
-
-        add_check('備份狀態', ok=(len(backups) > 0), count=len(backups), items=backups[:10], message='建議至少保留最近 30 份備份')
-    except Exception as e:
-        log_error('system_health_payload', str(e))
-        add_check('健康檢查執行', ok=False, count=1, items=[{'error': str(e)}], message='健康檢查本身執行失敗')
-
-    result['ok'] = len([x for x in problems if x.get('name') not in ('近期後端錯誤',)]) == 0
-    result['problem_count'] = len(problems)
-    return result
-
-@app.route('/api/system-health', methods=['GET'])
-@login_required_json
-def api_system_health():
-    return jsonify(success=True, **_fix99_system_health_payload())
-
-@app.route('/api/backups/auto', methods=['POST'])
-@login_required_json
-def api_backup_auto():
-    """手動觸發商用備份，使用同一套 30 份保留策略。"""
-    result = run_daily_backup()
-    if result.get('success'):
-        add_audit_trail(current_username(), 'create', 'backup', os.path.basename(result.get('file') or ''), before_json={}, after_json=result)
-        notify_sync_event(kind='refresh', module='settings', message='備份已建立')
-    return jsonify(result)
-
-@app.route('/api/offline/replay', methods=['POST'])
-@login_required_json
-def api_offline_replay():
-    """離線暫存補送入口：前端可把暫存動作批次送回。"""
-    data = request.get_json(silent=True) or {}
-    queued = data.get('items') or []
-    accepted = []
-    for item in queued:
-        if not isinstance(item, dict):
-            continue
-        accepted.append({'url': item.get('url'), 'method': item.get('method'), 'at': item.get('at')})
-    add_audit_trail(current_username(), 'sync', 'offline_queue', 'replay', before_json={}, after_json={'count': len(accepted), 'items': accepted[:20]})
-    return jsonify(success=True, count=len(accepted))
 
 
 @app.route('/api/session/config', methods=['GET'])

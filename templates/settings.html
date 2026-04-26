@@ -52,18 +52,7 @@
     <div id="undo-msg" class="small-note">尚未執行還原。</div>
   </div>
 
-  <div class="glass panel">
-    <div class="section-head">
-      <div>
-        <div class="section-title">系統健康檢查</div>
-        <div class="muted">檢查負數、倉庫量超過來源、未入倉、重複商品、近期錯誤與備份狀態。</div>
-      </div>
-      <button class="primary-btn" onclick="runSystemHealth()">立即檢查</button>
-    </div>
-    <div id="system-health-panel" class="table-card">尚未檢查。</div>
-  </div>
-
-  <div class="glass panel">
+<div class="glass panel">
     <div class="section-head">
       <div>
         <div class="section-title">報表匯出</div>
@@ -73,15 +62,10 @@
     <div class="btn-row compact">
       <input class="text-input small" id="report-start" type="date">
       <input class="text-input small" id="report-end" type="date">
-      <input class="text-input small" id="report-customer" placeholder="客戶對帳可輸入客戶名">
       <button class="ghost-btn" onclick="downloadReport('inventory')">庫存報表</button>
-      <button class="ghost-btn" onclick="downloadReport('orders')">訂單報表</button>
       <button class="ghost-btn" onclick="downloadReport('shipping')">出貨報表</button>
       <button class="ghost-btn" onclick="downloadReport('master_orders')">總單報表</button>
-      <button class="ghost-btn" onclick="downloadReport('today_changes')">今日異動</button>
       <button class="ghost-btn" onclick="downloadReport('unplaced')">未錄入報表</button>
-      <button class="ghost-btn" onclick="downloadReport('customer_statement')">客戶對帳單</button>
-      <button class="ghost-btn" onclick="downloadReport('system_health')">健康檢查</button>
     </div>
   </div>
 
@@ -103,17 +87,6 @@
     <div id="audit-trails-list" class="chip-list stacked-list"></div>
   </div>
 
-  <div class="glass panel">
-    <div class="section-head">
-      <div>
-        <div class="section-title">資料備份 / 還原</div>
-        <div class="muted">可手動建立備份、下載備份；還原前會自動再備份一次，保留最近 30 份。</div>
-      </div>
-      <button class="primary-btn" onclick="createBackup()">立即備份</button>
-    </div>
-    <div id="backup-panel" class="table-card">載入中...</div>
-  </div>
-
   {% if is_admin %}
   <div class="glass panel">
     <div class="section-head">
@@ -127,6 +100,16 @@
   </div>
 
 
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">資料備份</div>
+        <div class="muted">可手動建立備份並查看最近備份清單。</div>
+      </div>
+      <button class="primary-btn" onclick="createBackup()">立即備份</button>
+    </div>
+    <div id="backup-panel" class="table-card">載入中...</div><div class="small-note">還原前請先下載備份保留一份。</div>
+  </div>
   {% endif %}
 
   <div class="glass panel">

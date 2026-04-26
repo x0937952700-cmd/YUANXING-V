@@ -2911,16 +2911,3 @@ html[data-yx-fix98="FIX98_TRUE_MASTER_UPGRADE"] .ghost-btn.yx98-pressed{transfor
 #yx98-organize-text-btn{margin-left:8px}
 @media(max-width:760px){.yx98-global-search{margin:8px 10px 12px;grid-template-columns:1fr;gap:8px}.yx98-global-search .small-btn{width:100%;height:44px}.yx98-search-row{grid-template-columns:1fr}.yx98-search-row em{justify-self:start}.text-area#ocr-text{font-size:17px;line-height:1.45}.yx82-preview-summary{grid-template-columns:1fr 1fr!important}.ship-breakdown-item{font-size:15px}}
 /* ==== FIX98 true master upgrade styles end ==== */
-
-/* ==== FIX99 commercial stability styles ==== */
-.yx99-offline-badge{
-  position:fixed; right:12px; bottom:calc(12px + env(safe-area-inset-bottom)); z-index:9999;
-  box-shadow:0 8px 22px rgba(0,0,0,.14); border-radius:999px; padding:8px 12px;
-}
-#system-health-panel .deduct-card{margin:8px 0;}
-#system-health-panel .error-card{border:1px solid rgba(180,30,30,.22); background:rgba(255,245,245,.92);}
-@media (max-width: 768px){
-  #system-health-panel .small-note{word-break:break-word;}
-  .yx99-offline-badge{right:10px; bottom:10px; font-size:12px;}
-}
-/* ==== FIX99 commercial stability styles end ==== */

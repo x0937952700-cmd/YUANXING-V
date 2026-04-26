@@ -2081,28 +2081,9 @@ def preview_ship_order(customer_name, items):
     finally:
         conn.close()
 
-def _ship_transaction_lock(cur, customer_name='', items=None):
-    """FIX99：出貨正式扣除前加交易鎖，避免多人同時確認造成重複扣貨。
-    PostgreSQL 使用 advisory transaction lock；SQLite 使用 BEGIN IMMEDIATE 鎖住寫入交易。
-    """
-    seed = 'ship|' + str(customer_name or '').strip()
-    try:
-        for it in (items or []):
-            seed += '|' + _merge_size_key(format_product_text_height2((it or {}).get('product_text') or ''))
-    except Exception:
-        pass
-    try:
-        if USE_POSTGRES:
-            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (seed,))
-        else:
-            cur.execute('BEGIN IMMEDIATE')
-    except Exception as e:
-        log_error('ship_transaction_lock', e)
-
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
     cur = conn.cursor()
-    _ship_transaction_lock(cur, customer_name, items)
     ship_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     try:
         breakdown = []
