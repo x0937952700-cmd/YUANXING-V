@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix104-today-speed-card-clean';
+  const PWA_VERSION = 'fix105-today-speed-final';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

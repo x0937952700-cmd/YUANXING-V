@@ -84,6 +84,8 @@ def current_username():
 SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
+TODAY_PAYLOAD_CACHE = {'ts': 0.0, 'data': None}
+TODAY_PAYLOAD_CACHE_TTL = int(os.getenv('YX_TODAY_CACHE_SECONDS', '25'))
 
 _db_log_action = log_action
 
@@ -109,6 +111,12 @@ def notify_sync_event(kind='refresh', module='all', message='', extra=None):
 
 def log_action(username, action):
     _db_log_action(username, action)
+    # FIX105：新增/出貨/倉庫異動後讓今日異動快取失效，避免重整時反覆全表計算。
+    try:
+        TODAY_PAYLOAD_CACHE['ts'] = 0.0
+        TODAY_PAYLOAD_CACHE['data'] = None
+    except Exception:
+        pass
     notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
 
 
@@ -1937,6 +1945,13 @@ def _today_unplaced_all_sources():
 
 
 def _today_changes_payload():
+    # FIX105：今日異動會計算未入倉總件數，資料多時會造成刷新卡頓；短快取降低重複計算。
+    try:
+        cached = TODAY_PAYLOAD_CACHE.get('data')
+        if cached is not None and (time.time() - float(TODAY_PAYLOAD_CACHE.get('ts') or 0)) < TODAY_PAYLOAD_CACHE_TTL:
+            return cached
+    except Exception:
+        pass
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1964,7 +1979,7 @@ def _today_changes_payload():
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
-    return {
+    payload = {
         'summary': {
             'inbound_count': len(inbound),
             'outbound_count': len(outbound),
@@ -1985,6 +2000,12 @@ def _today_changes_payload():
         'anomaly_groups': {'unplaced': unplaced},
         'read_at': read_at,
     }
+    try:
+        TODAY_PAYLOAD_CACHE['ts'] = time.time()
+        TODAY_PAYLOAD_CACHE['data'] = payload
+    except Exception:
+        pass
+    return payload
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json

@@ -3324,3 +3324,108 @@ html[data-yx-fix104="FIX104_TODAY_SPEED_CARD_CLEAN"] #today-summary-cards .small
   .yx104-card-material,.yx104-card-qty{font-size:17px!important;}
 }
 /* ==== FIX104 end ==== */
+
+/* ==== FIX105: today final row layout + speed consolidation ==== */
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] #today-summary-cards,
+#today-summary-cards.yx105-today-root{
+  display:block!important;
+  width:100%!important;
+  min-height:0!important;
+  height:auto!important;
+  margin:0 0 14px!important;
+  padding:0!important;
+  overflow:visible!important;
+}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-stack,
+#today-summary-cards .yx105-today-stack{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:0!important;
+  width:100%!important;
+}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-card,
+#today-summary-cards .yx105-today-card{
+  width:100%!important;
+  height:72px!important;
+  min-height:72px!important;
+  max-height:72px!important;
+  padding:0 18px!important;
+  margin:0!important;
+  border:1px solid rgba(15,23,42,.08)!important;
+  border-radius:18px!important;
+  background:#fff!important;
+  box-shadow:none!important;
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  text-align:left!important;
+  transform:none!important;
+  appearance:none!important;
+  -webkit-appearance:none!important;
+  font-family:inherit!important;
+  overflow:hidden!important;
+}
+#today-summary-cards .yx105-today-card + .yx105-today-card{margin-top:-1px!important;}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-title,
+#today-summary-cards .yx105-today-title{
+  display:block!important;
+  font-size:14px!important;
+  line-height:20px!important;
+  font-weight:900!important;
+  color:#0f172a!important;
+  white-space:nowrap!important;
+  margin:0!important;
+  padding:0!important;
+  flex:0 0 auto!important;
+}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-count,
+#today-summary-cards .yx105-today-count{
+  display:flex!important;
+  flex-direction:row!important;
+  align-items:baseline!important;
+  justify-content:flex-end!important;
+  gap:1px!important;
+  min-width:92px!important;
+  height:36px!important;
+  min-height:36px!important;
+  max-height:36px!important;
+  margin:0!important;
+  padding:0!important;
+  color:#0f172a!important;
+  font-variant-numeric:tabular-nums!important;
+  white-space:nowrap!important;
+}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-count b,
+#today-summary-cards .yx105-today-count b{
+  display:inline-block!important;
+  font-size:30px!important;
+  line-height:36px!important;
+  font-weight:950!important;
+  letter-spacing:-.03em!important;
+  margin:0!important;
+  padding:0!important;
+}
+html[data-yx-fix105="FIX105_TODAY_SPEED_FINAL"] .yx105-today-count em,
+#today-summary-cards .yx105-today-count em{
+  display:inline-block!important;
+  font-style:normal!important;
+  font-size:18px!important;
+  line-height:22px!important;
+  font-weight:850!important;
+  margin:0!important;
+  padding:0!important;
+}
+#today-summary-cards .yx105-today-card.active{background:#f0fdfa!important;border-color:rgba(15,118,110,.35)!important;}
+.yx105-clean-product-card .yx63-item-grid{display:block!important;}
+.yx105-card-meta-row{display:flex!important;align-items:baseline!important;justify-content:space-between!important;gap:10px!important;margin-bottom:8px!important;}
+.yx105-card-material{font-size:18px!important;line-height:1.15!important;font-weight:950!important;color:#059669!important;white-space:nowrap!important;}
+.yx105-card-formula{font-size:24px!important;line-height:1.12!important;font-weight:950!important;color:#0f172a!important;word-break:break-word!important;letter-spacing:-.02em!important;}
+@media(max-width:720px){
+  #today-summary-cards.yx105-today-root{min-height:0!important;}
+  #today-summary-cards .yx105-today-card{height:70px!important;min-height:70px!important;max-height:70px!important;}
+  .yx105-card-formula{font-size:23px!important;}
+  .yx105-card-material{font-size:17px!important;}
+}
+/* ==== FIX105 end ==== */
+/* FIX105: one true today row layout */
