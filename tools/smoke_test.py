@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX111_LEGACY_PURGE_SPEED_LOCK",
+        "FIX110_LEGACY_SPEED_MASTER",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,13 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "FIX111_LEGACY_PURGE_SPEED_LOCK",
+        "FIX110_LEGACY_SPEED_MASTER",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX111: only one today vertical card UI"],
-    "templates/base.html": ["FIX111_LEGACY_PURGE_SPEED_LOCK", "app.js", "pwa.js", "fix111-legacy-purge-speed-lock"],
-    "static/service-worker.js": ["FIX111_LEGACY_PURGE_SPEED_LOCK", "fix111-legacy-purge-speed-lock"],
-    "static/pwa.js": ["fix111-legacy-purge-speed-lock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix111-legacy-purge-speed-lock"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX110 legacy UI hard hide"],
+    "templates/base.html": ["FIX110_LEGACY_SPEED_MASTER", "app.js", "pwa.js", "fix110-legacy-speed-master"],
+    "static/service-worker.js": ["FIX110_LEGACY_SPEED_MASTER", "fix110-legacy-speed-master"],
+    "static/pwa.js": ["fix110-legacy-speed-master"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix110-legacy-speed-master"'],
 }
 
 for rel, tokens in required.items():
@@ -59,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX111 smoke test OK")
+print("FIX110 smoke test OK")

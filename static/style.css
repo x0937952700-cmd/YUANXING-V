@@ -3500,29 +3500,3 @@ html[data-yx-fix106="FIX106_MANUAL_TODAY_CARD_SPEED"] .today-filter-bar,
 html[data-yx-fix110] .today-filter-bar{display:none!important;}
 html[data-yx-fix110] .yx101-today-grid,html[data-yx-fix110] .yx102-today-grid,html[data-yx-fix110] .yx103-today-grid,html[data-yx-fix110] .yx104-today-grid,html[data-yx-fix110] .yx105-today-stack,html[data-yx-fix110] .yx106-today-stack{display:none!important;}
 /* ==== FIX110 end ==== */
-
-/* ==== FIX111: only one today vertical card UI + legacy interface hard hide ==== */
-html[data-yx-fix111] .today-filter-bar{display:none!important;}
-html[data-yx-fix111] #today-summary-cards{display:block!important;width:100%!important;margin:0 0 14px!important;padding:0!important;min-height:0!important;height:auto!important;overflow:visible!important;contain:layout paint!important;}
-html[data-yx-fix111] #today-summary-cards > :not(.yx111-today-stack){display:none!important;}
-html[data-yx-fix111] #today-summary-cards .yx101-today-grid,
-html[data-yx-fix111] #today-summary-cards .yx102-today-grid,
-html[data-yx-fix111] #today-summary-cards .yx103-today-grid,
-html[data-yx-fix111] #today-summary-cards .yx104-today-grid,
-html[data-yx-fix111] #today-summary-cards .yx105-today-stack,
-html[data-yx-fix111] #today-summary-cards .yx106-today-stack,
-html[data-yx-fix111] #today-summary-cards .yx108-today-stack,
-html[data-yx-fix111] #today-summary-cards .yx110-today-stack{display:none!important;}
-.yx111-today-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;}
-.yx111-today-stack{display:flex!important;flex-direction:column!important;gap:12px!important;width:100%!important;}
-.yx111-today-card{width:100%!important;border:1px solid rgba(120,84,54,.16)!important;background:rgba(255,255,255,.94)!important;border-radius:18px!important;padding:14px 16px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;text-align:left!important;box-shadow:0 10px 28px rgba(68,45,30,.08)!important;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease!important;appearance:none!important;-webkit-appearance:none!important;font-family:inherit!important;}
-.yx111-today-card:active{transform:scale(.985)!important;}
-.yx111-today-card.active{border-color:rgba(123,74,38,.45)!important;box-shadow:0 12px 30px rgba(123,74,38,.13)!important;}
-.yx111-today-title{font-weight:850!important;color:#3b2b20!important;}
-.yx111-today-count{display:flex!important;align-items:baseline!important;gap:4px!important;color:#7b4a26!important;font-variant-numeric:tabular-nums!important;}
-.yx111-today-count b{font-size:24px!important;line-height:1!important;font-weight:950!important;}
-.yx111-today-count em{font-style:normal!important;font-size:13px!important;font-weight:750!important;opacity:.78!important;}
-.yx111-hidden-empty-card,.yx102-hidden{display:none!important;}
-html[data-yx-fix111] .yx63-item-card .small-note:empty, html[data-yx-fix111] .inventory-action-card .small-note:empty{display:none!important;}
-@media(max-width:720px){.yx111-today-card{min-height:68px!important;padding:13px 15px!important;}.yx111-today-count b{font-size:25px!important;}}
-/* FIX111_LEGACY_PURGE_SPEED_LOCK */

@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix111-legacy-purge-speed-lock';
+  const PWA_VERSION = 'fix110-legacy-speed-master';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

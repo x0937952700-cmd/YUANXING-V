@@ -1,117 +1,3 @@
-/* ==== FIX111: early legacy function purge + return-page speed lock start ==== */
-(function(){
-  'use strict';
-  if(window.__YX111_SPEED_LOCK__) return;
-  window.__YX111_SPEED_LOCK__ = true;
-  window.__YX111_STATS__ = window.__YX111_STATS__ || {pageshowBlocked:0, mutationBlocked:0, bootTimeoutBlocked:0, todayFetchBlocked:0};
-  window.__YX111_NATIVE_ADD__ = window.__YX111_NATIVE_ADD__ || window.addEventListener.bind(window);
-  window.__YX111_NATIVE_SET_TIMEOUT__ = window.__YX111_NATIVE_SET_TIMEOUT__ || window.setTimeout.bind(window);
-  window.__YX111_NATIVE_SET_INTERVAL__ = window.__YX111_NATIVE_SET_INTERVAL__ || window.setInterval.bind(window);
-  window.__YX111_BOOT_TIMEOUT_LOCK__ = true;
-  try{
-    window.__YX106_EARLY_PERF_GUARD__ = true;
-    window.__YX103_SPEED_FONT_STABLE__ = true;
-    window.__YX105_TODAY_SPEED_FINAL__ = true;
-    window.__YX106_FINAL__ = true;
-    window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__ = true;
-    window.__YX108_SINGLE_TODAY_UI__ = true;
-  }catch(_e){}
-
-  // 舊版多個 pageshow 會在返回主頁 / 切功能頁時重新渲染整頁；只允許最新版安全標記。
-  try{
-    window.addEventListener = function(type, listener, options){
-      if(type === 'pageshow' && typeof listener === 'function' && !(listener.__yx111SafePageshow || listener.__yx110SafePageshow)){
-        window.__YX111_STATS__.pageshowBlocked++;
-        return undefined;
-      }
-      return window.__YX111_NATIVE_ADD__(type, listener, options);
-    };
-    window.__YX111_blockPageshow = function(){ window.__YX111_STATS__.pageshowBlocked++; return undefined; };
-  }catch(_e){}
-
-  // 舊版開頁後用多段 setTimeout 反覆 install / boot / schedule，造成首頁返回與功能開啟卡頓；啟動期直接攔掉。
-  try{
-    window.setTimeout = function(fn, delay){
-      try{
-        const d = Number(delay || 0);
-        const src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || '');
-        const isLegacyBoot = window.__YX111_BOOT_TIMEOUT_LOCK__ && d >= 50 && /\b(function\s+install\b|install82|install83|install84|install91|install96|install97|installSubmitMaster|scheduleTables|periodicCleanup|decorateItemCards94|enforceTodaySummary94|compactWarehouseAll9[4567]|removeLegacyWarehousePanels95|boot\(|boot\b|safeRunSoon|loadTodayChanges10[35678]|loadTodayChanges)\b/.test(src);
-        if(isLegacyBoot && !(fn && fn.__yx111AllowTimeout)){
-          window.__YX111_STATS__.bootTimeoutBlocked++;
-          return 0;
-        }
-      }catch(_e){}
-      return window.__YX111_NATIVE_SET_TIMEOUT__(fn, delay, ...Array.prototype.slice.call(arguments,2));
-    };
-    window.__YX111_NATIVE_SET_TIMEOUT__(function(){ window.__YX111_BOOT_TIMEOUT_LOCK__ = false; }, 1800);
-  }catch(_e){}
-
-  // 舊版離線佇列 interval 不應影響開頁；保留真正手動操作，不讓它在啟動期搶資源。
-  try{
-    window.setInterval = function(fn, delay){
-      try{
-        const src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || '');
-        if(window.__YX111_BOOT_TIMEOUT_LOCK__ && /flushQueue/.test(src)) return 0;
-      }catch(_e){}
-      return window.__YX111_NATIVE_SET_INTERVAL__(fn, delay, ...Array.prototype.slice.call(arguments,2));
-    };
-  }catch(_e){}
-
-  // 全頁 MutationObserver 是跳舊 UI / 卡頓主因，只保留局部元件 observer。
-  try{
-    const NativeMO = window.MutationObserver;
-    if(NativeMO && !NativeMO.__yx111Wrapped){
-      function YX111MutationObserver(callback){
-        let queued=false, lastMutations=null, lastObserver=null;
-        const throttled=function(mutations, observer){
-          lastMutations=mutations; lastObserver=observer;
-          if(queued) return;
-          queued=true;
-          const run=function(){ queued=false; try{ callback.call(this,lastMutations||[],lastObserver||observer); }catch(_e){} };
-          (window.requestAnimationFrame || window.__YX111_NATIVE_SET_TIMEOUT__)(run, 80);
-        };
-        const obs = new NativeMO(throttled);
-        const nativeObserve = obs.observe.bind(obs);
-        obs.observe=function(target, options){
-          try{
-            const fullPage = target === document || target === document.body || target === document.documentElement;
-            const subtree = !!(options && options.subtree);
-            const today = target && (target.id === 'today-summary-cards' || target.id === 'today-unplaced-list');
-            if((fullPage && subtree) || today){ window.__YX111_STATS__.mutationBlocked++; return undefined; }
-          }catch(_e){}
-          return nativeObserve(target, options);
-        };
-        return obs;
-      }
-      YX111MutationObserver.prototype = NativeMO.prototype;
-      YX111MutationObserver.__yx111Wrapped = true;
-      window.MutationObserver = YX111MutationObserver;
-    }
-  }catch(_e){}
-
-  // 今日異動開頁禁止舊函式偷打 API；只有右上刷新才可抓未入倉。
-  try{
-    if(!window.__YX111_NATIVE_FETCH__ && typeof window.fetch === 'function'){
-      window.__YX111_NATIVE_FETCH__ = window.fetch.bind(window);
-      window.fetch = function(input, init){
-        try{
-          const raw = typeof input === 'string' ? input : ((input && input.url) || '');
-          const url = new URL(raw, location.origin);
-          const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-          const manual = url.searchParams.get('refresh') === '1' || url.searchParams.get('include_unplaced') === '1' || window.__YX111_ALLOW_TODAY_FETCH__ === true || window.__YX110_ALLOW_TODAY_FETCH__ === true;
-          if(location.pathname.indexOf('/today-changes') >= 0 && method === 'GET' && url.pathname === '/api/today-changes' && !manual){
-            window.__YX111_STATS__.todayFetchBlocked++;
-            const empty={success:true,summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0},feed:{inbound:[],outbound:[],new_orders:[],others:[]},unplaced_items:[],anomalies:[],anomaly_groups:{unplaced:[]},read_at:''};
-            return Promise.resolve(new Response(JSON.stringify(empty),{status:200,headers:{'Content-Type':'application/json'}}));
-          }
-        }catch(_e){}
-        return window.__YX111_NATIVE_FETCH__(input, init);
-      };
-    }
-  }catch(_e){}
-})();
-/* ==== FIX111: early legacy function purge + return-page speed lock end ==== */
-
 /* ==== FIX110: early legacy throttle + navigation speed hard lock start ==== */
 (function(){
   'use strict';
@@ -245,6 +131,87 @@ window.escapeHTML = window.escapeHTML || function(str){
 
 
 
+/* ==== FIX106: early performance guard start ==== */
+(function(){
+  'use strict';
+  if(window.__YX106_EARLY_PERF_GUARD__) return;
+  window.__YX106_EARLY_PERF_GUARD__ = true;
+  // FIX108：舊版今日異動與舊版重畫守門員。
+  try{
+    window.__YX103_SPEED_FONT_STABLE__ = true;
+    window.__YX105_TODAY_SPEED_FINAL__ = true;
+    window.__YX106_FINAL__ = true;
+    window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__ = true;
+  }catch(_e){}
+  try{
+    if(!window.__YX108_EVENT_GUARD__){
+      window.__YX108_EVENT_GUARD__ = true;
+      const nativeAdd = window.addEventListener.bind(window);
+      window.addEventListener = function(type, listener, options){
+        if(type === 'pageshow' && typeof listener === 'function' && !listener.__yx108SafePageshow){
+          let lastRun = 0;
+          const wrapped = function(ev){
+            try{
+              const path = location.pathname || '/';
+              if(path === '/' || path === '/login') return;
+              const now = Date.now();
+              if(now - lastRun < 650) return;
+              lastRun = now;
+            }catch(_e){}
+            return listener.call(this, ev);
+          };
+          wrapped.__yx108WrappedPageshow = true;
+          return nativeAdd(type, wrapped, options);
+        }
+        return nativeAdd(type, listener, options);
+      };
+    }
+  }catch(_e){}
+
+  try{
+    const NativeMO = window.MutationObserver;
+    if(NativeMO && !NativeMO.__yx106Wrapped){
+      const registry = window.__YX_MUTATION_OBSERVERS__ = window.__YX_MUTATION_OBSERVERS__ || [];
+      function WrappedMutationObserver(callback){
+        let scheduled = false;
+        let lastMutations = null;
+        let lastObserver = null;
+        const wrapped = function(mutations, observer){
+          lastMutations = mutations;
+          lastObserver = observer;
+          if(scheduled) return;
+          scheduled = true;
+          const run = () => {
+            scheduled = false;
+            try{ callback.call(this, lastMutations || [], lastObserver || observer); }
+            catch(e){ try{ console.warn('YX MutationObserver skipped:', e); }catch(_){} }
+          };
+          (window.requestAnimationFrame || function(fn){ return setTimeout(fn, 80); })(run);
+        };
+        const obs = new NativeMO(wrapped);
+        const nativeObserve = obs.observe.bind(obs);
+        obs.observe = function(target, options){
+          try{
+            const isPageWide = (target === document.body || target === document.documentElement || target === document);
+            const fullSubtree = !!(options && options.childList && options.subtree);
+            const isOldToday = target && target.id === 'today-summary-cards';
+            if((isPageWide && fullSubtree) || isOldToday){
+              window.__YX106_SKIPPED_MUTATION_OBSERVERS__ = (window.__YX106_SKIPPED_MUTATION_OBSERVERS__ || 0) + 1;
+              return undefined;
+            }
+          }catch(_e){}
+          return nativeObserve(target, options);
+        };
+        registry.push(obs);
+        return obs;
+      }
+      WrappedMutationObserver.prototype = NativeMO.prototype;
+      WrappedMutationObserver.__yx106Wrapped = true;
+      window.MutationObserver = WrappedMutationObserver;
+    }
+  }catch(_e){}
+})();
+/* ==== FIX106: early performance guard end ==== */
 window.yxSortQtyExpression = window.yxSortQtyExpression || function(expr){
   const raw = String(expr || '')
     .replace(/[Ｘ×✕＊*X]/g,'x')
@@ -11149,6 +11116,420 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX102: full QA cleanup and last-master guard end ==== */
 
 
+/* ==== FIX103: stable today cards + speed guard start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX103_SPEED_FONT_STABLE';
+  if(window.__YX103_SPEED_FONT_STABLE__) return;
+  window.__YX103_SPEED_FONT_STABLE__=true;
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean=v=>String(v??'').trim();
+  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){
+    const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const txt=await res.text(); let data={};
+    try{data=txt?JSON.parse(txt):{};}catch(_){data={success:false,error:txt||'伺服器回應格式錯誤'};}
+    if(!res.ok||data.success===false){const e=new Error(data.error||data.message||`請求失敗：${res.status}`); e.payload=data; throw e;}
+    return data;
+  });
+  window.yxApi=api;
+  let activeFilter='all';
+  let loading=null;
+  let lastHtml='';
+  function qty(v){const n=Number(v||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0;}
+  function customerOf(it){return clean(it?.customer_name||'未指定客戶')||'未指定客戶';}
+  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
+  function fmt24(v){const raw=clean(v); const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/); return m?`${m[1]} ${m[2]}`:raw;}
+  function todayCard(k,title,num,unit){return `<button type="button" class="yx103-today-card${activeFilter===k?' active':''}" data-yx103-today-filter="${k}"><span class="yx103-today-title">${esc(title)}</span><span class="yx103-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
+  function renderSummary(data){
+    const box=$('today-summary-cards'); if(!box) return;
+    const s=data?.summary||{};
+    const html=`<div class="yx103-today-grid">${todayCard('inbound','進貨',s.inbound_count,'筆')}${todayCard('outbound','出貨',s.outbound_count,'筆')}${todayCard('orders','新增訂單',s.new_order_count,'筆')}${todayCard('unplaced','未入倉',s.unplaced_count,'件')}</div>`;
+    if(html!==lastHtml||box.dataset.yx103Stable!=='1'){
+      box.innerHTML=html;
+      box.dataset.yx103Stable='1';
+      lastHtml=html;
+    }
+  }
+  function makeLog(r){return `<div class="today-item deduct-card" data-log-id="${Number(r.id||0)}"><strong>${esc(r.action||'異動')}</strong><div class="small-note">${esc(fmt24(r.created_at))}｜${esc(r.username||'')}</div></div>`;}
+  function fill(id,rows,empty){const el=$(id); if(el) el.innerHTML=(rows||[]).map(makeLog).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
+  function fillUnplaced(data){
+    const el=$('today-unplaced-list'); if(!el) return;
+    const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];
+    el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+  }
+  function applyFilter(){
+    document.querySelectorAll('[data-yx103-today-filter]').forEach(c=>c.classList.toggle('active',c.dataset.yx103TodayFilter===activeFilter));
+    const map={inbound:'today-inbound-list',outbound:'today-outbound-list',orders:'today-order-list',unplaced:'today-unplaced-list'};
+    Object.entries(map).forEach(([k,id])=>{const el=$(id); if(el) el.style.display=(activeFilter==='all'||activeFilter===k)?'':'none';});
+    document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||''; panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'';});
+  }
+  async function loadTodayChanges103(){
+    if(loading) return loading;
+    loading=(async()=>{
+      const d=await api('/api/today-changes?ts='+Date.now(),{method:'GET'});
+      window.__YX103_TODAY_LAST__=d;
+      renderSummary(d);
+      fill('today-inbound-list',d.feed?.inbound,'今天沒有進貨');
+      fill('today-outbound-list',d.feed?.outbound,'今天沒有出貨');
+      fill('today-order-list',d.feed?.new_orders,'今天沒有新增訂單');
+      fillUnplaced(d);
+      applyFilter();
+      try{await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})});}catch(_){}
+      return d;
+    })().catch(e=>{const box=$('today-summary-cards'); if(box) box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`; throw e;}).finally(()=>{setTimeout(()=>{loading=null;},500);});
+    return loading;
+  }
+  try{
+    Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges103;},set(fn){ if(fn&&fn.__yx103){} }});
+  }catch(_){ window.loadTodayChanges=loadTodayChanges103; }
+  document.addEventListener('click',ev=>{
+    const card=ev.target.closest&&ev.target.closest('[data-yx103-today-filter]');
+    if(!card) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const key=card.dataset.yx103TodayFilter||'all';
+    activeFilter=(activeFilter===key?'all':key);
+    renderSummary(window.__YX103_TODAY_LAST__||{});
+    applyFilter();
+  },true);
+  function freezeTodayCardFont(){
+    document.documentElement.dataset.yxFix103=VERSION;
+    const box=$('today-summary-cards');
+    if(box){ box.classList.add('yx103-today-root'); }
+  }
+  function install(){ freezeTodayCardFont(); try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges103});}catch(_){} if(location.pathname.includes('/today-changes')){ /* FIX106 disabled old today auto refresh */ } }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
+  window.addEventListener('pageshow',install);
+  [250,1200,2600].forEach(ms=>setTimeout(install,ms));
+})();
+/* ==== FIX103: stable today cards + speed guard end ==== */
+
+
+/* ==== FIX105: today final row layout + speed consolidation start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX105_TODAY_SPEED_FINAL';
+  if(window.__YX105_TODAY_SPEED_FINAL__) return;
+  window.__YX105_TODAY_SPEED_FINAL__=true;
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean=v=>String(v??'').trim();
+  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
+  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await r.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗：${r.status}`);return d;});
+  window.yxApi=api;
+  let activeFilter='all';
+  let loading=null;
+  let lastSummaryHtml='';
+  function fmt24(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
+  function card(key,title,num,unit){return `<button type="button" class="yx105-today-card${activeFilter===key?' active':''}" data-yx105-today-filter="${key}"><span class="yx105-today-title">${esc(title)}</span><span class="yx105-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
+  function renderSummary(data){
+    const box=$('today-summary-cards'); if(!box) return;
+    const s=data?.summary||{};
+    const html=`<div class="yx105-today-stack">${card('inbound','進貨',s.inbound_count,'筆')}${card('outbound','出貨',s.outbound_count,'筆')}${card('orders','新增訂單',s.new_order_count,'筆')}${card('unplaced','未入倉',s.unplaced_count,'件')}</div>`;
+    box.className=(box.className||'').replace(/\byx10[0-9]-today-root\b/g,'').trim();
+    box.classList.add('yx105-today-root');
+    box.dataset.yx105Stable='1';
+    if(html!==lastSummaryHtml||box.innerHTML.indexOf('yx105-today-stack')<0){box.innerHTML=html;lastSummaryHtml=html;}
+  }
+  function makeLog(r){return `<div class="today-item deduct-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt24(r?.created_at))}｜${esc(r?.username||'')}</div></div>`;}
+  function fill(id,rows,empty){const el=$(id); if(el) el.innerHTML=(rows||[]).map(makeLog).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
+  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
+  function customerOf(it){return clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';}
+  function fillUnplaced(data){const el=$('today-unplaced-list'); if(!el) return; const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[]; el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
+  function applyFilter(){
+    document.querySelectorAll('[data-yx105-today-filter]').forEach(c=>c.classList.toggle('active',(c.dataset.yx105TodayFilter||'')===activeFilter));
+    document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||'';panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'none';});
+  }
+  async function loadTodayChanges105(){
+    if(loading) return loading;
+    loading=(async()=>{const data=await api('/api/today-changes?ts='+Date.now(),{method:'GET'});window.__YX105_TODAY_LAST__=data;renderSummary(data);fill('today-inbound-list',data.feed?.inbound,'今天沒有進貨');fill('today-outbound-list',data.feed?.outbound,'今天沒有出貨');fill('today-order-list',data.feed?.new_orders,'今天沒有新增訂單');fillUnplaced(data);applyFilter();try{await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})});}catch(_){}return data;})().catch(e=>{const box=$('today-summary-cards');if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`;throw e;}).finally(()=>setTimeout(()=>{loading=null;},800));
+    return loading;
+  }
+  loadTodayChanges105.__yx105=true;
+  function lockLoader(){try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges105;},set(fn){/* ignore old FIX loaders */}});}catch(_){window.loadTodayChanges=loadTodayChanges105;}}
+  document.addEventListener('click',ev=>{const btn=ev.target.closest&&ev.target.closest('[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter],[data-yx101-today-filter]'); if(!btn)return; ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation(); const key=btn.dataset.yx105TodayFilter||btn.dataset.yx104TodayFilter||btn.dataset.yx103TodayFilter||btn.dataset.yx102TodayFilter||btn.dataset.yx101TodayFilter||'all'; activeFilter=(activeFilter===key?'all':key); renderSummary(window.__YX105_TODAY_LAST__||window.__YX104_TODAY_LAST__||{summary:{}}); applyFilter();},true);
+
+  function normalizeX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');}
+  function qtyFromProduct(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return window.yxEffectiveQty(text,fallback||0);}catch(_){}const raw=normalizeX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
+  function sourceRows(source){return (window.__yx63Rows&&window.__yx63Rows[source])||[];}
+  function rowByCard(card){const source=card.dataset.source||'';const id=Number(card.dataset.id||0);return sourceRows(source).find(r=>Number(r.id||0)===id)||null;}
+  function rowMaterial(row){let m=clean(row?.material||row?.product_code||row?.wood_type||'');const prod=normalizeX(row?.product_text||'');if(!m||normalizeX(m)===prod||/^未填/.test(m))return '未填材質';return m;}
+  function rowFormula(row){const p=clean(row?.product_text||row?.product_size||row?.size||'');if(p)return normalizeX(p);const size=clean(row?.size||'');const support=clean(row?.support||row?.support_text||'');return normalizeX(support?`${size}=${support}`:size);}
+  function fallbackFormula(card){let txt=clean(card.textContent).replace(/編輯|直接出貨|刪除|材質|尺寸|支數\s*x\s*件數|數量|客戶[:：]?[^\n]*/g,' ').replace(/\s+/g,' ');const m=txt.match(/(?:\d{1,2}月)?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*=\s*[0-9xX+＋\s]+/);return normalizeX(m?m[0]:'');}
+  function cleanProductCards(){
+    document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{const row=rowByCard(card);const formula=row?rowFormula(row):fallbackFormula(card);if(!formula)return;const material=row?rowMaterial(row):((clean(card.textContent).match(/(RDT|尤加利|SPF|HF|DF|SPY|SP|RP|TD|MKJ|LVL|未填材質)/i)||[])[1]||'未填材質');const q=row?qty(row.qty||qtyFromProduct(formula,0)):qtyFromProduct(formula,0);let grid=card.querySelector('.yx63-item-grid');if(!grid){grid=document.createElement('div');grid.className='yx63-item-grid';card.insertBefore(grid,card.firstChild);}const html=`<div class="yx105-card-meta-row"><span class="yx105-card-material">${esc(material)} ${q}件</span></div><div class="yx105-card-formula">${esc(formula)}</div>`;if(grid.dataset.yx105Html!==html){grid.innerHTML=html;grid.dataset.yx105Html=html;}card.classList.add('yx105-clean-product-card');});
+  }
+  function wrapAfter(name,fn){const cur=window[name];if(typeof cur!=='function'||cur.__yx105)return;const wrapped=async function(){const r=await cur.apply(this,arguments);setTimeout(fn,80);return r;};Object.defineProperty(wrapped,'__yx105',{value:true});window[name]=wrapped;}
+  function install(){document.documentElement.dataset.yxFix105=VERSION;lockLoader();const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}if(location.pathname.includes('/today-changes')){const box=$('today-summary-cards');if(box&&!box.querySelector('.yx105-today-stack'))renderSummary(window.__YX105_TODAY_LAST__||{summary:{}});/* FIX106 disabled old today auto refresh */}cleanProductCards();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList'].forEach(n=>wrapAfter(n,cleanProductCards));try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges105,cleanProductCards});}catch(_){}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+  window.addEventListener('pageshow',install);
+  [300,1200].forEach(ms=>setTimeout(install,ms));
+})();
+/* ==== FIX105: today final row layout + speed consolidation end ==== */
+
+
+/* ==== FIX106: manual today refresh + final card cleanup start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX106_MANUAL_TODAY_CARD_SPEED';
+  if(window.__YX106_FINAL__) return;
+  window.__YX106_FINAL__=true;
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
+  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
+  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await r.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗：${r.status}`);return d;});
+  window.yxApi=api;
+  let activeFilter='all';
+  let loading=null;
+  function staticSummary(data){const s=data?.summary||{};return{inbound:qty(s.inbound_count),outbound:qty(s.outbound_count),orders:qty(s.new_order_count),unplaced:qty(s.unplaced_count)};}
+  function card(key,title,num,unit){return `<button type="button" class="yx106-today-card${activeFilter===key?' active':''}" data-yx106-today-filter="${key}"><span class="yx106-today-title">${esc(title)}</span><span class="yx106-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
+  function renderSummary(data){const box=$('today-summary-cards');if(!box)return;const s=staticSummary(data||window.__YX106_TODAY_LAST__||{summary:{}});const html=`<div class="yx106-today-stack">${card('inbound','進貨',s.inbound,'筆')}${card('outbound','出貨',s.outbound,'筆')}${card('orders','新增訂單',s.orders,'筆')}${card('unplaced','未入倉',s.unplaced,'件')}</div>`;box.className='card-list yx106-today-root';if(box.dataset.yx106Html!==html){box.innerHTML=html;box.dataset.yx106Html=html;}}
+  function fmt24(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
+  function makeLog(r){return `<div class="today-item deduct-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt24(r?.created_at))}｜${esc(r?.username||'')}</div></div>`;}
+  function fill(id,rows,empty){const el=$(id);if(el)el.innerHTML=(rows||[]).map(makeLog).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
+  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
+  function customerOf(it){return clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';}
+  function fillUnplaced(data){const el=$('today-unplaced-list');if(!el)return;const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
+  function applyFilter(){document.querySelectorAll('[data-yx106-today-filter]').forEach(c=>c.classList.toggle('active',(c.dataset.yx106TodayFilter||'')===activeFilter));document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||'';panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'none';});}
+  async function loadTodayChanges106(opts={}){if(!opts||!(opts.manual||opts.force||opts.refresh)){renderSummary(window.__YX106_TODAY_LAST__||{summary:{}});applyFilter();return window.__YX106_TODAY_LAST__||{success:true,summary:{}};}if(loading)return loading;const btn=$('today-manual-refresh-btn');if(btn){btn.disabled=true;btn.textContent='刷新中…';}loading=(async()=>{const data=await api('/api/today-changes?refresh=1&ts='+Date.now(),{method:'GET'});window.__YX106_TODAY_LAST__=data;renderSummary(data);fill('today-inbound-list',data.feed?.inbound,'今天沒有進貨');fill('today-outbound-list',data.feed?.outbound,'今天沒有出貨');fill('today-order-list',data.feed?.new_orders,'今天沒有新增訂單');fillUnplaced(data);applyFilter();return data;})().catch(e=>{try{(window.notify||alert)(e.message||'今日異動刷新失敗','error');}catch(_){}throw e;}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}setTimeout(()=>{loading=null;},500);});return loading;}
+  loadTodayChanges106.__yx106=true;
+  function lockTodayLoader(){try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges106;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges106;}}
+  document.addEventListener('click',ev=>{const refresh=ev.target.closest&&ev.target.closest('#today-manual-refresh-btn');if(refresh){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();loadTodayChanges106({manual:true}).catch(()=>{});return;}const card=ev.target.closest&&ev.target.closest('[data-yx106-today-filter],[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter]');if(!card)return;ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();const key=card.dataset.yx106TodayFilter||card.dataset.yx105TodayFilter||card.dataset.yx104TodayFilter||card.dataset.yx103TodayFilter||card.dataset.yx102TodayFilter||'all';activeFilter=(activeFilter===key?'all':key);renderSummary(window.__YX106_TODAY_LAST__||{summary:{}});applyFilter();},true);
+  function normalizeX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');}
+  function qtyFromProduct(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return window.yxEffectiveQty(text,fallback||0);}catch(_){}const raw=normalizeX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
+  function sourceRows(source){return(window.__yx63Rows&&window.__yx63Rows[source])||[];}
+  function rowByCard(card){const source=card.dataset.source||'';const id=Number(card.dataset.id||0);return sourceRows(source).find(r=>Number(r.id||0)===id)||null;}
+  function rowFormula(row){const p=clean(row?.product_text||row?.product_size||row?.size||'');if(p)return normalizeX(p);const size=clean(row?.size||'');const support=clean(row?.support||row?.support_text||'');return normalizeX(support?`${size}=${support}`:size);}
+  function rowMaterial(row){let m=clean(row?.material||row?.product_code||row?.wood_type||'');const prod=normalizeX(row?.product_text||'');if(!m||normalizeX(m)===prod||/^未填/.test(m))return '';return m;}
+  function fallbackFormula(card){let txt=clean(card.textContent).replace(/編輯|直接出貨|刪除|未填材質|材質|尺寸|支數\s*x\s*件數|數量|客戶[:：]?[^\n]*/g,' ');const m=txt.match(/(?:\d{1,2}月)?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*=\s*[0-9xX+＋\s]+/);return normalizeX(m?m[0]:'');}
+  function fallbackMaterial(card){return(clean(card.textContent).match(/(RDT|尤加利|SPF|HF|DF|SPY|SP|RP|TD|MKJ|LVL|南方松|花旗|鐵杉)/i)||[])[1]||'';}
+  function actionButtons(card){const existing=card.querySelector('.yx63-card-actions');if(existing)return existing.outerHTML;const btns=Array.from(card.querySelectorAll('button')).map(b=>b.outerHTML).join('');return btns?`<div class="yx63-card-actions">${btns}</div>`:'';}
+  function cleanProductCards106(){document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{const row=rowByCard(card);const formula=row?rowFormula(row):fallbackFormula(card);if(!formula)return;const q=row?qty(row.qty||qtyFromProduct(formula,0)):qtyFromProduct(formula,0);if(q<=0&&/未填材質/.test(clean(card.textContent))){card.classList.add('yx106-hidden-empty-card');return;}const material=row?rowMaterial(row):fallbackMaterial(card);const meta=material?`${material} ${q}件`:`${q}件`;const actions=actionButtons(card);const html=`<div class="yx106-product-main"><div class="yx106-product-meta">${esc(meta)}</div><div class="yx106-product-formula">${esc(formula)}</div></div>${actions}`;if(card.dataset.yx106Html!==html){card.innerHTML=html;card.dataset.yx106Html=html;}card.classList.add('yx106-clean-product-card');});}
+  function wrapAfter(name,fn){const cur=window[name];if(typeof cur!=='function'||cur.__yx106)return;const wrapped=async function(){const r=await cur.apply(this,arguments);setTimeout(fn,60);return r;};Object.defineProperty(wrapped,'__yx106',{value:true});window[name]=wrapped;}
+  function install(){['data-yx-fix101','data-yx-fix102','data-yx-fix103','data-yx-fix104','data-yx-fix105'].forEach(a=>document.documentElement.removeAttribute(a));document.documentElement.dataset.yxFix106=VERSION;lockTodayLoader();const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}const unread=document.querySelector('#today-unread-badge')?.parentElement;if(unread)unread.classList.add('yx106-hidden');if(location.pathname.includes('/today-changes')){renderSummary(window.__YX106_TODAY_LAST__||{summary:{}});applyFilter();}cleanProductCards106();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards106));try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges106,cleanProductCards:cleanProductCards106});}catch(_){} }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+  window.addEventListener('pageshow',()=>setTimeout(install,0));
+  [200,800,1800].forEach(ms=>setTimeout(install,ms));
+})();
+/* ==== FIX106: manual today refresh + final card cleanup end ==== */
+
+/* ==== FIX107: final manual-today hard lock + no full-page observers + startup speed start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX107_MANUAL_TODAY_SPEED_HARD_LOCK';
+  if(window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__) return;
+  window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__=true;
+  const $=id=>document.getElementById(id);
+  const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
+  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await r.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗：${r.status}`);return d;});
+  window.yxApi=api;
+
+  let activeFilter='all';
+  let loading=null;
+  let bootLoaded=false;
+  const isTodayPage=()=>location.pathname.indexOf('/today-changes')>=0;
+  function summaryOf(data){const s=data?.summary||{};return{inbound:qty(s.inbound_count),outbound:qty(s.outbound_count),orders:qty(s.new_order_count),unplaced:qty(s.unplaced_count)};}
+  function todayCard(key,title,num,unit){return `<button type="button" class="yx106-today-card${activeFilter===key?' active':''}" data-yx106-today-filter="${key}"><span class="yx106-today-title">${esc(title)}</span><span class="yx106-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
+  function renderTodaySummary(data){const box=$('today-summary-cards');if(!box)return;const s=summaryOf(data||window.__YX107_TODAY_LAST__||{summary:{}});const html=`<div class="yx106-today-stack">${todayCard('inbound','進貨',s.inbound,'筆')}${todayCard('outbound','出貨',s.outbound,'筆')}${todayCard('orders','新增訂單',s.orders,'筆')}${todayCard('unplaced','未入倉',s.unplaced,'件')}</div>`;box.className='card-list yx106-today-root';if(box.dataset.yx107Html!==html){box.innerHTML=html;box.dataset.yx107Html=html;box.dataset.yx106Html=html;}}
+  function applyTodayFilter(){document.querySelectorAll('[data-yx106-today-filter],[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter]').forEach(c=>c.classList.toggle('active',(c.dataset.yx106TodayFilter||c.dataset.yx105TodayFilter||c.dataset.yx104TodayFilter||c.dataset.yx103TodayFilter||c.dataset.yx102TodayFilter||'')===activeFilter));document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||'';panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'none';});}
+  function fmt24(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
+  function logCard(r){return `<div class="today-item deduct-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt24(r?.created_at))}｜${esc(r?.username||'')}</div></div>`;}
+  function fillList(id,rows,empty){const el=$(id);if(el)el.innerHTML=(rows||[]).map(logCard).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
+  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
+  function customerOf(it){return clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';}
+  function fillUnplaced(data, fetchedUnplaced){const el=$('today-unplaced-list');if(!el)return;const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];if(!fetchedUnplaced && !arr.length){el.innerHTML='<div class="empty-state-card compact-empty">按右上「刷新」才會重新抓未入倉件數</div>';return;}el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
+  function mergeKeepUnplaced(next, fetchedUnplaced){if(fetchedUnplaced)return next;const old=window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||null;if(!old)return next;next=next||{};next.summary={...(next.summary||{})};next.summary.unplaced_count=old.summary?.unplaced_count||0;next.summary.unplaced_row_count=old.summary?.unplaced_row_count||0;next.unplaced_items=Array.isArray(old.unplaced_items)?old.unplaced_items:[];return next;}
+  function renderTodayPayload(data,fetchedUnplaced){renderTodaySummary(data);fillList('today-inbound-list',data?.feed?.inbound,'今天沒有進貨');fillList('today-outbound-list',data?.feed?.outbound,'今天沒有出貨');fillList('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單');fillUnplaced(data,fetchedUnplaced);applyTodayFilter();}
+  async function loadTodayChanges107(opts={}){
+    if(!isTodayPage()) return window.__YX107_TODAY_LAST__||{success:true,summary:{}};
+    const manual=!!(opts&& (opts.manual||opts.refresh||opts.force));
+    if(!manual){bootLoaded=true;renderTodayPayload(window.__YX107_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX107_TODAY_LAST__||{success:true,summary:{}};}
+    if(loading)return loading;
+    const btn=$('today-manual-refresh-btn');
+    if(btn&&manual){btn.disabled=true;btn.textContent='刷新中…';}
+    loading=(async()=>{
+      const url=manual?('/api/today-changes?refresh=1&ts='+Date.now()):('/api/today-changes?ts='+Date.now());
+      let data=await api(url,{method:'GET'});
+      data=mergeKeepUnplaced(data,manual);
+      window.__YX107_TODAY_LAST__=data;
+      window.__YX106_TODAY_LAST__=data;
+      bootLoaded=true;
+      renderTodayPayload(data,manual);
+      return data;
+    })().catch(e=>{const box=$('today-summary-cards');if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`;throw e;}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}setTimeout(()=>{loading=null;},300);});
+    return loading;
+  }
+  loadTodayChanges107.__yx107=true;
+  loadTodayChanges107.__yx106=true;
+  function lockLoader(){try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges107;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges107;}}
+
+  function normalizeX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');}
+  function qtyFromProduct(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return window.yxEffectiveQty(text,fallback||0);}catch(_){}const raw=normalizeX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
+  function sourceRows(source){return(window.__yx63Rows&&window.__yx63Rows[source])||[];}
+  function rowByCard(card){const source=card.dataset.source||'';const id=Number(card.dataset.id||0);return sourceRows(source).find(r=>Number(r.id||0)===id)||null;}
+  function rowFormula(row){const p=clean(row?.product_text||row?.product_size||row?.size||'');if(p)return normalizeX(p);const size=clean(row?.size||'');const support=clean(row?.support||row?.support_text||'');return normalizeX(support?`${size}=${support}`:size);}
+  function rowMaterial(row){let m=clean(row?.material||row?.product_code||row?.wood_type||'');const prod=normalizeX(row?.product_text||'');if(!m||normalizeX(m)===prod||/^未填/.test(m))return '';return m;}
+  function fallbackFormula(card){let txt=clean(card.textContent).replace(/編輯|直接出貨|刪除|未填材質|材質|尺寸|支數\s*[xX]\s*件數|數量|客戶[:：]?[^\n]*/g,' ');const m=txt.match(/(?:\d{1,2}月)?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*=\s*[0-9xX+＋\s]+/);return normalizeX(m?m[0]:'');}
+  function fallbackMaterial(card){const text=clean(card.textContent).replace(/未填材質/g,'');return(text.match(/(RDT|尤加利|SPF|HF|DF|SPY|SP|RP|TD|MKJ|LVL|南方松|花旗|鐵杉)/i)||[])[1]||'';}
+  function actionButtons(card){const existing=card.querySelector('.yx63-card-actions');if(existing)return existing.outerHTML;const btns=Array.from(card.querySelectorAll('button')).map(b=>b.outerHTML).join('');return btns?`<div class="yx63-card-actions">${btns}</div>`:'';}
+  function cleanProductCards107(){document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{const row=rowByCard(card);const formula=row?rowFormula(row):fallbackFormula(card);if(!formula)return;const q=row?qty(row.qty||qtyFromProduct(formula,0)):qtyFromProduct(formula,0);if(q<=0&&/未填材質/.test(clean(card.textContent))){card.classList.add('yx106-hidden-empty-card');return;}const material=row?rowMaterial(row):fallbackMaterial(card);const meta=material?`${material} ${q}件`:`${q}件`;const actions=actionButtons(card);const html=`<div class="yx106-product-main"><div class="yx106-product-meta">${esc(meta)}</div><div class="yx106-product-formula">${esc(formula)}</div></div>${actions}`;if(card.dataset.yx107Html!==html){card.innerHTML=html;card.dataset.yx107Html=html;card.dataset.yx106Html=html;}card.classList.add('yx106-clean-product-card');});}
+  function wrapAfter(name,fn){const cur=window[name];if(typeof cur!=='function'||cur.__yx107)return;const wrapped=async function(){const r=await cur.apply(this,arguments);setTimeout(fn,40);return r;};Object.defineProperty(wrapped,'__yx107',{value:true});window[name]=wrapped;}
+
+  document.addEventListener('click',ev=>{const refresh=ev.target.closest&&ev.target.closest('#today-manual-refresh-btn');if(refresh){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();loadTodayChanges107({manual:true}).catch(()=>{});return;}const card=ev.target.closest&&ev.target.closest('[data-yx106-today-filter],[data-yx105-today-filter],[data-yx104-today-filter],[data-yx103-today-filter],[data-yx102-today-filter]');if(!card)return;ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();const key=card.dataset.yx106TodayFilter||card.dataset.yx105TodayFilter||card.dataset.yx104TodayFilter||card.dataset.yx103TodayFilter||card.dataset.yx102TodayFilter||'all';activeFilter=(activeFilter===key?'all':key);renderTodaySummary(window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||{summary:{}});applyTodayFilter();},true);
+
+  function install(){document.documentElement.dataset.yxFix107=VERSION;lockLoader();const bar=document.querySelector('.today-filter-bar');if(bar){bar.hidden=true;bar.style.display='none';}document.querySelectorAll('#today-summary-cards .yx105-today-stack,#today-summary-cards .yx104-today-grid,#today-summary-cards .yx103-today-grid,#today-summary-cards .yx102-today-grid,#today-summary-cards .yx101-today-grid').forEach(el=>el.remove());cleanProductCards107();['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards107));if(isTodayPage()){renderTodaySummary(window.__YX107_TODAY_LAST__||window.__YX106_TODAY_LAST__||{summary:{}});applyTodayFilter();/* FIX110 disabled old FIX107 automatic today API load; manual refresh only. */}try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges107,cleanProductCards:cleanProductCards107});}catch(_){} }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+  window.addEventListener('pageshow',()=>setTimeout(install,0));
+})();
+/* ==== FIX107: final manual-today hard lock + no full-page observers + startup speed end ==== */
+
+/* ==== FIX108: speed hard lock + single today UI + stale cache killer start ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX108_SPEED_OLD_UI_HARD_LOCK';
+  if(window.__YX108_SPEED_OLD_UI_HARD_LOCK__) return;
+  window.__YX108_SPEED_OLD_UI_HARD_LOCK__=true;
+
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
+  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)&&n>0?Math.floor(n):0;};
+  const isTodayPage=()=>location.pathname.indexOf('/today-changes')>=0;
+  const api=window.yxApi||window.requestJSON||(async function(url,opt={}){
+    const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const txt=await res.text(); let data={};
+    try{data=txt?JSON.parse(txt):{};}catch(_){data={success:false,error:txt||'伺服器回應格式錯誤'};}
+    if(!res.ok||data.success===false){throw new Error(data.error||data.message||`請求失敗：${res.status}`);} return data;
+  });
+  window.yxApi=api;
+
+  let activeFilter='all';
+  let loading=null;
+  let bootLoaded=false;
+  let lastRendered='';
+
+  function summaryOf(data){const s=data?.summary||{};return{inbound:qty(s.inbound_count),outbound:qty(s.outbound_count),orders:qty(s.new_order_count),unplaced:qty(s.unplaced_count)}}
+  function todayCard(key,title,num,unit){return `<button type="button" class="yx108-today-card${activeFilter===key?' active':''}" data-yx108-today-filter="${key}"><span class="yx108-today-title">${esc(title)}</span><span class="yx108-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
+  function renderTodaySummary(data){
+    const box=$('today-summary-cards'); if(!box) return;
+    const s=summaryOf(data||window.__YX108_TODAY_LAST__||{summary:{}});
+    const html=`<div class="yx108-today-stack">${todayCard('inbound','進貨',s.inbound,'筆')}${todayCard('outbound','出貨',s.outbound,'筆')}${todayCard('orders','新增訂單',s.orders,'筆')}${todayCard('unplaced','未入倉',s.unplaced,'件')}</div>`;
+    box.className='card-list yx108-today-root';
+    box.dataset.yx108Only='1';
+    if(lastRendered!==html||box.innerHTML!==html){box.innerHTML=html;lastRendered=html;}
+  }
+  function fmt24(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
+  function logCard(r){return `<div class="today-item deduct-card yx108-log-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt24(r?.created_at))}｜${esc(r?.username||'')}</div></div>`;}
+  function fillList(id,rows,empty){const el=$(id);if(el)el.innerHTML=(Array.isArray(rows)?rows:[]).map(logCard).join('')||`<div class="empty-state-card compact-empty">${esc(empty)}</div>`;}
+  function productOf(it){return clean(it?.product_text||it?.product_size||it?.product||'');}
+  function customerOf(it){return clean(it?.customer_name||it?.customer||'未指定客戶')||'未指定客戶';}
+  function fillUnplaced(data,manual){
+    const el=$('today-unplaced-list'); if(!el) return;
+    const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];
+    if(!manual && !arr.length){el.innerHTML='<div class="empty-state-card compact-empty">未入倉件數不自動重算，請按右上「刷新」更新。</div>';return;}
+    el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card yx108-unplaced-card"><strong>${esc(productOf(it))}</strong><div class="small-note">${esc(customerOf(it))}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+  }
+  function applyTodayFilter(){
+    document.querySelectorAll('[data-yx108-today-filter]').forEach(c=>c.classList.toggle('active',(c.dataset.yx108TodayFilter||'')===activeFilter));
+    document.querySelectorAll('[data-today-panel]').forEach(panel=>{const key=panel.dataset.todayPanel||'';panel.style.display=(activeFilter==='all'||activeFilter===key)?'':'none';});
+  }
+  function mergeKeepUnplaced(next,manual){
+    if(manual) return next||{};
+    const old=window.__YX108_TODAY_LAST__||null;
+    if(!old) return next||{};
+    next=next||{}; next.summary={...(next.summary||{})};
+    next.summary.unplaced_count=old.summary?.unplaced_count||0;
+    next.summary.unplaced_row_count=old.summary?.unplaced_row_count||0;
+    next.unplaced_items=Array.isArray(old.unplaced_items)?old.unplaced_items:[];
+    return next;
+  }
+  function renderToday(data,manual){
+    renderTodaySummary(data);
+    fillList('today-inbound-list',data?.feed?.inbound,'今天沒有進貨');
+    fillList('today-outbound-list',data?.feed?.outbound,'今天沒有出貨');
+    fillList('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單');
+    fillUnplaced(data,manual);
+    applyTodayFilter();
+  }
+  async function loadTodayChanges108(opts={}){
+    if(!isTodayPage()) return window.__YX108_TODAY_LAST__||{success:true,summary:{},feed:{}};
+    const manual=!!(opts&& (opts.manual||opts.refresh||opts.force));
+    if(!manual){bootLoaded=true;renderToday(window.__YX108_TODAY_LAST__||{summary:{},feed:{}},false);return window.__YX108_TODAY_LAST__||{success:true,summary:{},feed:{}};}
+    if(loading) return loading;
+    const btn=$('today-manual-refresh-btn');
+    if(btn&&manual){btn.disabled=true;btn.textContent='刷新中…';}
+    loading=(async()=>{
+      const url=manual?('/api/today-changes?refresh=1&ts='+Date.now()):('/api/today-changes?ts='+Date.now());
+      let data=await api(url,{method:'GET'});
+      data=mergeKeepUnplaced(data,manual);
+      window.__YX108_TODAY_LAST__=data;
+      bootLoaded=true;
+      renderToday(data,manual);
+      if(manual){try{await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})});}catch(_){}}
+      return data;
+    })().catch(e=>{const box=$('today-summary-cards'); if(box) box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動載入失敗')}</div>`; throw e;}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}setTimeout(()=>{loading=null;},250);});
+    return loading;
+  }
+  loadTodayChanges108.__yx108=true;
+  try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges108;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges108;}
+
+  function normalizeX(v){return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,'');}
+  function qtyFromFormula(text,fallback){try{if(typeof window.yxEffectiveQty==='function')return qty(window.yxEffectiveQty(text,fallback||0));}catch(_){}const raw=normalizeX(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;let total=0,hit=false;right.split('+').forEach(seg=>{seg=clean(seg);if(!seg)return;const m=seg.match(/x(\d+)$/i);if(m){total+=Number(m[1]||0);hit=true;}else if(/\d/.test(seg)){total+=1;hit=true;}});return hit?total:qty(fallback);}
+  function sourceRows(source){return(window.__yx63Rows&&window.__yx63Rows[source])||[];}
+  function rowByCard(card){const source=card.dataset.source||'';const id=Number(card.dataset.id||0);return sourceRows(source).find(r=>Number(r.id||0)===id)||null;}
+  function rowFormula(row){const p=clean(row?.product_text||row?.product_size||row?.size||'');if(p)return normalizeX(p);const size=clean(row?.size||'');const support=clean(row?.support||row?.support_text||'');return normalizeX(support?`${size}=${support}`:size);}
+  function rowMaterial(row){let m=clean(row?.material||row?.product_code||row?.wood_type||'');const prod=normalizeX(row?.product_text||'');if(!m||normalizeX(m)===prod||/^未填/.test(m))return '';return m;}
+  function fallbackFormula(card){let txt=clean(card.textContent).replace(/編輯|直接出貨|刪除|未填材質|材質|尺寸|支數\s*[xX]\s*件數|數量|客戶[:：]?[^\n]*/g,' ');const m=txt.match(/(?:\d{1,2}月)?\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?\s*=\s*[0-9xX+＋\s]+/);return normalizeX(m?m[0]:'');}
+  function fallbackMaterial(card){const text=clean(card.textContent).replace(/未填材質/g,'');return(text.match(/(RDT|尤加利|SPF|HF|DF|SPY|SP|RP|TD|MKJ|LVL|南方松|花旗|鐵杉)/i)||[])[1]||'';}
+  function actionButtons(card){const existing=card.querySelector('.yx63-card-actions,.yx108-card-actions');if(existing)return existing.outerHTML;const btns=Array.from(card.querySelectorAll('button')).map(b=>b.outerHTML).join('');return btns?`<div class="yx108-card-actions">${btns}</div>`:'';}
+  function cleanProductCards108(){
+    document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{
+      const row=rowByCard(card);
+      const formula=row?rowFormula(row):fallbackFormula(card);
+      if(!formula) return;
+      const q=row?qty(row.qty||qtyFromFormula(formula,0)):qtyFromFormula(formula,0);
+      if(q<=0&&/未填材質/.test(clean(card.textContent))){card.classList.add('yx108-hidden-empty-card');return;}
+      const material=row?rowMaterial(row):fallbackMaterial(card);
+      const meta=material?`${material} ${q}件`:`${q}件`;
+      const actions=actionButtons(card);
+      const html=`<div class="yx108-product-main"><div class="yx108-product-meta">${esc(meta)}</div><div class="yx108-product-formula">${esc(formula)}</div></div>${actions}`;
+      if(card.dataset.yx108Html!==html){card.innerHTML=html;card.dataset.yx108Html=html;}
+      card.classList.add('yx108-clean-product-card');
+    });
+  }
+  function wrapAfter(name,fn){const cur=window[name];if(typeof cur!=='function'||cur.__yx108)return;const wrapped=async function(){const r=await cur.apply(this,arguments);setTimeout(fn,30);return r;};Object.defineProperty(wrapped,'__yx108',{value:true});window[name]=wrapped;}
+
+  document.addEventListener('click',ev=>{
+    const refresh=ev.target.closest&&ev.target.closest('#today-manual-refresh-btn');
+    if(refresh){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();loadTodayChanges108({manual:true}).catch(()=>{});return;}
+    const card=ev.target.closest&&ev.target.closest('[data-yx108-today-filter]');
+    if(card){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();activeFilter=(activeFilter===(card.dataset.yx108TodayFilter||'all'))?'all':(card.dataset.yx108TodayFilter||'all');renderTodaySummary(window.__YX108_TODAY_LAST__||{summary:{}});applyTodayFilter();}
+  },true);
+
+  function install(){
+    document.documentElement.dataset.yxFix108=VERSION;
+    const bar=document.querySelector('.today-filter-bar'); if(bar){bar.hidden=true;bar.style.display='none';}
+    document.querySelectorAll('#today-summary-cards .yx101-today-grid,#today-summary-cards .yx102-today-grid,#today-summary-cards .yx103-today-grid,#today-summary-cards .yx104-today-grid,#today-summary-cards .yx105-today-stack,#today-summary-cards .yx106-today-stack').forEach(el=>el.remove());
+    cleanProductCards108();
+    ['loadCustomerBlocks','renderCustomers','loadInventory','loadOrdersList','loadMasterList','refreshSource'].forEach(n=>wrapAfter(n,cleanProductCards108));
+    if(isTodayPage()){
+      renderTodaySummary(window.__YX108_TODAY_LAST__||{summary:{}});
+      applyTodayFilter();
+      /* FIX110 disabled old FIX108 automatic today API load; manual refresh only. */
+      const box=$('today-summary-cards');
+      if(box){ box.dataset.yx108Observed='disabled-by-fix110'; }
+    }
+    try{window.YX_MASTER=Object.freeze({...(window.YX_MASTER||{}),version:VERSION,loadTodayChanges:loadTodayChanges108,cleanProductCards:cleanProductCards108});}catch(_e){}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+  install.__yx108SafePageshow=true;
+  window.addEventListener('pageshow',install);
+})();
+/* ==== FIX108: speed hard lock + single today UI + stale cache killer end ==== */
+
 /* ==== FIX110: final legacy removal + single manual today UI + speed master start ==== */
 (function(){
   'use strict';
@@ -11203,43 +11584,3 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX110: final legacy removal + single manual today UI + speed master end ==== */
 
 /* FIX110_LEGACY_SPEED_MASTER */
-
-
-/* ==== FIX111: final single-render today + product-card cleanup reinforcement start ==== */
-(function(){
-  'use strict';
-  if(window.__YX111_FINAL_SINGLE_RENDER__) return;
-  window.__YX111_FINAL_SINGLE_RENDER__ = true;
-  const VERSION='FIX111_LEGACY_PURGE_SPEED_LOCK';
-  const $=id=>document.getElementById(id);
-  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
-  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0;};
-  const empty=()=>({success:true,summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0},feed:{inbound:[],outbound:[],new_orders:[],others:[]},unplaced_items:[],anomalies:[],anomaly_groups:{unplaced:[]},read_at:''});
-  const isToday=()=>location.pathname.indexOf('/today-changes')>=0;
-  const api=window.yxApi || window.requestJSON || (async function(url,opt={}){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const text=await res.text();let data={};try{data=text?JSON.parse(text):{};}catch(_){data={success:false,error:text||'伺服器回應格式錯誤'};}if(!res.ok||data.success===false){throw new Error(data.error||data.message||`請求失敗：${res.status}`);}return data;});
-  window.yxApi=api;
-  let loading=null, active='all';
-  function card(key,title,num,unit){return `<button type="button" class="yx111-today-card${active===key?' active':''}" data-yx111-today-filter="${key}"><span class="yx111-today-title">${esc(title)}</span><span class="yx111-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
-  function renderSummary(data){const box=$('today-summary-cards');if(!box)return;const s=(data&&data.summary)||{};const html=`<div class="yx111-today-stack">${card('inbound','進貨',s.inbound_count,'筆')}${card('outbound','出貨',s.outbound_count,'筆')}${card('orders','新增訂單',s.new_order_count,'筆')}${card('unplaced','未入倉',s.unplaced_count,'件')}</div>`;box.className='card-list yx111-today-root';if(box.dataset.yx111Html!==html){box.innerHTML=html;box.dataset.yx111Html=html;}}
-  function fmt(v){const raw=clean(v);const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/);return m?`${m[1]} ${m[2]}`:raw;}
-  function log(r){return `<div class="today-item deduct-card yx111-log-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt(r?.created_at))}｜${esc(r?.username||'')}</div><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx111-delete-today="${Number(r?.id||0)}">刪除</button></div>`;}
-  function fill(id,rows,emptyText){const el=$(id);if(el)el.innerHTML=(Array.isArray(rows)?rows:[]).map(log).join('')||`<div class="empty-state-card compact-empty">${esc(emptyText)}</div>`;}
-  function renderUnplaced(data,manual){const el=$('today-unplaced-list');if(!el)return;if(!manual){el.innerHTML='<div class="empty-state-card compact-empty">未入倉件數不自動重算，請按右上「刷新」更新。</div>';return;}const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card yx111-unplaced-card"><strong>${esc(clean(it.product_text||it.product_size||''))}</strong><div class="small-note">${esc(clean(it.customer_name||'未指定客戶')||'未指定客戶')}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
-  function applyFilter(){document.querySelectorAll('[data-yx111-today-filter]').forEach(el=>el.classList.toggle('active',(el.dataset.yx111TodayFilter||'')===active));document.querySelectorAll('[data-today-panel]').forEach(p=>{const k=p.dataset.todayPanel||'';p.style.display=(active==='all'||active===k)?'':'none';});}
-  function render(data,manual){data=data||window.__YX111_TODAY_LAST__||empty();renderSummary(data);fill('today-inbound-list',data?.feed?.inbound,'今天沒有進貨');fill('today-outbound-list',data?.feed?.outbound,'今天沒有出貨');fill('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單');renderUnplaced(data,!!manual);applyFilter();}
-  async function loadTodayChanges111(opts={}){if(!isToday())return window.__YX111_TODAY_LAST__||empty();const manual=!!(opts.manual||opts.refresh||opts.force);if(!manual){render(window.__YX111_TODAY_LAST__||empty(),false);return window.__YX111_TODAY_LAST__||empty();}if(loading)return loading;const btn=$('today-manual-refresh-btn');if(btn){btn.disabled=true;btn.textContent='刷新中…';}loading=(async()=>{window.__YX111_ALLOW_TODAY_FETCH__=true;let data;try{data=await api('/api/today-changes?refresh=1&include_unplaced=1&ts='+Date.now(),{method:'GET'});}finally{window.__YX111_ALLOW_TODAY_FETCH__=false;}window.__YX111_TODAY_LAST__=data;window.__YX110_TODAY_LAST__=data;render(data,true);try{await api('/api/today-changes/read',{method:'POST',body:'{}'});}catch(_){}return data;})().catch(e=>{const box=$('today-summary-cards');if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動刷新失敗')}</div>`;try{(window.notify||window.toast||alert)(e.message||'今日異動刷新失敗','error');}catch(_){}return empty();}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}window.__YX111_NATIVE_SET_TIMEOUT__?window.__YX111_NATIVE_SET_TIMEOUT__(()=>{loading=null;},180):setTimeout(()=>{loading=null;},180);});return loading;}
-  loadTodayChanges111.__yx111=true;
-  try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges111;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges111;}
-  window.__YX111_refreshToday=()=>loadTodayChanges111({manual:true});
-  window.__YX111_filterToday=(key)=>{active=(active===key?'all':(key||'all'));renderSummary(window.__YX111_TODAY_LAST__||empty());applyFilter();};
-  document.addEventListener('click',function(ev){const t=ev.target;const r=t&&t.closest&&t.closest('#today-manual-refresh-btn');if(r){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();window.__YX111_refreshToday();return false;}const c=t&&t.closest&&t.closest('[data-yx111-today-filter],[data-yx110-today-filter],[data-yx108-today-filter],[data-yx107-today-filter],[data-yx106-today-filter],[data-yx102-today-filter]');if(c&&isToday()){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();window.__YX111_filterToday(c.getAttribute('data-yx111-today-filter')||c.getAttribute('data-yx110-today-filter')||c.getAttribute('data-yx108-today-filter')||c.getAttribute('data-yx102-today-filter')||'all');return false;}const del=t&&t.closest&&t.closest('[data-yx111-delete-today],[data-yx110-delete-today]');if(del){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();api('/api/today-changes/'+encodeURIComponent(del.getAttribute('data-yx111-delete-today')||del.getAttribute('data-yx110-delete-today')),{method:'DELETE'}).then(()=>del.closest('.today-item,.deduct-card,.card')?.remove()).catch(e=>{try{(window.notify||window.toast||alert)(e.message||'刪除失敗','error');}catch(_){}});return false;}},true);
-  function cleanCards(){document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{if(card.closest('#today-summary-cards,#today-inbound-list,#today-outbound-list,#today-order-list,#today-unplaced-list'))return;card.querySelectorAll('.small-note,.muted,.pill,.chip').forEach(el=>{if(/編輯|直接出貨|刪除|未填材質/.test(clean(el.textContent)))el.remove();});});}
-  function install(){document.documentElement.dataset.yxFix111=VERSION;document.querySelectorAll('.today-filter-bar').forEach(el=>{el.hidden=true;el.style.display='none';});cleanCards();if(isToday())render(window.__YX111_TODAY_LAST__||empty(),false);}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
-  install.__yx111SafePageshow=true;
-  try{(window.__YX111_NATIVE_ADD__||window.addEventListener.bind(window))('pageshow',install);}catch(_){}
-})();
-/* ==== FIX111: final single-render today + product-card cleanup reinforcement end ==== */
-/* FIX111_LEGACY_PURGE_SPEED_LOCK */
-
