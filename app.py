@@ -8,6 +8,7 @@ import time
 import hashlib
 import json
 import re
+import uuid
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -134,6 +135,76 @@ def request_key_from_payload(data, endpoint=''):
 def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
 
+
+
+
+def _ship_lock_key(token):
+    return 'ship_preview_lock_' + str(token or '').strip()
+
+
+def _create_ship_preview_lock(customer_name, items, preview):
+    """建立短效出貨預覽鎖。
+
+    目的：多人同時使用時，按下確認扣除前會再拿同一份 preview token 重新檢查，
+    避免 A/B 手機同時預覽後重複出貨。
+    """
+    token = uuid.uuid4().hex
+    payload = {
+        'token': token,
+        'customer_name': customer_name,
+        'items': items,
+        'preview_items': preview.get('items') or [],
+        'created_at': time.time(),
+        'created_by': current_username(),
+    }
+    try:
+        set_setting(_ship_lock_key(token), json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        log_error('ship_preview_lock_create', str(e))
+    return token
+
+
+def _validate_ship_preview_lock(data, customer_name, items):
+    token = (data.get('preview_token') or data.get('ship_preview_token') or '').strip()
+    if not token:
+        # 舊手機 / 舊快取前端仍可送出，但 ship_order 會在交易內再檢查一次數量。
+        return True, ''
+    raw = get_setting(_ship_lock_key(token), '')
+    if not raw:
+        return False, '出貨預覽已過期，請重新產生預覽'
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return False, '出貨預覽資料損壞，請重新產生預覽'
+    if time.time() - float(payload.get('created_at') or 0) > 10 * 60:
+        return False, '出貨預覽超過 10 分鐘，請重新產生預覽'
+    if (payload.get('customer_name') or '').strip() != (customer_name or '').strip():
+        return False, '出貨客戶已變更，請重新產生預覽'
+    def _norm_items(xitems):
+        out=[]
+        for it in xitems or []:
+            if not isinstance(it, dict):
+                continue
+            out.append({
+                'product_text': format_product_text_height2(it.get('product_text') or it.get('product') or ''),
+                'material': clean_material_value(it.get('material') or it.get('product_code') or '', it.get('product_text') or ''),
+                'qty': int(it.get('qty') or effective_product_qty(it.get('product_text') or '', 0) or 0),
+                'source_preference': str(it.get('source_preference') or it.get('deduct_source') or it.get('source') or '').strip(),
+                'source_customer_name': str(it.get('source_customer_name') or it.get('borrow_from_customer_name') or '').strip(),
+            })
+        return sorted(out, key=lambda r:(r['product_text'], r['material'], r['qty'], r['source_preference'], r['source_customer_name']))
+    if _norm_items(payload.get('items')) != _norm_items(items):
+        return False, '商品資料已變更，請重新產生出貨預覽'
+    return True, token
+
+
+def _finish_ship_preview_lock(token):
+    if not token:
+        return
+    try:
+        set_setting(_ship_lock_key(token), json.dumps({'used': True, 'used_at': time.time(), 'used_by': current_username()}, ensure_ascii=False))
+    except Exception as e:
+        log_error('ship_preview_lock_finish', str(e))
 
 
 def resolve_customer_region(customer_name='', requested_region=''):
@@ -396,6 +467,8 @@ def normalize_warehouse_payload_items(items):
             item['product_text'] = product
             item['product_code'] = (raw.get('product_code') or product)
             item['customer_name'] = customer
+            seed = '|'.join([customer, warehouse_item_size_key(product), str(raw.get('material') or raw.get('product_code') or '').strip(), str(raw.get('placement_label') or raw.get('layer_label') or '').strip()])
+            item['warehouse_item_id'] = str(raw.get('warehouse_item_id') or '').strip() or ('WH-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper())
             item['qty'] = qty
             merged[key] = item
         else:
@@ -1076,8 +1149,12 @@ def api_ship():
             return error_response("請輸入客戶名稱")
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
+        ok_lock, lock_info = _validate_ship_preview_lock(data, customer_name, items)
+        if not ok_lock:
+            return error_response(lock_info)
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
+            _finish_ship_preview_lock(lock_info)
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -1111,6 +1188,8 @@ def api_ship_preview():
         preview = preview_ship_order(customer_name, items)
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
+        preview['preview_token'] = _create_ship_preview_lock(customer_name, items, preview)
+        preview['lock_expires_seconds'] = 600
         return jsonify(preview)
     except Exception as e:
         log_error("ship_preview", str(e))
@@ -2357,6 +2436,78 @@ def api_undo_last():
 @login_required_json
 def api_session_config():
     return jsonify(success=True, idle_timeout_seconds=1800, startup_checks=STARTUP_CHECKS)
+
+
+@app.route('/api/global-search', methods=['GET'])
+@login_required_json
+def api_global_search():
+    """全域搜尋：客戶 / 尺寸 / 材質 / 倉庫格 / 出貨紀錄一次找。"""
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify(success=True, query=q, items=[])
+    q_low = q.lower().replace('×','x').replace('Ｘ','x').replace('X','x')
+    limit = min(80, max(10, int(request.args.get('limit') or 50)))
+    results = []
+    def hit(*values):
+        joined = ' '.join(str(v or '') for v in values).lower().replace('×','x').replace('Ｘ','x').replace('X','x')
+        return q_low in joined
+    def add(kind, title, subtitle='', meta=None, url=''):
+        if len(results) >= limit:
+            return
+        results.append({'kind': kind, 'title': title, 'subtitle': subtitle, 'meta': meta or {}, 'url': url})
+    try:
+        for c in get_customers(active_only=False):
+            if hit(c.get('name'), c.get('phone'), c.get('address'), c.get('notes')):
+                add('customer', c.get('name') or '未命名客戶', c.get('region') or '', c, '/customers')
+        for table_name, rows, label, url in [
+            ('inventory', list_inventory(), '庫存', '/inventory'),
+            ('orders', get_orders(), '訂單', '/orders'),
+            ('master_orders', get_master_orders(), '總單', '/master-order'),
+        ]:
+            for it in rows:
+                if hit(it.get('customer_name'), it.get('product_text'), it.get('material'), it.get('product_code')):
+                    title = f"{label}｜{it.get('customer_name') or '未指定'}"
+                    subtitle = f"{it.get('material') or ''} {it.get('product_text') or ''}｜{int(it.get('qty') or 0)}件"
+                    add(table_name, title, subtitle, it, url)
+        for rec in get_shipping_records(q=q):
+            add('shipping', f"出貨｜{rec.get('customer_name') or ''}", f"{rec.get('product_text') or ''}｜{rec.get('qty') or 0}件｜{rec.get('shipped_at') or ''}", rec, '/shipping-query')
+        for cell in warehouse_get_cells():
+            try:
+                arr = json.loads(cell.get('items_json') or '[]')
+            except Exception:
+                arr = []
+            for it in arr:
+                if hit(cell.get('zone'), cell.get('column_index'), cell.get('slot_number'), it.get('customer_name'), it.get('product_text'), it.get('material'), it.get('product_code')):
+                    loc = f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}"
+                    add('warehouse', f"倉庫 {loc}", f"{it.get('customer_name') or ''}｜{it.get('product_text') or ''}｜{it.get('qty') or 0}件", {'cell': cell, 'item': it}, '/warehouse')
+    except Exception as e:
+        log_error('global_search', str(e))
+        return error_response('全域搜尋失敗')
+    return jsonify(success=True, query=q, items=results)
+
+
+@app.route('/api/text/organize', methods=['POST'])
+@login_required_json
+def api_text_organize():
+    """貼上文字整理器：統一 x、月份、上一筆寬高承接與月份>高>寬>長排序。"""
+    data = request.get_json(silent=True) or {}
+    raw = data.get('text') or data.get('ocr_text') or ''
+    try:
+        parsed = parse_ocr_text(raw)
+        items = parsed.get('items') or []
+        lines = []
+        for it in items:
+            product = format_product_text_height2(it.get('product_text') or it.get('raw_text') or '')
+            if product:
+                lines.append(product)
+        if not lines:
+            lines = [format_product_text_height2(x) for x in str(parsed.get('text') or raw).splitlines() if format_product_text_height2(x)]
+        lines = sorted(set(lines), key=product_sort_tuple)
+        return jsonify(success=True, text='\n'.join(lines), lines=lines, items=items, cleaned_text=parsed.get('cleaned_text') or '')
+    except Exception as e:
+        log_error('text_organize', str(e))
+        return error_response('文字整理失敗')
+
 
 @app.route("/health")
 @app.route("/api/health")
