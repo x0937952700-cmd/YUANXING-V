@@ -2805,3 +2805,60 @@ html[data-yx-fix93="FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER"] .yx63-size-cell{
   }
 }
 /* ==== FIX93 end ==== */
+
+/* ==== FIX94: fixed bold product card + manual refresh UI ==== */
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-fixed-item-card{
+  min-height:128px!important;
+  overflow:hidden!important;
+  contain:layout paint!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-main{
+  display:flex!important;
+  flex-direction:column!important;
+  gap:8px!important;
+  min-width:0!important;
+  font-weight:900!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-row,
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-row *{
+  font-weight:900!important;
+  color:#0f172a!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-top{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  font-size:14px!important;
+  line-height:1.25!important;
+  white-space:nowrap!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-mat{color:#334155!important;}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-qty{font-size:18px!important;color:#0f172a!important;}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-product{
+  font-size:clamp(25px,4.8vw,34px)!important;
+  line-height:1.12!important;
+  letter-spacing:-.02em!important;
+  word-break:break-word!important;
+  overflow-wrap:anywhere!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-fixed-item-card .yx63-item-grid{display:none!important;}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-fixed-item-card .yx63-card-actions{margin-top:14px!important;}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] #warehouse-unplaced-pill,
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] #yx94-refresh-unplaced,
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] #yx94-refresh-today{
+  font-weight:900!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .vertical-slot .slot-line.customer{
+  font-weight:900!important;
+  color:#0f172a!important;
+}
+html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-today-refresh-row{
+  justify-content:flex-end!important;
+  margin:0 0 12px!important;
+}
+@media(max-width:720px){
+  html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-product{font-size:28px!important;}
+  html[data-yx-fix94="FIX94_MANUAL_REFRESH_FIXED_CARDS"] .yx94-card-top{font-size:13px!important;}
+}
+/* ==== FIX94 end ==== */

@@ -2733,13 +2733,14 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function cardHTML(r,source){
     const id=Number(r.id||0);
-    return `<div class="card inventory-action-card yx63-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(r.customer_name||'')}">
-      <div class="yx63-item-grid">
-        <div><span>材質</span><b>${esc(rowMaterial(r))}</b></div>
-        <div><span>尺寸</span><b>${yx85SizeHTML(rowSize(r))}</b></div>
-        <div><span>支數 x 件數</span><b>${esc(rowSupport(r))}</b></div>
-        <div><span>數量</span><b>${rowQty(r)}</b></div>
-        ${r.customer_name ? `<div class="yx63-item-customer">客戶：${esc(r.customer_name)}</div>`:''}
+    const mat = rowMaterial(r) || '未填材質';
+    const qty = rowQty(r);
+    const line = `${String(rowSize(r) || '').replace(/[Ｘ×✕＊*X]/g,'x')} = ${rowSupport(r)}`.replace(/\s+/g,' ').trim();
+    return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(r.customer_name||'')}">
+      <div class="yx94-card-main">
+        <div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(mat)}</span><span class="yx94-qty">數量 ${qty}</span></div>
+        <div class="yx94-card-row yx94-card-product">${esc(line)}</div>
+        ${r.customer_name ? `<div class="yx63-item-customer">${esc(r.customer_name)}</div>`:''}
       </div>
       <div class="yx63-card-actions">
         <button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button>
@@ -7199,10 +7200,17 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function parseCellItems(raw){ try{ return Array.isArray(raw)?raw:JSON.parse(raw||'[]'); }catch(_e){ return []; } }
   function summarizeCell(items){
     if(!items || !items.length) return '<div class="slot-line empty">空格</div>';
-    const byCustomer=new Map(); let total=0;
-    items.forEach(it=>{ const c=clean(it.customer_name||'未指定客戶'); const q=Number(it.qty||0)||0; total += q; byCustomer.set(c,(byCustomer.get(c)||0)+q); });
-    const names=Array.from(byCustomer.entries()).map(([name,q])=>`<div class="slot-line customer">${esc(name)}：${q}件</div>`).join('');
-    return names + `<div class="slot-line qty">總件數：${total}</div>`;
+    const byCustomer=new Map();
+    items.forEach(it=>{
+      const c=clean(it.customer_name||'未指定客戶');
+      const mat=clean(it.material||it.product_code||'');
+      const key=`${c}|${mat}`;
+      const q=Number(it.qty||0)||0;
+      const arr=byCustomer.get(key)||{customer:c, material:mat, parts:[]};
+      arr.parts.push(q);
+      byCustomer.set(key,arr);
+    });
+    return Array.from(byCustomer.values()).map(g=>`<div class="slot-line customer">${esc(g.customer)}${g.material?esc(g.material):''}　${g.parts.join('+')}件</div>`).join('');
   }
   function repaintWarehouse82(){
     const cols=[1,2,3,4,5,6];
@@ -9305,13 +9313,13 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (unplaced) unplaced.textContent = '未入倉';
   }
 
-  async function getAvailableItems(){
+  async function getAvailableItems(force=false){
     window.state = window.state || {};
     window.state.warehouse = window.state.warehouse || {};
     let items = Array.isArray(window.state.warehouse.availableItems) ? window.state.warehouse.availableItems : [];
-    if (!items.length) {
+    if (force) {
       try {
-        const d = await api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
+        const d = await api('/api/warehouse/available-items?yx_manual=1&ts=' + Date.now(), {method:'GET'});
         items = Array.isArray(d.items) ? d.items : [];
         window.state.warehouse.availableItems = items;
       } catch(_e) {}
@@ -9343,7 +9351,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const box = $('warehouse-unplaced-list-inline');
     if (!box) return;
     if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
-    const items = await getAvailableItems();
+    const items = await getAvailableItems(true);
     renderUnplacedList93(items);
     box.classList.remove('hidden');
     updateUnplacedPill93();
@@ -9442,7 +9450,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     syncSelectedRowClasses();
     renameWarehouseButtons();
     decorateCustomerDetailPanel();
-    if (moduleKey() === 'warehouse') updateUnplacedPill93();
+    /* FIX94 manual only: no periodic unplaced recalculation */
   }
   function install(){
     document.documentElement.dataset.yxFix93 = VERSION;
@@ -9453,10 +9461,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     decorateCustomerDetailPanel();
     if (moduleKey() === 'warehouse') {
       window.toggleWarehouseUnplacedHighlight = toggleUnplaced93;
-      updateUnplacedPill93();
+      /* FIX94 manual only: no initial unplaced recalculation */
       const oldRender = window.renderWarehouse;
       if (typeof oldRender === 'function' && !oldRender.__yx93Wrapped) {
-        const wrapped = async function(){ const r = await oldRender.apply(this, arguments); setTimeout(updateUnplacedPill93, 120); setTimeout(renameWarehouseButtons, 120); return r; };
+        const wrapped = async function(){ const r = await oldRender.apply(this, arguments); setTimeout(renameWarehouseButtons, 120); return r; };
         wrapped.__yx93Wrapped = true;
         window.renderWarehouse = wrapped;
       }
@@ -9472,3 +9480,71 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   [300,900,1800,3600].forEach(ms => setTimeout(periodicCleanup, ms));
 })();
 /* ==== FIX93: mobile customer layout + batch action sheet + today cards + unplaced count master end ==== */
+
+
+/* ==== FIX94: manual refresh convergence + fixed bold product cards ==== */
+(function(){
+  'use strict';
+  const VERSION='FIX94_MANUAL_REFRESH_FIXED_CARDS';
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const toast=(m,k='ok')=>{try{(window.toast||window.showToast||console.log)(m,k)}catch(_){}}; 
+  const oldFetch=window.fetch;
+  if(!window.__YX94_FETCH_THROTTLE__ && typeof oldFetch==='function'){
+    window.__YX94_FETCH_THROTTLE__=true;
+    const cache={t:0,response:null};
+    window.fetch=function(input, init){
+      try{
+        const url=String(typeof input==='string'?input:(input&&input.url)||'');
+        if(url.includes('/api/warehouse/available-items') && !url.includes('yx_manual=1')){
+          const now=Date.now();
+          if(cache.response && now-cache.t<30000) return Promise.resolve(cache.response.clone());
+          return oldFetch.apply(this,arguments).then(res=>{cache.t=Date.now(); cache.response=res.clone(); return res;});
+        }
+      }catch(_e){}
+      return oldFetch.apply(this,arguments);
+    };
+  }
+  async function api(url,opt={}){ const r=await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{};}catch(_){d={success:false,error:t||'伺服器回應格式錯誤'};} if(!r.ok||d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; }
+  function qtyOf(it){ return Number(it?.unplaced_qty ?? it?.qty ?? 0)||0; }
+  function ensureWarehouseManualRefresh(){
+    const pill=$('warehouse-unplaced-pill'); if(!pill || pill.dataset.yx94Manual==='1') return;
+    pill.dataset.yx94Manual='1';
+    pill.textContent='未入倉：按刷新';
+    const btn=document.createElement('button'); btn.type='button'; btn.id='yx94-refresh-unplaced'; btn.className='ghost-btn tiny-btn'; btn.textContent='刷新未入倉';
+    pill.insertAdjacentElement('afterend',btn);
+    btn.addEventListener('click',async()=>{
+      try{
+        btn.disabled=true; btn.textContent='刷新中…';
+        const d=await api('/api/warehouse/available-items?yx_manual=1&ts='+Date.now(),{method:'GET'});
+        const items=Array.isArray(d.items)?d.items:[];
+        window.state=window.state||{}; window.state.warehouse=window.state.warehouse||{}; window.state.warehouse.availableItems=items;
+        const total=items.reduce((sum,it)=>sum+qtyOf(it),0);
+        pill.textContent=`未入倉：${total}件`;
+        const box=$('warehouse-unplaced-list-inline');
+        if(box && !box.classList.contains('hidden')){
+          box.innerHTML=items.length?items.map(it=>`<div class="deduct-card"><strong>${esc(it.customer_name||'未指定客戶')}</strong><div class="small-note">${esc(it.product_text||it.product_size||'')}</div><div class="small-note">未入倉 ${qtyOf(it)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+        }
+        toast('未入倉數量已刷新','ok');
+      }catch(e){toast(e.message||'刷新失敗','error');}
+      finally{btn.disabled=false; btn.textContent='刷新未入倉';}
+    });
+  }
+  function ensureTodayManualRefresh(){
+    const summary=$('today-summary-cards'); if(!summary || $('yx94-refresh-today')) return;
+    const bar=document.createElement('div'); bar.className='btn-row compact-row yx94-today-refresh-row';
+    bar.innerHTML='<button type="button" class="ghost-btn small-btn" id="yx94-refresh-today">刷新</button>';
+    summary.insertAdjacentElement('beforebegin',bar);
+    $('yx94-refresh-today').addEventListener('click',()=>{ if(typeof window.loadTodayChanges==='function') window.loadTodayChanges(); });
+  }
+  function install(){
+    document.documentElement.dataset.yxFix94=VERSION;
+    ensureWarehouseManualRefresh();
+    ensureTodayManualRefresh();
+    document.querySelectorAll('.vertical-slot .slot-line.customer').forEach(el=>{el.style.fontWeight='900';});
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
+  window.addEventListener('pageshow',install);
+  setTimeout(install,300); setTimeout(install,1000);
+})();
+/* ==== FIX94 end ==== */
