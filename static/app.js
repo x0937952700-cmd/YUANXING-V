@@ -1,126 +1,3 @@
-/* ==== FIX112: old function purge + navigation/page speed final lock start ==== */
-(function(){
-  'use strict';
-  if(window.__YX112_SPEED_FINAL_LOCK__) return;
-  window.__YX112_SPEED_FINAL_LOCK__ = true;
-  const VERSION = 'FIX112_OLD_FUNCTION_SPEED_PURGE';
-  window.__YX112_STATS__ = window.__YX112_STATS__ || {pageshow:0, mutation:0, timer:0, todayFetch:0, interval:0};
-  const nativeAdd = window.__YX112_NATIVE_ADD__ || window.addEventListener.bind(window);
-  const nativeDocAdd = window.__YX112_NATIVE_DOC_ADD__ || document.addEventListener.bind(document);
-  const nativeSetTimeout = window.__YX112_NATIVE_SET_TIMEOUT__ || window.setTimeout.bind(window);
-  const nativeSetInterval = window.__YX112_NATIVE_SET_INTERVAL__ || window.setInterval.bind(window);
-  const NativeMutationObserver = window.__YX112_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
-  const NativeFetch = window.__YX112_NATIVE_FETCH__ || (window.fetch ? window.fetch.bind(window) : null);
-  window.__YX112_NATIVE_ADD__ = nativeAdd;
-  window.__YX112_NATIVE_DOC_ADD__ = nativeDocAdd;
-  window.__YX112_NATIVE_SET_TIMEOUT__ = nativeSetTimeout;
-  window.__YX112_NATIVE_SET_INTERVAL__ = nativeSetInterval;
-  window.__YX112_NATIVE_MUTATION_OBSERVER__ = NativeMutationObserver;
-  window.__YX112_NATIVE_FETCH__ = NativeFetch;
-  const path = () => String(location.pathname || '');
-  const isHome = () => path() === '/' || path() === '';
-  const isToday = () => path().indexOf('/today-changes') >= 0;
-  const manualToday = (u) => {
-    try{
-      const url = new URL(u, location.origin);
-      return url.searchParams.get('refresh') === '1' || url.searchParams.get('include_unplaced') === '1' || window.__YX112_ALLOW_TODAY_FETCH__ === true || window.__YX111_ALLOW_TODAY_FETCH__ === true || window.__YX110_ALLOW_TODAY_FETCH__ === true;
-    }catch(_){ return false; }
-  };
-  const legacyNeedle = /yxFix(6[3-9]|7\d|8\d|9\d|10[0-2])|FIX(6[3-9]|7\d|8\d|9\d|10[0-2])|loadTodayChanges(8\d|9\d|10[0-8])|periodicCleanup|scheduleTables|convergeDom|convergeUI|decorateItemCards9\d|enforceTodaySummary9\d|compactWarehouseAll9\d|removeLegacyWarehousePanels9\d|install9\d|install8\d|install7\d|boot9\d|boot8\d|safeRunSoon/i;
-  const timerNeedle = /loadTodayChanges|periodicCleanup|scheduleTables|convergeDom|convergeUI|decorateItemCards|enforceTodaySummary|compactWarehouseAll|removeLegacyWarehousePanels|install9\d|install8\d|install7\d|boot9\d|boot8\d|safeRunSoon|applyMonthTables|scheduleCleanup/i;
-
-  window.addEventListener = function(type, listener, options){
-    if(type === 'pageshow' && typeof listener === 'function' && !(listener.__yx112SafePageshow || listener.__yx111SafePageshow || listener.__yx110SafePageshow)){
-      window.__YX112_STATS__.pageshow++;
-      return undefined;
-    }
-    return nativeAdd(type, listener, options);
-  };
-  document.addEventListener = function(type, listener, options){
-    if(type === 'DOMContentLoaded' && typeof listener === 'function'){
-      const src = Function.prototype.toString.call(listener);
-      if((isHome() || isToday()) && legacyNeedle.test(src)){
-        window.__YX112_STATS__.timer++;
-        return undefined;
-      }
-    }
-    return nativeDocAdd(type, listener, options);
-  };
-  window.setTimeout = function(fn, delay, ...args){
-    try{
-      const src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || '');
-      const d = Number(delay || 0);
-      if(timerNeedle.test(src) && (isHome() || isToday() || d >= 80)){
-        window.__YX112_STATS__.timer++;
-        return 0;
-      }
-    }catch(_e){}
-    return nativeSetTimeout(fn, delay, ...args);
-  };
-  window.setInterval = function(fn, delay, ...args){
-    try{
-      const src = typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || '');
-      if(/flushQueue|sync|today|load|render|cleanup|converge/i.test(src)){
-        window.__YX112_STATS__.interval++;
-        return 0;
-      }
-    }catch(_e){}
-    return nativeSetInterval(fn, delay, ...args);
-  };
-  if(NativeMutationObserver && !window.MutationObserver.__yx112Wrapped){
-    function YX112MutationObserver(callback){
-      let queued=false, lastMut=null, lastObs=null;
-      const safe=function(mutations, observer){
-        lastMut=mutations; lastObs=observer;
-        if(queued) return;
-        queued=true;
-        const run=()=>{ queued=false; try{ callback.call(this,lastMut||[],lastObs||observer); }catch(_e){} };
-        (window.requestIdleCallback || window.requestAnimationFrame || nativeSetTimeout)(run,120);
-      };
-      const obs = new NativeMutationObserver(safe);
-      const nativeObserve = obs.observe.bind(obs);
-      obs.observe = function(target, options){
-        try{
-          const t = target;
-          const full = t === document || t === document.documentElement || t === document.body;
-          const id = t && t.id;
-          const today = id === 'today-summary-cards' || id === 'today-unplaced-list' || id === 'today-inbound-list' || id === 'today-outbound-list' || id === 'today-order-list';
-          if((full && options && options.subtree) || today){ window.__YX112_STATS__.mutation++; return undefined; }
-        }catch(_e){}
-        return nativeObserve(target, options);
-      };
-      return obs;
-    }
-    YX112MutationObserver.prototype = NativeMutationObserver.prototype;
-    YX112MutationObserver.__yx112Wrapped = true;
-    window.MutationObserver = YX112MutationObserver;
-  }
-  if(NativeFetch){
-    window.fetch = function(input, init){
-      try{
-        const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-        const raw = typeof input === 'string' ? input : (input && input.url) || '';
-        const url = new URL(raw, location.origin);
-        if(method === 'GET' && isToday() && url.pathname === '/api/today-changes' && !manualToday(url.href)){
-          window.__YX112_STATS__.todayFetch++;
-          const empty={success:true,summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0},feed:{inbound:[],outbound:[],new_orders:[],others:[]},unplaced_items:[],anomalies:[],anomaly_groups:{unplaced:[]},read_at:''};
-          return Promise.resolve(new Response(JSON.stringify(empty),{status:200,headers:{'Content-Type':'application/json','X-YX112-Blocked':'legacy-today-auto-fetch'}}));
-        }
-      }catch(_e){}
-      return NativeFetch(input, init);
-    };
-  }
-  try{
-    document.documentElement.dataset.yxFix112Early = VERSION;
-    window.__YX106_EARLY_PERF_GUARD__ = true;
-    window.__YX107_MANUAL_TODAY_SPEED_HARD_LOCK__ = true;
-    window.__YX108_SINGLE_TODAY_UI__ = true;
-    window.__YX110_SPEED_LOCK__ = true;
-    window.__YX111_SPEED_LOCK__ = true;
-  }catch(_e){}
-})();
-/* ==== FIX112: old function purge + navigation/page speed final lock end ==== */
-
 /* ==== FIX111: early legacy function purge + return-page speed lock start ==== */
 (function(){
   'use strict';
@@ -11333,7 +11210,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   'use strict';
   if(window.__YX111_FINAL_SINGLE_RENDER__) return;
   window.__YX111_FINAL_SINGLE_RENDER__ = true;
-  const VERSION='FIX112_OLD_FUNCTION_SPEED_PURGE';
+  const VERSION='FIX111_LEGACY_PURGE_SPEED_LOCK';
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
@@ -11364,41 +11241,5 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   try{(window.__YX111_NATIVE_ADD__||window.addEventListener.bind(window))('pageshow',install);}catch(_){}
 })();
 /* ==== FIX111: final single-render today + product-card cleanup reinforcement end ==== */
-/* FIX112_OLD_FUNCTION_SPEED_PURGE */
+/* FIX111_LEGACY_PURGE_SPEED_LOCK */
 
-
-/* ==== FIX112: final route-only renderer + product-card cleanup reinforcement start ==== */
-(function(){
-  'use strict';
-  if(window.__YX112_FINAL_ROUTE_LOCK__) return;
-  window.__YX112_FINAL_ROUTE_LOCK__ = true;
-  const VERSION='FIX112_OLD_FUNCTION_SPEED_PURGE';
-  const $=id=>document.getElementById(id);
-  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const qty=v=>{const n=Number(v||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0;};
-  const clean=v=>String(v??'').replace(/編輯|直接出貨|刪除|未填材質/g,' ').replace(/\s+/g,' ').trim();
-  const api=window.yxApi||window.requestJSON||async function(url,opt={}){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const text=await res.text();let data={};try{data=text?JSON.parse(text):{};}catch(_){data={success:false,error:text||'伺服器回應格式錯誤'};}if(!res.ok||data.success===false)throw new Error(data.error||data.message||`請求失敗：${res.status}`);return data;};
-  window.yxApi=api;
-  const empty=()=>({success:true,summary:{inbound_count:0,outbound_count:0,new_order_count:0,unplaced_count:0,unplaced_row_count:0,unread_count:0,anomaly_count:0},feed:{inbound:[],outbound:[],new_orders:[],others:[]},unplaced_items:[],anomalies:[],anomaly_groups:{unplaced:[]},read_at:''});
-  const isToday=()=>location.pathname.indexOf('/today-changes')>=0;
-  const nativeTimeout=window.__YX112_NATIVE_SET_TIMEOUT__||window.setTimeout.bind(window);
-  let loading=null, active='all';
-  function fmt(v){const raw=String(v||'');const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);return m?`${m[1]} ${m[2]}`:raw;}
-  function card(key,title,num,unit){return `<button type="button" class="yx112-today-card ${active===key?'active':''}" data-yx112-today-filter="${key}"><span class="yx112-today-title">${esc(title)}</span><span class="yx112-today-count"><b>${qty(num)}</b><em>${esc(unit)}</em></span></button>`;}
-  function renderSummary(data){const box=$('today-summary-cards');if(!box)return;const s=(data&&data.summary)||{};const html=`<div class="yx112-today-stack">${card('inbound','進貨',s.inbound_count,'筆')}${card('outbound','出貨',s.outbound_count,'筆')}${card('orders','新增訂單',s.new_order_count,'筆')}${card('unplaced','未入倉',s.unplaced_count,'件')}</div>`;box.className='card-list yx112-today-root';if(box.dataset.yx112Html!==html){box.innerHTML=html;box.dataset.yx112Html=html;}}
-  function fill(id,rows,msg){const el=$(id);if(!el)return;const arr=Array.isArray(rows)?rows:[];el.innerHTML=arr.length?arr.map(r=>`<div class="today-item deduct-card yx112-log-card" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong><div class="small-note">${esc(fmt(r?.created_at))}｜${esc(r?.username||'')}</div><button type="button" class="ghost-btn tiny-btn danger-btn" data-yx112-delete-today="${Number(r?.id||0)}">刪除</button></div>`).join(''):`<div class="empty-state-card compact-empty">${esc(msg)}</div>`;}
-  function fillUnplaced(data,manual){const el=$('today-unplaced-list');if(!el)return;if(!manual){el.innerHTML='<div class="empty-state-card compact-empty">未入倉件數不自動重算，請按右上「刷新」更新。</div>';return;}const arr=Array.isArray(data?.unplaced_items)?data.unplaced_items:[];el.innerHTML=arr.length?arr.map(it=>`<div class="deduct-card yx112-unplaced-card"><strong>${esc(clean(it.product_text||it.product_size||''))}</strong><div class="small-note">${esc(clean(it.customer_name||'未指定客戶')||'未指定客戶')}｜未入倉 ${qty(it.unplaced_qty??it.qty)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';}
-  function applyFilter(){document.querySelectorAll('[data-yx112-today-filter],[data-yx111-today-filter],[data-yx110-today-filter]').forEach(el=>el.classList.toggle('active',(el.getAttribute('data-yx112-today-filter')||el.getAttribute('data-yx111-today-filter')||el.getAttribute('data-yx110-today-filter')||'')===active));document.querySelectorAll('[data-today-panel]').forEach(p=>{const k=p.dataset.todayPanel||'';p.style.display=(active==='all'||active===k)?'':'none';});}
-  function render(data,manual){data=data||window.__YX112_TODAY_LAST__||empty();renderSummary(data);fill('today-inbound-list',data?.feed?.inbound,'今天沒有進貨');fill('today-outbound-list',data?.feed?.outbound,'今天沒有出貨');fill('today-order-list',data?.feed?.new_orders,'今天沒有新增訂單');fillUnplaced(data,!!manual);applyFilter();}
-  async function loadTodayChanges112(opts={}){if(!isToday())return window.__YX112_TODAY_LAST__||empty();const manual=!!(opts.manual||opts.refresh||opts.force);if(!manual){render(window.__YX112_TODAY_LAST__||empty(),false);return window.__YX112_TODAY_LAST__||empty();}if(loading)return loading;const btn=$('today-manual-refresh-btn');if(btn){btn.disabled=true;btn.textContent='刷新中…';}loading=(async()=>{window.__YX112_ALLOW_TODAY_FETCH__=true;let data;try{data=await api('/api/today-changes?refresh=1&include_unplaced=1&ts='+Date.now(),{method:'GET'});}finally{window.__YX112_ALLOW_TODAY_FETCH__=false;}window.__YX112_TODAY_LAST__=data;window.__YX111_TODAY_LAST__=data;window.__YX110_TODAY_LAST__=data;render(data,true);try{await api('/api/today-changes/read',{method:'POST',body:'{}'});}catch(_){}return data;})().catch(e=>{const box=$('today-summary-cards');if(box)box.innerHTML=`<div class="error-card">${esc(e.message||'今日異動刷新失敗')}</div>`;try{(window.notify||window.toast||alert)(e.message||'今日異動刷新失敗','error');}catch(_){}return empty();}).finally(()=>{if(btn){btn.disabled=false;btn.textContent='刷新';}nativeTimeout(()=>{loading=null;},160);});return loading;}
-  try{Object.defineProperty(window,'loadTodayChanges',{configurable:true,enumerable:true,get(){return loadTodayChanges112;},set(_fn){}});}catch(_){window.loadTodayChanges=loadTodayChanges112;}
-  window.__YX112_refreshToday=()=>loadTodayChanges112({manual:true});
-  document.addEventListener('click',function(ev){const t=ev.target;const refresh=t&&t.closest&&t.closest('#today-manual-refresh-btn');if(refresh){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();loadTodayChanges112({manual:true});return false;}const filter=t&&t.closest&&t.closest('[data-yx112-today-filter],[data-yx111-today-filter],[data-yx110-today-filter],[data-yx108-today-filter],[data-yx107-today-filter],[data-yx106-today-filter],[data-yx102-today-filter],[data-today-filter]');if(filter&&isToday()){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();active=(filter.getAttribute('data-yx112-today-filter')||filter.getAttribute('data-yx111-today-filter')||filter.getAttribute('data-yx110-today-filter')||filter.getAttribute('data-yx108-today-filter')||filter.getAttribute('data-yx102-today-filter')||filter.getAttribute('data-today-filter')||'all');renderSummary(window.__YX112_TODAY_LAST__||empty());applyFilter();return false;}const del=t&&t.closest&&t.closest('[data-yx112-delete-today],[data-yx111-delete-today],[data-yx110-delete-today]');if(del){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation();api('/api/today-changes/'+encodeURIComponent(del.getAttribute('data-yx112-delete-today')||del.getAttribute('data-yx111-delete-today')||del.getAttribute('data-yx110-delete-today')),{method:'DELETE'}).then(()=>del.closest('.today-item,.deduct-card,.card')?.remove()).catch(e=>{try{(window.notify||window.toast||alert)(e.message||'刪除失敗','error');}catch(_){}});return false;}},true);
-  function cleanCards(){document.querySelectorAll('.yx63-item-card,.inventory-action-card').forEach(card=>{if(card.closest('#today-summary-cards,#today-inbound-list,#today-outbound-list,#today-order-list,#today-unplaced-list'))return;card.querySelectorAll('.small-note,.muted,.pill,.chip').forEach(el=>{if(/編輯|直接出貨|刪除|未填材質/.test(String(el.textContent||'')))el.remove();});});}
-  function install(){document.documentElement.dataset.yxFix112=VERSION;document.querySelectorAll('.today-filter-bar,.yx93-today-card,.yx94-today-card,.today-grid,.today-summary-grid').forEach(el=>{el.hidden=true;el.style.display='none';});cleanCards();if(isToday())render(window.__YX112_TODAY_LAST__||empty(),false);}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
-  install.__yx112SafePageshow=true;
-  try{(window.__YX112_NATIVE_ADD__||window.addEventListener.bind(window))('pageshow',install);}catch(_){}
-})();
-/* ==== FIX112: final route-only renderer + product-card cleanup reinforcement end ==== */
-/* FIX112_OLD_FUNCTION_SPEED_PURGE */
