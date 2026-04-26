@@ -85,7 +85,7 @@ SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
 TODAY_PAYLOAD_CACHE = {'ts': 0.0, 'data': None}
-TODAY_PAYLOAD_CACHE_TTL = int(os.getenv('YX_TODAY_CACHE_SECONDS', '25'))
+TODAY_PAYLOAD_CACHE_TTL = int(os.getenv('YX_TODAY_CACHE_SECONDS', '120'))
 
 _db_log_action = log_action
 
@@ -1944,11 +1944,11 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload():
-    # FIX105：今日異動會計算未入倉總件數，資料多時會造成刷新卡頓；短快取降低重複計算。
+def _today_changes_payload(include_unplaced=False):
+    # FIX106：預設不計算未入倉，只有使用者按「刷新」才重算，避免開頁/返回主頁卡頓。
     try:
         cached = TODAY_PAYLOAD_CACHE.get('data')
-        if cached is not None and (time.time() - float(TODAY_PAYLOAD_CACHE.get('ts') or 0)) < TODAY_PAYLOAD_CACHE_TTL:
+        if include_unplaced and cached is not None and (time.time() - float(TODAY_PAYLOAD_CACHE.get('ts') or 0)) < TODAY_PAYLOAD_CACHE_TTL:
             return cached
     except Exception:
         pass
@@ -1973,7 +1973,10 @@ def _today_changes_payload():
         elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    unplaced = _today_unplaced_all_sources()
+    if include_unplaced:
+        unplaced = _today_unplaced_all_sources()
+    else:
+        unplaced = []
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
@@ -2000,17 +2003,19 @@ def _today_changes_payload():
         'anomaly_groups': {'unplaced': unplaced},
         'read_at': read_at,
     }
-    try:
-        TODAY_PAYLOAD_CACHE['ts'] = time.time()
-        TODAY_PAYLOAD_CACHE['data'] = payload
-    except Exception:
-        pass
+    if include_unplaced:
+        try:
+            TODAY_PAYLOAD_CACHE['ts'] = time.time()
+            TODAY_PAYLOAD_CACHE['data'] = payload
+        except Exception:
+            pass
     return payload
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    include_unplaced = str(request.args.get('refresh') or request.args.get('include_unplaced') or '').lower() in ('1', 'true', 'yes')
+    return jsonify(success=True, **_today_changes_payload(include_unplaced=include_unplaced))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -2041,7 +2046,7 @@ def api_today_change_delete(log_id):
 @app.route('/api/anomalies', methods=['GET'])
 @login_required_json
 def api_anomalies():
-    payload = _today_changes_payload()
+    payload = _today_changes_payload(include_unplaced=True)
     return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 

@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX105_TODAY_SPEED_FINAL",
+        "FIX106_MANUAL_TODAY_CARD_SPEED",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -23,13 +23,13 @@ required = {
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "FIX105_TODAY_SPEED_FINAL",
+        "FIX106_MANUAL_TODAY_CARD_SPEED",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX105: one true today row layout"],
-    "templates/base.html": ["FIX105_TODAY_SPEED_FINAL", "app.js", "pwa.js", "fix105-today-speed-final"],
-    "static/service-worker.js": ["FIX105_TODAY_SPEED_FINAL", "fix105-today-speed-final"],
-    "static/pwa.js": ["fix105-today-speed-final"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix105-today-speed-final"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search", "FIX106: manual today layout"],
+    "templates/base.html": ["FIX106_MANUAL_TODAY_CARD_SPEED", "app.js", "pwa.js", "fix106-manual-today-speed"],
+    "static/service-worker.js": ["FIX106_MANUAL_TODAY_CARD_SPEED", "fix106-manual-today-speed"],
+    "static/pwa.js": ["fix106-manual-today-speed"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix106-manual-today-speed"'],
 }
 
 for rel, tokens in required.items():
@@ -59,4 +59,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX105 smoke test OK")
+print("FIX106 smoke test OK")

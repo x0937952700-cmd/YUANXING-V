@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix105-today-speed-final';
+  const PWA_VERSION = 'fix106-manual-today-speed';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
