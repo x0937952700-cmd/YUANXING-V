@@ -272,8 +272,8 @@ def add_no_cache_headers(response):
 def protect_pages():
     path = request.path
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
-    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
-    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+    # FIX100：預設啟用每日自動備份；若要關閉可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=0。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
         ensure_daily_backup()
     if path.startswith("/static/") or path in ("/health",):
         return None

@@ -2924,3 +2924,160 @@ html[data-yx-fix98="FIX98_TRUE_MASTER_UPGRADE"] .ghost-btn.yx98-pressed{transfor
   .yx99-offline-badge{right:10px; bottom:10px; font-size:12px;}
 }
 /* ==== FIX99 commercial stability styles end ==== */
+
+
+/* ==== FIX100 final total consolidation styles ==== */
+.yx100-hidden-legacy{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+.yx100-single-batch-panel{border:1px solid rgba(120,82,38,.16);border-radius:18px;padding:12px;margin-top:12px;background:rgba(255,255,255,.72);}
+.yx100-product-card{line-height:1.25;}
+.yx100-product-card .yx100-hidden-legacy{display:none!important;}
+.yx100-unplaced-card{min-height:auto;}
+button.is-busy{opacity:.72;pointer-events:none;}
+@media (max-width: 720px){
+  .today-card,.yx100-unplaced-card{min-width:0!important;}
+  #today-summary,.today-summary,.today-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;}
+  .warehouse-map,.warehouse-board,.warehouse-grid-wrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch;}
+}
+/* ==== FIX100 final total consolidation styles end ==== */
+
+
+/* ==== FIX101 final UI/warehouse/today consolidation ==== */
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #today-summary-cards{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:12px!important;
+  align-items:stretch!important;
+  contain:layout!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card{
+  cursor:pointer!important;
+  min-height:86px!important;
+  height:86px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  border:1px solid rgba(15,23,42,.08)!important;
+  border-radius:20px!important;
+  background:#fff!important;
+  padding:14px 16px!important;
+  box-shadow:0 10px 24px rgba(15,23,42,.06)!important;
+  overflow:hidden!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card.active{
+  border-color:rgba(15,118,110,.36)!important;
+  background:#f0fdfa!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card .title{
+  font-size:15px!important;
+  line-height:1.15!important;
+  font-weight:900!important;
+  color:#0f172a!important;
+  white-space:nowrap!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card .sub{
+  font-size:28px!important;
+  line-height:1!important;
+  font-weight:950!important;
+  color:#0f172a!important;
+  margin-top:6px!important;
+  letter-spacing:-.03em!important;
+  white-space:nowrap!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] [data-today-panel].yx101-hidden{display:none!important;}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  flex-wrap:wrap!important;
+  min-height:44px!important;
+  overflow:visible!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #warehouse-unplaced-pill,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #warehouse-selection-pill,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar .pill,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar button{
+  height:34px!important;
+  min-height:34px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  white-space:nowrap!important;
+  flex:0 0 auto!important;
+  line-height:1!important;
+  margin:0!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #warehouse-unplaced-pill{min-width:118px!important;}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-cell-customer-line{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:8px!important;
+  padding:7px 9px!important;
+  margin:4px 0!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.94)!important;
+  border:1px solid rgba(15,23,42,.08)!important;
+  box-shadow:0 3px 10px rgba(15,23,42,.04)!important;
+  cursor:grab!important;
+  touch-action:none!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-cell-customer-line b{
+  font-weight:950!important;
+  color:#0f172a!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  min-width:0!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-cell-customer-line span{
+  font-size:14px!important;
+  font-weight:950!important;
+  color:#334155!important;
+  white-space:nowrap!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-empty-product-card{display:none!important;}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx94-product-formula,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx95-product-formula{
+  font-size:24px!important;
+  line-height:1.08!important;
+  font-weight:950!important;
+  letter-spacing:-.02em!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx94-material,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx95-material,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx94-qty,
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx95-qty{
+  font-size:22px!important;
+  line-height:1.08!important;
+}
+html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #todo-date::placeholder{color:#94a3b8!important;}
+@media(max-width:760px){
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #today-summary-cards{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:10px!important;
+  }
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card{
+    min-height:78px!important;
+    height:78px!important;
+    padding:12px 14px!important;
+  }
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx101-today-card .sub{font-size:25px!important;}
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar{
+    display:grid!important;
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:8px!important;
+  }
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #warehouse-unplaced-pill,
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] #warehouse-selection-pill,
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar .pill,
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .warehouse-meta-bar button{
+    width:100%!important;
+    min-width:0!important;
+    padding-left:8px!important;
+    padding-right:8px!important;
+    font-size:13px!important;
+  }
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx94-product-formula,
+  html[data-yx-fix101="FIX101_FINAL_UI_WAREHOUSE_TODAY_CONSOLIDATION"] .yx95-product-formula{font-size:22px!important;}
+}
+/* ==== FIX101 end ==== */
