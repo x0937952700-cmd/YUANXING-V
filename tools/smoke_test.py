@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX94_CARD_WAREHOUSE_TODAY_STABLE",
+        "FIX99_COMMERCIAL_STABILITY",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -24,11 +24,11 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/style.css": ["yx88-hidden-legacy", "yx88-hidden-legacy", "yx85-month-badge"],
-    "templates/base.html": ["FIX94_CARD_WAREHOUSE_TODAY_STABLE", "app.js", "pwa.js", "fix94-card-warehouse-today-stable"],
-    "static/service-worker.js": ["FIX94_CARD_WAREHOUSE_TODAY_STABLE", "fix94-card-warehouse-today-stable"],
-    "static/pwa.js": ["fix94-card-warehouse-today-stable"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix94-card-warehouse-today-stable"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search"],
+    "templates/base.html": ["FIX99_COMMERCIAL_STABILITY", "app.js", "pwa.js", "fix99-commercial-stability"],
+    "static/service-worker.js": ["FIX99_COMMERCIAL_STABILITY", "fix99-commercial-stability"],
+    "static/pwa.js": ["fix99-commercial-stability"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix99-commercial-stability"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX94 smoke test OK")
+print("FIX99 smoke test OK")

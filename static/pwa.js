@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix94-card-warehouse-today-stable';
+  const PWA_VERSION = 'fix99-commercial-stability';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

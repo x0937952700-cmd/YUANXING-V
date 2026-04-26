@@ -1,4 +1,3 @@
-
 import os
 import json
 import shutil
@@ -9,19 +8,46 @@ from db import get_db, USE_POSTGRES, DATABASE_URL, log_error
 BACKUP_FOLDER = "backups"
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
 
+KEEP_BACKUPS = int(os.getenv("YX_BACKUP_KEEP", "30") or 30)
+
+
 def _backup_filename(prefix, ext):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(BACKUP_FOLDER, f"{prefix}_{timestamp}.{ext}")
 
-def _trim_backups(prefix, keep=7):
-    files = [f for f in os.listdir(BACKUP_FOLDER) if f.startswith(prefix + "_")]
-    files = sorted(files)
-    while len(files) > keep:
-        old = files.pop(0)
-        try:
-            os.remove(os.path.join(BACKUP_FOLDER, old))
-        except Exception:
-            pass
+
+def _trim_backups(prefix, keep=KEEP_BACKUPS):
+    try:
+        files = [f for f in os.listdir(BACKUP_FOLDER) if f.startswith(prefix + "_")]
+        files = sorted(files)
+        while len(files) > int(keep or KEEP_BACKUPS):
+            old = files.pop(0)
+            try:
+                os.remove(os.path.join(BACKUP_FOLDER, old))
+            except Exception:
+                pass
+    except Exception as e:
+        log_error("trim_backups", str(e))
+
+
+def _backup_tables(cur):
+    wanted = [
+        "users", "customer_profiles", "inventory", "orders", "master_orders",
+        "shipping_records", "corrections", "image_hashes", "logs", "errors", "ocr_usage",
+        "submit_requests", "warehouse_cells", "todo_items", "app_settings",
+        "customer_aliases", "warehouse_recent_slots", "audit_trails"
+    ]
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+            existing = {r[0] for r in cur.fetchall()}
+        else:
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            existing = {r[0] for r in cur.fetchall()}
+        return [t for t in wanted if t in existing]
+    except Exception:
+        return wanted
+
 
 def backup_sqlite():
     try:
@@ -34,17 +60,13 @@ def backup_sqlite():
         log_error("backup_sqlite", str(e))
         return {"success": False, "error": str(e)}
 
+
 def backup_postgres():
     try:
         conn = get_db()
         cur = conn.cursor()
-        tables = [
-            "users", "customer_profiles", "inventory", "orders", "master_orders",
-            "shipping_records", "corrections", "image_hashes", "logs", "errors", "warehouse_cells",
-            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails"
-        ]
         backup_data = {}
-        for table in tables:
+        for table in _backup_tables(cur):
             cur.execute(f"SELECT * FROM {table}")
             cols = [d[0] for d in cur.description]
             rows = cur.fetchall()
@@ -52,12 +74,13 @@ def backup_postgres():
         conn.close()
         target = _backup_filename("postgres_backup", "json")
         with open(target, "w", encoding="utf-8") as f:
-            json.dump(backup_data, f, ensure_ascii=False, indent=2)
+            json.dump(backup_data, f, ensure_ascii=False, indent=2, default=str)
         _trim_backups("postgres_backup")
-        return {"success": True, "type": "postgres", "file": target}
+        return {"success": True, "type": "postgres", "file": target, "tables": list(backup_data.keys())}
     except Exception as e:
         log_error("backup_postgres", str(e))
         return {"success": False, "error": str(e)}
+
 
 def run_daily_backup():
     try:
@@ -65,6 +88,7 @@ def run_daily_backup():
     except Exception as e:
         log_error("run_daily_backup", str(e))
         return {"success": False, "error": str(e)}
+
 
 def list_backups():
     try:

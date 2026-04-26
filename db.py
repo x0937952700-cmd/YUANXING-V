@@ -2081,9 +2081,28 @@ def preview_ship_order(customer_name, items):
     finally:
         conn.close()
 
+def _ship_transaction_lock(cur, customer_name='', items=None):
+    """FIX99：出貨正式扣除前加交易鎖，避免多人同時確認造成重複扣貨。
+    PostgreSQL 使用 advisory transaction lock；SQLite 使用 BEGIN IMMEDIATE 鎖住寫入交易。
+    """
+    seed = 'ship|' + str(customer_name or '').strip()
+    try:
+        for it in (items or []):
+            seed += '|' + _merge_size_key(format_product_text_height2((it or {}).get('product_text') or ''))
+    except Exception:
+        pass
+    try:
+        if USE_POSTGRES:
+            cur.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (seed,))
+        else:
+            cur.execute('BEGIN IMMEDIATE')
+    except Exception as e:
+        log_error('ship_transaction_lock', e)
+
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
     cur = conn.cursor()
+    _ship_transaction_lock(cur, customer_name, items)
     ship_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     try:
         breakdown = []
@@ -2204,6 +2223,20 @@ def get_shipping_records(start_date=None, end_date=None, q=""):
 def _warehouse_size_key(text):
     return _normalize_size_key(text)
 
+
+def _warehouse_item_identity(raw, product_text, customer_name, placement_label=''):
+    """FIX98：每筆倉庫商品給穩定 ID，拖拉/合併時不再只靠畫面順序。"""
+    existing = str((raw or {}).get('warehouse_item_id') or (raw or {}).get('id') or '').strip()
+    if existing.startswith('WH-'):
+        return existing
+    seed = '|'.join([
+        str(customer_name or '').strip(),
+        _warehouse_size_key(product_text),
+        str((raw or {}).get('material') or (raw or {}).get('product_code') or '').strip(),
+        str(placement_label or '').strip(),
+    ])
+    return 'WH-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper()
+
 def _normalize_warehouse_items(items):
     """合併同尺寸 / 同客戶商品，清掉空白或 0 數量，避免格位資料越存越亂。"""
     merged = {}
@@ -2230,6 +2263,7 @@ def _normalize_warehouse_items(items):
             next_item['customer_name'] = customer_name
             if placement_label:
                 next_item['placement_label'] = placement_label
+            next_item['warehouse_item_id'] = _warehouse_item_identity(raw, product_text, customer_name, placement_label)
             next_item['qty'] = qty
             merged[key] = next_item
         else:
