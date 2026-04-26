@@ -10075,3 +10075,268 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   document.addEventListener('click', function YX96_CARD_CLICK_CLEAN(){ setTimeout(function YX96_CARD_CLEAN_DELAY(){ normalizeProductCards96(); }, 0); }, true);
 })();
 /* ==== FIX96 end ==== */
+
+/* ==== FIX97: selection-filter + warehouse long-press full actions + duplicate panel cleanup + bold today labels ==== */
+(function(){
+  'use strict';
+  if (window.__YX97_FINAL_CONVERGENCE__) return;
+  window.__YX97_FINAL_CONVERGENCE__ = true;
+  const VERSION = 'FIX97_SELECTION_WAREHOUSE_TODAY_FINAL_CONVERGENCE';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || alert)(msg, kind); } catch(_e) { console.log(msg); } };
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || '';
+
+  function sourceFromModule(){
+    const m = moduleKey();
+    if (m === 'inventory') return 'inventory';
+    if (m === 'orders') return 'orders';
+    if (m === 'master_order') return 'master_order';
+    return '';
+  }
+  function listFor(source){
+    if(source === 'inventory') return $('inventory-inline-list');
+    if(source === 'orders') return $('orders-list');
+    if(source === 'master_order') return $('master-list');
+    return null;
+  }
+  function checkedIds(source){
+    return new Set(Array.from(document.querySelectorAll(`.yx63-summary-row[data-source="${source}"] .yx63-row-check:checked`)).map(ch => String(ch.dataset.id || '')) .filter(Boolean));
+  }
+  function ensureFilterNote(source, selectedCount){
+    const id = `yx97-${source}-filter-note`;
+    let note = $(id);
+    const summary = $(`yx63-${source}-summary`);
+    if(!selectedCount){ note?.remove(); return; }
+    if(!note){
+      note = document.createElement('div');
+      note.id = id;
+      note.className = 'yx97-filter-note';
+      if(summary) summary.insertAdjacentElement('afterend', note);
+      else listFor(source)?.insertAdjacentElement('beforebegin', note);
+    }
+    note.innerHTML = `<strong>下方已篩選 ${selectedCount} 筆</strong><button class="ghost-btn tiny-btn" type="button" data-yx97-clear-filter="${esc(source)}">清除篩選</button>`;
+  }
+  function applySelectedFilter(source){
+    source = source || sourceFromModule();
+    if(!source) return;
+    const ids = checkedIds(source);
+    const list = listFor(source);
+    if(!list) return;
+    const cards = Array.from(list.querySelectorAll('.yx63-item-card,.yx94-fixed-item-card,.yx96-fixed-item-card,.inventory-action-card'));
+    if(!cards.length){ ensureFilterNote(source, ids.size); return; }
+    list.classList.toggle('yx97-filtering', ids.size > 0);
+    cards.forEach(card => {
+      const show = !ids.size || ids.has(String(card.dataset.id || ''));
+      card.classList.toggle('yx97-filter-hidden', !show);
+      card.style.display = show ? '' : 'none';
+    });
+    ensureFilterNote(source, ids.size);
+    const firstVisible = cards.find(card => card.style.display !== 'none');
+    if(ids.size && firstVisible) {
+      try { firstVisible.scrollIntoView({block:'nearest', behavior:'smooth'}); } catch(_e) {}
+    }
+  }
+  function clearSelectedFilter(source){
+    source = source || sourceFromModule();
+    document.querySelectorAll(`.yx63-summary-row[data-source="${source}"]`).forEach(row => {
+      row.classList.remove('yx63-row-selected');
+      const cb = row.querySelector('.yx63-row-check');
+      if(cb) cb.checked = false;
+    });
+    const btn = $(`yx63-${source}-selectall`);
+    if(btn) btn.textContent = '全選目前清單';
+    applySelectedFilter(source);
+  }
+  window.YX97_applySelectedFilter = applySelectedFilter;
+
+  function scheduleFilter(source){
+    [0, 80, 260, 700].forEach(ms => setTimeout(function YX97_APPLY_SELECTED_FILTER(){ applySelectedFilter(source); }, ms));
+  }
+  document.addEventListener('click', function(e){
+    const clearBtn = e.target?.closest?.('[data-yx97-clear-filter]');
+    if(clearBtn){
+      e.preventDefault(); e.stopPropagation();
+      clearSelectedFilter(clearBtn.dataset.yx97ClearFilter || sourceFromModule());
+      return;
+    }
+    const row = e.target?.closest?.('.yx63-summary-row[data-source]');
+    if(row) scheduleFilter(row.dataset.source || sourceFromModule());
+    const selBtn = e.target?.closest?.('[id^="yx63-"][id$="-selectall"]');
+    if(selBtn){
+      const m = String(selBtn.id || '').match(/^yx63-(.+)-selectall$/);
+      if(m) scheduleFilter(m[1]);
+    }
+  }, true);
+  document.addEventListener('input', function(e){
+    const search = e.target?.closest?.('[id^="yx63-"][id$="-search"]');
+    if(!search) return;
+    const m = String(search.id || '').match(/^yx63-(.+)-search$/);
+    if(m) scheduleFilter(m[1]);
+  }, true);
+
+  function cleanupDuplicateProductTables(){
+    // 只保留目前 yx63 統整表 + 下方卡片；刪掉舊 FIX 產生的額外統整/工具列，避免同資料重複出現。
+    const legacySelectors = [
+      '.fix52-list-toolbar','.fix55-list-toolbar','.fix56-toolbar','.fix57-toolbar','.yx59-toolbar-normalized',
+      '.yx60-toolbar','.yx60-summary','.yx62-toolbar','.yx62-summary',
+      '.fix55-summary-panel','.fix56-summary-panel','.fix57-summary-panel',
+      '#fix52-inventory-summary','#fix55-inventory-summary',
+      '[id^="fix52-"][id$="-summary"]','[id^="fix55-"][id$="-summary"]','[id^="fix56-"][id$="-summary"]','[id^="fix57-"][id$="-summary"]',
+      '[id^="yx60-"][id$="-toolbar"]','[id^="yx60-"][id$="-summary"]','[id^="yx62-"][id$="-toolbar"]','[id^="yx62-"][id$="-summary"]'
+    ];
+    document.querySelectorAll(legacySelectors.join(',')).forEach(el => el.remove());
+  }
+
+  function cleanupWarehouseDuplicatePanels(){
+    const modal = $('warehouse-modal');
+    if(!modal) return;
+    // 保留唯一新版 yx91 批量加入/格位詳細；舊 yx80/yx81/yx82/yx83/yx89 全部清掉。
+    modal.querySelectorAll('#yx80-warehouse-batch-panel,#yx81-warehouse-batch-panel,#yx82-warehouse-detail-panel,#yx83-warehouse-detail-panel,#yx89-warehouse-detail-panel').forEach(el => el.remove());
+    modal.querySelectorAll('.yx80-warehouse-batch-panel').forEach(el => { if(el.id !== 'yx91-warehouse-batch-panel' && el.id !== 'yx97-warehouse-batch-panel') el.remove(); });
+    modal.querySelectorAll('.yx82-warehouse-detail-panel').forEach(el => { if(el.id !== 'yx91-warehouse-detail-panel' && el.id !== 'yx97-warehouse-detail-panel') el.remove(); });
+    const detailPanels = Array.from(modal.querySelectorAll('#yx91-warehouse-detail-panel,#yx97-warehouse-detail-panel'));
+    detailPanels.slice(1).forEach(el => el.remove());
+    const batchPanels = Array.from(modal.querySelectorAll('#yx91-warehouse-batch-panel,#yx97-warehouse-batch-panel'));
+    batchPanels.slice(1).forEach(el => el.remove());
+  }
+  window.YX97_cleanupWarehouseDuplicatePanels = cleanupWarehouseDuplicatePanels;
+
+  function ensureSlotActionSheet(){
+    let modal = $('yx97-warehouse-slot-actions');
+    if(modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'yx97-warehouse-slot-actions';
+    modal.className = 'modal hidden yx97-warehouse-slot-actions';
+    modal.innerHTML = `
+      <div class="modal-card glass yx97-slot-action-card">
+        <div class="modal-head">
+          <div class="section-title" id="yx97-slot-action-title">格子操作</div>
+          <button class="icon-btn" type="button" id="yx97-slot-action-close">✕</button>
+        </div>
+        <div class="small-note" id="yx97-slot-action-note">長按格子後可編輯、插入或刪除格子。</div>
+        <div class="yx97-action-stack">
+          <button class="primary-btn" type="button" id="yx97-slot-edit">編輯此格</button>
+          <button class="ghost-btn" type="button" id="yx97-slot-detail">查看格位資料</button>
+          <button class="ghost-btn" type="button" id="yx97-slot-insert">插入格子</button>
+          <button class="ghost-btn danger-btn" type="button" id="yx97-slot-delete">刪除格子</button>
+          <button class="ghost-btn" type="button" id="yx97-slot-cancel">取消</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.classList.add('hidden');
+    $('yx97-slot-action-close').onclick = close;
+    $('yx97-slot-cancel').onclick = close;
+    modal.addEventListener('click', e => { if(e.target === modal) close(); });
+    return modal;
+  }
+  function slotData(el){
+    return {
+      zone: clean(el?.dataset?.zone || ''),
+      col: Number(el?.dataset?.column || el?.dataset?.col || el?.dataset?.columnIndex || 0),
+      slot: Number(el?.dataset?.slot || el?.dataset?.num || el?.dataset?.slotNumber || 0)
+    };
+  }
+  window.showWarehouseSlotActionSheet = function(zone, col, slot){
+    zone = clean(zone); col = Number(col || 0); slot = Number(slot || 0);
+    if(!zone || !col || !slot) return toast('找不到格位資料，請重新整理倉庫圖', 'error');
+    const modal = ensureSlotActionSheet();
+    $('yx97-slot-action-title').textContent = `${zone} 區第 ${col} 欄 第 ${String(slot).padStart(2,'0')} 格`;
+    $('yx97-slot-edit').onclick = () => { modal.classList.add('hidden'); try { window.openWarehouseModal && window.openWarehouseModal(zone, col, slot); setTimeout(cleanupWarehouseDuplicatePanels, 120); } catch(e){ toast(e.message || '開啟格位失敗', 'error'); } };
+    $('yx97-slot-detail').onclick = () => { modal.classList.add('hidden'); try { const items = window.getCellItems ? window.getCellItems(zone, col, slot) : []; window.showWarehouseDetail && window.showWarehouseDetail(zone, col, slot, items); } catch(e){ toast(e.message || '查看格位失敗', 'error'); } };
+    $('yx97-slot-insert').onclick = async () => { modal.classList.add('hidden'); try { await window.insertWarehouseCell(zone, col, slot); } catch(e){ toast(e.message || '插入格子失敗', 'error'); } };
+    $('yx97-slot-delete').onclick = async () => { modal.classList.add('hidden'); try { await window.deleteWarehouseCell(zone, col, slot); } catch(e){ toast(e.message || '刪除格子失敗', 'error'); } };
+    modal.classList.remove('hidden');
+  };
+  function bindWarehouseLongPress(){
+    document.querySelectorAll('.yx96-slot,.vertical-slot,[data-zone][data-column][data-slot],[data-zone][data-column][data-num]').forEach(el => {
+      if(el.dataset.yx97Longpress === '1') return;
+      const d = slotData(el);
+      if(!d.zone || !d.col || !d.slot) return;
+      el.dataset.yx97Longpress = '1';
+      el.dataset.num = String(d.slot); // 讓舊長按選單也能讀到格號，避免只支援 data-num 的舊函式失效。
+      let timer = null, sx = 0, sy = 0;
+      const clear = () => { if(timer){ clearTimeout(timer); timer = null; } };
+      el.addEventListener('pointerdown', ev => {
+        if(ev.button && ev.button !== 0) return;
+        if(ev.target?.closest?.('button,a,input,textarea,select')) return;
+        sx = ev.clientX || 0; sy = ev.clientY || 0;
+        clear();
+        timer = setTimeout(function YX97_SLOT_LONGPRESS(){
+          timer = null;
+          el.dataset.yx97SuppressClick = '1';
+          setTimeout(() => { try{ delete el.dataset.yx97SuppressClick; }catch(_e){ el.removeAttribute('data-yx97-suppress-click'); } }, 850);
+          const now = slotData(el);
+          window.showWarehouseSlotActionSheet(now.zone, now.col, now.slot);
+        }, 620);
+      }, {passive:true});
+      el.addEventListener('pointermove', ev => {
+        if(!timer) return;
+        const dx = Math.abs((ev.clientX || 0) - sx), dy = Math.abs((ev.clientY || 0) - sy);
+        if(dx > 10 || dy > 10) clear();
+      }, {passive:true});
+      ['pointerup','pointercancel','pointerleave','dragstart'].forEach(evt => el.addEventListener(evt, clear, {passive:true}));
+      el.addEventListener('click', ev => {
+        if(el.dataset.yx97SuppressClick === '1') { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }
+      }, true);
+      el.addEventListener('contextmenu', ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        const now = slotData(el);
+        window.showWarehouseSlotActionSheet(now.zone, now.col, now.slot);
+      });
+    });
+  }
+  window.YX97_bindWarehouseLongPress = bindWarehouseLongPress;
+
+  function enforceTodayBoldLabels(){
+    const root = $('today-summary-cards');
+    if(!root) return;
+    root.querySelectorAll('.yx96-today-card').forEach(card => {
+      card.classList.add('yx97-today-card');
+      card.querySelector('.title')?.classList.add('yx97-today-label');
+      card.querySelector('.sub')?.classList.add('yx97-today-count');
+    });
+    // 舊版今日異動卡片不是 yx96/yx97 的，直接移除，避免跳回橫排或其他格式。
+    Array.from(root.children).forEach(child => {
+      if(!child.classList.contains('yx96-today-card') && !child.classList.contains('yx97-today-card')) child.remove();
+    });
+  }
+  window.YX97_enforceTodayBoldLabels = enforceTodayBoldLabels;
+
+  function wrapAfter(name, after){
+    const fn = window[name];
+    if(typeof fn !== 'function' || fn.__yx97Wrapped) return;
+    const wrapped = function(...args){
+      const result = fn.apply(this, args);
+      Promise.resolve(result).finally(() => { [0,120,420,900].forEach(ms => setTimeout(after, ms)); });
+      return result;
+    };
+    wrapped.__yx97Wrapped = true;
+    try { Object.defineProperty(window, name, {value: wrapped, configurable:true, writable:true}); }
+    catch(_e) { window[name] = wrapped; }
+  }
+  function install97(){
+    document.documentElement.dataset.yxFix97 = VERSION;
+    cleanupDuplicateProductTables();
+    cleanupWarehouseDuplicatePanels();
+    enforceTodayBoldLabels();
+    bindWarehouseLongPress();
+    scheduleFilter(sourceFromModule());
+    wrapAfter('renderWarehouse', () => { cleanupWarehouseDuplicatePanels(); bindWarehouseLongPress(); });
+    wrapAfter('renderWarehouseZones', () => { bindWarehouseLongPress(); });
+    wrapAfter('openWarehouseModal', () => { cleanupWarehouseDuplicatePanels(); });
+    wrapAfter('loadTodayChanges', () => { enforceTodayBoldLabels(); });
+    ['loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','__yx96RemovedToday80','__yx96RemovedToday93','__yx96RemovedToday95'].forEach(name => {
+      if(typeof window.loadTodayChanges === 'function') {
+        try { Object.defineProperty(window, name, {value: window.loadTodayChanges, configurable:true, writable:true}); }
+        catch(_e) { window[name] = window.loadTodayChanges; }
+      }
+    });
+  }
+  document.addEventListener('click', () => { setTimeout(() => { cleanupDuplicateProductTables(); cleanupWarehouseDuplicatePanels(); enforceTodayBoldLabels(); bindWarehouseLongPress(); }, 120); }, true);
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install97, {once:true}); else install97();
+  window.addEventListener('pageshow', install97);
+  [200,700,1500,3000].forEach(ms => setTimeout(install97, ms));
+})();
+/* ==== FIX97 end ==== */

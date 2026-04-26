@@ -2916,3 +2916,55 @@ html[data-yx-fix96-cards="1"] .yx96-fixed-item-card .yx94-card-top{display:flex!
 html[data-yx-fix96-cards="1"] .yx96-fixed-item-card .yx94-card-product{font-size:28px!important;line-height:1.18!important;color:#111827!important;letter-spacing:.2px!important;}
 @media (max-width:720px){html[data-yx-fix96="FIX96_UNIQUE_WAREHOUSE_TODAY_MANUAL_REFRESH"] .yx96-today-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important;} html[data-yx-fix96-cards="1"] .yx96-fixed-item-card .yx94-card-product{font-size:24px!important;}}
 /* ==== FIX96 end ==== */
+
+/* ==== FIX97 final convergence styles ==== */
+.yx97-filter-note{
+  margin:10px 0 12px;
+  padding:10px 12px;
+  border:1px solid rgba(15,23,42,.08);
+  border-radius:16px;
+  background:#f8fafc;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  font-weight:900;
+  color:#0f172a;
+}
+.yx97-filtering .yx97-filter-hidden{ display:none!important; }
+.yx97-warehouse-slot-actions .yx97-slot-action-card{ max-width:430px; width:min(92vw,430px); }
+.yx97-action-stack{ display:flex; flex-direction:column; align-items:stretch; gap:10px; margin-top:14px; }
+.yx96-slot,.vertical-slot{ user-select:none; -webkit-user-select:none; touch-action:manipulation; }
+#warehouse-modal #yx80-warehouse-batch-panel,
+#warehouse-modal #yx81-warehouse-batch-panel,
+#warehouse-modal #yx82-warehouse-detail-panel,
+#warehouse-modal #yx83-warehouse-detail-panel,
+#warehouse-modal #yx89-warehouse-detail-panel{ display:none!important; }
+#today-summary-cards .yx96-today-card,
+#today-summary-cards .yx97-today-card{
+  font-weight:900!important;
+  border-radius:16px!important;
+  min-height:74px;
+}
+#today-summary-cards .yx96-today-card .title,
+#today-summary-cards .yx97-today-card .title,
+#today-summary-cards .yx97-today-label{
+  font-weight:950!important;
+  font-size:15px!important;
+  color:#0f172a!important;
+  letter-spacing:.02em;
+}
+#today-summary-cards .yx96-today-card .sub,
+#today-summary-cards .yx97-today-card .sub,
+#today-summary-cards .yx97-today-count{
+  font-weight:950!important;
+  font-size:24px!important;
+  line-height:1.15!important;
+  color:#0f172a!important;
+}
+#today-summary-cards .yx96-today-card .small-note,
+#today-summary-cards .yx97-today-card .small-note{
+  font-weight:800!important;
+  color:#64748b!important;
+}
+/* ==== FIX97 end ==== */
