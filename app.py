@@ -8,8 +8,6 @@ import time
 import hashlib
 import json
 import re
-import uuid
-import threading
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -47,9 +45,7 @@ os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
 def run_startup_self_check():
-    # FIX107：啟動只檢查必要資料夾，不再額外查代辦資料表。
-    # 代辦表由 init_db() 建立；實際進入 /todos 或 /api/todos 時才查詢，降低 Render 冷啟動與 502 機率。
-    checks = {"uploads": False, "todo_uploads": False, "backups": False, "todos": "lazy"}
+    checks = {"uploads": False, "todo_uploads": False, "backups": False, "todos": False}
     try:
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         checks["uploads"] = True
@@ -60,6 +56,14 @@ def run_startup_self_check():
     except Exception as e:
         try:
             log_error("startup_self_check_dirs", str(e))
+        except Exception:
+            pass
+    try:
+        list_todo_items()
+        checks["todos"] = True
+    except Exception as e:
+        try:
+            log_error("startup_self_check_todos", str(e))
         except Exception:
             pass
     return checks
@@ -78,8 +82,6 @@ def current_username():
 SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
-TODAY_PAYLOAD_CACHE = {'ts': 0.0, 'data': None}
-TODAY_PAYLOAD_CACHE_TTL = int(os.getenv('YX_TODAY_CACHE_SECONDS', '120'))
 
 _db_log_action = log_action
 
@@ -105,63 +107,19 @@ def notify_sync_event(kind='refresh', module='all', message='', extra=None):
 
 def log_action(username, action):
     _db_log_action(username, action)
-    # FIX105：新增/出貨/倉庫異動後讓今日異動快取失效，避免重整時反覆全表計算。
-    try:
-        TODAY_PAYLOAD_CACHE['ts'] = 0.0
-        TODAY_PAYLOAD_CACHE['data'] = None
-    except Exception:
-        pass
     notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
 
 
-def yx_local_now():
-    """Render 多數環境是 UTC；系統操作以台灣時間判斷每日備份。"""
-    return datetime.utcnow() + timedelta(hours=8)
-
-def auto_daily_backup_allowed_now():
-    try:
-        hour = int(os.getenv("YX_AUTO_DAILY_BACKUP_HOUR", "2"))
-    except Exception:
-        hour = 2
-    return int(yx_local_now().hour) == hour
-
-_DAILY_BACKUP_LOCK = threading.Lock()
-_DAILY_BACKUP_STARTED_FOR = set()
-
 def ensure_daily_backup():
-    """同步備份：只給手動工具或背景執行緒使用，不放在使用者開頁流程。"""
     try:
-        today = yx_local_now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime('%Y-%m-%d')
         if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
-            return {'success': True, 'skipped': True, 'reason': 'already-backed-up-today'}
+            return
         result = run_daily_backup()
         if result.get('success'):
             set_setting(LAST_DAILY_BACKUP_KEY, today)
-        return result
     except Exception as e:
         log_error('ensure_daily_backup', str(e))
-        return {'success': False, 'error': str(e)}
-
-def ensure_daily_backup_async():
-    """FIX103：每日備份改成背景執行，避免首次開網頁時卡住甚至 502。
-
-    舊版在 before_request 直接 dump 全部 PostgreSQL 表，資料變多時 Render 可能逾時。
-    這裡只在同一天啟動一次背景執行緒，使用者頁面立即回應。
-    """
-    today = yx_local_now().strftime('%Y-%m-%d')
-    with _DAILY_BACKUP_LOCK:
-        if today in _DAILY_BACKUP_STARTED_FOR:
-            return
-        _DAILY_BACKUP_STARTED_FOR.add(today)
-    def _worker():
-        try:
-            ensure_daily_backup()
-        except Exception as e:
-            try:
-                log_error('ensure_daily_backup_async', str(e))
-            except Exception:
-                pass
-    threading.Thread(target=_worker, name='yx-daily-backup', daemon=True).start()
 
 
 def request_key_from_payload(data, endpoint=''):
@@ -176,76 +134,6 @@ def request_key_from_payload(data, endpoint=''):
 def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
 
-
-
-
-def _ship_lock_key(token):
-    return 'ship_preview_lock_' + str(token or '').strip()
-
-
-def _create_ship_preview_lock(customer_name, items, preview):
-    """建立短效出貨預覽鎖。
-
-    目的：多人同時使用時，按下確認扣除前會再拿同一份 preview token 重新檢查，
-    避免 A/B 手機同時預覽後重複出貨。
-    """
-    token = uuid.uuid4().hex
-    payload = {
-        'token': token,
-        'customer_name': customer_name,
-        'items': items,
-        'preview_items': preview.get('items') or [],
-        'created_at': time.time(),
-        'created_by': current_username(),
-    }
-    try:
-        set_setting(_ship_lock_key(token), json.dumps(payload, ensure_ascii=False))
-    except Exception as e:
-        log_error('ship_preview_lock_create', str(e))
-    return token
-
-
-def _validate_ship_preview_lock(data, customer_name, items):
-    token = (data.get('preview_token') or data.get('ship_preview_token') or '').strip()
-    if not token:
-        # 舊手機 / 舊快取前端仍可送出，但 ship_order 會在交易內再檢查一次數量。
-        return True, ''
-    raw = get_setting(_ship_lock_key(token), '')
-    if not raw:
-        return False, '出貨預覽已過期，請重新產生預覽'
-    try:
-        payload = json.loads(raw)
-    except Exception:
-        return False, '出貨預覽資料損壞，請重新產生預覽'
-    if time.time() - float(payload.get('created_at') or 0) > 10 * 60:
-        return False, '出貨預覽超過 10 分鐘，請重新產生預覽'
-    if (payload.get('customer_name') or '').strip() != (customer_name or '').strip():
-        return False, '出貨客戶已變更，請重新產生預覽'
-    def _norm_items(xitems):
-        out=[]
-        for it in xitems or []:
-            if not isinstance(it, dict):
-                continue
-            out.append({
-                'product_text': format_product_text_height2(it.get('product_text') or it.get('product') or ''),
-                'material': clean_material_value(it.get('material') or it.get('product_code') or '', it.get('product_text') or ''),
-                'qty': int(it.get('qty') or effective_product_qty(it.get('product_text') or '', 0) or 0),
-                'source_preference': str(it.get('source_preference') or it.get('deduct_source') or it.get('source') or '').strip(),
-                'source_customer_name': str(it.get('source_customer_name') or it.get('borrow_from_customer_name') or '').strip(),
-            })
-        return sorted(out, key=lambda r:(r['product_text'], r['material'], r['qty'], r['source_preference'], r['source_customer_name']))
-    if _norm_items(payload.get('items')) != _norm_items(items):
-        return False, '商品資料已變更，請重新產生出貨預覽'
-    return True, token
-
-
-def _finish_ship_preview_lock(token):
-    if not token:
-        return
-    try:
-        set_setting(_ship_lock_key(token), json.dumps({'used': True, 'used_at': time.time(), 'used_by': current_username()}, ensure_ascii=False))
-    except Exception as e:
-        log_error('ship_preview_lock_finish', str(e))
 
 
 def resolve_customer_region(customer_name='', requested_region=''):
@@ -302,27 +190,20 @@ def login_required_json(f):
 
 @app.after_request
 def add_no_cache_headers(response):
-    # FIX103：HTML/API 保持不快取；帶版本號的 static 檔允許短快取，避免每次開頁都重抓大 JS/CSS 導致慢與 502 體感。
-    path = request.path or ''
-    if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=3600, stale-while-revalidate=86400'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
-    else:
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        response.headers['Vary'] = 'Cookie'
+    # FIX87：所有頁面 / 靜態檔 / API 都不快取，避免手機、PWA 或 Render 部署後吃到舊 JS。
+    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['Vary'] = 'Cookie'
     return response
 
 @app.before_request
 def protect_pages():
     path = request.path
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
-    # FIX100：預設啟用每日自動備份；若要關閉可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=0。
-    if (os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and auto_daily_backup_allowed_now()
-            and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health")):
-        ensure_daily_backup_async()
+    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+        ensure_daily_backup()
     if path.startswith("/static/") or path in ("/health",):
         return None
     public = [
@@ -515,8 +396,6 @@ def normalize_warehouse_payload_items(items):
             item['product_text'] = product
             item['product_code'] = (raw.get('product_code') or product)
             item['customer_name'] = customer
-            seed = '|'.join([customer, warehouse_item_size_key(product), str(raw.get('material') or raw.get('product_code') or '').strip(), str(raw.get('placement_label') or raw.get('layer_label') or '').strip()])
-            item['warehouse_item_id'] = str(raw.get('warehouse_item_id') or '').strip() or ('WH-' + hashlib.md5(seed.encode('utf-8')).hexdigest()[:16].upper())
             item['qty'] = qty
             merged[key] = item
         else:
@@ -574,7 +453,7 @@ def customer_groups():
 def home():
     if not require_login():
         return redirect(url_for("login_page"))
-    return render_template("index.html", username=current_username(), title="沅興木業", today=yx_local_now().strftime('%Y-%m-%d'))
+    return render_template("index.html", username=current_username(), title="沅興木業", today=datetime.now().strftime('%Y-%m-%d'))
 
 @app.route("/login")
 def login_page():
@@ -1197,12 +1076,8 @@ def api_ship():
             return error_response("請輸入客戶名稱")
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
-        ok_lock, lock_info = _validate_ship_preview_lock(data, customer_name, items)
-        if not ok_lock:
-            return error_response(lock_info)
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
-            _finish_ship_preview_lock(lock_info)
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -1236,8 +1111,6 @@ def api_ship_preview():
         preview = preview_ship_order(customer_name, items)
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
-        preview['preview_token'] = _create_ship_preview_lock(customer_name, items, preview)
-        preview['lock_expires_seconds'] = 600
         return jsonify(preview)
     except Exception as e:
         log_error("ship_preview", str(e))
@@ -1798,7 +1671,7 @@ def api_orders_to_master():
 
 
 def _today_key():
-    return yx_local_now().strftime('%Y-%m-%d')
+    return datetime.now().strftime('%Y-%m-%d')
 
 def _aggregate_customer_products(rows):
     out = {}
@@ -1938,14 +1811,7 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload(include_unplaced=False):
-    # FIX106：預設不計算未入倉，只有使用者按「刷新」才重算，避免開頁/返回主頁卡頓。
-    try:
-        cached = TODAY_PAYLOAD_CACHE.get('data')
-        if include_unplaced and cached is not None and (time.time() - float(TODAY_PAYLOAD_CACHE.get('ts') or 0)) < TODAY_PAYLOAD_CACHE_TTL:
-            return cached
-    except Exception:
-        pass
+def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1967,16 +1833,13 @@ def _today_changes_payload(include_unplaced=False):
         elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    if include_unplaced:
-        unplaced = _today_unplaced_all_sources()
-    else:
-        unplaced = []
+    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
-    payload = {
+    return {
         'summary': {
             'inbound_count': len(inbound),
             'outbound_count': len(outbound),
@@ -1997,19 +1860,11 @@ def _today_changes_payload(include_unplaced=False):
         'anomaly_groups': {'unplaced': unplaced},
         'read_at': read_at,
     }
-    if include_unplaced:
-        try:
-            TODAY_PAYLOAD_CACHE['ts'] = time.time()
-            TODAY_PAYLOAD_CACHE['data'] = payload
-        except Exception:
-            pass
-    return payload
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    include_unplaced = str(request.args.get('refresh') or request.args.get('include_unplaced') or '').lower() in ('1', 'true', 'yes')
-    return jsonify(success=True, **_today_changes_payload(include_unplaced=include_unplaced))
+    return jsonify(success=True, **_today_changes_payload())
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -2040,7 +1895,7 @@ def api_today_change_delete(log_id):
 @app.route('/api/anomalies', methods=['GET'])
 @login_required_json
 def api_anomalies():
-    payload = _today_changes_payload(include_unplaced=True)
+    payload = _today_changes_payload()
     return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 
@@ -2352,35 +2207,6 @@ def api_reports_export():
         rows = get_customers(active_only=False)
         columns = [('客戶UID', 'customer_uid'), ('客戶名稱', 'name'), ('電話', 'phone'), ('地址', 'address'), ('區域', 'region'), ('特殊要求', 'notes'), ('封存', 'is_archived'), ('更新時間', 'updated_at')]
         name = '客戶資料.xlsx'
-    elif report_type == 'today_changes':
-        payload = _today_changes_payload()
-        rows = []
-        for group, label in [('inbound', '進貨'), ('outbound', '出貨'), ('new_orders', '新增訂單')]:
-            for r in (payload.get('feed', {}).get(group) or []):
-                rows.append({'type': label, **r})
-        for r in (payload.get('unplaced_items') or []):
-            rows.append({'type': '未入倉', 'created_at': now(), 'username': '', 'action': r.get('message') or '', 'customer_name': r.get('customer_name') or '', 'product_text': r.get('product_text') or '', 'qty': r.get('qty') or r.get('unplaced_qty') or 0})
-        columns = [('類型', 'type'), ('時間', 'created_at'), ('操作人', 'username'), ('內容', 'action'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty')]
-        name = '今日異動.xlsx'
-    elif report_type == 'customer_statement':
-        customer = (request.args.get('customer_name') or request.args.get('customer') or '').strip()
-        rows = []
-        for label, source_rows in [('庫存', list_inventory()), ('訂單', get_orders()), ('總單', get_master_orders()), ('出貨', get_shipping_records(start_date or None, end_date or None, customer))]:
-            for r in source_rows:
-                if customer and customer not in (r.get('customer_name') or ''):
-                    continue
-                rows.append({'source': label, **r})
-        columns = [('來源', 'source'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('材質', 'material'), ('數量', 'qty'), ('操作人員', 'operator'), ('時間', 'updated_at'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
-        name = f"{customer or '全部客戶'}_對帳單.xlsx"
-    elif report_type == 'system_health':
-        payload = _fix99_system_health_payload()
-        rows = []
-        for c in payload.get('checks') or []:
-            rows.append({'name': c.get('name'), 'ok': '正常' if c.get('ok') else '需處理', 'count': c.get('count'), 'message': c.get('message')})
-            for it in (c.get('items') or [])[:300]:
-                rows.append({'name': '  - ' + c.get('name', ''), 'ok': '', 'count': '', 'message': json.dumps(it, ensure_ascii=False)})
-        columns = [('檢查項目', 'name'), ('狀態', 'ok'), ('數量', 'count'), ('內容', 'message')]
-        name = '系統健康檢查.xlsx'
     else:
         return error_response('報表類型不存在')
 
@@ -2401,7 +2227,8 @@ def api_backup_download(filename):
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
 def api_backup_restore():
-    """FIX99：還原前自動先備份；JSON 還原採存在欄位交集，避免新舊版本欄位不同造成失敗。"""
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
     filename = os.path.basename((data.get('filename') or '').strip())
     if not filename:
@@ -2409,59 +2236,34 @@ def api_backup_restore():
     path = os.path.join('backups', filename)
     if not os.path.isfile(path):
         return error_response('找不到備份檔', 404)
-
-    # 還原前先自動備份一次，避免誤還原時沒有退路。
-    pre_backup = run_daily_backup()
-
-    if not filename.endswith('.json'):
-        return error_response('目前只支援 JSON 備份還原')
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-    except Exception as e:
-        log_error('backup_restore_read', str(e))
-        return error_response('備份檔讀取失敗')
-
-    conn = get_db(); cur = conn.cursor()
-    tables = ['users','customer_profiles','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','ocr_usage','submit_requests','warehouse_cells','customer_aliases','warehouse_recent_slots','audit_trails','todo_items','app_settings']
-    restored_tables = []
-    try:
-        def table_columns(table):
-            if (os.getenv('DATABASE_URL', '') or '').strip().lower().startswith(('postgres://','postgresql://')):
-                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s", (table,))
-                return {r[0] for r in cur.fetchall()}
-            cur.execute(f"PRAGMA table_info({re.sub(r'[^A-Za-z0-9_]', '', table)})")
-            return {r[1] for r in cur.fetchall()}
-
-        for table in tables:
-            if table not in payload:
-                continue
-            cols_available = table_columns(table)
-            if not cols_available:
-                continue
-            cur.execute(sql(f'DELETE FROM {table}'))
-            rows = payload.get(table) or []
-            for row in rows:
-                if not isinstance(row, dict):
+    if filename.endswith('.json'):
+        payload = json.load(open(path, 'r', encoding='utf-8'))
+        conn = get_db(); cur = conn.cursor()
+        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','app_settings','customer_aliases','warehouse_recent_slots','audit_trails','todo_items']
+        try:
+            for table in tables:
+                if table not in payload:
                     continue
-                keys = [k for k in row.keys() if k in cols_available]
-                if not keys:
-                    continue
-                cols = ','.join(keys)
-                holders = ','.join(['?'] * len(keys))
-                cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row.get(k) for k in keys))
-            restored_tables.append(table)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        log_error('backup_restore', str(e))
-        return error_response('還原失敗，已保留還原前自動備份')
-    finally:
-        conn.close()
+                cur.execute(sql(f'DELETE FROM {table}'))
+                rows = payload.get(table) or []
+                for row in rows:
+                    keys = list(row.keys())
+                    if not keys:
+                        continue
+                    cols = ','.join(keys)
+                    holders = ','.join(['?'] * len(keys))
+                    cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row[k] for k in keys))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            log_error('backup_restore', str(e))
+            return error_response('還原失敗')
+        finally:
+            conn.close()
+        notify_sync_event(kind='refresh', module='all', message='已還原備份')
+        return jsonify(success=True)
+    return error_response('目前只支援 JSON 備份還原')
 
-    add_audit_trail(current_username(), 'restore', 'backup', filename, before_json={'pre_backup': pre_backup}, after_json={'filename': filename, 'tables': restored_tables})
-    notify_sync_event(kind='refresh', module='all', message='已還原備份')
-    return jsonify(success=True, pre_backup=pre_backup, restored_tables=restored_tables)
 
 @app.route('/api/undo-last', methods=['POST'])
 @login_required_json
@@ -2551,226 +2353,10 @@ def api_undo_last():
         return error_response('還原上一筆失敗')
 
 
-# ==== FIX99：商用安全穩定工具（不新增權限分級） ====
-def _fix99_fetch_all_table(table):
-    conn = get_db(); cur = conn.cursor()
-    try:
-        cur.execute(sql(f"SELECT * FROM {table}"))
-        return rows_to_dict(cur)
-    finally:
-        conn.close()
-
-def _fix99_table_count(cur, table):
-    try:
-        cur.execute(sql(f"SELECT COUNT(*) AS cnt FROM {table}"))
-        row = fetchone_dict(cur) or {}
-        return int(row.get('cnt') or 0)
-    except Exception:
-        return 0
-
-def _fix99_system_health_payload():
-    """資料健康檢查：負數、重複、未入倉、倉庫量超過來源量、近期錯誤與備份狀態。"""
-    result = {'ok': True, 'generated_at': now(), 'summary': {}, 'checks': []}
-    problems = []
-
-    def add_check(name, ok=True, count=0, items=None, message=''):
-        nonlocal problems
-        item = {'name': name, 'ok': bool(ok), 'count': int(count or 0), 'items': items or [], 'message': message}
-        result['checks'].append(item)
-        if not ok:
-            problems.append(item)
-
-    try:
-        inv = list_inventory()
-        orders = get_orders()
-        masters = get_master_orders()
-        shipping = get_shipping_records()
-        cells = warehouse_get_cells()
-        backups = list_backups().get('files', []) if callable(list_backups) else []
-
-        result['summary'] = {
-            'inventory_rows': len(inv),
-            'order_rows': len(orders),
-            'master_order_rows': len(masters),
-            'shipping_rows': len(shipping),
-            'warehouse_cells': len(cells),
-            'backup_files': len(backups),
-        }
-
-        negative = []
-        for source, rows in [('庫存', inv), ('訂單', orders), ('總單', masters)]:
-            for r in rows:
-                if int(r.get('qty') or 0) < 0:
-                    negative.append({'source': source, 'id': r.get('id'), 'customer_name': r.get('customer_name') or '', 'product_text': r.get('product_text') or '', 'qty': int(r.get('qty') or 0)})
-        add_check('負數數量', ok=(len(negative) == 0), count=len(negative), items=negative[:80], message='庫存 / 訂單 / 總單不可出現負數')
-
-        source_totals, source_details = warehouse_source_totals()
-        placed = warehouse_placed_totals()
-        over_placed, unplaced = [], []
-        for key, total in source_totals.items():
-            size, customer = key
-            pqty = int(placed.get(key, 0) or 0)
-            total = int(total or 0)
-            if pqty > total:
-                over_placed.append({'customer_name': customer, 'product_text': size, 'source_qty': total, 'warehouse_qty': pqty, 'over_qty': pqty - total})
-            elif total > pqty:
-                source_qty = {}
-                for d in source_details.get(key, []):
-                    source_qty[d.get('source') or '來源'] = int(source_qty.get(d.get('source') or '來源', 0) or 0) + int(d.get('qty') or 0)
-                unplaced.append({'customer_name': customer, 'product_text': size, 'total_qty': total, 'placed_qty': pqty, 'unplaced_qty': total - pqty, 'source_qty': source_qty})
-        add_check('倉庫數量超過來源', ok=(len(over_placed) == 0), count=len(over_placed), items=over_placed[:100], message='倉庫格位數量不可大於庫存 / 訂單 / 總單來源數量')
-        add_check('未錄入倉庫圖', ok=True, count=sum(int(x.get('unplaced_qty') or 0) for x in unplaced), items=unplaced[:150], message='此項為提醒，不算錯誤')
-
-        def duplicate_rows(rows, source):
-            seen = {}
-            for r in rows:
-                key = ((r.get('customer_name') or '').strip(), format_product_text_height2(r.get('product_text') or ''), clean_material_value(r.get('material') or r.get('product_code') or '', r.get('product_text') or ''))
-                if not key[1]:
-                    continue
-                seen.setdefault(key, []).append(r)
-            out = []
-            for key, vals in seen.items():
-                if len(vals) > 1:
-                    out.append({'source': source, 'customer_name': key[0], 'product_text': key[1], 'material': key[2], 'rows': len(vals), 'qty_total': sum(int(v.get('qty') or 0) for v in vals)})
-            return out
-
-        dups = duplicate_rows(inv, '庫存') + duplicate_rows(orders, '訂單') + duplicate_rows(masters, '總單')
-        add_check('同客戶同尺寸材質重複', ok=True, count=len(dups), items=dups[:150], message='此項可用於判斷是否需要合併')
-
-        customers = get_customers(active_only=False)
-        name_counts = {}
-        for c in customers:
-            n = (c.get('name') or '').strip()
-            if n:
-                name_counts[n] = name_counts.get(n, 0) + 1
-        dup_customers = [{'name': k, 'rows': v} for k, v in name_counts.items() if v > 1]
-        add_check('重複客戶名稱', ok=(len(dup_customers) == 0), count=len(dup_customers), items=dup_customers[:50], message='客戶名稱重複會影響自動補全與出貨比對')
-
-        conn = get_db(); cur = conn.cursor()
-        try:
-            result['summary']['audit_rows'] = _fix99_table_count(cur, 'audit_trails')
-            result['summary']['error_rows'] = _fix99_table_count(cur, 'errors')
-            cur.execute(sql("SELECT source, message, created_at FROM errors ORDER BY id DESC LIMIT 20"))
-            errors = rows_to_dict(cur)
-        finally:
-            conn.close()
-        add_check('近期後端錯誤', ok=(len(errors) == 0), count=len(errors), items=errors[:20], message='若這裡有項目，表示後端曾記錄錯誤')
-
-        add_check('備份狀態', ok=(len(backups) > 0), count=len(backups), items=backups[:10], message='建議至少保留最近 30 份備份')
-    except Exception as e:
-        log_error('system_health_payload', str(e))
-        add_check('健康檢查執行', ok=False, count=1, items=[{'error': str(e)}], message='健康檢查本身執行失敗')
-
-    result['ok'] = len([x for x in problems if x.get('name') not in ('近期後端錯誤',)]) == 0
-    result['problem_count'] = len(problems)
-    return result
-
-@app.route('/api/system-health', methods=['GET'])
-@login_required_json
-def api_system_health():
-    return jsonify(success=True, **_fix99_system_health_payload())
-
-@app.route('/api/backups/auto', methods=['POST'])
-@login_required_json
-def api_backup_auto():
-    """手動觸發商用備份，使用同一套 30 份保留策略。"""
-    result = run_daily_backup()
-    if result.get('success'):
-        add_audit_trail(current_username(), 'create', 'backup', os.path.basename(result.get('file') or ''), before_json={}, after_json=result)
-        notify_sync_event(kind='refresh', module='settings', message='備份已建立')
-    return jsonify(result)
-
-@app.route('/api/offline/replay', methods=['POST'])
-@login_required_json
-def api_offline_replay():
-    """離線暫存補送入口：前端可把暫存動作批次送回。"""
-    data = request.get_json(silent=True) or {}
-    queued = data.get('items') or []
-    accepted = []
-    for item in queued:
-        if not isinstance(item, dict):
-            continue
-        accepted.append({'url': item.get('url'), 'method': item.get('method'), 'at': item.get('at')})
-    add_audit_trail(current_username(), 'sync', 'offline_queue', 'replay', before_json={}, after_json={'count': len(accepted), 'items': accepted[:20]})
-    return jsonify(success=True, count=len(accepted))
-
-
 @app.route('/api/session/config', methods=['GET'])
 @login_required_json
 def api_session_config():
     return jsonify(success=True, idle_timeout_seconds=1800, startup_checks=STARTUP_CHECKS)
-
-
-@app.route('/api/global-search', methods=['GET'])
-@login_required_json
-def api_global_search():
-    """全域搜尋：客戶 / 尺寸 / 材質 / 倉庫格 / 出貨紀錄一次找。"""
-    q = (request.args.get('q') or '').strip()
-    if not q:
-        return jsonify(success=True, query=q, items=[])
-    q_low = q.lower().replace('×','x').replace('Ｘ','x').replace('X','x')
-    limit = min(80, max(10, int(request.args.get('limit') or 50)))
-    results = []
-    def hit(*values):
-        joined = ' '.join(str(v or '') for v in values).lower().replace('×','x').replace('Ｘ','x').replace('X','x')
-        return q_low in joined
-    def add(kind, title, subtitle='', meta=None, url=''):
-        if len(results) >= limit:
-            return
-        results.append({'kind': kind, 'title': title, 'subtitle': subtitle, 'meta': meta or {}, 'url': url})
-    try:
-        for c in get_customers(active_only=False):
-            if hit(c.get('name'), c.get('phone'), c.get('address'), c.get('notes')):
-                add('customer', c.get('name') or '未命名客戶', c.get('region') or '', c, '/customers')
-        for table_name, rows, label, url in [
-            ('inventory', list_inventory(), '庫存', '/inventory'),
-            ('orders', get_orders(), '訂單', '/orders'),
-            ('master_orders', get_master_orders(), '總單', '/master-order'),
-        ]:
-            for it in rows:
-                if hit(it.get('customer_name'), it.get('product_text'), it.get('material'), it.get('product_code')):
-                    title = f"{label}｜{it.get('customer_name') or '未指定'}"
-                    subtitle = f"{it.get('material') or ''} {it.get('product_text') or ''}｜{int(it.get('qty') or 0)}件"
-                    add(table_name, title, subtitle, it, url)
-        for rec in get_shipping_records(q=q):
-            add('shipping', f"出貨｜{rec.get('customer_name') or ''}", f"{rec.get('product_text') or ''}｜{rec.get('qty') or 0}件｜{rec.get('shipped_at') or ''}", rec, '/shipping-query')
-        for cell in warehouse_get_cells():
-            try:
-                arr = json.loads(cell.get('items_json') or '[]')
-            except Exception:
-                arr = []
-            for it in arr:
-                if hit(cell.get('zone'), cell.get('column_index'), cell.get('slot_number'), it.get('customer_name'), it.get('product_text'), it.get('material'), it.get('product_code')):
-                    loc = f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}"
-                    add('warehouse', f"倉庫 {loc}", f"{it.get('customer_name') or ''}｜{it.get('product_text') or ''}｜{it.get('qty') or 0}件", {'cell': cell, 'item': it}, '/warehouse')
-    except Exception as e:
-        log_error('global_search', str(e))
-        return error_response('全域搜尋失敗')
-    return jsonify(success=True, query=q, items=results)
-
-
-@app.route('/api/text/organize', methods=['POST'])
-@login_required_json
-def api_text_organize():
-    """貼上文字整理器：統一 x、月份、上一筆寬高承接與月份>高>寬>長排序。"""
-    data = request.get_json(silent=True) or {}
-    raw = data.get('text') or data.get('ocr_text') or ''
-    try:
-        parsed = parse_ocr_text(raw)
-        items = parsed.get('items') or []
-        lines = []
-        for it in items:
-            product = format_product_text_height2(it.get('product_text') or it.get('raw_text') or '')
-            if product:
-                lines.append(product)
-        if not lines:
-            lines = [format_product_text_height2(x) for x in str(parsed.get('text') or raw).splitlines() if format_product_text_height2(x)]
-        lines = sorted(set(lines), key=product_sort_tuple)
-        return jsonify(success=True, text='\n'.join(lines), lines=lines, items=items, cleaned_text=parsed.get('cleaned_text') or '')
-    except Exception as e:
-        log_error('text_organize', str(e))
-        return error_response('文字整理失敗')
-
 
 @app.route("/health")
 @app.route("/api/health")
