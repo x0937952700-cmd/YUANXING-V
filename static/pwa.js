@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix98-true-master-upgrade';
+  const PWA_VERSION = 'fix97-global-qc-consolidated';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

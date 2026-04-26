@@ -15,7 +15,7 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX98_TRUE_MASTER_UPGRADE",
+        "FIX97_GLOBAL_QC_CONSOLIDATED",
         "window.YX_MASTER",
         "confirmSubmit",
         "saveWarehouseCell",
@@ -24,11 +24,11 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/style.css": ["yx95-final-master", "yx85-month-badge", "yx98-global-search"],
-    "templates/base.html": ["FIX98_TRUE_MASTER_UPGRADE", "app.js", "pwa.js", "fix98-true-master-upgrade"],
-    "static/service-worker.js": ["FIX98_TRUE_MASTER_UPGRADE", "fix98-true-master-upgrade"],
-    "static/pwa.js": ["fix98-true-master-upgrade"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix98-true-master-upgrade"'],
+    "static/style.css": ["yx95-final-master", "yx85-month-badge"],
+    "templates/base.html": ["FIX97_GLOBAL_QC_CONSOLIDATED", "app.js", "pwa.js", "fix97-global-qc-consolidated"],
+    "static/service-worker.js": ["FIX97_GLOBAL_QC_CONSOLIDATED", "fix97-global-qc-consolidated"],
+    "static/pwa.js": ["fix97-global-qc-consolidated"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix97-global-qc-consolidated"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +58,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX98 smoke test OK")
+print("FIX97 smoke test OK")
