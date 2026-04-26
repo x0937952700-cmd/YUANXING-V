@@ -2968,3 +2968,32 @@ html[data-yx-fix96-cards="1"] .yx96-fixed-item-card .yx94-card-product{font-size
   color:#64748b!important;
 }
 /* ==== FIX97 end ==== */
+
+/* ==== FIX98 final convergence styles ==== */
+html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #warehouse-detail-panel,
+#warehouse-detail-panel.yx98-removed-legacy-detail{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;padding:0!important;margin:0!important;border:0!important;}
+html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #yx94-refresh-unplaced,
+html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #yx95-refresh-unplaced,
+html[data-yx-fix98="FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL"] #yx96-refresh-unplaced{display:none!important;}
+.yx98-unplaced-pill{font-weight:900!important;cursor:pointer!important;user-select:none!important;}
+.yx98-warehouse-detail-panel{margin:12px 0 14px!important;}
+.yx98-detail-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;margin-bottom:10px!important;}
+.yx98-detail-card{padding:14px 16px!important;margin-bottom:10px!important;border-radius:18px!important;}
+.yx98-detail-title{display:flex!important;align-items:center!important;gap:8px!important;font-weight:900!important;color:#111827!important;margin-bottom:6px!important;}
+.yx98-placement-badge{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:46px!important;padding:4px 8px!important;border-radius:999px!important;background:#ecfeff!important;color:#0f766e!important;border:1px solid #99f6e4!important;font-size:12px!important;font-weight:900!important;}
+.yx98-detail-line{font-weight:800!important;color:#334155!important;line-height:1.55!important;}
+.yx98-detail-line.product{font-weight:900!important;color:#111827!important;font-size:15px!important;}
+.yx98-action-stack{display:grid!important;gap:10px!important;}
+.yx98-slot-action-card{max-width:420px!important;}
+.yx98-unplaced-card{font-weight:800!important;}
+.yx98-today-refresh-row{justify-content:flex-end!important;margin:8px 0 12px!important;}
+#today-summary-cards.yx98-today-summary{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important;margin:10px 0 16px!important;}
+#today-summary-cards .yx98-today-card{border:1px solid #e5e7eb!important;border-radius:18px!important;background:#fff!important;box-shadow:0 8px 22px rgba(15,23,42,.06)!important;padding:18px 20px!important;cursor:pointer!important;min-height:82px!important;}
+#today-summary-cards .yx98-today-card .title{font-weight:950!important;color:#111827!important;font-size:16px!important;margin-bottom:8px!important;letter-spacing:.01em!important;}
+#today-summary-cards .yx98-today-card .sub{font-weight:950!important;color:#111827!important;font-size:30px!important;line-height:1!important;}
+#today-summary-cards .yx98-today-card .small-note{font-weight:900!important;color:#64748b!important;margin-top:7px!important;}
+#today-summary-cards .yx98-today-card.active{outline:2px solid rgba(15,23,42,.22)!important;background:#f8fafc!important;}
+[data-today-panel].yx98-hidden{display:none!important;}
+.yx98-today-row strong,.yx98-today-unplaced strong{font-weight:950!important;color:#111827!important;}
+@media(max-width:900px){#today-summary-cards.yx98-today-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
+/* ==== FIX98 end ==== */

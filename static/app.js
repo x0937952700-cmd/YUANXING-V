@@ -10340,3 +10340,380 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   [200,700,1500,3000].forEach(ms => setTimeout(install97, ms));
 })();
 /* ==== FIX97 end ==== */
+
+/* ==== FIX98: final unique warehouse/today convergence, long-press unplaced refresh, no legacy detail table ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX98_FINAL_UNIQUE_WAREHOUSE_TODAY_NO_LEGACY_DETAIL';
+  if (window.__YX98_FINAL_CONVERGENCE__) return;
+  window.__YX98_FINAL_CONVERGENCE__ = true;
+
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
+    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e){ data = {success:false,error:text||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false){ const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload=data; throw e; }
+    return data;
+  });
+  const toast = (m,k='ok') => { try{ (window.toast || window.showToast || window.notify || console.log)(m,k); }catch(_e){} };
+  function moduleKey(){
+    const p = location.pathname;
+    if(p.includes('/today-changes')) return 'today_changes';
+    if(p.includes('/warehouse')) return 'warehouse';
+    if(p.includes('/inventory')) return 'inventory';
+    if(p.includes('/orders')) return 'orders';
+    if(p.includes('/master-order')) return 'master_order';
+    if(p.includes('/ship')) return 'ship';
+    return document.querySelector('.module-screen')?.dataset?.module || '';
+  }
+  function qtyOf(it){ const n = Number(it?.unplaced_qty ?? it?.qty ?? it?.total_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function itemText(it){ return clean(it?.product_text || it?.product_size || it?.size || it?.product || ''); }
+  function itemMaterial(it){
+    const raw = clean(it?.material || it?.product_code || '');
+    if(!raw || raw.includes('=') || /^\d+(?:x|×)/i.test(raw)) return '未填';
+    return raw;
+  }
+  function placementLabel(it, idx){ return clean(it?.placement_label || it?.layer_label || it?.position_label || (['前排','中間','後排'][idx] || `第${idx+1}筆`)); }
+  function getCellItems(zone, col, slot){
+    try { return typeof window.getCellItems === 'function' ? (window.getCellItems(zone, col, slot) || []) : []; }
+    catch(_e){ return []; }
+  }
+  function currentCell(){ return window.state?.currentCell || {}; }
+  function currentCellInfo(){
+    const c = currentCell();
+    return { zone: clean(c.zone || c.area || ''), col: Number(c.column_index || c.column || c.col || 0), slot: Number(c.slot_number || c.slot || c.num || 0) };
+  }
+
+  /* ---------- remove old warehouse detail table permanently ---------- */
+  function hideLegacyWarehouseDetail(){
+    const oldPanel = $('warehouse-detail-panel');
+    if(oldPanel){
+      oldPanel.classList.add('hidden','yx98-removed-legacy-detail');
+      oldPanel.innerHTML = '';
+      oldPanel.style.display = 'none';
+    }
+    document.querySelectorAll('#warehouse-detail-panel .deduct-card, .yx67-detail-actions').forEach(el => el.remove());
+  }
+
+  async function returnCurrentCellToUnplaced(zone, col, slot){
+    zone = clean(zone); col = Number(col); slot = Number(slot);
+    if(!zone || !col || !slot) {
+      const c = currentCellInfo(); zone = zone || c.zone; col = col || c.col; slot = slot || c.slot;
+    }
+    if(!zone || !col || !slot) return toast('找不到格位資料，請重新長按格子', 'error');
+    if(!confirm(`${zone} 區第 ${col} 欄第 ${String(slot).padStart(2,'0')} 格，要整格返回「未入倉」嗎？`)) return;
+    try{
+      await api('/api/warehouse/return-unplaced', {method:'POST', body:JSON.stringify({zone, column_index:col, slot_number:slot})});
+      toast('已返回未入倉', 'ok');
+      try{ window.closeWarehouseModal && window.closeWarehouseModal(); }catch(_e){}
+      try{ await (window.renderWarehouse && window.renderWarehouse(true)); }catch(_e){ try{ await window.renderWarehouse(); }catch(_e2){} }
+      await refreshUnplaced98(true, {silent:true});
+    }catch(e){ toast(e.message || '返回未入倉失敗', 'error'); }
+  }
+  window.returnWarehouseCellToUnplaced98 = returnCurrentCellToUnplaced;
+
+  function ensureWarehouseDetailPanel98(){
+    const modal = $('warehouse-modal');
+    const card = modal?.querySelector?.('.modal-card') || modal;
+    if(!modal || !card) return null;
+    // remove older duplicate panels; keep one final panel only.
+    card.querySelectorAll('#yx82-warehouse-detail-panel,#yx83-warehouse-detail-panel,#yx89-warehouse-detail-panel,#yx91-warehouse-detail-panel,#yx97-warehouse-detail-panel').forEach(el => {
+      if(el.id !== 'yx98-warehouse-detail-panel') el.remove();
+    });
+    let panel = $('yx98-warehouse-detail-panel');
+    if(!panel){
+      panel = document.createElement('div');
+      panel.id = 'yx98-warehouse-detail-panel';
+      panel.className = 'yx98-warehouse-detail-panel';
+      const meta = $('warehouse-modal-meta');
+      (meta?.parentNode || card).insertBefore(panel, meta?.nextSibling || card.firstChild);
+    }
+    return panel;
+  }
+
+  function renderWarehouseCellItems98(){
+    hideLegacyWarehouseDetail();
+    const panel = ensureWarehouseDetailPanel98();
+    if(!panel) return;
+    const c = currentCellInfo();
+    const items = Array.isArray(window.state?.currentCellItems) ? window.state.currentCellItems : getCellItems(c.zone, c.col, c.slot);
+    const head = `<div class="yx98-detail-head"><div class="section-title">格位詳細資料</div>${items.length ? `<button type="button" class="ghost-btn tiny-btn yx98-return-unplaced" id="yx98-return-unplaced-btn">返回未入倉</button>` : ''}</div>`;
+    if(!items.length){
+      panel.innerHTML = head + '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
+    }else{
+      panel.innerHTML = head + items.map((it, idx) => {
+        const label = placementLabel(it, idx);
+        return `<div class="deduct-card yx98-detail-card" draggable="true" data-yx98-detail-idx="${idx}">
+          <div class="yx98-detail-title"><span class="yx98-placement-badge">${esc(label)}</span><strong>${esc(it.customer_name || '未指定客戶')}</strong></div>
+          <div class="yx98-detail-line product">商品：${esc(itemText(it))}</div>
+          <div class="yx98-detail-line">材質：${esc(itemMaterial(it))}</div>
+          <div class="yx98-detail-line qty">數量：${qtyOf(it)} 件</div>
+        </div>`;
+      }).join('');
+    }
+    const btn = $('yx98-return-unplaced-btn');
+    if(btn && btn.dataset.bound !== '1'){
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); returnCurrentCellToUnplaced(c.zone, c.col, c.slot); });
+    }
+    panel.querySelectorAll('[data-yx98-detail-idx]').forEach(row => {
+      if(row.dataset.dragBound === '1') return;
+      row.dataset.dragBound = '1';
+      row.addEventListener('dragstart', ev => {
+        const idx = Number(row.dataset.yx98DetailIdx || -1);
+        const it = items[idx] || {};
+        const payload = {kind:'warehouse-item', fromKey:[c.zone,c.col,'direct',c.slot], product_text:itemText(it), qty:qtyOf(it)||1, customer_name:it.customer_name||'', placement_label:placementLabel(it,idx)};
+        ev.dataTransfer?.setData('text/plain', JSON.stringify(payload));
+      });
+    });
+  }
+  window.renderWarehouseCellItems = renderWarehouseCellItems98;
+
+  const baseOpenWarehouseModal98 = typeof window.openWarehouseModal === 'function' ? window.openWarehouseModal : null;
+  async function openWarehouseModal98(zone, col, slot){
+    hideLegacyWarehouseDetail();
+    let result;
+    if(baseOpenWarehouseModal98 && baseOpenWarehouseModal98 !== openWarehouseModal98){
+      result = await baseOpenWarehouseModal98.apply(this, arguments);
+    }else{
+      const modal = $('warehouse-modal');
+      if(modal) modal.classList.remove('hidden');
+      window.state = window.state || {}; window.state.currentCell = {zone, column: Number(col), column_index: Number(col), slot_type:'direct', slot_number:Number(slot)};
+      window.state.currentCellItems = getCellItems(zone, col, slot);
+    }
+    [0, 60, 180, 520].forEach(ms => setTimeout(() => { hideLegacyWarehouseDetail(); renderWarehouseCellItems98(); installWarehouseModalReturn98(); }, ms));
+    return result;
+  }
+  window.openWarehouseModal = Object.assign(openWarehouseModal98, {__yx98:true});
+
+  // Any legacy caller that tries to show the old detail card now opens the final modal instead.
+  window.showWarehouseDetail = function(zone, col, slot){
+    hideLegacyWarehouseDetail();
+    return window.openWarehouseModal(zone, Number(col), Number(slot));
+  };
+
+  function ensureSlotActionSheet98(){
+    let modal = $('yx98-warehouse-slot-actions');
+    if(modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'yx98-warehouse-slot-actions';
+    modal.className = 'modal hidden yx98-warehouse-slot-actions';
+    modal.innerHTML = `<div class="modal-card glass yx98-slot-action-card">
+      <div class="modal-head"><div class="section-title" id="yx98-slot-action-title">格子操作</div><button class="icon-btn" type="button" id="yx98-slot-action-close">✕</button></div>
+      <div class="small-note" id="yx98-slot-action-note">長按格子後可編輯、查看、返回未入倉、插入或刪除。</div>
+      <div class="yx98-action-stack">
+        <button class="primary-btn" type="button" id="yx98-slot-edit">編輯此格</button>
+        <button class="ghost-btn" type="button" id="yx98-slot-detail">查看格位資料</button>
+        <button class="ghost-btn" type="button" id="yx98-slot-return">返回未入倉</button>
+        <button class="ghost-btn" type="button" id="yx98-slot-insert">插入格子</button>
+        <button class="ghost-btn danger-btn" type="button" id="yx98-slot-delete">刪除格子</button>
+        <button class="ghost-btn" type="button" id="yx98-slot-cancel">取消</button>
+      </div></div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.classList.add('hidden');
+    $('yx98-slot-action-close').onclick = close;
+    $('yx98-slot-cancel').onclick = close;
+    modal.addEventListener('click', e => { if(e.target === modal) close(); });
+    return modal;
+  }
+  window.showWarehouseSlotActionSheet = function(zone, col, slot){
+    zone = clean(zone); col = Number(col); slot = Number(slot);
+    if(!zone || !col || !slot) return toast('找不到格位資料，請重新整理倉庫圖', 'error');
+    const modal = ensureSlotActionSheet98();
+    $('yx98-slot-action-title').textContent = `${zone} 區第 ${col} 欄 第 ${String(slot).padStart(2,'0')} 格`;
+    $('yx98-slot-edit').onclick = () => { modal.classList.add('hidden'); window.openWarehouseModal(zone,col,slot); };
+    $('yx98-slot-detail').onclick = () => { modal.classList.add('hidden'); window.openWarehouseModal(zone,col,slot); };
+    $('yx98-slot-return').onclick = () => { modal.classList.add('hidden'); returnCurrentCellToUnplaced(zone,col,slot); };
+    $('yx98-slot-insert').onclick = async () => { modal.classList.add('hidden'); try{ await window.insertWarehouseCell(zone,col,slot); }catch(e){ toast(e.message||'插入格子失敗','error'); } };
+    $('yx98-slot-delete').onclick = async () => { modal.classList.add('hidden'); try{ await window.deleteWarehouseCell(zone,col,slot); }catch(e){ toast(e.message||'刪除格子失敗','error'); } };
+    modal.classList.remove('hidden');
+  };
+
+  function installWarehouseModalReturn98(){
+    // Older long-press sheet may still exist; add/repair return button there as a fallback.
+    const old = $('yx97-warehouse-slot-actions');
+    if(old && !$('yx97-slot-return')){
+      const del = $('yx97-slot-delete');
+      const b = document.createElement('button');
+      b.className = 'ghost-btn'; b.type = 'button'; b.id = 'yx97-slot-return'; b.textContent = '返回未入倉';
+      del?.parentNode?.insertBefore(b, del);
+    }
+  }
+
+  /* ---------- manual unplaced list: click to view, long-press to refresh ---------- */
+  function stateWarehouse(){ window.state = window.state || {}; window.state.warehouse = window.state.warehouse || {}; return window.state.warehouse; }
+  function renderUnplacedList98(items){
+    const box = $('warehouse-unplaced-list-inline');
+    if(!box) return;
+    box.classList.remove('hidden');
+    box.innerHTML = (items && items.length) ? items.map(it => `<div class="deduct-card yx98-unplaced-card" draggable="true" data-product="${esc(itemText(it))}" data-customer="${esc(it.customer_name||'')}" data-qty="${qtyOf(it)}">
+      <strong>${esc(it.customer_name || '未指定客戶')}</strong>
+      <div class="small-note">${esc(itemMaterial(it))}｜${esc(itemText(it))}</div>
+      <div class="small-note">未入倉 ${qtyOf(it)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div>
+    </div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+    box.querySelectorAll('.yx98-unplaced-card').forEach(card => {
+      card.addEventListener('dragstart', ev => {
+        const payload = {product_text:card.dataset.product, customer_name:card.dataset.customer, qty:Number(card.dataset.qty)||1, source:'unplaced'};
+        ev.dataTransfer?.setData('text/plain', JSON.stringify(payload));
+      });
+    });
+  }
+  function updateUnplacedPill98(items, refreshed){
+    const pill = $('warehouse-unplaced-pill');
+    if(!pill) return;
+    const total = Array.isArray(items) ? items.reduce((s,it)=>s+qtyOf(it),0) : null;
+    pill.textContent = total === null ? '未入倉：點擊查看｜長按刷新' : `未入倉：${total}件｜點擊查看｜長按刷新`;
+    pill.classList.add('yx98-unplaced-pill');
+    pill.title = refreshed ? '已刷新；點擊查看全部未入倉，長按可再次刷新' : '點擊查看全部未入倉，長按刷新數量';
+  }
+  async function refreshUnplaced98(showList=true, opts={}){
+    try{
+      const d = await api('/api/warehouse/available-items?yx98_manual=1&ts=' + Date.now(), {method:'GET'});
+      const items = Array.isArray(d.items) ? d.items : [];
+      stateWarehouse().availableItems = items;
+      updateUnplacedPill98(items, true);
+      if(showList) renderUnplacedList98(items);
+      if(!opts.silent) toast('未入倉已刷新', 'ok');
+      return items;
+    }catch(e){ toast(e.message || '未入倉刷新失敗', 'error'); return []; }
+  }
+  async function showUnplaced98(){
+    const wh = stateWarehouse();
+    let items = Array.isArray(wh.availableItems) ? wh.availableItems : [];
+    if(!items.length) items = await refreshUnplaced98(false, {silent:true});
+    updateUnplacedPill98(items, false);
+    renderUnplacedList98(items);
+    return items;
+  }
+  window.refreshWarehouseUnplaced = refreshUnplaced98;
+  window.toggleWarehouseUnplacedHighlight = showUnplaced98;
+
+  function installUnplacedPill98(){
+    document.querySelectorAll('#yx94-refresh-unplaced,#yx95-refresh-unplaced,#yx96-refresh-unplaced').forEach(el => el.remove());
+    document.querySelectorAll('button').forEach(btn => {
+      if(/刷新未入倉/.test(clean(btn.textContent || ''))) btn.remove();
+    });
+    const pill = $('warehouse-unplaced-pill');
+    if(!pill) return;
+    pill.removeAttribute('onclick');
+    pill.onclick = null;
+    updateUnplacedPill98(Array.isArray(stateWarehouse().availableItems) ? stateWarehouse().availableItems : null, false);
+    if(pill.dataset.yx98Bound === '1') return;
+    pill.dataset.yx98Bound = '1';
+    let timer = null;
+    let longPressed = false;
+    const clear = () => { if(timer){ clearTimeout(timer); timer = null; } };
+    const start = ev => {
+      longPressed = false; clear();
+      timer = setTimeout(() => { timer = null; longPressed = true; refreshUnplaced98(true); }, 700);
+    };
+    const end = ev => {
+      clear();
+      if(longPressed){ ev.preventDefault(); ev.stopPropagation(); longPressed = false; return; }
+      ev.preventDefault(); ev.stopPropagation(); showUnplaced98();
+    };
+    pill.addEventListener('pointerdown', start, true);
+    pill.addEventListener('pointerup', end, true);
+    pill.addEventListener('pointercancel', clear, true);
+    pill.addEventListener('pointerleave', clear, true);
+    pill.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); }, true);
+  }
+
+  /* ---------- final today cards ---------- */
+  let todayFilter98 = '';
+  let todayLoading98 = null;
+  function clearLegacyToday98(){
+    document.querySelectorAll('#yx94-refresh-today,#yx95-refresh-today,#yx96-refresh-today,.yx94-today-refresh-row,.yx95-today-refresh-row,.yx96-today-refresh-row').forEach(el => {
+      const row = el.classList?.contains('btn-row') ? el : el.closest?.('.yx94-today-refresh-row,.yx95-today-refresh-row,.yx96-today-refresh-row');
+      (row || el).remove();
+    });
+    // keep one final refresh button only.
+    document.querySelectorAll('#yx98-refresh-today').forEach((el,idx) => { if(idx) el.closest('.yx98-today-refresh-row')?.remove() || el.remove(); });
+  }
+  function ensureTodayRefresh98(){
+    const summary = $('today-summary-cards');
+    if(!summary || $('yx98-refresh-today')) return;
+    const row = document.createElement('div');
+    row.className = 'btn-row compact-row yx98-today-refresh-row';
+    row.innerHTML = '<button type="button" class="ghost-btn small-btn" id="yx98-refresh-today">刷新</button>';
+    summary.insertAdjacentElement('beforebegin', row);
+    $('yx98-refresh-today').addEventListener('click', () => loadTodayChanges98({manual:true,force:true}));
+  }
+  function showTodayPanels98(){
+    document.querySelectorAll('[data-today-panel]').forEach(p => p.classList.toggle('yx98-hidden', !!todayFilter98 && p.dataset.todayPanel !== todayFilter98));
+    document.querySelectorAll('.yx98-today-card').forEach(c => c.classList.toggle('active', c.dataset.todayCard === todayFilter98));
+  }
+  function time24(v){ const raw=clean(v); const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/); return m ? `${m[1]} ${m[2]}` : raw; }
+  function todayLogRow98(r){
+    const target = clean(r?.target || r?.customer_name || r?.name || '');
+    const product = clean(r?.product_text || r?.message || r?.product || '');
+    return `<div class="today-item deduct-card yx98-today-row" data-log-id="${Number(r?.id||0)}"><strong>${esc(r?.action||'異動')}</strong>${target?`<div class="small-note">${esc(target)}</div>`:''}${product?`<div class="small-note">${esc(product)}</div>`:''}<div class="small-note">${esc(time24(r?.created_at||r?.time||''))}｜${esc(r?.username||'')}</div></div>`;
+  }
+  function fillTodayList98(id, rows, empty){ const el=$(id); if(el) el.innerHTML=(rows||[]).map(todayLogRow98).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`; }
+  async function loadTodayChanges98(opts={}){
+    if(todayLoading98) return todayLoading98;
+    todayLoading98 = (async function(){
+      try{
+        clearLegacyToday98();
+        const d = await api('/api/today-changes?yx98=1&ts=' + Date.now(), {method:'GET'});
+        const s = d.summary || {};
+        if($('today-unread-badge')) $('today-unread-badge').textContent = String(Number(s.unread_count || 0));
+        const cards = [
+          ['inbound','進貨',Number(s.inbound_count||0),'筆',''],
+          ['outbound','出貨',Number(s.outbound_count||0),'筆',''],
+          ['orders','新增訂單',Number(s.new_order_count||0),'筆',''],
+          ['unplaced','未入倉',Number(s.unplaced_count||0),'件',`${Number(s.unplaced_row_count||0)}筆`]
+        ];
+        const summary = $('today-summary-cards');
+        if(summary){
+          summary.className = 'card-list yx98-today-summary yx96-today-summary';
+          summary.innerHTML = cards.map(c => `<div class="yx98-today-card yx96-today-card" data-today-card="${c[0]}"><div class="title yx97-today-label">${esc(c[1])}</div><div class="sub yx97-today-count">${c[2]}${esc(c[3])}</div>${c[4]?`<div class="small-note">${esc(c[4])}</div>`:''}</div>`).join('');
+          summary.querySelectorAll('.yx98-today-card').forEach(card => card.addEventListener('click', () => { const k=card.dataset.todayCard || ''; todayFilter98 = todayFilter98===k ? '' : k; showTodayPanels98(); }));
+          ensureTodayRefresh98();
+        }
+        fillTodayList98('today-inbound-list', d.feed?.inbound, '今天沒有進貨');
+        fillTodayList98('today-outbound-list', d.feed?.outbound, '今天沒有出貨');
+        fillTodayList98('today-order-list', d.feed?.new_orders, '今天沒有新增訂單');
+        const u = $('today-unplaced-list');
+        if(u){
+          const arr = Array.isArray(d.unplaced_items) ? d.unplaced_items : [];
+          u.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card yx98-today-unplaced"><strong>${esc(itemText(it))}</strong><div class="small-note">${esc(it.customer_name||'未指定客戶')}｜未入倉 ${qtyOf(it)} 件${it.source_summary?`｜來源：${esc(it.source_summary)}`:''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未入倉商品</div>';
+        }
+        showTodayPanels98();
+        try{ await api('/api/today-changes/read',{method:'POST',body:JSON.stringify({})}); }catch(_e){}
+        return d;
+      }catch(e){ toast(e.message || '今日異動載入失敗', 'error'); }
+      finally{ todayLoading98 = null; }
+    })();
+    return todayLoading98;
+  }
+  window.loadTodayChanges = loadTodayChanges98;
+  ['loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','__yx96RemovedToday80','__yx96RemovedToday93','__yx96RemovedToday95'].forEach(name => {
+    try{ Object.defineProperty(window, name, {value:loadTodayChanges98, configurable:true, writable:true}); }catch(_e){ window[name] = loadTodayChanges98; }
+  });
+
+  function install98(){
+    document.documentElement.dataset.yxFix98 = VERSION;
+    hideLegacyWarehouseDetail();
+    installWarehouseModalReturn98();
+    if(moduleKey()==='warehouse'){
+      installUnplacedPill98();
+      // clean delayed legacy flashes and rebind final handlers after old timers finish.
+      [0,80,200,600,1200,2400].forEach(ms => setTimeout(() => { hideLegacyWarehouseDetail(); installUnplacedPill98(); installWarehouseModalReturn98(); }, ms));
+    }
+    if(moduleKey()==='today_changes'){
+      clearLegacyToday98();
+      ensureTodayRefresh98();
+      loadTodayChanges98({manual:true,force:true});
+      [100,400,1000,2200].forEach(ms => setTimeout(() => { clearLegacyToday98(); ensureTodayRefresh98(); }, ms));
+    }
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install98, {once:true}); else install98();
+  window.addEventListener('pageshow', install98);
+  document.addEventListener('click', () => setTimeout(() => { hideLegacyWarehouseDetail(); clearLegacyToday98(); installWarehouseModalReturn98(); }, 80), true);
+})();
+/* ==== FIX98 end ==== */
