@@ -9,7 +9,6 @@ import hashlib
 import json
 import re
 import uuid
-import threading
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -84,8 +83,6 @@ def current_username():
 SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
-TODAY_PAYLOAD_CACHE = {'ts': 0.0, 'data': None}
-TODAY_PAYLOAD_CACHE_TTL = int(os.getenv('YX_TODAY_CACHE_SECONDS', '120'))
 
 _db_log_action = log_action
 
@@ -111,63 +108,19 @@ def notify_sync_event(kind='refresh', module='all', message='', extra=None):
 
 def log_action(username, action):
     _db_log_action(username, action)
-    # FIX105：新增/出貨/倉庫異動後讓今日異動快取失效，避免重整時反覆全表計算。
-    try:
-        TODAY_PAYLOAD_CACHE['ts'] = 0.0
-        TODAY_PAYLOAD_CACHE['data'] = None
-    except Exception:
-        pass
     notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
 
 
-def yx_local_now():
-    """Render 多數環境是 UTC；系統操作以台灣時間判斷每日備份。"""
-    return datetime.utcnow() + timedelta(hours=8)
-
-def auto_daily_backup_allowed_now():
-    try:
-        hour = int(os.getenv("YX_AUTO_DAILY_BACKUP_HOUR", "2"))
-    except Exception:
-        hour = 2
-    return int(yx_local_now().hour) == hour
-
-_DAILY_BACKUP_LOCK = threading.Lock()
-_DAILY_BACKUP_STARTED_FOR = set()
-
 def ensure_daily_backup():
-    """同步備份：只給手動工具或背景執行緒使用，不放在使用者開頁流程。"""
     try:
-        today = yx_local_now().strftime('%Y-%m-%d')
+        today = datetime.now().strftime('%Y-%m-%d')
         if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
-            return {'success': True, 'skipped': True, 'reason': 'already-backed-up-today'}
+            return
         result = run_daily_backup()
         if result.get('success'):
             set_setting(LAST_DAILY_BACKUP_KEY, today)
-        return result
     except Exception as e:
         log_error('ensure_daily_backup', str(e))
-        return {'success': False, 'error': str(e)}
-
-def ensure_daily_backup_async():
-    """FIX103：每日備份改成背景執行，避免首次開網頁時卡住甚至 502。
-
-    舊版在 before_request 直接 dump 全部 PostgreSQL 表，資料變多時 Render 可能逾時。
-    這裡只在同一天啟動一次背景執行緒，使用者頁面立即回應。
-    """
-    today = yx_local_now().strftime('%Y-%m-%d')
-    with _DAILY_BACKUP_LOCK:
-        if today in _DAILY_BACKUP_STARTED_FOR:
-            return
-        _DAILY_BACKUP_STARTED_FOR.add(today)
-    def _worker():
-        try:
-            ensure_daily_backup()
-        except Exception as e:
-            try:
-                log_error('ensure_daily_backup_async', str(e))
-            except Exception:
-                pass
-    threading.Thread(target=_worker, name='yx-daily-backup', daemon=True).start()
 
 
 def request_key_from_payload(data, endpoint=''):
@@ -308,27 +261,20 @@ def login_required_json(f):
 
 @app.after_request
 def add_no_cache_headers(response):
-    # FIX103：HTML/API 保持不快取；帶版本號的 static 檔允許短快取，避免每次開頁都重抓大 JS/CSS 導致慢與 502 體感。
-    path = request.path or ''
-    if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=3600, stale-while-revalidate=86400'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
-    else:
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        response.headers['Vary'] = 'Cookie'
+    # FIX87：所有頁面 / 靜態檔 / API 都不快取，避免手機、PWA 或 Render 部署後吃到舊 JS。
+    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    response.headers['Vary'] = 'Cookie'
     return response
 
 @app.before_request
 def protect_pages():
     path = request.path
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
-    # FIX100：預設啟用每日自動備份；若要關閉可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=0。
-    if (os.getenv("YX_AUTO_DAILY_BACKUP", "1") == "1" and auto_daily_backup_allowed_now()
-            and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health")):
-        ensure_daily_backup_async()
+    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+        ensure_daily_backup()
     if path.startswith("/static/") or path in ("/health",):
         return None
     public = [
@@ -580,7 +526,7 @@ def customer_groups():
 def home():
     if not require_login():
         return redirect(url_for("login_page"))
-    return render_template("index.html", username=current_username(), title="沅興木業", today=yx_local_now().strftime('%Y-%m-%d'))
+    return render_template("index.html", username=current_username(), title="沅興木業", today=datetime.now().strftime('%Y-%m-%d'))
 
 @app.route("/login")
 def login_page():
@@ -1804,7 +1750,7 @@ def api_orders_to_master():
 
 
 def _today_key():
-    return yx_local_now().strftime('%Y-%m-%d')
+    return datetime.now().strftime('%Y-%m-%d')
 
 def _aggregate_customer_products(rows):
     out = {}
@@ -1944,14 +1890,7 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload(include_unplaced=False):
-    # FIX106：預設不計算未入倉，只有使用者按「刷新」才重算，避免開頁/返回主頁卡頓。
-    try:
-        cached = TODAY_PAYLOAD_CACHE.get('data')
-        if include_unplaced and cached is not None and (time.time() - float(TODAY_PAYLOAD_CACHE.get('ts') or 0)) < TODAY_PAYLOAD_CACHE_TTL:
-            return cached
-    except Exception:
-        pass
+def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1973,16 +1912,13 @@ def _today_changes_payload(include_unplaced=False):
         elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    if include_unplaced:
-        unplaced = _today_unplaced_all_sources()
-    else:
-        unplaced = []
+    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
-    payload = {
+    return {
         'summary': {
             'inbound_count': len(inbound),
             'outbound_count': len(outbound),
@@ -2003,19 +1939,11 @@ def _today_changes_payload(include_unplaced=False):
         'anomaly_groups': {'unplaced': unplaced},
         'read_at': read_at,
     }
-    if include_unplaced:
-        try:
-            TODAY_PAYLOAD_CACHE['ts'] = time.time()
-            TODAY_PAYLOAD_CACHE['data'] = payload
-        except Exception:
-            pass
-    return payload
 
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    include_unplaced = str(request.args.get('refresh') or request.args.get('include_unplaced') or '').lower() in ('1', 'true', 'yes')
-    return jsonify(success=True, **_today_changes_payload(include_unplaced=include_unplaced))
+    return jsonify(success=True, **_today_changes_payload())
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -2046,7 +1974,7 @@ def api_today_change_delete(log_id):
 @app.route('/api/anomalies', methods=['GET'])
 @login_required_json
 def api_anomalies():
-    payload = _today_changes_payload(include_unplaced=True)
+    payload = _today_changes_payload()
     return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
 
 
@@ -2433,7 +2361,7 @@ def api_backup_restore():
     restored_tables = []
     try:
         def table_columns(table):
-            if (os.getenv('DATABASE_URL', '') or '').strip().lower().startswith(('postgres://','postgresql://')):
+            if os.getenv('DATABASE_URL', '').lower().startswith(('postgres://','postgresql://')):
                 cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s", (table,))
                 return {r[0] for r in cur.fetchall()}
             cur.execute(f"PRAGMA table_info({re.sub(r'[^A-Za-z0-9_]', '', table)})")

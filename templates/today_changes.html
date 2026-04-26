@@ -7,26 +7,22 @@
     <div></div>
   </div>
   <div class="glass feature-card">
-    <div class="section-head yx106-today-head">
-      <h3>今日異動</h3>
-      <button id="today-manual-refresh-btn" class="ghost-btn small-btn" type="button">刷新</button>
+    <div class="btn-row compact" style="justify-content:flex-end; margin-bottom:10px; gap:8px;">
+      <span class="pill" id="today-unread-badge">0</span>
+      <button id="today-unread-toggle" class="ghost-btn small-btn" type="button">只看未讀</button>
+      <button id="today-clear-read-btn" class="ghost-btn small-btn" type="button">清除已讀</button>
     </div>
-    <div class="today-filter-bar yx105-hidden" hidden>
+    <div class="section-head">
+      <h3>今日異動</h3>
+    </div>
+    <div class="today-filter-bar">
       <button class="chip active" id="today-filter-all" type="button" data-today-filter="all">全部</button>
       <button class="chip" id="today-filter-inbound" type="button" data-today-filter="inbound">進貨</button>
       <button class="chip" id="today-filter-outbound" type="button" data-today-filter="outbound">出貨</button>
       <button class="chip" id="today-filter-orders" type="button" data-today-filter="orders">新增訂單</button>
       <button class="chip" id="today-filter-unplaced" type="button" data-today-filter="unplaced">未錄入</button>
     </div>
-    <div id="today-summary-cards" class="card-list yx106-today-root" data-yx106-stable="1">
-      <div class="yx106-today-stack">
-        <button type="button" class="yx106-today-card" data-yx106-today-filter="inbound"><span class="yx106-today-title">進貨</span><span class="yx106-today-count"><b>0</b><em>筆</em></span></button>
-        <button type="button" class="yx106-today-card" data-yx106-today-filter="outbound"><span class="yx106-today-title">出貨</span><span class="yx106-today-count"><b>0</b><em>筆</em></span></button>
-        <button type="button" class="yx106-today-card" data-yx106-today-filter="orders"><span class="yx106-today-title">新增訂單</span><span class="yx106-today-count"><b>0</b><em>筆</em></span></button>
-        <button type="button" class="yx106-today-card" data-yx106-today-filter="unplaced"><span class="yx106-today-title">未入倉</span><span class="yx106-today-count"><b>0</b><em>件</em></span></button>
-      </div>
-    </div>
-
+    <div id="today-summary-cards" class="card-list"></div>
     <div class="today-columns today-columns-4 today-columns-vertical">
       <div class="glass panel" data-today-panel="inbound"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"></div></div>
       <div class="glass panel" data-today-panel="outbound"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"></div></div>
