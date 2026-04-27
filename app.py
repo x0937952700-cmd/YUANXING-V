@@ -195,9 +195,11 @@ def add_cache_headers(response):
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
+        # FIX118：這版要徹底避免手機 / PWA / 瀏覽器吃到舊版 app.js、style.css。
+        # 先全部 no-store，等介面穩定後再恢復圖片長快取。
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'

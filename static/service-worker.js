@@ -1,54 +1,27 @@
-/* 沅興木業 PWA Service Worker - fix117-clean-single-toolbar-drag - FIX117_CLEAN_CACHE */
-const YX_PWA_VERSION='fix117-clean-single-toolbar-drag';
-const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
-const PRECACHE_ASSETS=[
-  '/static/manifest.webmanifest',
-  '/static/favicon.png',
-  '/static/style.css?v=fix117-clean-single-toolbar-drag',
-  '/static/app.js?v=fix117-clean-single-toolbar-drag',
-  '/static/pwa.js?v=fix117-clean-single-toolbar-drag',
-  '/static/icons/icon-192x192.png',
-  '/static/icons/icon-512x512.png',
-  '/static/icons/icon-maskable-192x192.png',
-  '/static/icons/icon-maskable-512x512.png'
-];
-self.addEventListener('install',event=>{
-  event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
+/* 沅興木業 PWA Service Worker - fix118-hard-no-old-ui-cache-reset - network only cache reset */
+const YX_PWA_VERSION = 'fix118-hard-no-old-ui-cache-reset';
+self.addEventListener('install', event => {
+  event.waitUntil((async()=>{
+    try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch(_) {}
+    await self.skipWaiting();
+  })());
 });
-self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
+self.addEventListener('activate', event => {
+  event.waitUntil((async()=>{
+    try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch(_) {}
+    await self.clients.claim();
+  })());
 });
-self.addEventListener('message',event=>{if(event.data&&event.data.type==='SKIP_WAITING')self.skipWaiting()});
-self.addEventListener('fetch',event=>{
-  const req=event.request;
-  if(req.method!=='GET') return;
-  const url=new URL(req.url);
-  if(url.origin!==self.location.origin) return;
-  if(url.pathname.startsWith('/api/') || url.pathname==='/api/sync/stream'){
-    event.respondWith(fetch(req,{cache:'no-store'}));
-    return;
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data && event.data.type === 'CLEAR_CACHES') {
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
   }
-  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
-    event.respondWith(fetch(req,{cache:'no-store'}));
-    return;
-  }
-  if(url.pathname.startsWith('/static/')){
-    // FIX116：JS/CSS 版本更新時走 network-first，避免舊 SW / 舊 cache 擋掉新功能。
-    if(url.pathname.endsWith('/app.js') || url.pathname.endsWith('/style.css') || url.pathname.endsWith('/pwa.js')){
-      event.respondWith(fetch(req, {cache:'no-store'}).then(res=>{
-        if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
-        return res;
-      }).catch(()=>caches.match(req)));
-      return;
-    }
-    event.respondWith(caches.match(req).then(cached=>{
-      if(cached) return cached;
-      return fetch(req).then(res=>{
-        if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
-        return res;
-      });
-    }).catch(()=>caches.match(req)));
-    return;
-  }
-  event.respondWith(fetch(req).catch(()=>caches.match(req)));
+});
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  event.respondWith(fetch(req, {cache:'no-store'}).catch(() => new Response('', {status:504, statusText:'Offline'})));
 });

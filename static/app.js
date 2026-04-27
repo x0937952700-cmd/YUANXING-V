@@ -12843,3 +12843,178 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.yx117Cleanup = cleanup;
 })();
 /* ==== FIX117 end ==== */
+
+
+/* ==== FIX118: hard no-old-ui cache reset + final master cleanup ==== */
+(function(){
+  'use strict';
+  if (window.__YX118_HARD_MASTER__) return;
+  window.__YX118_HARD_MASTER__ = true;
+  const VERSION = 'FIX118_HARD_NO_OLD_UI_CACHE_RESET';
+  try { document.documentElement.dataset.yxFix118 = VERSION; } catch(_e) {}
+
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const sourceFromModule = () => {
+    const m = moduleKey();
+    if (m === 'inventory' || m === 'orders' || m === 'master_order') return m;
+    return '';
+  };
+  const sourceFromId = id => {
+    id = String(id || '');
+    const m = id.match(/yx(?:63|115|116|117|118)-(inventory|orders|master_order)-(?:toolbar|summary|search|material|apply|delete|selectall|refresh)/);
+    return m ? m[1] : '';
+  };
+  const sourceFromToolbar = bar => sourceFromId(bar?.id) ||
+    (bar?.querySelector?.('[id*="-inventory-"]') ? 'inventory' :
+     bar?.querySelector?.('[id*="-orders-"]') ? 'orders' :
+     bar?.querySelector?.('[id*="-master_order-"]') ? 'master_order' : '');
+
+  function removeOldActionModals(all=false){
+    ['yx116-customer-action-modal','yx113-customer-action-modal','yx112-customer-actions','customer-action-sheet'].forEach(id => {
+      const el = $(id);
+      if (el) el.remove();
+    });
+    if (all) {
+      const m = $('yx114-customer-action-modal');
+      if (m) { m.classList.add('hidden'); m.style.display = 'none'; }
+    }
+  }
+
+  function normalizeToolbar(bar, source){
+    if (!bar || !source) return;
+    bar.id = `yx63-${source}-toolbar`;
+    bar.classList.add('yx63-toolbar','yx115-batch-toolbar','yx117-single-toolbar','yx118-single-toolbar');
+    bar.hidden = false;
+    bar.style.removeProperty('display');
+    const refresh = $(`yx63-${source}-refresh`);
+    if (refresh) refresh.remove();
+
+    const material = $(`yx63-${source}-material`);
+    if (material) {
+      material.hidden = false;
+      material.style.removeProperty('display');
+      material.classList.add('yx115-batch-visible');
+      if (material.options && material.options.length) material.options[0].textContent = '材質下拉選單';
+    }
+    const apply = $(`yx63-${source}-apply`);
+    if (apply) { apply.hidden = false; apply.style.removeProperty('display'); apply.textContent = '批量加材質'; }
+    const del = $(`yx63-${source}-delete`);
+    if (del) { del.hidden = false; del.style.removeProperty('display'); del.textContent = '批量刪除'; }
+    const sel = $(`yx63-${source}-selectall`);
+    if (sel) { sel.hidden = false; sel.style.removeProperty('display'); if(!sel.textContent.trim()) sel.textContent = '全選目前清單'; }
+    const search = $(`yx63-${source}-search`);
+    if (search) { search.hidden = false; search.style.removeProperty('display'); search.placeholder = '搜尋商品 / 客戶 / 材質'; }
+  }
+
+  function cleanupToolbars(){
+    const activeSource = sourceFromModule();
+    document.querySelectorAll(
+      '[id^="yx116-"][id$="-toolbar"],[id^="yx116-"][id$="-summary"],' +
+      '.fix52-list-toolbar,.fix55-list-toolbar,.fix56-toolbar,.fix57-toolbar,.yx59-toolbar-normalized,.yx60-toolbar,.yx62-toolbar'
+    ).forEach(el => el.remove());
+
+    const seen = new Set();
+    Array.from(document.querySelectorAll('.yx63-toolbar,.yx115-batch-toolbar,.yx117-single-toolbar,[id$="-toolbar"]')).forEach(bar => {
+      const source = sourceFromToolbar(bar);
+      if (!source) return;
+      if (activeSource && source !== activeSource) { bar.remove(); return; }
+      if (seen.has(source)) { bar.remove(); return; }
+      seen.add(source);
+      normalizeToolbar(bar, source);
+    });
+
+    ['inventory','orders','master_order'].forEach(source => {
+      const summaries = Array.from(document.querySelectorAll(`#yx63-${source}-summary,[id^="yx116-${source}-"][id$="summary"]`));
+      summaries.forEach((el, idx) => {
+        if (activeSource && source !== activeSource) { el.remove(); return; }
+        if (idx > 0) el.remove();
+      });
+    });
+  }
+
+  function cleanupCustomerCards(){
+    document.querySelectorAll('.yx114-customer-card,.yx113-draggable-customer,.customer-region-card,[data-customer-name],[data-customer]').forEach(card => {
+      const name = clean(card.dataset.customerName || card.dataset.customer || card.getAttribute('data-customer-name') || '');
+      if (name) {
+        card.dataset.customerName = card.dataset.customerName || name;
+        card.dataset.customer = card.dataset.customer || name;
+      }
+      card.setAttribute('draggable','true');
+      card.style.webkitTouchCallout = 'none';
+      card.title = '可拖拉移動區域；右鍵或操作按鈕可封存 / 刪除';
+    });
+  }
+
+  let dragState = null;
+  let dragSuppressUntil = 0;
+  const originalOpen114 = window.yx114OpenCustomerAction;
+  function isSuppressed(){ return Date.now() < dragSuppressUntil || document.body?.classList.contains('yx114-dragging-customer'); }
+  function hideActionDuringDrag(){
+    dragSuppressUntil = Date.now() + 800;
+    removeOldActionModals(true);
+  }
+
+  document.addEventListener('pointerdown', e => {
+    const card = e.target?.closest?.('.yx114-customer-card,.yx113-draggable-customer,.customer-region-card,[data-customer-name],[data-customer]');
+    if (!card || e.target?.closest?.('.yx114-card-menu,[data-yx114-open-menu],button,a,input,select,textarea')) return;
+    dragState = {x:e.clientX || 0, y:e.clientY || 0, moved:false, t:Date.now()};
+  }, true);
+
+  document.addEventListener('pointermove', e => {
+    if (!dragState) return;
+    const dx = Math.abs((e.clientX || 0) - dragState.x);
+    const dy = Math.abs((e.clientY || 0) - dragState.y);
+    if (dx + dy > 6) {
+      dragState.moved = true;
+      hideActionDuringDrag();
+    }
+  }, true);
+
+  ['pointerup','pointercancel','dragend','drop'].forEach(type => document.addEventListener(type, () => {
+    if (dragState?.moved) hideActionDuringDrag();
+    dragState = null;
+    setTimeout(() => { dragSuppressUntil = 0; }, 350);
+  }, true));
+
+  document.addEventListener('dragstart', hideActionDuringDrag, true);
+  document.addEventListener('contextmenu', e => {
+    if (isSuppressed()) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hideActionDuringDrag();
+    }
+  }, true);
+
+  // 覆蓋舊版「長按就跳出客戶操作表」：拖拉時一定不打開；正常右鍵 / 操作按鈕仍保留。
+  window.yx114OpenCustomerAction = function(name, uid){
+    if (isSuppressed()) { hideActionDuringDrag(); return; }
+    if (typeof originalOpen114 === 'function') return originalOpen114.apply(this, arguments);
+  };
+
+  function cleanup(){
+    try { document.documentElement.dataset.yxFix118 = VERSION; } catch(_e) {}
+    cleanupToolbars();
+    removeOldActionModals(false);
+    cleanupCustomerCards();
+  }
+
+  let pending = false;
+  function scheduleCleanup(){
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      cleanup();
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', cleanup, {once:true}); else cleanup();
+  window.addEventListener('pageshow', cleanup);
+  window.addEventListener('load', cleanup);
+  [60,180,420,900,1800,3200,5200].forEach(ms => setTimeout(cleanup, ms));
+  if (document.body) new MutationObserver(scheduleCleanup).observe(document.body, {childList:true, subtree:true});
+  window.yx118HardCleanup = cleanup;
+})();
+/* ==== FIX118 end ==== */

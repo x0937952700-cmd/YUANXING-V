@@ -3405,3 +3405,37 @@ html[data-yx-fix117] .yx114-customer-card{
   }
 }
 /* ==== FIX117 end ==== */
+
+
+/* ==== FIX118: final single toolbar / no old modal during drag ==== */
+html[data-yx-fix118] .yx118-single-toolbar{
+  display:flex!important;
+  align-items:center!important;
+  gap:12px!important;
+  flex-wrap:nowrap!important;
+}
+html[data-yx-fix118] .yx118-single-toolbar [id$="-refresh"]{display:none!important;}
+html[data-yx-fix118] .yx118-single-toolbar select,
+html[data-yx-fix118] .yx118-single-toolbar input,
+html[data-yx-fix118] .yx118-single-toolbar button{
+  visibility:visible!important;
+}
+html[data-yx-fix118] body.yx114-dragging-customer #yx114-customer-action-modal,
+html[data-yx-fix118] body.yx114-dragging-customer #yx113-customer-action-modal,
+html[data-yx-fix118] body.yx114-dragging-customer #yx112-customer-actions,
+html[data-yx-fix118] body.yx114-dragging-customer #customer-action-sheet{
+  display:none!important;
+}
+html[data-yx-fix118] #yx116-customer-action-modal,
+html[data-yx-fix118] #yx113-customer-action-modal,
+html[data-yx-fix118] #yx112-customer-actions,
+html[data-yx-fix118] #customer-action-sheet{
+  display:none!important;
+}
+@media(max-width:760px){
+  html[data-yx-fix118] .yx118-single-toolbar{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+  }
+}
+/* ==== FIX118 end ==== */
