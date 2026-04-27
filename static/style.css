@@ -3949,3 +3949,189 @@ html[data-yx-fix146="FIX146_HARD_LOCK_FIX143_FIX144_COMBO"] .yx144-slot-qtys,
 html[data-yx-fix146="FIX146_HARD_LOCK_FIX143_FIX144_COMBO"] .yx144-slot-total{color:#2563eb!important;font-weight:950!important;}
 @media(max-width:420px){html[data-yx-fix146="FIX146_HARD_LOCK_FIX143_FIX144_COMBO"] .home-top-actions.centered-actions.home-action-row-v143{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important;}html[data-yx-fix146="FIX146_HARD_LOCK_FIX143_FIX144_COMBO"] .home-user-center-v143{font-size:13px!important;padding-left:6px!important;padding-right:6px!important;}}
 /* ==== FIX146 end ==== */
+
+/* ==== FIX147: hard-locked UI polish for requested screenshots ==== */
+html[data-yx-fix147="hard-lock-all"] { scroll-behavior: auto; }
+
+/* 圖二：首頁設定 / 今日異動 / 登出三顆按鈕置中 */
+.home-top-actions,
+.home-action-row,
+.yx-home-top-actions,
+.home-header-actions,
+#home-top-actions{
+  display:grid !important;
+  grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+  align-items:center !important;
+  justify-items:center !important;
+  gap:10px !important;
+  width:100% !important;
+}
+.home-top-actions > *,
+.home-action-row > *,
+.yx-home-top-actions > *,
+.home-header-actions > *,
+#home-top-actions > *{
+  margin-inline:auto !important;
+  text-align:center !important;
+  justify-content:center !important;
+}
+#settings-btn,#today-changes-btn,#logout-btn,
+.home-top-actions button,.home-action-row button,.home-header-actions button{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center !important;
+}
+
+/* 圖一：今日異動標籤固定，不跳動；黑框只留在目前按下標籤 */
+.today-filter-bar,
+.yx-today-filter-bar{
+  min-height:44px !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  flex-wrap:nowrap !important;
+  gap:8px !important;
+  overflow-x:auto !important;
+  scrollbar-width:none !important;
+  transform:none !important;
+  transition:none !important;
+}
+.today-filter-bar::-webkit-scrollbar{ display:none !important; }
+[data-today-filter],.today-filter-btn{
+  flex:0 0 auto !important;
+  min-width:72px !important;
+  text-align:center !important;
+  border:1px solid rgba(17,24,39,.12) !important;
+  transform:none !important;
+  transition:background .12s ease,border-color .12s ease,box-shadow .12s ease !important;
+}
+[data-today-filter].active,
+[data-today-filter].is-active,
+.today-filter-btn.active,
+.today-filter-btn.is-active{
+  border-color:#111827 !important;
+  box-shadow:0 0 0 2px rgba(17,24,39,.75) !important;
+  background:#fff !important;
+  color:#111827 !important;
+}
+
+/* 圖三：庫存下方補回總單同款商品小卡 */
+.yx147-inventory-mini-grid{
+  display:grid !important;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr)) !important;
+  gap:10px !important;
+  margin-top:12px !important;
+}
+.yx147-inventory-mini-card{
+  background:#fffdf8 !important;
+  border:1px solid rgba(120,88,55,.18) !important;
+  border-radius:16px !important;
+  box-shadow:0 8px 22px rgba(80,55,30,.08) !important;
+  padding:12px !important;
+}
+.yx147-inventory-mini-card .yx143-mini-top{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:space-between !important;
+  gap:10px !important;
+  color:#166534 !important;
+  font-weight:800 !important;
+}
+.yx147-inventory-mini-card .yx143-mini-product{
+  margin-top:6px !important;
+  font-size:15px !important;
+  font-weight:800 !important;
+  color:#1f2937 !important;
+  word-break:break-word !important;
+}
+
+/* 圖四：FOB / CNF / FOB代標籤置中 */
+.yx143-trade-tag,
+.yx147-trade-tag,
+.customer-trade-tag,
+.trade-tag,
+.customer-card .tag,
+.customer-card [data-trade],
+.customer-region-card [data-trade]{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  text-align:center !important;
+  min-width:52px !important;
+  margin-inline:auto !important;
+  line-height:1.2 !important;
+}
+.customer-card-name,
+.customer-region-card .customer-card-name,
+.customer-name-line{
+  display:flex !important;
+  align-items:center !important;
+  gap:6px !important;
+}
+
+/* 圖五：件數 / 筆數靠右對齊，空格不再擠在中間 */
+.customer-card-count,
+.customer-count,
+.customer-card-meta,
+.customer-region-card .count,
+.customer-region-card .meta,
+.customer-region-card [data-count],
+.customer-card [data-count],
+.yx-customer-right,
+.yx122-card-right,
+.yx125-card-right{
+  margin-left:auto !important;
+  text-align:right !important;
+  justify-content:flex-end !important;
+  align-items:center !important;
+  white-space:nowrap !important;
+}
+.customer-region-card,
+.customer-card,
+.yx122-customer-card,
+.yx125-customer-card{
+  gap:8px !important;
+}
+
+/* 出貨預覽 / 重複合併確認按鈕置中 */
+.yx147-center-row,
+.btn-row.yx147-center-row,
+.yx147-duplicate-panel .btn-row,
+.yx147-ship-preview + .btn-row{
+  display:flex !important;
+  justify-content:center !important;
+  align-items:center !important;
+  gap:10px !important;
+  flex-wrap:wrap !important;
+}
+
+/* 總單減少卡頓：避免重複動畫與平滑滾動堆疊 */
+.module-screen[data-module="master_order"],
+body[data-module="master_order"]{
+  scroll-behavior:auto !important;
+}
+.module-screen[data-module="master_order"] .customer-region-card,
+.module-screen[data-module="master_order"] .yx134-product-row,
+.module-screen[data-module="master_order"] .yx143-mini-card,
+.module-screen[data-module="master_order"] .deduct-card{
+  animation:none !important;
+  transition:box-shadow .12s ease, transform .08s ease !important;
+}
+
+/* 月份格式與排序後視覺保持穩定 */
+.month-tag,.yx-month-tag{
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  min-width:36px !important;
+  padding:2px 7px !important;
+  border-radius:999px !important;
+  background:#f3eadb !important;
+  color:#7c4a20 !important;
+  font-size:12px !important;
+  font-weight:800 !important;
+  margin-right:6px !important;
+}
+
+/* ==== FIX147 end ==== */

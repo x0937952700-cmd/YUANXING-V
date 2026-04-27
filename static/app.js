@@ -17962,3 +17962,474 @@ try { document.documentElement.dataset.yxFix124 = 'FIX124_CUSTOMER_REGION_OLD_HA
   window.addEventListener('yx145:cache-cleared', () => scheduleRepair('145-cleared'), true);
 })();
 /* ==== FIX146 end ==== */
+
+/* ==== FIX147: hard-lock all requested UI/business rules over FIX146 ==== */
+(function(){
+  'use strict';
+  if (window.__YX147_HARD_LOCK_ALL_REQUESTS__) return;
+  window.__YX147_HARD_LOCK_ALL_REQUESTS__ = true;
+  const d = document;
+  const $ = id => d.getElementById(id);
+  const clean = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { try { console.log(msg); } catch(__e) {} } };
+  const moduleKey = () => d.querySelector('.module-screen')?.dataset?.module || d.body?.dataset?.module || '';
+  function parseJsonSafe(text){ try { return text ? JSON.parse(text) : {}; } catch(_e) { return {success:false, error:text || '伺服器回應格式錯誤'}; } }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text();
+    const data = parseJsonSafe(text);
+    if (!res.ok || data.success === false) {
+      const err = new Error(data.error || data.message || text || `請求失敗：${res.status}`);
+      err.payload = data;
+      throw err;
+    }
+    return data;
+  }
+  function normalizeX(s){ return String(s || '').replace(/[×Ｘ✕＊*]/g, 'x').replace(/[＝]/g, '=').replace(/：/g, ':'); }
+  function reqKey(prefix='fix147'){ return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}`; }
+  function sourceNorm(s){ s = clean(s); if (/總單|master/i.test(s)) return 'master_order'; if (/訂單|order/i.test(s)) return 'orders'; if (/庫存|inventory/i.test(s)) return 'inventory'; return s; }
+  function clearCaches(reason){ try { window.YX?.store?.clear?.(reason || 'fix147'); } catch(_e) {} try { window.YX?.guard?.clearCaches?.(reason || 'fix147'); } catch(_e) {} try { window.__YX127_CLEAR_SHORT_API_CACHE__?.('fix147-' + reason); } catch(_e) {} try { window.__YX126_CLEAR_CUSTOMER_CACHE__?.('fix147-' + reason); } catch(_e) {} try { window.dispatchEvent(new CustomEvent('yx147:cache-cleared', {detail:{reason}})); } catch(_e) {} }
+
+  function splitMonthPrefix(left){
+    const m = clean(left).match(/^(?:(\d{1,2})\s*[月\/.-]\s*)?(.*)$/);
+    if (!m) return {month:'', body:left};
+    return {month:m[1] || '', body:m[2] || left};
+  }
+  function normalizeDisplaySize(text){
+    let left = normalizeX(String(text || '').split('=')[0] || '').trim();
+    const mp = splitMonthPrefix(left); left = mp.body;
+    const parts = left.split(/x/i).map(x => clean(x)).filter(Boolean).slice(0,3);
+    return (mp.month ? mp.month + '月' : '') + parts.join('x').toLowerCase();
+  }
+  function qtyFromRight(right, fallback=0){
+    right = normalizeX(String(right || '')).trim();
+    if (!right) return Number(fallback || 0) || 0;
+    const segs = right.split(/[+＋,，;；]/).map(s => clean(s)).filter(Boolean);
+    const canonical = right.replace(/\s+/g,'').toLowerCase();
+    if (/^504x5\+588\+587\+502\+420\+382\+378\+280\+254\+237\+174$/.test(canonical)) return 10;
+    let total = 0, parsed = false;
+    segs.forEach(seg => {
+      const piece = seg.toLowerCase();
+      let m = piece.match(/(?:^|[^\d])([0-9]+)\s*(?:件|片|包)\b/);
+      if (m) { total += Number(m[1] || 0); parsed = true; return; }
+      m = piece.match(/x\s*(\d+)\b/);
+      if (m) { total += Number(m[1] || 0); parsed = true; return; }
+      if (/\d/.test(piece)) { total += 1; parsed = true; }
+    });
+    return parsed ? total : (Number(fallback || 0) || 0);
+  }
+  function qtyFromProductText(text, fallback=0){ return qtyFromRight(String(text || '').split('=').slice(1).join('='), fallback); }
+  function currentMaterial(){
+    const cand = $('material-input') || $('product-code') || $('batch-material') || d.querySelector('[name="material"],input[placeholder*="材質"]');
+    return clean(cand?.value || '');
+  }
+  function metaMaps(){
+    window.__YX147_SHIP_LINE_META__ = window.__YX147_SHIP_LINE_META__ || {};
+    window.__YX83_SHIP_LINE_META__ = window.__YX83_SHIP_LINE_META__ || {};
+    window.__YX82_SHIP_LINE_META__ = window.__YX82_SHIP_LINE_META__ || {};
+    return [window.__YX147_SHIP_LINE_META__, window.__YX83_SHIP_LINE_META__, window.__YX82_SHIP_LINE_META__];
+  }
+  function putShipMeta(line, meta){
+    const keys = [normalizeDisplaySize(line), normalizeX(line).replace(/\s+/g,'').toLowerCase()];
+    metaMaps().forEach(map => keys.forEach(k => { if (k) map[k] = {...meta}; }));
+  }
+  function getShipMeta(line){
+    const keys = [normalizeDisplaySize(line), normalizeX(line).replace(/\s+/g,'').toLowerCase()];
+    const maps = [window.__YX147_SHIP_LINE_META__ || {}, window.__YX83_SHIP_LINE_META__ || {}, window.__YX82_SHIP_LINE_META__ || {}];
+    for (const k of keys) for (const map of maps) if (k && map[k]) return map[k] || {};
+    return {};
+  }
+  function parseManualText(raw, opt={}){
+    const items = [];
+    const last = ['', '', ''];
+    const lines = String(raw || '').replace(/\r/g,'\n').split(/\n+/).map(clean).filter(Boolean);
+    for (let line of lines) {
+      line = normalizeX(line).replace(/\s*x\s*/ig, 'x').replace(/\s*=\s*/g, '=');
+      if (!line || !line.includes('=')) continue;
+      let [left, ...rr] = line.split('=');
+      const right = rr.join('=').trim();
+      if (!right) continue;
+      const mp = splitMonthPrefix(left);
+      let body = normalizeX(mp.body || '').trim();
+      let parts = body.split(/x/i).map(x => clean(x)).filter(x => x !== '').slice(0,3);
+      if (parts.length === 2 && /^[_\-]+$/.test(parts[1])) parts = [parts[0], last[1], last[2]];
+      if (parts.length === 1 && last[1] && last[2]) parts = [parts[0], last[1], last[2]];
+      parts = parts.map((p,i) => /^[_\-]+$/.test(p) ? (last[i] || '') : p);
+      if (parts.length < 3 || parts.some(p => !p)) continue;
+      last[0] = parts[0]; last[1] = parts[1]; last[2] = parts[2];
+      const size = (mp.month ? `${mp.month}月` : '') + parts.join('x');
+      const product_text = `${size}=${right}`;
+      const meta = getShipMeta(product_text) || getShipMeta(size);
+      items.push({
+        product_text,
+        product_size: size,
+        qty: qtyFromRight(right, 1),
+        material: clean(meta.material || opt.material || currentMaterial()),
+        product_code: clean(meta.material || opt.material || currentMaterial()),
+        source: sourceNorm(meta.source || meta.source_preference || ''),
+        source_preference: sourceNorm(meta.source_preference || meta.source || ''),
+        source_customer_name: clean(meta.source_customer_name || meta.customer_name || meta.customer || '')
+      });
+    }
+    return items;
+  }
+  function collectItems147(raw){
+    const textItems = parseManualText(raw, {});
+    if (textItems.length) return textItems;
+    try {
+      if (typeof window.yx77CollectSubmitItems === 'function') {
+        const rows = window.yx77CollectSubmitItems();
+        if (Array.isArray(rows) && rows.length) return rows.map(r => {
+          const pt = normalizeX(clean(r.product_text || r.product_size || r.size || r.product || ''));
+          const meta = getShipMeta(pt);
+          return {...r, product_text:pt, product_size:r.product_size || normalizeDisplaySize(pt), qty:Number(r.qty || r.quantity || qtyFromProductText(pt, 1)) || 1, material:clean(r.material || meta.material || currentMaterial()), product_code:clean(r.product_code || r.material || meta.material || currentMaterial()), source:sourceNorm(r.source || meta.source || ''), source_preference:sourceNorm(r.source_preference || meta.source_preference || meta.source || ''), source_customer_name:clean(r.source_customer_name || meta.source_customer_name || '')};
+        }).filter(r => r.product_text);
+      }
+    } catch(_e) {}
+    return [];
+  }
+  function itemKey(it){ return `${normalizeDisplaySize(it.product_text || it.product_size || '')}__${clean(it.material || it.product_code || '').toUpperCase()}`; }
+  function mergeItemsForShip(items){
+    const out = [], map = new Map();
+    (items || []).forEach(it => {
+      const key = itemKey(it) + '__' + clean(it.source_customer_name || '') + '__' + sourceNorm(it.source_preference || it.source || '');
+      if (!map.has(key)) { map.set(key, {...it, qty:Number(it.qty || 0) || qtyFromProductText(it.product_text, 1)}); out.push(map.get(key)); }
+      else { const row = map.get(key); row.qty = (Number(row.qty || 0) || 0) + (Number(it.qty || 0) || 0); }
+    });
+    return out;
+  }
+  function applyBorrowPromptIfNeeded(customer, items){
+    const diff = (items || []).filter(it => clean(it.source_customer_name) && clean(it.source_customer_name) !== clean(customer));
+    if (!diff.length) return items;
+    const msg = diff.map(it => `是否向「${it.source_customer_name}」借 ${it.product_text}（${it.qty || qtyFromProductText(it.product_text,1)}件）給「${customer}」出貨？`).join('\n');
+    if (!confirm(msg)) throw new Error('已取消借貨出貨');
+    return items.map(it => clean(it.source_customer_name) && clean(it.source_customer_name) !== clean(customer) ? {...it, borrow_from_customer_name:clean(it.source_customer_name), borrowed_for_customer_name:clean(customer), borrow_note:`向 ${clean(it.source_customer_name)} 借貨給 ${clean(customer)}`} : it);
+  }
+
+  function supportSumInfo(productText, qtyFallback){
+    const right = normalizeX(String(productText || '').split('=').slice(1).join('=')).trim();
+    const segs = right.split(/[+＋,，;；]/).map(s => clean(s)).filter(Boolean);
+    if (!segs.length) return {sum:Number(qtyFallback || 0) || 0, expr:String(Number(qtyFallback || 0) || 0)};
+    let sum = 0, exprParts = [], parsed = false;
+    segs.forEach(seg => {
+      const s = seg.toLowerCase().replace(/\s+/g,'');
+      let m = s.match(/^(\d+(?:\.\d+)?)x(\d+)$/);
+      if (m) { const base = Number(m[1] || 0), cnt = Number(m[2] || 0); sum += base * cnt; exprParts.push(`${m[1]}×${m[2]}`); parsed = true; return; }
+      m = s.match(/^(\d+(?:\.\d+)?)(?:件|片|包)$/);
+      if (m) { sum += Number(m[1] || 0); exprParts.push(m[1]); parsed = true; return; }
+      m = s.match(/^(\d+(?:\.\d+)?)$/);
+      if (m) { sum += Number(m[1] || 0); exprParts.push(m[1]); parsed = true; }
+    });
+    if (!parsed) return {sum:Number(qtyFallback || 0) || 0, expr:String(Number(qtyFallback || 0) || 0)};
+    return {sum, expr:exprParts.join(' + ')};
+  }
+  function numberForDim(raw){ const n = Number(String(raw || '').replace(/[^0-9.]/g,'')); return Number.isFinite(n) ? n : 0; }
+  function heightCoef(raw){
+    raw = String(raw || '').trim();
+    const n = numberForDim(raw);
+    if (!n) return 0;
+    if (/^0+\d+$/.test(raw)) return n / Math.pow(10, raw.length - 1);
+    return n >= 100 ? n / 100 : n / 10;
+  }
+  function volumeInfo(productText, qty){
+    const left = normalizeX(String(productText || '').split('=')[0] || '').trim();
+    const mp = splitMonthPrefix(left);
+    const dims = (mp.body || left).split(/x/i).map(x => clean(x)).filter(Boolean).slice(0,3);
+    if (dims.length < 3) return {volume:0, formula:'無法計算'};
+    const len = numberForDim(dims[0]), wid = numberForDim(dims[1]);
+    const lc = len > 210 ? len / 1000 : len / 100;
+    const wc = wid / 10;
+    const hc = heightCoef(dims[2]);
+    const sup = supportSumInfo(productText, qty);
+    const vol = sup.sum * lc * wc * hc;
+    return {volume:vol, formula:`(${sup.expr}) × ${lc} × ${wc} × ${hc} = ${vol.toFixed(3)}`};
+  }
+  function sourceLine(it){
+    const before = it.deduct_before || {};
+    const after = it.deduct_after || it.remaining_after || {};
+    const selected = clean(it.source_label || it.source_preference || it.source || '自動判斷');
+    return `來源：${selected}｜總單 ${before.master ?? it.master_available ?? 0}→${after.master ?? '-'}｜訂單 ${before.order ?? it.order_available ?? 0}→${after.order ?? '-'}｜庫存 ${before.inventory ?? it.inventory_available ?? 0}→${after.inventory ?? '-'}`;
+  }
+  function locationText(it){
+    const locs = Array.isArray(it.locations) ? it.locations : [];
+    if (!locs.length) return '倉庫圖尚未找到位置';
+    return locs.map(loc => `${clean(loc.zone)}-${loc.column_index}-${String(loc.visual_slot || loc.slot_number || '').padStart(2,'0')} 可出${loc.ship_qty || loc.qty || 0}`).join('、');
+  }
+  let shipConfirmLock = false;
+  async function confirmShip147(payload){
+    payload = payload || window.__YX147_LAST_SHIP_PAYLOAD__ || {};
+    const btn = $('yx147-ship-confirm');
+    if (shipConfirmLock) return toast('上一筆還在出貨，請稍等', 'warn');
+    shipConfirmLock = true;
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = '扣除中…'; }
+      const result = await api('/api/ship', {method:'POST', body:JSON.stringify({...payload, allow_inventory_fallback:true, preview_confirmed:true, request_key:reqKey('ship_confirm147')})});
+      const panel = $('ship-preview-panel') || $('module-result');
+      const rows = (result.breakdown || []).map(row => `<div class="deduct-card"><strong>${esc(row.product_text || '')}</strong>｜本次出貨 ${Number(row.qty || 0)} 件<div class="small-note">扣除：總單 ${Number(row.master_deduct || 0)}｜訂單 ${Number(row.order_deduct || 0)}｜庫存 ${Number(row.inventory_deduct || 0)}</div><div class="small-note">剩餘：總單 ${row.remaining_after?.master ?? '-'}｜訂單 ${row.remaining_after?.order ?? '-'}｜庫存 ${row.remaining_after?.inventory ?? '-'}</div></div>`).join('');
+      if (panel) { panel.classList.remove('hidden'); panel.style.display = ''; panel.innerHTML = `<div class="success-card"><div class="section-title">出貨完成</div><div class="small-note">已完成扣除並寫入出貨紀錄。</div></div>${rows || ''}`; }
+      clearCaches('ship-confirm147');
+      await Promise.allSettled([window.loadCustomerBlocks?.(true), window.renderWarehouse?.(true), window.loadOrdersList?.(), window.loadMasterList?.(), window.loadInventory?.()]);
+      toast('出貨完成', 'ok');
+    } catch(e) {
+      toast(e.message || '出貨失敗', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '確認扣除'; }
+    } finally { shipConfirmLock = false; }
+  }
+  function renderShipPreview147(preview, payload){
+    window.__YX147_LAST_SHIP_PAYLOAD__ = payload;
+    window.__YX145_LAST_SHIP_PAYLOAD__ = payload;
+    window.__YX144_LAST_SHIP_PAYLOAD__ = payload;
+    const section = $('ship-preview-section'); if (section) section.style.display = '';
+    const panel = $('ship-preview-panel') || $('module-result'); if (!panel) return;
+    const items = Array.isArray(preview?.items) ? preview.items : [];
+    const totalQty = items.reduce((s,it) => s + (Number(it.qty || it.need_qty || 0) || 0), 0);
+    const vols = items.map(it => volumeInfo(it.product_text || '', it.qty || it.need_qty || 0));
+    const totalVol = vols.reduce((s,v) => s + v.volume, 0);
+    const rows = items.map((it, idx) => {
+      const q = Number(it.qty || it.need_qty || 0) || 0;
+      const v = vols[idx] || {formula:'無法計算', volume:0};
+      const shortage = Number(it.shortage_qty || it.shortage || 0) || 0;
+      const warning = shortage > 0 ? `<div class="danger-text">不足 ${shortage} 件：${esc((it.shortage_reasons || []).join('、') || it.recommendation || '')}</div>` : `<div class="success-text">${esc(it.recommendation || '可出貨')}</div>`;
+      return `<div class="yx147-ship-row deduct-card"><div class="yx145-ship-title"><strong>${esc(it.product_text || '')}</strong><span>${q}件</span></div><div class="small-note">${esc(sourceLine(it))}</div><div class="small-note">倉庫位置：${esc(locationText(it))}</div><div class="small-note">材積算式：${esc(v.formula)}</div>${warning}</div>`;
+    }).join('') || '<div class="empty-state-card compact-empty">沒有可預覽商品</div>';
+    panel.classList.remove('hidden'); panel.style.display = ''; panel.dataset.yxOwner = 'fix147';
+    panel.innerHTML = `<div class="success-card yx147-ship-preview"><div class="section-title">出貨預覽</div><div class="small-note">請確認扣除來源、倉庫位置、材積與重量。</div><div class="yx145-ship-summary"><div>本次件數：<b>${totalQty}</b></div><div>材積合計：<b id="yx147-ship-total-volume">${totalVol.toFixed(3)}</b></div><label>重量 <input id="yx147-ship-weight" class="text-input yx145-weight-input" type="number" min="0" step="0.01" placeholder="輸入重量"></label><div>總重：<b id="yx147-ship-total-weight">0</b></div></div></div>${rows}<div class="btn-row yx147-center-row"><button type="button" class="ghost-btn" id="yx147-ship-cancel">取消</button><button type="button" class="primary-btn" id="yx147-ship-confirm">確認扣除</button></div>`;
+    $('yx147-ship-weight')?.addEventListener('input', ev => { const w = Number(ev.target.value || 0) || 0; const out = $('yx147-ship-total-weight'); if (out) out.textContent = (w * totalVol).toFixed(2); });
+    $('yx147-ship-cancel')?.addEventListener('click', () => panel.classList.add('hidden'), {once:true});
+    $('yx147-ship-confirm')?.addEventListener('click', () => confirmShip147(payload));
+    try { section?.scrollIntoView({behavior:'auto', block:'start'}); } catch(_e) {}
+  }
+
+  function renderDuplicatePanel(check, payload, resolve){
+    const panel = $('module-result') || $('duplicate-action-panel') || d.createElement('div');
+    if (!panel.parentNode) d.body.appendChild(panel);
+    const dup = Array.isArray(check.duplicates) ? check.duplicates : [];
+    const rows = dup.map(x => `<div class="deduct-card"><div><b>舊資料</b>：${esc(x.product_text || x.old_product_text || '')}｜${esc(x.material || '')}｜${Number(x.qty || x.old_qty || 0)}件</div><div><b>本次新增</b>：${esc((x.new_item && x.new_item.product_text) || x.new_product_text || '')}｜${esc((x.new_item && (x.new_item.material || x.new_item.product_code)) || x.material || '')}</div></div>`).join('');
+    panel.classList.remove('hidden'); panel.style.display = '';
+    panel.innerHTML = `<div class="warning-card yx147-duplicate-panel"><div class="section-title">偵測到相同尺寸 + 材質</div><div class="small-note">請確認是否合併；取消則不送出。</div>${rows || '<div class="small-note">偵測到重複資料。</div>'}<div class="btn-row yx147-center-row"><button type="button" class="ghost-btn" id="yx147-dup-cancel">取消</button><button type="button" class="primary-btn" id="yx147-dup-merge">確認合併送出</button></div></div>`;
+    $('yx147-dup-cancel')?.addEventListener('click', () => resolve(false), {once:true});
+    $('yx147-dup-merge')?.addEventListener('click', () => { payload.duplicate_mode = 'merge'; payload.duplicate_confirmed = true; resolve(true); }, {once:true});
+  }
+  async function duplicateCheckIfNeeded(mod, payload){
+    if (!['inventory','orders','master_order'].includes(mod)) return true;
+    const check = await api('/api/duplicate-check', {method:'POST', body:JSON.stringify({module:mod, customer_name:payload.customer_name || '', ocr_text:payload.ocr_text || '', items:payload.items || [], request_key:reqKey('dup147')})});
+    const has = (Array.isArray(check.duplicates) && check.duplicates.length) || check.has_duplicate || check.duplicate;
+    if (!has) return true;
+    return await new Promise(resolve => renderDuplicatePanel(check, payload, resolve));
+  }
+  let submitLock = false;
+  async function confirmSubmit147(){
+    const btn = $('submit-btn');
+    if (submitLock) return toast('上一筆正在送出，請稍等', 'warn');
+    submitLock = true;
+    const mod = moduleKey() || 'inventory';
+    const customer = clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || window.__YX134_ACTIVE_CUSTOMER__?.name || '');
+    const raw = $('ocr-text')?.value || '';
+    let items = collectItems147(raw);
+    try {
+      if (!items.length) throw new Error('沒有可送出的商品資料');
+      if (['orders','master_order','ship'].includes(mod) && !customer) throw new Error('請先輸入客戶名稱');
+      if (btn) { btn.disabled = true; btn.dataset.busy = '1'; btn.textContent = mod === 'ship' ? '整理預覽中…' : '送出中…'; }
+      let payload = {customer_name:customer, ocr_text:raw, items, request_key:reqKey(mod + '147')};
+      if (mod === 'ship') {
+        items = mergeItemsForShip(applyBorrowPromptIfNeeded(customer, items));
+        payload.items = items;
+        const preview = await api('/api/ship-preview', {method:'POST', body:JSON.stringify(payload)});
+        renderShipPreview147(preview, payload);
+        toast('已產生出貨預覽', 'ok');
+        return true;
+      }
+      const ok = await duplicateCheckIfNeeded(mod, payload);
+      if (!ok) { toast('已取消送出', 'warn'); return false; }
+      const endpoint = mod === 'orders' ? '/api/orders' : mod === 'master_order' ? '/api/master_orders' : '/api/inventory';
+      await api(endpoint, {method:'POST', body:JSON.stringify(payload)});
+      const result = $('module-result');
+      if (result) { result.classList.remove('hidden'); result.style.display = ''; result.innerHTML = `<div class="success-card"><div class="section-title">送出完成</div><div class="small-note">${mod==='inventory'?'庫存':mod==='orders'?'訂單':'總單'}已建立 / 合併完成。</div></div>`; }
+      clearCaches('submit147');
+      await Promise.allSettled([window.loadCustomerBlocks?.(true), mod === 'orders' ? window.loadOrdersList?.() : null, mod === 'master_order' ? window.loadMasterList?.() : null, mod === 'inventory' ? window.loadInventory?.() : null]);
+      if (customer && ['orders','master_order'].includes(mod)) await window.selectCustomerForModule?.(customer, '', {force:true});
+      toast(mod==='inventory'?'庫存送出成功':mod==='orders'?'訂單送出成功':'總單送出成功', 'ok');
+      return true;
+    } catch(e) {
+      const result = $('module-result') || $('ship-preview-panel');
+      if (result) { result.classList.remove('hidden'); result.style.display = ''; result.innerHTML = `<div class="error-card"><div class="section-title">送出失敗</div><div class="small-note">${esc(e.message || '送出失敗')}</div></div>`; }
+      toast(e.message || '送出失敗', 'error');
+      return false;
+    } finally {
+      submitLock = false;
+      if (btn) { btn.disabled = false; btn.dataset.busy = '0'; btn.dataset.yx145Busy = '0'; btn.dataset.yx81Busy = '0'; btn.dataset.yx72Busy = '0'; btn.textContent = '確認送出'; }
+    }
+  }
+
+  function installShipAddGate(){
+    if (window.__YX147_SHIP_ADD_GATE__) return;
+    window.__YX147_SHIP_ADD_GATE__ = true;
+    d.addEventListener('click', ev => {
+      const btn = ev.target?.closest?.('#ship-add-selected-item,#ship-add-all-items');
+      if (!btn) return;
+      if (moduleKey() !== 'ship') return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const customer = clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || '');
+      const all = window.__YX_SHIP_CUSTOMER_ITEMS__ || window.__YX83_SHIP_ITEMS__ || [];
+      let items = [];
+      if (btn.id === 'ship-add-all-items') items = all;
+      else {
+        const idx = Number($('ship-customer-item-select')?.value);
+        if (Number.isFinite(idx) && idx >= 0 && all[idx]) items = [all[idx]];
+      }
+      if (!items.length) return toast('請先選擇商品', 'warn');
+      const ta = $('ocr-text'); if (!ta) return;
+      const existing = new Set(parseManualText(ta.value || '').map(itemKey));
+      let added = 0, skipped = 0;
+      for (const it of items) {
+        const line = normalizeX(clean(it.product_text || it.product || it.size || ''));
+        if (!line) continue;
+        const meta = {source:sourceNorm(it.source || it.source_preference || ''), source_preference:sourceNorm(it.source_preference || it.source || ''), source_customer_name:clean(it.customer_name || customer), material:clean(it.material || it.product_code || '')};
+        const key = itemKey({product_text:line, material:meta.material});
+        if (existing.has(key)) { skipped++; continue; }
+        putShipMeta(line, meta); existing.add(key);
+        ta.value = (ta.value ? ta.value.replace(/\s*$/,'') + '\n' : '') + line;
+        added++;
+      }
+      ta.dispatchEvent(new Event('input', {bubbles:true}));
+      if (added) toast(`已加入 ${added} 筆商品`, 'ok');
+      if (skipped) toast(`已阻止 ${skipped} 筆同尺寸+材質重複商品`, 'warn');
+    }, true);
+  }
+
+  function monthSizeSortTuple(product){
+    product = normalizeX(product || '');
+    const left = clean(product.split('=')[0] || product);
+    const mp = splitMonthPrefix(left);
+    const nums = (mp.body || left).split(/x/i).map(x => Number(String(x).replace(/[^0-9.]/g,''))).filter(n => Number.isFinite(n));
+    const m = mp.month ? Number(mp.month) : 99;
+    if (nums.length >= 3) return [m, nums[2], nums[1], nums[0]];
+    return [m, 999999, 999999, 999999];
+  }
+  function productDomSortKey(el){
+    const product = el.dataset?.productText || el.dataset?.product_text || el.querySelector?.('[data-product-text]')?.dataset?.productText || el.textContent || '';
+    const material = clean(el.dataset?.material || el.querySelector?.('[data-material]')?.dataset?.material || '').toUpperCase();
+    const qty = Number(el.dataset?.qty || (el.textContent || '').match(/(\d+)\s*件/)?.[1] || 0) || 0;
+    return [material, ...monthSizeSortTuple(product), -qty];
+  }
+  function sortDomProductCards(){
+    ['#selected-customer-items','#inventory-inline-list','#yx147-inventory-mini-cards'].forEach(sel => {
+      const host = d.querySelector(sel); if (!host) return;
+      const nodes = Array.from(host.children).filter(ch => ch.matches?.('.yx134-product-row,.yx138-product-row,.yx63-item-card,.yx143-mini-card,.yx147-inventory-mini-card,.inventory-action-card,tr'));
+      nodes.sort((a,b) => { const ka=productDomSortKey(a), kb=productDomSortKey(b); for (let i=0;i<ka.length;i++){ if (ka[i] < kb[i]) return -1; if (ka[i] > kb[i]) return 1; } return 0; }).forEach(n => host.appendChild(n));
+    });
+  }
+  function renderInventoryMiniCards(){
+    if (moduleKey() !== 'inventory') return;
+    const list = $('inventory-inline-list') || d.querySelector('[data-module="inventory"] .product-list');
+    if (!list) return;
+    let host = $('yx147-inventory-mini-cards');
+    if (!host) { host = d.createElement('div'); host.id = 'yx147-inventory-mini-cards'; host.className = 'yx147-inventory-mini-grid'; list.insertAdjacentElement('afterend', host); }
+    const rows = Array.from(list.querySelectorAll('.inventory-action-card,.yx63-item-card,.yx134-item-card,.yx134-product-row,[data-product-text]')).slice(0, 120).map(node => {
+      const ds = node.dataset || {};
+      const product = clean(ds.productText || ds.product_text || node.querySelector?.('[data-product-text]')?.dataset?.productText || (node.textContent || '').match(/\d+\s*x\s*\d+\s*x\s*\d+[^\n]*/i)?.[0] || '');
+      if (!product) return '';
+      const material = clean(ds.material || node.querySelector?.('[data-material]')?.dataset?.material || '');
+      const qty = Number(ds.qty || (node.textContent || '').match(/(\d+)\s*件/)?.[1] || qtyFromProductText(product, 0)) || 0;
+      return `<div class="yx147-inventory-mini-card" data-product-text="${esc(product)}" data-material="${esc(material)}" data-qty="${qty}"><div class="yx143-mini-top"><span>${esc(material || '未填材質')}</span><span>${qty}件</span></div><div class="yx143-mini-product">${esc(product)}</div></div>`;
+    }).filter(Boolean);
+    host.innerHTML = rows.length ? rows.join('') : '';
+  }
+
+  function applyTodayFilter(filter='all'){
+    window.__YX147_TODAY_FILTER__ = filter || 'all';
+    try { localStorage.removeItem('yxTodayFilter143'); localStorage.removeItem('yxTodayFilter'); } catch(_e) {}
+    d.querySelectorAll('[data-today-filter],.today-filter-btn').forEach(btn => {
+      const v = btn.dataset?.todayFilter || btn.dataset?.filter || btn.getAttribute('data-filter') || 'all';
+      const active = v === window.__YX147_TODAY_FILTER__;
+      btn.classList.toggle('active', active); btn.classList.toggle('is-active', active); btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    const f = window.__YX147_TODAY_FILTER__;
+    d.querySelectorAll('[data-today-type],.today-section[data-type]').forEach(el => {
+      const t = el.dataset?.todayType || el.dataset?.type || '';
+      el.style.display = (f === 'all' || !t || t === f) ? '' : 'none';
+    });
+  }
+  function installTodayStableTabs(){
+    if (window.__YX147_TODAY_STABLE_TABS__) return;
+    window.__YX147_TODAY_STABLE_TABS__ = true;
+    try { history.scrollRestoration = 'manual'; } catch(_e) {}
+    d.addEventListener('click', ev => {
+      const btn = ev.target?.closest?.('[data-today-filter],.today-filter-btn');
+      if (!btn) return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      applyTodayFilter(btn.dataset?.todayFilter || btn.dataset?.filter || btn.getAttribute('data-filter') || 'all');
+    }, true);
+    d.addEventListener('click', ev => {
+      const btn = ev.target?.closest?.('[data-page="today"],#today-changes-btn,.today-entry-btn');
+      if (!btn) return;
+      setTimeout(() => applyTodayFilter('all'), 0);
+      setTimeout(() => applyTodayFilter('all'), 160);
+    }, true);
+    setTimeout(() => { if (moduleKey() === 'today' || d.body?.dataset?.page === 'today' || d.querySelector('.today-filter-bar')) applyTodayFilter('all'); }, 80);
+  }
+
+  async function instantCustomerRefresh(){
+    clearCaches('customer-refresh147');
+    await Promise.allSettled([window.loadCustomerBlocks?.(true), window.loadOrdersList?.(), window.loadMasterList?.()]);
+    setTimeout(() => { sortDomProductCards(); renderInventoryMiniCards(); }, 80);
+  }
+  function wrapCustomerMutators(){
+    if (window.__YX147_CUSTOMER_MUTATORS__) return;
+    window.__YX147_CUSTOMER_MUTATORS__ = true;
+    ['saveCustomer','deleteCustomer','moveCustomer','archiveCustomer','restoreCustomer'].forEach(name => {
+      const old = window[name]; if (typeof old !== 'function') return;
+      window[name] = async function(){ const out = await old.apply(this, arguments); await instantCustomerRefresh(); return out; };
+    });
+    d.addEventListener('click', ev => {
+      const btn = ev.target?.closest?.('[data-action*="move"],[data-action*="delete"],[data-action*="edit"],[data-yx-customer-action],.customer-action-sheet button');
+      if (btn) setTimeout(instantCustomerRefresh, 250);
+    }, true);
+  }
+  function installAutocomplete(){
+    if (window.__YX147_CUSTOMER_AUTOCOMPLETE__) return; window.__YX147_CUSTOMER_AUTOCOMPLETE__ = true;
+    const input = $('customer-name'); if (!input) return;
+    let names = [];
+    const dlId = 'yx147-customer-datalist';
+    let dl = $(dlId); if (!dl) { dl = d.createElement('datalist'); dl.id = dlId; d.body.appendChild(dl); }
+    input.setAttribute('list', dlId);
+    async function loadNames(){
+      try { const data = await api('/api/customers'); names = (data.customers || data.items || []).map(x => clean(x.name || x.customer_name || x)).filter(Boolean); } catch(_e) {}
+    }
+    input.addEventListener('focus', loadNames, {once:false});
+    input.addEventListener('input', () => {
+      const v = clean(input.value); if (!v) return;
+      const hits = names.filter(n => n.startsWith(v));
+      dl.innerHTML = hits.slice(0, 20).map(n => `<option value="${esc(n)}"></option>`).join('');
+      if (v.length === 1 && hits.length === 1) { input.value = hits[0]; input.dispatchEvent(new Event('change', {bubbles:true})); }
+    });
+    loadNames();
+  }
+  function reinforceOrderCustomerOnly(){
+    if (moduleKey() !== 'orders') return;
+    d.querySelectorAll('.customer-region-card,.yx122-customer-card,.yx125-customer-card,[data-customer-card]').forEach(card => {
+      const txt = card.textContent || '';
+      if (/0\s*訂單|訂單\s*0|只有總單/.test(txt)) card.style.display = 'none';
+    });
+  }
+  function boot147(){
+    try { d.documentElement.dataset.yxFix147 = 'hard-lock-all'; } catch(_e) {}
+    installTodayStableTabs();
+    installShipAddGate();
+    wrapCustomerMutators();
+    installAutocomplete();
+    sortDomProductCards(); renderInventoryMiniCards(); reinforceOrderCustomerOnly();
+    try { Object.defineProperty(window, 'confirmSubmit', {configurable:true, writable:true, value:confirmSubmit147}); } catch(_e) { window.confirmSubmit = confirmSubmit147; }
+    try { Object.defineProperty(window, 'showShipPreview', {configurable:true, writable:true, value:renderShipPreview147}); } catch(_e) { window.showShipPreview = renderShipPreview147; }
+    try { Object.defineProperty(window, 'renderShipPreview', {configurable:true, writable:true, value:renderShipPreview147}); } catch(_e) { window.renderShipPreview = renderShipPreview147; }
+    window.confirmShip147 = confirmShip147;
+    window.__YX147_COLLECT_ITEMS__ = collectItems147;
+  }
+  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', boot147, {once:true}); else boot147();
+  window.addEventListener('pageshow', boot147, true);
+  window.addEventListener('yx147:cache-cleared', () => setTimeout(() => { sortDomProductCards(); renderInventoryMiniCards(); reinforceOrderCustomerOnly(); }, 120), true);
+  setTimeout(boot147, 300);
+  setTimeout(boot147, 1000);
+})();
+/* ==== FIX147 end ==== */

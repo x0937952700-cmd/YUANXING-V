@@ -2968,3 +2968,66 @@ def restore_customer(name):
     conn.commit()
     conn.close()
     return get_customer(name, include_archived=True)
+
+# ==== FIX147: hard-lock user requested sort + quantity/merge rules (2026-04-27) ====
+# 目的：所有商品清單統一排序：材質 → 高 → 寬 → 長；同尺寸時件數多的排前面。
+# 其餘數量解析、前導 0、高度 073/06/006、尺寸+材質合併沿用既有新版函式，不退回舊版。
+
+def _fix147_row_material(row):
+    try:
+        return clean_material_value(row.get('material') or row.get('product_code') or '', row.get('product_text') or row.get('product') or '')
+    except Exception:
+        return str((row or {}).get('material') or (row or {}).get('product_code') or '').strip()
+
+
+def _fix147_row_qty(row):
+    try:
+        return int(row.get('qty') or effective_product_qty(row.get('product_text') or row.get('product') or '', 0) or 0)
+    except Exception:
+        return 0
+
+
+def _fix147_row_sort_key(row):
+    product_text = (row or {}).get('product_text') or (row or {}).get('product') or ''
+    material = _fix147_row_material(row).upper()
+    return (
+        material,
+        product_sort_tuple(product_text),
+        -_fix147_row_qty(row),
+        str((row or {}).get('customer_name') or ''),
+        str((row or {}).get('source') or ''),
+        int((row or {}).get('id') or 0),
+    )
+
+
+# 覆寫查詢輸出排序，不改 DB schema、不刪原功能。
+def list_inventory():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM inventory ORDER BY id DESC"))
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
+    rows.sort(key=_fix147_row_sort_key)
+    conn.close()
+    return rows
+
+
+def get_orders():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM orders ORDER BY id DESC"))
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
+    rows.sort(key=_fix147_row_sort_key)
+    conn.close()
+    return rows
+
+
+def get_master_orders():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM master_orders ORDER BY id DESC"))
+    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
+    rows.sort(key=_fix147_row_sort_key)
+    conn.close()
+    return rows
+
+# ==== FIX147 end ====

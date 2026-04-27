@@ -2655,6 +2655,106 @@ def api_fix28_items_transfer():
         log_error('fix28_items_transfer', str(e))
         return error_response('互通操作失敗')
 
+
+
+# ==== FIX147: customer product rows hard-locked sort/aggregation ====
+# 商品排列固定：材質 → 高 → 寬 → 長；同尺寸時件數多的排前面。
+def _fix147_app_material(row, product_text=''):
+    try:
+        return clean_material_value(row.get('material') or row.get('product_code') or '', product_text or row.get('product_text') or row.get('product') or '')
+    except Exception:
+        return str((row or {}).get('material') or (row or {}).get('product_code') or '').strip()
+
+
+def _fix147_app_qty(row, product_text=''):
+    try:
+        return int(row.get('qty') or normalize_item_quantity(product_text or row.get('product_text') or row.get('product') or '', 0) or 0)
+    except Exception:
+        return 0
+
+
+def _fix147_app_row_sort_key(row):
+    product_text = (row or {}).get('product_text') or (row or {}).get('product') or ''
+    material = _fix147_app_material(row, product_text).upper()
+    return (
+        material,
+        product_sort_tuple(product_text),
+        -_fix147_app_qty(row, product_text),
+        str((row or {}).get('source') or ''),
+        int((row or {}).get('id') or 0),
+    )
+
+
+def normalize_customer_item_rows(items):
+    rows = []
+    for row in items or []:
+        r = dict(row)
+        product_text = format_product_text_height2((r.get('product_text') or r.get('product') or '').strip())
+        if not product_text:
+            continue
+        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+        qty = normalize_item_quantity(product_text, r.get('qty') or 0)
+        support = product_support_text(product_text)
+        r['product_text'] = product_text
+        r['product_size'] = product_text
+        r['size_text'] = product_display_size(product_text)
+        r['support_text'] = support
+        r['material'] = material
+        r['product_code'] = material
+        r['qty'] = qty
+        rows.append(r)
+    rows.sort(key=_fix147_app_row_sort_key)
+    return rows
+
+
+def aggregate_customer_items(items):
+    buckets = {}
+    for row in items or []:
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        if not product_text:
+            continue
+        source = row.get('source') or ''
+        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+        material = clean_material_value(material, product_text)
+        size = product_display_size(product_text)
+        qty = normalize_item_quantity(product_text, row.get('qty') or 0)
+        support = product_support_text(product_text)
+        if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
+            support = f"{support}x{qty}"
+        elif not support:
+            support = str(qty)
+        key = (source, size, material)
+        row_id = row.get('id')
+        if key not in buckets:
+            out = dict(row)
+            out['qty'] = qty
+            out['product_text'] = f"{size}={support}" if support else size
+            out['material'] = material
+            out['product_code'] = material
+            out['size_text'] = size
+            out['support_text'] = support
+            out['item_ids'] = [row_id] if row_id else []
+            out['is_aggregated'] = False
+            buckets[key] = out
+        else:
+            buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
+            if row_id and row_id not in (buckets[key].get('item_ids') or []):
+                buckets[key].setdefault('item_ids', []).append(row_id)
+            if len(buckets[key].get('item_ids') or []) > 1:
+                buckets[key]['is_aggregated'] = True
+            old_support = (buckets[key].get('support_text') or '').strip()
+            if support:
+                supports = [x for x in old_support.split('+') if x] if old_support else []
+                if support not in supports:
+                    supports.append(support)
+                buckets[key]['support_text'] = '+'.join(supports)
+                buckets[key]['product_text'] = f"{size}={buckets[key]['support_text']}"
+    rows = list(buckets.values())
+    rows.sort(key=_fix147_app_row_sort_key)
+    return rows
+
+# ==== FIX147 app sort end ====
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
