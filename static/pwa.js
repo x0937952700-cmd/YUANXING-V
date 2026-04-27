@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix146-hard-lock-fix143-fix144-combo';
+  const PWA_VERSION = 'fix148-hard-lock-new-over-old-20260427';
   const VERSION_KEY = 'YX_PWA_VERSION';
   const RELOAD_KEY = 'YX_FIX137_RELOADED';
   let deferredInstallPrompt = null;

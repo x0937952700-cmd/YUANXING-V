@@ -2755,6 +2755,80 @@ def aggregate_customer_items(items):
 
 # ==== FIX147 app sort end ====
 
+
+# ==== FIX148: robust manual text parser preserving whole RHS and ___ width/height carry ====
+def _fix148_parse_manual_lines_to_items(text, payload_material=''):
+    out = []
+    prev = ['', '', '']
+    for raw in str(text or '').replace('\r', '\n').split('\n'):
+        line = re.sub(r'\s+', '', str(raw or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '='))
+        if not line or '=' not in line:
+            continue
+        left, right = line.split('=', 1)
+        if not right:
+            continue
+        month = ''
+        m = re.match(r'^(\d{1,2})(?:月|月份)(.+)$', left)
+        if m:
+            month, left = m.group(1), m.group(2)
+        parts = [p for p in re.split(r'x', left, flags=re.I) if p != ''][:3]
+        if len(parts) == 2 and re.fullmatch(r'[_-]+', parts[1] or '') and prev[1] and prev[2]:
+            parts = [parts[0], prev[1], prev[2]]
+        elif len(parts) == 1 and prev[1] and prev[2]:
+            parts = [parts[0], prev[1], prev[2]]
+        elif len(parts) >= 3:
+            parts = [(prev[i] if re.fullmatch(r'[_-]+', parts[i] or '') and prev[i] else parts[i]) for i in range(3)]
+        if len(parts) < 3 or not all(parts[:3]):
+            continue
+        def fmt(tok, is_h=False):
+            tok = str(tok or '').strip()
+            if re.fullmatch(r'\d*\.\d+', tok):
+                if tok.startswith('.'):
+                    tok = '0' + tok
+                return tok.replace('.', '')
+            if is_h and re.fullmatch(r'\d', tok):
+                return tok.zfill(2)
+            return tok
+        parts = [fmt(parts[0]), fmt(parts[1]), fmt(parts[2], True)]
+        prev = parts[:]
+        product_text = f"{month + '月' if month else ''}{parts[0]}x{parts[1]}x{parts[2]}={right}"
+        product_text = format_product_text_height2(product_text)
+        material = clean_material_value(payload_material or '', product_text)
+        out.append({'product_text': product_text, 'product_code': material, 'material': material, 'qty': effective_product_qty(product_text, 0)})
+    return [x for x in out if x.get('product_text') and int(x.get('qty') or 0) > 0]
+
+
+def _parse_items_from_request(data):
+    items = data.get('items') or []
+    payload_material = (data.get('material') or '').strip().upper()
+    if items:
+        cleaned = []
+        for it in items:
+            if payload_material and not (it.get('material') or '').strip():
+                it = {**it, 'material': payload_material, 'product_code': payload_material}
+            fixed = normalize_item_for_save(it)
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
+                if isinstance(it, dict) and it.get(_k) not in (None, ''):
+                    fixed[_k] = it.get(_k)
+            if int(fixed.get('qty') or 0) <= 0 or not fixed.get('product_text'):
+                continue
+            cleaned.append(fixed)
+        return cleaned
+    text = data.get('ocr_text') or data.get('text') or ''
+    manual = _fix148_parse_manual_lines_to_items(text, payload_material=payload_material)
+    if manual:
+        return manual
+    parsed_items, _ = parse_lines_to_items(text)
+    cleaned = []
+    for it in parsed_items:
+        if payload_material:
+            it = {**it, 'material': payload_material, 'product_code': payload_material}
+        fixed = normalize_item_for_save(it)
+        if fixed.get('product_text') and int(fixed.get('qty') or 0) > 0:
+            cleaned.append(fixed)
+    return cleaned
+# ==== FIX148 end ====
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

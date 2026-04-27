@@ -3031,3 +3031,52 @@ def get_master_orders():
     return rows
 
 # ==== FIX147 end ====
+
+
+# ==== FIX148: final shipping master guard wrapper ====
+# 若本次出貨數量超過該客戶/借貨來源的總單同尺寸+材質數量，預覽與確認都禁止，避免舊自動 fallback 到訂單/庫存。
+try:
+    _fix148_original_preview_ship_order = preview_ship_order
+    _fix148_original_ship_order = ship_order
+except NameError:
+    _fix148_original_preview_ship_order = None
+    _fix148_original_ship_order = None
+
+
+def preview_ship_order(customer_name, items):
+    res = _fix148_original_preview_ship_order(customer_name, items) if _fix148_original_preview_ship_order else {'success': True, 'items': []}
+    try:
+        errors = []
+        for it in res.get('items') or []:
+            q = int(it.get('qty') or it.get('need_qty') or 0)
+            master_available = int(it.get('master_available') or 0)
+            if master_available > 0 and q > master_available:
+                msg = f"{it.get('product_text') or ''} 超過總單 {q}/{master_available}"
+                it['master_exceeded'] = True
+                it['strict_ok'] = False
+                it['shortage_qty'] = q - master_available
+                it['recommendation'] = '超過總單，禁止出貨'
+                reasons = list(it.get('shortage_reasons') or [])
+                if msg not in reasons:
+                    reasons.append(msg)
+                it['shortage_reasons'] = reasons
+                errors.append(msg)
+        if errors:
+            res['master_exceeded'] = True
+            res['master_errors'] = errors
+            res['message'] = '；'.join(errors)
+        return res
+    except Exception as e:
+        log_error('fix148_preview_ship_order_guard', str(e))
+        return res
+
+
+def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
+    try:
+        preview = preview_ship_order(customer_name, items)
+        if preview.get('master_exceeded'):
+            return {'success': False, 'error': preview.get('message') or '超過總單，禁止出貨'}
+    except Exception as e:
+        log_error('fix148_ship_order_guard_preview', str(e))
+    return _fix148_original_ship_order(customer_name, items, operator, allow_inventory_fallback=allow_inventory_fallback)
+# ==== FIX148 end ====

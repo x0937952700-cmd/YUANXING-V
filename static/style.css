@@ -4135,3 +4135,64 @@ body[data-module="master_order"]{
 }
 
 /* ==== FIX147 end ==== */
+
+
+/* ==== FIX148 requested UI hard lock ==== */
+.home-action-row-v143,
+.home-top-actions.centered-actions,
+.home-screen .home-top-actions{
+  display:grid !important;
+  grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+  align-items:center !important;
+  justify-items:center !important;
+  text-align:center !important;
+  gap:10px !important;
+  width:100% !important;
+}
+.home-action-row-v143 > *,
+.home-top-actions.centered-actions > *,
+.home-screen .home-top-actions > *{
+  justify-self:center !important;
+  align-self:center !important;
+  margin-left:auto !important;
+  margin-right:auto !important;
+  text-align:center !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+}
+.today-filter-bar [data-today-filter],
+.today-filter-bar .today-filter-btn{ position:relative !important; transform:none !important; transition:none !important; }
+.today-filter-bar [data-today-filter].active,
+.today-filter-bar [data-today-filter].is-active,
+.today-filter-bar .today-filter-btn.active,
+.today-filter-bar .today-filter-btn.is-active{ outline:2px solid #111827 !important; outline-offset:2px !important; border-color:#111827 !important; box-shadow:none !important; }
+.yx147-hidden-panel{ display:none !important; }
+.customer-region-card .customer-card-main,
+.yx122-customer-card .customer-card-main,
+.yx125-customer-card .customer-card-main,
+.yx143-apple-customer-card .customer-card-main{ display:grid !important; grid-template-columns:minmax(0,1fr) auto !important; align-items:center !important; width:100% !important; column-gap:8px !important; }
+.customer-region-card .customer-card-name,
+.yx122-customer-card .customer-card-name,
+.yx125-customer-card .customer-card-name,
+.yx143-apple-customer-card .customer-card-name{ display:grid !important; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) !important; align-items:center !important; width:100% !important; min-width:0 !important; column-gap:6px !important; }
+.customer-region-card .yx143-customer-display-name,
+.yx143-apple-customer-card .yx143-customer-display-name{ grid-column:1 !important; justify-self:start !important; min-width:0 !important; overflow:hidden !important; text-overflow:ellipsis !important; white-space:nowrap !important; }
+.customer-region-card .yx143-trade-tag,
+.yx143-apple-customer-card .yx143-trade-tag,
+.customer-region-card .yx147-trade-tag{ grid-column:2 !important; justify-self:center !important; margin-left:auto !important; margin-right:auto !important; text-align:center !important; }
+.customer-region-card .customer-card-meta,
+.yx122-customer-card .customer-card-meta,
+.yx125-customer-card .customer-card-meta,
+.yx143-apple-customer-card .customer-card-meta{ justify-self:end !important; text-align:right !important; white-space:nowrap !important; min-width:72px !important; margin-left:auto !important; }
+.customer-region-card .yx125-card-actions,
+.customer-region-card .yx122-card-actions{ justify-self:end !important; margin-left:auto !important; }
+.yx148-inventory-mini-grid,
+#yx148-inventory-mini-cards{ display:grid !important; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)) !important; gap:10px !important; margin-top:12px !important; }
+.yx148-inventory-mini-card{ background:#fffdf8 !important; border:1px solid rgba(120,88,55,.18) !important; border-radius:16px !important; box-shadow:0 8px 22px rgba(80,55,30,.08) !important; padding:12px !important; }
+.module-screen[data-module="master_order"] *{ scroll-behavior:auto !important; }
+.module-screen[data-module="master_order"] .yx134-product-row,
+.module-screen[data-module="master_order"] .yx134-item-card,
+.module-screen[data-module="master_order"] .yx143-mini-card,
+.module-screen[data-module="master_order"] .customer-region-card{ animation:none !important; transition:box-shadow .12s ease, transform .08s ease !important; }
+/* ==== FIX148 end ==== */

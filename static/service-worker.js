@@ -1,5 +1,5 @@
-/* 沅興木業 PWA Service Worker - fix146-hard-lock-fix143-fix144-combo - FIX146_HARD_LOCK_FIX143_FIX144_COMBO */
-const YX_PWA_VERSION = 'fix146-hard-lock-fix143-fix144-combo';
+/* 沅興木業 PWA Service Worker - fix148-hard-lock-new-over-old-20260427 - FIX148_FINAL_HARD_LOCK_NEW_OVER_OLD */
+const YX_PWA_VERSION = 'fix148-hard-lock-new-over-old-20260427';
 const YX_STATIC_CACHE = `yx-static-${YX_PWA_VERSION}`;
 
 self.addEventListener('install', event => {
