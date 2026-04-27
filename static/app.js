@@ -11014,8 +11014,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return raw;
   }
   function customerName(raw){
-    const s = clean(raw || '未指定客戶');
-    return clean(s.replace(/\s*(FOB代|FOB|CNF)\s*$/i,'')) || s || '未指定客戶';
+    const s = clean(raw || '庫存');
+    return clean(s.replace(/\s*(FOB代付|FOB代|FOB|CNF)\s*/gi,' ')) || '庫存';
   }
   function placement(idx,it){ return clean(it?.placement_label || it?.layer_label || it?.position_label || (idx===0?'後排':idx===1?'中間':idx===2?'前排':`第${idx+1}筆`)); }
   function maxSlot(zone,col){
@@ -11040,7 +11040,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const key1 = [zone,col,'direct',slot].join('|');
     const key2 = `${zone}-${col}-${slot}`;
     const highlighted = !!(window.state?.searchHighlightKeys && (window.state.searchHighlightKeys.has(key1) || window.state.searchHighlightKeys.has(key2)));
-    const body = groups.length ? groups.map(g => `<div class="yx102-slot-group"><div class="yx102-slot-head"><span>第${String(slot).padStart(2,'0')}格</span> <span class="yx102-slot-customer">${esc(g.name)}</span></div><div class="yx102-slot-qty"><span>${esc(g.qtys.join('+'))}</span><span>${g.total}件</span></div></div>`).join('') : `<div class="yx102-slot-head"><span>第${String(slot).padStart(2,'0')}格</span> <span class="yx102-slot-empty">空格</span></div>`;
+    const body = groups.length ? groups.map(g => `<div class="yx102-slot-group"><div class="yx102-slot-head"><span>${Number(slot) || slot}</span> <span class="yx102-slot-customer">${esc(g.name)}</span></div><div class="yx102-slot-qty"><span>${esc(g.qtys.join('+'))}</span><span>${g.total}件</span></div></div>`).join('') : `<div class="yx102-slot-head"><span>${Number(slot) || slot}</span> <span class="yx102-slot-empty">空格</span></div>`;
     return `<div class="yx102-slot yx96-slot vertical-slot ${groups.length?'filled':''} ${highlighted?'highlight':''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true">${body}</div>`;
   }
   function bindSlot102(el){
@@ -11299,9 +11299,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return raw;
   }
   function customerName(raw){
-    const s = clean(raw || '未指定客戶');
+    const s = clean(raw || '庫存');
     const stripped = clean(s.replace(/\s*(FOB代付|FOB代|FOB|CNF)\s*/gi, ' '));
-    return stripped || '未指定客戶';
+    return stripped || '庫存';
   }
   function placement(idx, it){ return clean(it?.placement_label || it?.layer_label || it?.position_label || (idx === 0 ? '後排' : idx === 1 ? '中間' : idx === 2 ? '前排' : `第${idx + 1}筆`)); }
   function optionText(it, isCurrent=false){
@@ -11384,8 +11384,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       const empty = `<div class="yx108-slot-row yx108-slot-row1"><span class="yx108-slot-no">${esc(slotNo)}</span><span class="yx108-slot-empty">空格</span></div>`;
       return `<div class="yx108-slot yx106-slot vertical-slot ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true">${empty}</div>`;
     }
-    const names = Array.from(new Set(items.map(it => customerName(it.customer_name || '')).filter(n => n && n !== '未指定客戶')));
-    const customerText = names.length ? names.join('') : '未指定';
+    const names = Array.from(new Set(items.map(it => customerName(it.customer_name || '庫存')).filter(Boolean)));
+    const customerText = names.length ? names.join('/') : '庫存';
     const qtys = items.map(it => qtyOf(it)).filter(n => n > 0);
     const qtyExpr = qtys.join('+');
     const total = qtys.reduce((a,b) => a + b, 0);

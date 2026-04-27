@@ -1,117 +1,209 @@
-# 沅興木業｜最終商用整合版 FIX112
+# 沅興木業｜最終商用整合版 FIX113
 
-本包已把原本分散的 `FIX63_README.txt`～`FIX111_README.txt` 全部整合成這一份 README。後續維護以本檔為唯一說明，不再依賴多份 FIX README。
+本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX113 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
 
-## 本版核心目標
+版本號統一為：`fix113-master-hardlock`。
 
-FIX112 是「母版硬鎖」版：保留舊版沒有被指定修改的功能；凡是已明確要求過的新規則，均由最後載入的硬鎖模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把畫面蓋回去。
+---
 
-本版新增模組化硬鎖檔案：
+## 這版修正重點
 
-- `static/yx_modules/core_hardlock.js`：共用工具、API、模組註冊、timer 清理、硬鎖 window 入口。
-- `static/yx_modules/today_changes_hardlock.js`：今日異動固定標籤、固定小卡、刪除、滑動刪除、已讀歸零。
-- `static/yx_modules/warehouse_hardlock.js`：倉庫圖唯一新版格子顯示與格位流程清理。
-- `static/yx_modules/product_actions_hardlock.js`：庫存 / 訂單 / 總單小卡動作與刷新硬鎖。
-- `static/yx_modules/master_integrator.js`：母版整合器，依頁面最後安裝對應模組。
+### 1. 差異紀錄固定範圍
 
-`templates/base.html` 已改成最後載入這些模組，版本號統一為 `fix112-master-hardlock`，PWA / service worker 也同步升級，避免手機或瀏覽器吃到舊快取。
+設定頁的「差異紀錄」現在只顯示當天與下列模組有關的操作：
 
-## 今日異動硬鎖規則
+- 訂單
+- 總單
+- 庫存 / 進貨
+- 出貨
+- 倉庫圖
 
-今日異動頁固定為單一新版格式：
+以下舊雜訊不再顯示在差異紀錄中：
 
-1. 上方固定一排標籤：全部、進貨、出貨、新增訂單、未錄入倉庫圖。
-2. 標籤顯示即時數量，點擊只做篩選，不再切換成舊版橫排或其他格式。
-3. 下方四張統計小卡固定顯示，不再由舊 FIX99 / FIX96 流程隱藏、跳出或換位置。
-4. 下方列表固定直列卡片格式。
-5. 未錄入倉庫圖固定顯示「未錄入倉庫圖」，不再出現異常紀錄卡。
-6. 進頁後自動標記已讀，紅點 / 未讀 badge 歸零；之後只有新異動才會再出現。
-7. 卡片可點開更多內容；有 log id 的異動可按刪除，也可左滑刪除。
-8. 右上保留固定「刷新」按鈕，只有按下時才手動重抓資料。
+- `customer_items`
+- `customer_profiles`
+- OCR 修正詞
+- 登入紀錄
+- 代辦事項
+- 其他舊版內部同步紀錄
 
-## 庫存 / 訂單 / 總單硬鎖規則
+後端 `/api/audit-trails` 已改為預設只抓今天，並套用白名單篩選。匯出操作紀錄時也同步使用同一套篩選規則。
 
-1. 庫存頁下方小卡固定顯示庫存商品。
-2. 點商品小卡主內容會篩選成該筆商品；重新載入後恢復全部。
-3. 庫存小卡固定提供：編輯、刪除、加到訂單、加到總單。
-4. 訂單 / 總單小卡固定提供：編輯、直接出貨、刪除。
-5. 訂單 / 總單點北中南客戶後，會依客戶名稱重新載入該客戶商品。
-6. 批量材質套用後會重新刷新目前頁面資料，避免畫面停留在舊材質。
-7. 沒有要求刪除的原本統整表、批量選取、排序、月份排序、客戶區塊、出貨預覽功能均保留。
+### 2. 設定頁 OCR 模式區塊移除
 
-## 倉庫圖硬鎖規則
+設定頁的「OCR 模式」說明區已移除。後端 OCR / 原生上傳 / 拍照辨識功能仍保留，只是不再在設定頁顯示這塊說明，避免畫面多出無用卡片。
 
-1. A / B 倉、六欄、動態格數保留。
-2. 格子顯示固定為新版簡化格式：
-   - 第一排：單數字格號 + 客戶名稱。
-   - 第二排：件數加總式 + 右側總件數。
-3. 格子內不顯示 FOB / CNF / FOB代付。
-4. 格子內不顯示商品尺寸。
-5. 點格子開啟唯一新版格位編輯。
-6. 長按格子開啟操作表：返回未入倉、插入格子、刪除格子、取消。
-7. 格位批量加入保留「後排 / 中間 / 前排」與增加批量。
-8. 未錄入倉庫圖來源仍接 `/api/warehouse/available-items`，不讓舊版下拉或今日異動資料混入。
-9. 舊版倉庫大表、舊批量表、舊格位詳細面板會被清理，不再先跳舊版再跳新版。
+### 3. 管理員功能 500 修復
 
-## 出貨 / 入庫 / OCR / 計算規則保留
+`/api/admin/users` 已改成相容讀取：
 
-本版保留前面版本已完成的出貨與 OCR 規則：
+- 先執行 `init_db()` 補齊舊資料庫欄位
+- `list_users()` 失敗時改用安全 fallback 讀取
+- 即使舊資料庫缺欄位，也不再讓畫面直接顯示 `請求失敗：500`
 
-- 出貨流程：確認送出 → 出貨預覽 → 確認扣除。
-- 出貨預覽顯示扣除來源：扣總單 / 扣訂單 / 扣庫存。
-- 出貨完成顯示扣除前與扣除後數量。
-- 手動輸入未指定來源時，後端依序比對總單 → 訂單 → 庫存。
-- 超過總單 / 訂單數量時禁止出貨。
-- 跨客戶從總單 / 訂單加入商品時保留借貨確認邏輯。
-- 材積算式與重量輸入 / 總重計算保留。
-- 高度 `06`、`073`、`006` 等前導 0 保留。
-- 件數解析保留：`xN` 算 N 件，單獨支數算 1 件。
-- 特例保留：`100X30X63=504x5+588+587+502+420+382+378+280+254+237+174` 判定為 10 件。
-- OCR 低信心仍輸出到可編輯文字框。
-- 藍字優先、忽略紅字、區域辨識與客戶模糊比對規則沿用。
+`/api/admin/block` 也加上錯誤保護，封鎖 / 解除封鎖後會重新載入名單。
 
-## 客戶 / 帳號 / 同步 / PWA 保留
+### 4. 庫存 / 訂單 / 總單清單固定新版
 
-- 主畫面仍保留：庫存、訂單、總單、出貨、出貨查詢、倉庫圖、客戶資料、代辦事項。
-- 設定 / 今日異動 / 登出相關主頁佈局保留。
-- 客戶資料可編輯名稱、電話、地址、特殊要求、常用材質、常用尺寸、區域。
-- 北 / 中 / 南客戶區塊與拖拉換區保留。
-- 管理員黑名單與帳號管理保留。
-- 多人即時同步與 activity / audit trail 保留。
-- PWA 可安裝到 Android / iPhone 主畫面。
+新增 `static/yx_modules/product_actions_hardlock.js`，由母版最後載入並接管三個清單：
 
-## 部署方式
+- 庫存清單
+- 訂單清單
+- 總單清單
 
-1. 解壓本 ZIP。
-2. 將所有檔案完整覆蓋 GitHub 專案根目錄。
-3. Render 設定：
-   - Build Command：`pip install -r requirements.txt`
-   - Start Command：`gunicorn app:app --config gunicorn.conf.py`
-   - Root Directory：留空或填專案根目錄。
-4. 重新 Deploy。
-5. 手機若仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版已升級版本號為 `fix112-master-hardlock`。
+固定功能：
 
-## 重要維護規則
+- 清單上方顯示新版統整表
+- 點選表格列會批量選取
+- 下方小卡會依選取內容即時篩選
+- 未選取時，下方小卡顯示目前清單全部商品
+- 庫存小卡固定有：編輯、刪除、加到訂單、加到總單
+- 訂單 / 總單小卡固定有：編輯、直接出貨、刪除
 
-之後要改功能時，請優先改獨立模組，再由 `master_integrator.js` 統一安裝：
+### 5. 批量增加材質 / 批量刪除
 
-- 今日異動只改 `today_changes_hardlock.js`。
-- 倉庫圖只改 `warehouse_hardlock.js`。
-- 庫存 / 訂單 / 總單卡片動作只改 `product_actions_hardlock.js`。
-- 共用 API、工具、硬鎖規則只改 `core_hardlock.js`。
-- 不要在 `app.js` 末尾再堆新的舊式 FIX；避免未來再次互相覆蓋。
+庫存、訂單、總單清單上方都新增批量工具列：
 
-## 歷史 FIX 整合摘要
+- 全選目前清單
+- 搜尋商品 / 客戶 / 材質
+- 批量增加材質下拉式選單
+- 套用材質
+- 批量刪除
 
-原 FIX63～FIX111 的功能已合併為以下主題：
+批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX113 工具列統一接管。
 
-- FIX63～FIX70：清除重複表格、重複按鈕、舊版倉庫固定 20 格、按鈕無反應與衝突 handler。
-- FIX71～FIX77：格子長按、出貨預覽、支數 / 材積計算、0xx 高度保留、卡片按鈕、倉庫返回未入倉、重複合併、防超賣。
-- FIX78～FIX80：Render PostgreSQL 初始化、訂單客戶過濾、客戶自動補全、借貨出貨、今日異動 24 小時制。
-- FIX81～FIX83：YX_MASTER 母版、出貨來源扣除、倉庫批量面板唯一化。
-- FIX84～FIX90：送出後刷新、月份排序、美化、避免 MutationObserver 堆疊、出貨預覽失敗修復。
-- FIX91～FIX93：唯一倉庫批量、拖拉到最前排、手機版客戶區塊與今日異動卡片。
-- FIX94～FIX100：今日異動改手動刷新、倉庫未入倉快取、舊版今日異動 / 倉庫渲染硬收斂。
-- FIX101～FIX109：格位彈窗唯一化、格子顯示簡化、未入倉下拉接通、AB 倉格子顯示最終收斂。
-- FIX110～FIX111：靜態檔快取、PWA 快取、GET API 合併、返回主頁與開功能頁速度優化。
+### 6. 北 / 中 / 南客戶列表固定新版
+
+新增 `static/yx_modules/customer_regions_hardlock.js`。
+
+新版顯示規則：
+
+- 客戶名稱在左側
+- `CNF` / `FOB` / `FOB代` 顯示成置中的標籤
+- `件 / 筆` 靠右
+- 右側保留箭頭
+
+訂單頁只顯示有訂單的客戶；總單頁只顯示有總單的客戶。點選客戶後會立即刷新下方商品清單。
+
+### 7. 北 / 中 / 南客戶長按操作
+
+客戶卡片現在支援長按或右鍵開啟操作表：
+
+- 打開客戶商品
+- 編輯客戶
+- 移到北區
+- 移到中區
+- 移到南區
+- 刪除客戶
+
+操作完成後會立即重新載入客戶列表，並同步刷新商品清單，不需要手動重新整理。
+
+### 8. A / B 倉格子顯示固定
+
+倉庫格子顯示已固定為兩行，不再顯示 FOB / CNF / 尺寸 / 商品資訊。
+
+固定格式：
+
+```text
+1  立凡/永和/保固
+4+2+1          7件
+```
+
+顏色規則：
+
+- 客戶名稱：紅色
+- 支數加總與總件數：藍色
+- 未指定客戶：顯示 `庫存`
+- 格號只顯示數字，不顯示「第 X 格」
+
+舊版倉庫顯示函式若再次觸發，也會被 `warehouse_hardlock.js` 清理成新版格式。
+
+### 9. 母版模組化硬鎖
+
+本版由 `templates/base.html` 最後載入以下模組：
+
+```text
+static/yx_modules/core_hardlock.js
+static/yx_modules/today_changes_hardlock.js
+static/yx_modules/warehouse_hardlock.js
+static/yx_modules/settings_audit_hardlock.js
+static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/product_actions_hardlock.js
+static/yx_modules/master_integrator.js
+```
+
+`master_integrator.js` 會依目前頁面安裝需要的模組：
+
+- 今日異動 → 今日異動硬鎖
+- 倉庫圖 → 倉庫硬鎖
+- 訂單 / 總單 / 出貨 / 客戶 → 北中南客戶硬鎖
+- 庫存 / 訂單 / 總單 → 商品清單硬鎖
+- 設定 → 差異紀錄與管理員功能硬鎖
+
+這樣日後要改單一功能時，可以只改對應模組，再由母版統一整合，避免互相覆蓋。
+
+---
+
+## 主要檔案
+
+```text
+app.py
+static/app.js
+static/style.css
+static/pwa.js
+static/service-worker.js
+static/manifest.webmanifest
+templates/base.html
+templates/settings.html
+static/yx_modules/core_hardlock.js
+static/yx_modules/today_changes_hardlock.js
+static/yx_modules/warehouse_hardlock.js
+static/yx_modules/settings_audit_hardlock.js
+static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/product_actions_hardlock.js
+static/yx_modules/master_integrator.js
+```
+
+---
+
+## Render 部署
+
+Start Command：
+
+```bash
+gunicorn app:app
+```
+
+建議環境變數：
+
+```text
+SECRET_KEY=任意長字串
+DATABASE_URL=Render PostgreSQL 連線字串
+PYTHON_VERSION=3.11.10
+```
+
+如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix113-master-hardlock`。
+
+---
+
+## 本版驗證
+
+已檢查項目：
+
+- JavaScript 語法檢查
+- 母版模組載入順序
+- PWA / Service Worker 版本號
+- 設定頁 OCR 模式區塊移除
+- 差異紀錄 API 篩選
+- 管理員名單相容讀取
+- 庫存 / 訂單 / 總單批量工具列與小卡篩選
+- 北中南客戶長按操作模組
+- A / B 倉格子新版顯示格式
+
+---
+
+## 版本紀錄
+
+- FIX111：開功能 / 返回主頁速度優化。
 - FIX112：README 統一、功能模組拆分、母版最後整合、今日異動標籤與小卡硬鎖。
+- FIX113：差異紀錄範圍硬鎖、設定頁 OCR 區塊移除、管理員 500 相容、商品清單批量材質 / 批量刪除、表格選取後小卡篩選、北中南客戶標籤與長按操作、A/B 倉格子顯示硬鎖。

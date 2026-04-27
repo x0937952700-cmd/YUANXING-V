@@ -1,17 +1,19 @@
-/* 沅興木業 PWA Service Worker - fix112-master-hardlock - FIX110_PERFORMANCE_CACHE */
-const YX_PWA_VERSION='fix112-master-hardlock';
+/* 沅興木業 PWA Service Worker - fix113-master-hardlock - FIX110_PERFORMANCE_CACHE */
+const YX_PWA_VERSION='fix113-master-hardlock';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest',
   '/static/favicon.png',
-  '/static/style.css?v=fix112-master-hardlock',
-  '/static/app.js?v=fix112-master-hardlock',
-  '/static/pwa.js?v=fix112-master-hardlock',
-  '/static/yx_modules/core_hardlock.js?v=fix112-master-hardlock',
-  '/static/yx_modules/today_changes_hardlock.js?v=fix112-master-hardlock',
-  '/static/yx_modules/warehouse_hardlock.js?v=fix112-master-hardlock',
-  '/static/yx_modules/product_actions_hardlock.js?v=fix112-master-hardlock',
-  '/static/yx_modules/master_integrator.js?v=fix112-master-hardlock',
+  '/static/style.css?v=fix113-master-hardlock',
+  '/static/app.js?v=fix113-master-hardlock',
+  '/static/pwa.js?v=fix113-master-hardlock',
+  '/static/yx_modules/core_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/today_changes_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/warehouse_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/settings_audit_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/customer_regions_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/product_actions_hardlock.js?v=fix113-master-hardlock',
+  '/static/yx_modules/master_integrator.js?v=fix113-master-hardlock',
   '/static/icons/icon-192x192.png',
   '/static/icons/icon-512x512.png',
   '/static/icons/icon-maskable-192x192.png',

@@ -1357,6 +1357,7 @@ def api_warehouse_add_column():
             return error_response("區域錯誤")
         column_index = warehouse_add_column(zone)
         log_action(current_username(), f"新增格子欄 {zone}{column_index}")
+        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'action': '新增欄位'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增欄位', extra={'zone': zone, 'column_index': column_index})
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
@@ -1500,7 +1501,17 @@ def api_customer_items_batch_material():
         if not items:
             return error_response("請先勾選要套用材質的商品")
         count = update_items_material(items, material, current_username())
-        add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json={}, after_json={'material': material, 'count': count, 'items': items})
+        # FIX113：批量材質屬於庫存 / 訂單 / 總單實際變更，不再只記成 customer_items 雜訊。
+        source_map = {'inventory':'inventory', '庫存':'inventory', 'orders':'orders', '訂單':'orders', 'master_order':'master_orders', 'master_orders':'master_orders', '總單':'master_orders'}
+        grouped_sources = {}
+        for it in items:
+            entity = source_map.get((it.get('source') or '').strip())
+            if entity:
+                grouped_sources.setdefault(entity, []).append(it)
+        for entity, source_items in grouped_sources.items():
+            add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json={}, after_json={'material': material, 'count': len(source_items), 'items': source_items})
+        if not grouped_sources:
+            add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json={}, after_json={'material': material, 'count': count, 'items': items})
         log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
         notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
         return jsonify(success=True, count=count, material=material)
@@ -1548,7 +1559,16 @@ def api_customer_items_batch_delete():
             raise
         finally:
             conn.close()
-        add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
+        # FIX113：批量刪除依實際資料表寫入差異紀錄，避免顯示 customer_items。
+        grouped_sources = {}
+        for before in before_items:
+            entity = before.get('table')
+            if entity in ('inventory', 'orders', 'master_orders'):
+                grouped_sources.setdefault(entity, []).append(before)
+        for entity, rows in grouped_sources.items():
+            add_audit_trail(current_username(), "delete", entity, "batch_delete", before_json=rows, after_json={"count": len(rows)})
+        if not grouped_sources:
+            add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
         log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
         notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted})
         return jsonify(success=True, count=deleted)
@@ -1570,9 +1590,36 @@ def api_backups():
 @app.route("/api/admin/users", methods=["GET"])
 @login_required_json
 def api_admin_users():
+    """FIX113：管理員名單相容讀取。
+    舊資料庫若缺少 is_blocked/role 欄位，不再回 500，先補 schema 再用安全 SQL 讀取。"""
     if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
-    return jsonify(success=True, items=list_users())
+    try:
+        try:
+            init_db()
+        except Exception as e:
+            log_error('admin_users_init_db', str(e))
+        return jsonify(success=True, items=list_users())
+    except Exception as e:
+        log_error('admin_users_list_users', str(e))
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql("SELECT * FROM users ORDER BY username ASC"))
+            raw_rows = rows_to_dict(cur)
+            conn.close()
+            rows = []
+            for r in raw_rows:
+                rows.append({
+                    'username': r.get('username') or '',
+                    'role': r.get('role') or 'user',
+                    'is_blocked': int(r.get('is_blocked') or 0),
+                    'created_at': r.get('created_at') or '',
+                    'updated_at': r.get('updated_at') or '',
+                })
+            return jsonify(success=True, items=rows, warning='已用相容模式讀取管理員名單')
+        except Exception as e2:
+            log_error('admin_users_fallback', str(e2))
+            return jsonify(success=True, items=[], warning='管理員名單讀取失敗，請重新整理或稍後再試')
 
 @app.route("/api/admin/block", methods=["POST"])
 @login_required_json
@@ -1584,10 +1631,23 @@ def api_admin_block():
     blocked = bool(data.get('blocked'))
     if not username or username == '陳韋廷':
         return error_response("不可操作此帳號")
-    set_user_blocked(username, blocked)
-    log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
-    notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
-    return jsonify(success=True, items=list_users())
+    try:
+        try:
+            init_db()
+        except Exception as e:
+            log_error('admin_block_init_db', str(e))
+        set_user_blocked(username, blocked)
+        log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
+        notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
+        try:
+            items = list_users()
+        except Exception as e:
+            log_error('admin_block_list_users', str(e))
+            items = []
+        return jsonify(success=True, items=items)
+    except Exception as e:
+        log_error('admin_block', str(e))
+        return error_response('帳號黑名單更新失敗')
 
 
 
@@ -1636,6 +1696,7 @@ def api_warehouse_add_slot():
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
         log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
         return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
@@ -1657,6 +1718,7 @@ def api_warehouse_remove_slot():
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
         log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
         return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
@@ -2007,8 +2069,8 @@ def _audit_action_label(action_type=''):
 def _audit_entity_label(entity_type=''):
     entity_type = (entity_type or '').strip()
     return {
-        'inventory': '庫存', 'orders': '訂單', 'master_orders': '總單',
-        'shipping_records': '出貨紀錄', 'warehouse_cells': '倉庫格位',
+        'inventory': '庫存 / 進貨', 'orders': '訂單', 'master_orders': '總單',
+        'shipping_records': '出貨', 'warehouse_cells': '倉庫圖',
         'customer_profiles': '客戶資料', 'customer_aliases': '客戶別名',
         'corrections': 'OCR修正詞', 'todo_items': '代辦事項', 'undo': '還原紀錄'
     }.get(entity_type, entity_type or '資料')
@@ -2107,24 +2169,37 @@ def _delete_rows_by_ids(table, ids):
     conn.commit(); conn.close()
     return count
 
+AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells'}
+AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert', 'undo'}
+
 @app.route('/api/audit-trails', methods=['GET'])
 @login_required_json
 def api_audit_trails():
+    """FIX113：差異紀錄只顯示當天：訂單 / 總單 / 庫存進貨 / 出貨 / 倉庫圖。
+    客戶資料、OCR 修正、登入、代辦、customer_items 等舊雜訊一律不顯示。"""
     if not _is_admin_user():
         return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
     limit = int(request.args.get('limit') or 200)
     username = (request.args.get('username') or '').strip()
     entity_type = (request.args.get('entity_type') or '').strip()
     keyword = (request.args.get('q') or '').strip().lower()
-    start_date = (request.args.get('start_date') or '').strip()
-    end_date = (request.args.get('end_date') or '').strip()
-    items = list_audit_trails(limit=max(limit * 4, 200))
+    today = _today_key()
+    start_date = (request.args.get('start_date') or today).strip() or today
+    end_date = (request.args.get('end_date') or today).strip() or today
+    items = list_audit_trails(limit=max(limit * 6, 500))
     filtered = []
     for item in items:
+        raw_entity = (item.get('entity_type') or '').strip()
+        raw_action = (item.get('action_type') or '').strip()
+        if raw_entity not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
+            continue
+        if raw_action and raw_action not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
+            continue
         item = _decorate_audit_item(item)
+        item['created_at'] = _format_24h(item.get('created_at'))
         if username and username not in (item.get('username') or ''):
             continue
-        if entity_type and entity_type not in (item.get('entity_type') or ''):
+        if entity_type and entity_type not in (item.get('entity_type') or '') and entity_type not in (item.get('entity_label') or ''):
             continue
         created = (item.get('created_at') or '')[:10]
         if start_date and created and created < start_date:
@@ -2137,7 +2212,7 @@ def api_audit_trails():
         filtered.append(item)
         if len(filtered) >= limit:
             break
-    return jsonify(success=True, items=filtered)
+    return jsonify(success=True, items=filtered, scope='today_orders_inventory_inbound_outbound_warehouse_fix113', start_date=start_date, end_date=end_date)
 
 @app.route('/api/audit-trails/bulk-delete', methods=['POST'])
 @login_required_json
@@ -2213,8 +2288,22 @@ def api_reports_export():
         if current_username() != '陳韋廷':
             return error_response('操作紀錄僅陳韋廷可以匯出', 403)
         rows = []
+        today = _today_key()
         for item in list_audit_trails(limit=5000):
+            if (item.get('entity_type') or '').strip() not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
+                continue
+            if (item.get('action_type') or '').strip() and (item.get('action_type') or '').strip() not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
+                continue
             decorated = _decorate_audit_item(item)
+            decorated['created_at'] = _format_24h(decorated.get('created_at'))
+            created = (decorated.get('created_at') or '')[:10]
+            if start_date or end_date:
+                if start_date and created and created < start_date:
+                    continue
+                if end_date and created and created > end_date:
+                    continue
+            elif created != today:
+                continue
             rows.append(decorated)
         columns = [('時間', 'created_at'), ('操作者', 'username'), ('操作', 'action_label'), ('資料類型', 'entity_label'), ('資料鍵值', 'entity_key'), ('摘要', 'summary_text'), ('變更前', 'before_text'), ('變更後', 'after_text')]
         name = '操作紀錄.xlsx'

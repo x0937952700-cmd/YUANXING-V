@@ -1,8 +1,8 @@
-/* 沅興木業 FIX112 core hard-lock registry
+/* 沅興木業 FIX113 core hard-lock registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix112-master-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'fix113-master-hardlock') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -19,6 +19,7 @@
     if (p.includes('/master-order')) return 'master_order';
     if (p.includes('/shipping-query')) return 'shipping_query';
     if (p.includes('/warehouse')) return 'warehouse';
+    if (p.includes('/settings')) return 'settings';
     if (p.includes('/inventory')) return 'inventory';
     if (p.includes('/orders')) return 'orders';
     if (p.includes('/ship')) return 'ship';
@@ -51,7 +52,7 @@
         enumerable: false,
         get(){ return value; },
         set(v){
-          if (opts.allowReplace && typeof v === 'function' && v.__yx112HardLock) value = v;
+          if (opts.allowReplace && typeof v === 'function' && v.__yx113HardLock) value = v;
         }
       });
     } catch(_e) {
@@ -60,7 +61,7 @@
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
-      try { Object.defineProperty(fn, '__yx112HardLock', {value:name || true}); } catch(_e) { fn.__yx112HardLock = name || true; }
+      try { Object.defineProperty(fn, '__yx113HardLock', {value:name || true}); } catch(_e) { fn.__yx113HardLock = name || true; }
     }
     return fn;
   }
@@ -74,7 +75,7 @@
       }
       if (typeof window.__YX96_CANCEL_LEGACY_TIMERS__ === 'function') window.__YX96_CANCEL_LEGACY_TIMERS__();
     } catch(_e) {}
-    document.documentElement.dataset.yx112TimerScope = scope || 'all';
+    document.documentElement.dataset.yx113TimerScope = scope || 'all';
   }
   function register(name, mod){ registry[name] = mod || {}; return mod; }
   function install(name, opts={}){
@@ -90,9 +91,9 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix112-master-hardlock',
+    version: 'fix113-master-hardlock',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };
-  document.documentElement.dataset.yx112Core = 'on';
+  document.documentElement.dataset.yx113Core = 'on';
 })();

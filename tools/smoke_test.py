@@ -23,17 +23,17 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix112-master-hardlock", "YXHardLock", "register"],
-    "static/yx_modules/today_changes_hardlock.js": ["FIX112 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
-    "static/yx_modules/warehouse_hardlock.js": ["FIX112 倉庫硬鎖", "normalizeSlot"],
-    "static/yx_modules/product_actions_hardlock.js": ["FIX112 商品功能硬鎖", "yx112-product-card"],
-    "static/yx_modules/master_integrator.js": ["FIX112 母版整合器", "install('today_changes'"],
+    "static/yx_modules/core_hardlock.js": ["fix113-master-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/today_changes_hardlock.js": ["FIX113 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
+    "static/yx_modules/warehouse_hardlock.js": ["FIX113 倉庫硬鎖", "normalizeSlot"],
+    "static/yx_modules/product_actions_hardlock.js": ["FIX113 商品母版硬鎖", "yx112-product-card"],
+    "static/yx_modules/master_integrator.js": ["FIX113 母版整合器", "install('today_changes'"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix112-master-hardlock", "yx_modules/core_hardlock.js", "app.js", "pwa.js"],
+    "templates/base.html": ["fix113-master-hardlock", "yx_modules/core_hardlock.js", "app.js", "pwa.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix112-master-hardlock", "yx_modules/core_hardlock.js"],
-    "static/pwa.js": ["fix112-master-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix112-master-hardlock"'],
+    "static/service-worker.js": ["fix113-master-hardlock", "yx_modules/core_hardlock.js"],
+    "static/pwa.js": ["fix113-master-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix113-master-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -63,4 +63,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX112 smoke test OK")
+print("FIX113 smoke test OK")
