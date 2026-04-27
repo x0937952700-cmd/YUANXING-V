@@ -195,11 +195,16 @@ def add_cache_headers(response):
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        # FIX118：這版要徹底避免手機 / PWA / 瀏覽器吃到舊版 app.js、style.css。
-        # 先全部 no-store，等介面穩定後再恢復圖片長快取。
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+        # FIX128：靜態檔已全部用版本號 ?v=... 載入，瀏覽器可長快取，避免每次返回主頁 / 開功能頁都重新下載大型 app.js、style.css。
+        # 沒帶版本號的開發請求仍維持 no-store，避免測試時吃舊檔。
+        if request.args.get('v'):
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            response.headers.pop('Pragma', None)
+            response.headers.pop('Expires', None)
+        else:
+            response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
@@ -277,6 +282,33 @@ def normalize_item_for_save(item):
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
 
+def normalize_customer_item_rows(items):
+    """Return exact, one-row-per-record customer items for UI actions.
+
+    FIX134：客戶商品顯示 / 批量刪除 / 批量加材質必須使用原始 id，不能使用
+    aggregate 後的第一筆 id，否則畫面看起來是多件商品，但實際只改到第一筆。
+    """
+    rows = []
+    for row in items or []:
+        r = dict(row)
+        product_text = format_product_text_height2((r.get('product_text') or r.get('product') or '').strip())
+        if not product_text:
+            continue
+        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+        qty = normalize_item_quantity(product_text, r.get('qty') or 0)
+        support = product_support_text(product_text)
+        r['product_text'] = product_text
+        r['product_size'] = product_text
+        r['size_text'] = product_display_size(product_text)
+        r['support_text'] = support
+        r['material'] = material
+        r['product_code'] = material
+        r['qty'] = qty
+        rows.append(r)
+    rows.sort(key=lambda r: (product_sort_tuple(r.get('product_text') or ''), r.get('source') or '', -(int(r.get('id') or 0))))
+    return rows
+
+
 def aggregate_customer_items(items):
     """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
     buckets = {}
@@ -295,6 +327,7 @@ def aggregate_customer_items(items):
         elif not support:
             support = str(qty)
         key = (source, size, material)
+        row_id = row.get('id')
         if key not in buckets:
             out = dict(row)
             out['qty'] = qty
@@ -303,9 +336,15 @@ def aggregate_customer_items(items):
             out['product_code'] = material
             out['size_text'] = size
             out['support_text'] = support
+            out['item_ids'] = [row_id] if row_id else []
+            out['is_aggregated'] = False
             buckets[key] = out
         else:
             buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
+            if row_id and row_id not in (buckets[key].get('item_ids') or []):
+                buckets[key].setdefault('item_ids', []).append(row_id)
+            if len(buckets[key].get('item_ids') or []) > 1:
+                buckets[key]['is_aggregated'] = True
             old_support = (buckets[key].get('support_text') or '').strip()
             if support:
                 supports = [x for x in old_support.split('+') if x] if old_support else []
@@ -1511,7 +1550,10 @@ def api_customer_items():
             pull(table, label)
     finally:
         conn.close()
-    out = aggregate_customer_items(items)
+    if (request.args.get("raw") or request.args.get("exact") or request.args.get("no_aggregate")):
+        out = normalize_customer_item_rows(items)
+    else:
+        out = aggregate_customer_items(items)
     return jsonify(success=True, items=out, lookup_names=lookup_names, customer_name=display_name, customer_uid=uid)
 
 
@@ -1881,7 +1923,7 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload():
+def _today_changes_payload(summary_only=False):
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1903,22 +1945,35 @@ def _today_changes_payload():
         elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
-    unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
+    summary = {
+        'inbound_count': len(inbound),
+        'outbound_count': len(outbound),
+        'new_order_count': len(new_orders),
+        'unplaced_count': 0,
+        'unplaced_row_count': 0,
+        'anomaly_count': 0,
+        'unread_count': unread_count,
+    }
+    # FIX129：首頁徽章只需要未讀數，不再順便重算未入倉，避免返回主頁也卡住。
+    if summary_only:
+        return {
+            'summary': summary,
+            'feed': {'inbound': [], 'outbound': [], 'new_orders': [], 'others': []},
+            'unplaced_items': [],
+            'anomalies': [],
+            'anomaly_groups': {'unplaced': []},
+            'read_at': read_at,
+        }
+
+    unplaced = _today_unplaced_all_sources()
+    summary['unplaced_count'] = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
+    summary['unplaced_row_count'] = len(unplaced)
 
     return {
-        'summary': {
-            'inbound_count': len(inbound),
-            'outbound_count': len(outbound),
-            'new_order_count': len(new_orders),
-            'unplaced_count': unplaced_total_qty,
-            'unplaced_row_count': len(unplaced),
-            'anomaly_count': 0,
-            'unread_count': unread_count,
-        },
+        'summary': summary,
         'feed': {
             'inbound': inbound[:60],
             'outbound': outbound[:60],
@@ -1934,7 +1989,8 @@ def _today_changes_payload():
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    summary_only = str(request.args.get('summary_only') or request.args.get('summary') or '').lower() in ('1', 'true', 'yes')
+    return jsonify(success=True, **_today_changes_payload(summary_only=summary_only))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="module-screen" data-module="{{ module_key }}">
+<div class="module-screen" data-module="{{ module_key }}" data-yx-module="page" data-yx-container="module-screen">
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
@@ -57,23 +57,23 @@
         <h3>庫存清單</h3>
         <span class="muted">送出完成後會直接顯示在這裡，可點開編輯或移到訂單 / 總單</span>
       </div>
-      <div id="inventory-inline-list" class="card-list inventory-inline-list"></div>
+      <div id="inventory-inline-list" class="card-list inventory-inline-list" data-yx-module="productCards" data-yx-container="inventory-inline-list"></div>
     </div>
     {% endif %}
   </div>
   {% endif %}
 
-  <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
+  <section class="subsection" id="region-picker-section" data-yx-module="customerCards" data-yx-container="customer-region-panel" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>北中南客戶</h3>
       <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
     </div>
     <div class="category-grid compact-grid">
-      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north"></div></div>
-      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center"></div></div>
-      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south"></div></div>
+      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north" data-yx-module="customerCards" data-yx-container="customer-list" data-region="北區"></div></div>
+      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center" data-yx-module="customerCards" data-yx-container="customer-list" data-region="中區"></div></div>
+      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south" data-yx-module="customerCards" data-yx-container="customer-list" data-region="南區"></div></div>
     </div>
-    <div id="selected-customer-items" class="glass panel hidden"></div>
+    <div id="selected-customer-items" class="glass panel hidden" data-yx-module="productTable" data-yx-submodules="productCards batchOps" data-yx-container="selected-customer-items"></div>
   </section>
 
   <section class="subsection" id="ship-preview-section" {% if module_key != 'ship' %}style="display:none"{% endif %}>
@@ -92,12 +92,12 @@
     <div class="btn-row compact-row">
       <button class="ghost-btn" onclick="clearShipSelectedItems()">一鍵清空</button>
     </div>
-    <div id="ship-selected-items" class="card-list"></div>
+    <div id="ship-selected-items" class="card-list" data-yx-module="productCards" data-yx-container="ship-selected-items"></div>
   </section>
 
 
   <section class="subsection" id="inventory-summary-section" style="display:none">
-    <div id="inventory-summary" class="card-list"></div>
+    <div id="inventory-summary" class="card-list" data-yx-module="productTable" data-yx-container="inventory-summary"></div>
   </section>
 
   <section class="subsection" id="shipping-query-section" {% if module_key != 'shipping_query' %}style="display:none"{% endif %}>
@@ -121,7 +121,7 @@
   </section>
 
   
-  <section class="subsection warehouse-page-shell" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+  <section class="subsection warehouse-page-shell" id="warehouse-section" data-yx-module="warehouseGrid" data-yx-container="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
@@ -130,8 +130,8 @@
     </div>
 
     <div class="glass panel warehouse-toolbar-panel">
-      <div class="search-row warehouse-search-toolbar">
-        <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
+      <div class="search-row warehouse-search-toolbar" data-yx-module="searchFilter" data-yx-container="warehouse-search">
+        <input id="warehouse-search" data-yx-module="searchFilter" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
         <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
         <button class="ghost-btn" type="button" onclick="renderWarehouse(true)">清除搜尋</button>
       </div>
@@ -161,7 +161,7 @@
           <div class="zone-title">A 區</div>
           <div class="small-note" id="zone-A-count-note">動態格數</div>
         </div>
-        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid" data-yx-module="warehouseGrid" data-yx-container="warehouse-zone-grid" data-zone="A">
           <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
         </div>
       </div>
@@ -171,7 +171,7 @@
           <div class="zone-title">B 區</div>
           <div class="small-note" id="zone-B-count-note">動態格數</div>
         </div>
-        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid" data-yx-module="warehouseGrid" data-yx-container="warehouse-zone-grid" data-zone="B">
           <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
         </div>
       </div>
@@ -205,15 +205,15 @@
         <button class="primary-btn" onclick="saveCustomer()">儲存客戶</button>
       </div>
       <div class="customer-board">
-        <div class="customer-search-row">
-          <input id="customer-search" class="text-input" placeholder="搜尋客戶">
+        <div class="customer-search-row" data-yx-module="searchFilter" data-yx-container="customer-search">
+          <input id="customer-search" data-yx-module="searchFilter" class="text-input" placeholder="搜尋客戶">
           <button class="primary-btn" onclick="renderCustomers()">搜尋</button>
           <button class="ghost-btn" onclick="openArchivedCustomersModal()">封存客戶</button>
         </div>
         <div class="category-grid">
-          <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="customers-north"></div></div>
-          <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="customers-center"></div></div>
-          <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="customers-south"></div></div>
+          <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="customers-north" data-yx-module="customerCards" data-yx-container="customer-list" data-region="北區"></div></div>
+          <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="customers-center" data-yx-module="customerCards" data-yx-container="customer-list" data-region="中區"></div></div>
+          <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="customers-south" data-yx-module="customerCards" data-yx-container="customer-list" data-region="南區"></div></div>
         </div>
       </div>
     </div>

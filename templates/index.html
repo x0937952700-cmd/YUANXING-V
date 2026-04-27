@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="home-screen">
+<div class="home-screen" data-yx-module="homeBadge" data-yx-container="home-screen">
   <div class="hero center">
     <div class="eyebrow hidden-home-copy">沅興木業工作台</div>
     <h1 class="page-title center">沅興木業</h1>
-    <div class="home-top-actions centered-actions">
-      <div class="home-mini-btn user-cell">{{ username }}</div>
+    <div class="home-top-actions centered-actions home-action-row-v131" data-yx-module="homeBadge" data-yx-container="home-actions">
       <a class="home-mini-btn" href="{{ url_for('settings_page') }}">設定</a>
-      <a class="home-mini-btn" id="today-changes-btn" href="{{ url_for('today_changes_page') }}">今日異動</a>
-          </div>
+      <a class="home-mini-btn" id="today-changes-btn" data-yx-action="openTodayChanges" data-yx-module="homeBadge" href="{{ url_for('today_changes_page') }}">今日異動</a>
+      <button class="home-mini-btn" id="home-logout-btn" data-yx-action="logout" data-yx-module="homeBadge" type="button">登出</button>
+    </div>
+    <div class="home-user-row-v131">{{ username }}</div>
   </div>
 
   <div class="home-menu vertical">

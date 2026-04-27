@@ -251,7 +251,7 @@ html,body{background:linear-gradient(180deg,#f8f8fa 0%,#f1f2f4 100%);}
 .glass{backdrop-filter: blur(18px); border:1px solid rgba(255,255,255,.85);}
 .menu-btn{background:linear-gradient(180deg,#8a8a8f,#66686d);}
 .primary-btn{background:linear-gradient(180deg,#2f3135,#5b5f66);}
-.home-top-actions.centered-actions{grid-template-columns:repeat(3,minmax(120px,1fr));max-width:520px;}
+.home-top-actions.centered-actions{grid-template-columns:repeat(4,minmax(104px,1fr));max-width:620px;}
 .settings-actions .primary-btn{width:100%;}
 .home-status-row{display:none !important;}
 .zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(6,minmax(150px,1fr));gap:14px;}
@@ -2329,7 +2329,7 @@ body.yx69-navigating *,body.yx69-navigating *::before,body.yx69-navigating *::af
   .yx68-record-table,.yx69-table{min-width:0!important;}
 }
 @media(max-width:430px){
-  .home-top-actions{display:grid!important;grid-template-columns:1fr 1fr 1fr!important;gap:8px!important;}
+  .home-top-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:8px!important;}
   .home-mini-btn{min-width:0!important;text-align:center!important;padding-left:8px!important;padding-right:8px!important;}
   .ship-picker-row{display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}
 }
@@ -3485,3 +3485,211 @@ html[data-yx-fix120="FIX120_CUSTOMER_CLICK_ITEMS_CONNECTED"] .yx120-customer-det
 /* FIX123_CUSTOMER_REGION_SAFE_MASTER */
 .yx122-customer-card{touch-action:none;-webkit-user-select:none;user-select:none;}
 body.yx122-dragging-customer{cursor:grabbing;}
+
+/* ==== FIX129: home today badge + old event stability ==== */
+#today-changes-btn{position:relative;gap:6px;}
+.today-home-badge{display:none;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#b91c1c;color:#fff;font-size:11px;font-weight:900;line-height:1;margin-left:6px;box-shadow:0 2px 6px rgba(185,28,28,.25);}
+#today-changes-btn.has-unread{box-shadow:0 8px 22px rgba(185,28,28,.16);}
+/* ==== FIX129 end ==== */
+
+/* FIX130: home action row has user / settings / today changes / logout in one line */
+button.home-mini-btn{font:inherit;color:inherit;cursor:pointer;}
+button.home-mini-btn:disabled{opacity:.72;cursor:wait;}
+@media (max-width:420px){.home-top-actions.centered-actions{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important}.home-mini-btn{font-size:13px!important;padding-left:4px!important;padding-right:4px!important;min-height:48px!important}}
+
+/* ==== FIX131: home action row + username below, not mixed into buttons ==== */
+.home-top-actions.centered-actions.home-action-row-v131{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:10px!important;
+  max-width:520px!important;
+  margin:18px auto 0!important;
+}
+.home-user-row-v131{
+  margin:10px auto 0;
+  max-width:520px;
+  text-align:center;
+  font-weight:900;
+  color:#6b4b2f;
+  background:rgba(255,255,255,.72);
+  border:1px solid rgba(120,72,32,.12);
+  border-radius:999px;
+  padding:8px 14px;
+  box-shadow:0 6px 16px rgba(60,40,20,.06);
+}
+@media (max-width:420px){
+  .home-top-actions.centered-actions.home-action-row-v131{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;}
+  .home-user-row-v131{font-size:13px;padding:7px 10px;}
+}
+/* ==== FIX131 end ==== */
+
+/* ==== FIX131: Today Changes final card lock ==== */
+.yx131-refresh-row{justify-content:flex-end;margin-bottom:10px;}
+.yx131-today-summary{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+.yx131-summary-card{text-align:center;min-height:82px;display:flex;flex-direction:column;justify-content:center;}
+.yx131-today-row{position:relative;padding-right:74px;}
+.yx131-today-main{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.yx131-today-row [data-yx131-delete-log]{position:absolute;right:10px;top:10px;}
+.yx131-unplaced-row strong{font-size:16px;}
+html[data-yx-fix132="FIX132_TODAY_UNREAD_FILTER_HOME_STABLE"] .today-filter-bar{display:flex!important;}
+html[data-yx-fix132="FIX132_TODAY_UNREAD_FILTER_HOME_STABLE"] #today-summary-cards{display:grid!important;}
+@media (max-width:720px){.yx131-today-summary{grid-template-columns:repeat(2,minmax(0,1fr));}.yx131-today-row{padding-right:62px;}}
+/* ==== FIX131 end ==== */
+
+/* ==== FIX132 今日異動未讀/新版直列卡片穩定 ==== */
+.yx132-refresh-row{justify-content:flex-end;margin:8px 0 10px;gap:8px}
+.yx132-today-row{position:relative;display:block}
+.yx132-today-row.hidden{display:none!important}
+.yx132-today-row.yx132-unread{border-left:4px solid #b92d22;padding-left:12px}
+.yx132-today-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.yx132-unread-dot{font-style:normal;font-size:12px;line-height:1;padding:4px 7px;border-radius:999px;background:#b92d22;color:#fff;font-weight:800}
+.yx132-today-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.yx132-summary-card .big-number{font-size:24px;font-weight:900;margin-top:6px}
+@media (max-width:640px){.yx132-today-summary{grid-template-columns:1fr 1fr}.yx132-refresh-row{justify-content:stretch}.yx132-refresh-row .small-btn{width:100%}}
+/* ==== FIX132 end ==== */
+
+/* ==== FIX133: today unread visual clear + swipe stability ==== */
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .today-filter-bar{display:flex!important;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] #today-summary-cards{display:grid!important;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-hidden-by-unread{display:none!important;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-today-row{transition:transform .16s ease, opacity .16s ease; will-change:transform; touch-action:pan-y;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-unread{outline:1px solid rgba(185,28,28,.22); background:rgba(254,242,242,.75)!important;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-unread-dot{display:inline-flex;align-items:center;justify-content:center;margin-left:6px;padding:2px 7px;border-radius:999px;background:#b91c1c;color:#fff;font-size:12px;font-weight:800;font-style:normal;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-empty-unread{margin-top:8px;}
+html[data-yx-fix133="FIX133_CURRENT_ISSUES_FINAL_POLISH"] .yx133-refresh-row{justify-content:flex-end;margin-bottom:10px;gap:8px;}
+/* ==== FIX133 end ==== */
+
+/* ==== FIX134: clean product display / exact row actions ==== */
+html[data-yx-fix134="FIX134_PRODUCT_EXACT_ROWS_CLEAN_DISPLAY"] #selected-customer-items.yx134-product-master,
+#selected-customer-items.yx134-product-master{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  margin-top:14px!important;
+}
+.yx134-product-table{width:100%;border-collapse:collapse;table-layout:fixed;}
+.yx134-product-table th,.yx134-product-table td{padding:11px 10px;border-bottom:1px solid rgba(15,23,42,.08);vertical-align:middle;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;}
+.yx134-product-table th{background:#f8fafc;color:#0f172a;font-weight:900;}
+.yx134-material-cell,.yx134-mat{color:#059669!important;font-weight:900!important;}
+.yx134-material-cell:empty::after,.yx134-mat:empty::after{content:'';}
+.yx134-qty-cell,.yx134-qty{color:#b91c1c!important;font-weight:950!important;white-space:nowrap;}
+.yx134-card-grid{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))!important;gap:16px!important;}
+.yx134-item-card{min-height:128px!important;overflow:hidden!important;contain:layout paint!important;}
+.yx134-card-main{display:flex!important;flex-direction:column!important;gap:8px!important;min-width:0!important;font-weight:900!important;}
+.yx134-card-top{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;font-size:14px!important;line-height:1.25!important;white-space:nowrap!important;}
+.yx134-card-product{font-size:clamp(24px,4.6vw,33px)!important;line-height:1.12!important;letter-spacing:-.02em!important;color:#0f172a!important;font-weight:950!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
+.yx134-card-actions{margin-top:12px!important;}
+.yx134-summary .yx63-summary-table{min-width:0!important;}
+@media(max-width:760px){
+  .yx134-card-grid{grid-template-columns:1fr!important;}
+  .yx134-product-table{font-size:13px;}
+  .yx134-product-table th,.yx134-product-table td{padding:9px 6px;}
+  .yx134-source-cell,.yx134-product-table th:nth-child(4){display:none;}
+  .yx134-size-cell{width:34%;}
+  .yx134-support-cell{width:46%;}
+  .yx134-qty-cell{width:20%;text-align:center;}
+  .yx134-card-product{font-size:24px!important;}
+}
+/* ==== FIX134 end ==== */
+
+
+/* ==== FIX135: product action source sync ==== */
+html[data-yx-fix135="FIX136_PRODUCT_ACTION_CAPTURE_FIX"] .yx134-item-card[data-id],
+.yx134-item-card[data-id]{position:relative;}
+.yx134-item-card .yx134-card-actions button{touch-action:manipulation;}
+.yx134-product-master .yx134-product-row{cursor:pointer;}
+/* ==== FIX135 end ==== */
+
+
+/* ==== FIX137: product card/action stability ==== */
+html[data-yx-fix137="FIX137_PRODUCT_ACTION_FINAL_SYNC"] .yx134-item-card[data-yx137-action-final="1"]{position:relative;}
+html[data-yx-fix137="FIX137_PRODUCT_ACTION_FINAL_SYNC"] .yx134-item-card .yx134-card-actions button{touch-action:manipulation;}
+html[data-yx-fix137="FIX137_PRODUCT_ACTION_FINAL_SYNC"] .yx94-mat:empty,
+html[data-yx-fix137="FIX137_PRODUCT_ACTION_FINAL_SYNC"] .yx134-mat:empty{display:none!important;}
+html[data-yx-fix137="FIX137_PRODUCT_ACTION_FINAL_SYNC"] .yx134-card-top{align-items:center;}
+/* ==== FIX137 end ==== */
+
+
+/* ==== FIX138 product table single master ==== */
+.yx138-customer-product-mode #orders-list-section,
+.yx138-customer-product-mode #master-list-section{
+  display:none !important;
+}
+.yx138-single-master-panel{
+  border:1px solid rgba(120, 82, 38, .18);
+}
+.yx138-selected-toolbar{
+  margin:12px 0;
+  padding:12px;
+  border-radius:16px;
+  background:rgba(255,255,255,.72);
+  box-shadow:0 8px 22px rgba(55,38,20,.08);
+  display:grid;
+  gap:10px;
+}
+.yx138-toolbar-main{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.yx138-toolbar-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.yx138-toolbar-actions .text-input.small{
+  width:auto;
+  min-width:132px;
+  min-height:38px;
+  padding:8px 10px;
+}
+.yx134-product-table .yx138-check-col,
+.yx134-product-table .yx138-check-cell{
+  width:44px;
+  text-align:center;
+}
+.yx134-product-table .yx138-action-col,
+.yx134-product-table .yx138-action-cell{
+  min-width:168px;
+  text-align:right;
+  white-space:nowrap;
+}
+.yx134-product-table .yx138-action-cell .tiny-btn{
+  margin-left:4px;
+  padding:6px 8px;
+}
+.yx134-product-row.yx138-row-selected{
+  outline:2px solid rgba(120,82,38,.35);
+  background:rgba(255,246,232,.85);
+}
+@media (max-width: 640px){
+  .yx138-toolbar-actions{display:grid; grid-template-columns:1fr 1fr;}
+  .yx138-toolbar-actions .text-input.small{width:100%; grid-column:1 / -1;}
+  .yx134-product-table .yx138-action-cell .tiny-btn{margin:2px 0 2px 4px;}
+}
+/* ==== FIX138 end ==== */
+
+
+/* ==== FIX139: module boundaries and event isolation markers ==== */
+[data-yx-module]{ isolation:isolate; }
+[data-yx-container]{ position:relative; }
+.yx139-module-owned{ contain:layout style; }
+#selected-customer-items.yx139-module-owned{ contain:layout style; }
+#warehouse-section.yx139-module-owned{ contain:layout style; }
+.today-columns[data-yx-module="todayChanges"] .today-item,
+[data-yx-module="todayChanges"] .deduct-card{ touch-action:pan-y; }
+.yx139-event-claimed{ outline:0; }
+.yx139-debug-pill{ display:none; }
+
+
+/* ==== FIX140: DOM ownership / overwrite detector ==== */
+.yx140-owned{ contain:layout style; }
+.yx140-legacy-overwrite-detected{ outline:2px dashed rgba(196,48,48,.45); outline-offset:2px; }
+html[data-yx-fix140] .yx140-owned[data-yx-module="customerCards"],
+html[data-yx-fix140] .yx140-owned[data-yx-module="productTable"],
+html[data-yx-fix140] .yx140-owned[data-yx-module="todayChanges"],
+html[data-yx-fix140] .yx140-owned[data-yx-module="warehouseGrid"]{ isolation:isolate; }
+/* ==== FIX140 end ==== */

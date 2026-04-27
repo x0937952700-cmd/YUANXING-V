@@ -1,3 +1,110 @@
+/* ==== FIX140 early gate: legacy listener whitelist before legacy blocks register ==== */
+(function(){
+  'use strict';
+  if (window.__YX140_EARLY_GATE__) return;
+  window.__YX140_EARLY_GATE__ = true;
+  const VERSION = 'FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS';
+  const BUILD = 'fix142-readme-implementation-audit-actions';
+  const nativeAdd = EventTarget.prototype.addEventListener;
+  const moduleBlockList = new Set(['customerCards','productTable','productCards','todayChanges','batchOps','homeBadge','actionSheet']);
+  const allowedNeedles = [
+    'FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS','FIX139_MODULE_ISOLATION','FIX138_PRODUCT_TABLE_SINGLE_MASTER',
+    'FIX137_PRODUCT_ACTION_FINAL_SYNC','FIX136_PRODUCT_ACTION_CAPTURE_FIX','FIX135_PRODUCT_ACTION_SOURCE_SYNC',
+    'FIX134_PRODUCT_RENDER_MASTER','FIX133_CURRENT_ISSUES_FINAL_POLISH','FIX132_CURRENT_ISSUES_UNREAD_STABLE',
+    'FIX131_CURRENT_ISSUES_TODAY_HOME_STABLE','FIX130_CURRENT_PROBLEMS_TOTAL_CONVERGE',
+    'FIX129_CURRENT_PROBLEMS_EVENT_GATE','YX_CUSTOMER_CARD_CONTROLLER','selectCustomer134','yx140AllowLegacy'
+  ];
+  const legacyNeedles = [
+    'loadCustomerBlocks119','loadCustomerBlocks120','loadCustomerBlocks121','loadCustomerBlocks122','loadCustomerBlocks123','loadCustomerBlocks124',
+    'selectCustomer119','selectCustomer120','selectCustomer121','selectCustomer122','yx119-customer-card','yx120-customer-card','yx121-customer-card',
+    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','toggleUnplaced93','refreshUnplaced95','periodicCleanup',
+    'renderCustomerItems119','renderCustomerItems122','renderCustomerCards','old-today','legacyMutationGuard','restoreLegacyLayout'
+  ];
+  function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
+  function isAllowed(src){ return allowedNeedles.some(n => src.indexOf(n) >= 0); }
+  function isLegacy(src){
+    if (!src || isAllowed(src)) return false;
+    if (legacyNeedles.some(n => src.indexOf(n) >= 0)) return true;
+    if (/customer-region-card|yx119-customer-card|yx120-customer-card|yx121-customer-card|yx122-customer-card/.test(src) && /stopImmediatePropagation|preventDefault|drag|long|pointer|contextmenu|click/.test(src)) return true;
+    if (/selected-customer-items|yx63-item-card|data-yx63-action/.test(src) && /innerHTML|insertAdjacentHTML|stopImmediatePropagation/.test(src)) return true;
+    if (/today-changes|todayChanges|deduct-card/.test(src) && /innerHTML|setTimeout|MutationObserver|refresh/.test(src) && !/summary_only/.test(src)) return true;
+    return false;
+  }
+  function targetModule(e){
+    try { return e && e.target && e.target.closest && e.target.closest('[data-yx-module]')?.dataset?.yxModule || ''; }
+    catch(_e){ return ''; }
+  }
+  EventTarget.prototype.addEventListener = function(type, listener, options){
+    try {
+      const src = srcOf(listener);
+      if (isLegacy(src)) {
+        const eventType = String(type || '');
+        const registrationTarget = this;
+        const wrapped = function(e){
+          const mod = targetModule(e);
+          if (mod && moduleBlockList.has(mod) && (registrationTarget === window || registrationTarget === document || registrationTarget === document.body || registrationTarget === document.documentElement)) {
+            try { (window.__YX140_SKIPPED_LEGACY_EVENTS__ = window.__YX140_SKIPPED_LEGACY_EVENTS__ || []).push({type:eventType, module:mod, at:Date.now()}); } catch(_e) {}
+            return undefined;
+          }
+          return (typeof listener === 'function') ? listener.apply(this, arguments) : listener && listener.handleEvent && listener.handleEvent.apply(listener, arguments);
+        };
+        try { wrapped.__yx140AllowLegacy = false; wrapped.__yx140Original = listener; } catch(_e) {}
+        return nativeAdd.call(this, type, wrapped, options);
+      }
+    } catch(_e) {}
+    return nativeAdd.call(this, type, listener, options);
+  };
+  try {
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX140_MARKER__ = VERSION;
+    document.documentElement.dataset.yxFix140Early = VERSION;
+  } catch(_e) {}
+})();
+/* ==== FIX140 early gate end ==== */
+
+/* ==== FIX129: early old-event gate before legacy blocks register ==== */
+(function(){
+  'use strict';
+  if (window.__YX129_EARLY_OLD_EVENT_GATE__) return;
+  window.__YX129_EARLY_OLD_EVENT_GATE__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const nativeAdd = EventTarget.prototype.addEventListener;
+  const blockedEvents = new Set(['DOMContentLoaded','pageshow','popstate','hashchange','click','pointerdown','pointermove','pointerup','contextmenu','keydown','touchstart','touchend']);
+  const legacyNeedles = [
+    'loadCustomerBlocks119','loadCustomerBlocks120','loadCustomerBlocks121','loadCustomerBlocks122','loadCustomerBlocks123','loadCustomerBlocks124',
+    'selectCustomer119','selectCustomer120','selectCustomer121','selectCustomer122','yx119-customer-card','yx120-customer-card','yx121-customer-card',
+    // FIX130：不再用 FIX 編號整段攔截，避免把仍有用的倉庫 / 表格功能一起擋掉。
+    // 只攔截已知會重畫客戶卡、今日異動舊版自動刷新與舊全頁清理。
+    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','toggleUnplaced93','refreshUnplaced95','periodicCleanup'
+  ];
+  function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
+  function shouldBlock(type, listener){
+    if (!blockedEvents.has(type)) return false;
+    const s = srcOf(listener);
+    if (!s) return false;
+    if (s.indexOf('FIX133_CURRENT_ISSUES_FINAL_POLISH') >= 0 || s.indexOf('FIX136_PRODUCT_ACTION_CAPTURE_FIX') >= 0 || s.indexOf('FIX137_PRODUCT_ACTION_FINAL_SYNC') >= 0 || s.indexOf('FIX138_PRODUCT_TABLE_SINGLE_MASTER') >= 0 || s.indexOf('FIX139_MODULE_ISOLATION') >= 0 || s.indexOf('FIX129_CURRENT_PROBLEMS_EVENT_GATE') >= 0 || s.indexOf('YX_CUSTOMER_CARD_CONTROLLER') >= 0) return false;
+    if (legacyNeedles.some(n => s.indexOf(n) >= 0)) {
+      // 倉庫格位功能、格子長按、拖拉、批量加入仍要保留；只擋會舊版重畫/自動刷新的事件。
+      if (/openWarehouseModal|saveWarehouseCell|insertWarehouseCell|deleteWarehouseCell|moveWarehouseItem|renderWarehouse96|renderWarehouse102|renderWarehouse108/.test(s)) return false;
+      return true;
+    }
+    // 舊客戶卡事件最常和新版長按/拖拉打架；新版卡片只交給 FIX125+ 母版處理。
+    if (/customer-region-card|yx119-customer-card|yx120-customer-card|yx121-customer-card|yx122-customer-card/.test(s) && /stopImmediatePropagation|preventDefault|drag|long|pointer|contextmenu|click/.test(s) && !/yx125|FIX128|FIX129|FIX130|FIX133|FIX134|FIX135|FIX136|FIX137|FIX139/.test(s)) return true;
+    return false;
+  }
+  EventTarget.prototype.addEventListener = function(type, listener, options){
+    try {
+      if (shouldBlock(String(type || ''), listener)) {
+        try { (window.__YX129_BLOCKED_OLD_EVENTS__ = window.__YX129_BLOCKED_OLD_EVENTS__ || []).push({type:String(type||''), at:Date.now()}); } catch(_e) {}
+        return undefined;
+      }
+    } catch(_e) {}
+    return nativeAdd.call(this, type, listener, options);
+  };
+  try { document.documentElement.dataset.yxFix129Early = VERSION; window.__YX_FIX129_MARKER__ = VERSION; } catch(_e) {}
+})();
+/* ==== FIX129 early gate end ==== */
+
 /* ==== FIX96 HARD CONVERGENCE BOOT: block old page bounce before any legacy patch runs ==== */
 (function(){
   'use strict';
@@ -39,29 +146,68 @@
     return id;
   };
   window.clearInterval = function(id){ window.__YX96_INTERVALS__.delete(id); return nativeClearInterval(id); };
-  // 舊版多個全頁 MutationObserver 是造成返回主頁 / 進功能頁卡頓與跳版的主因，FIX96 全部改為手動安裝與明確事件，不再允許舊觀察器常駐。
-  window.MutationObserver = function(){
-    return { observe(){}, disconnect(){}, takeRecords(){ return []; } };
-  };
+  // FIX126：不再把 MutationObserver 全域打成完全空函式。
+  // 只攔截已知舊版全頁 / 舊客戶防跳版 observer，保留未來新版功能需要的局部 DOM 監控能力。
+  const NativeMutationObserver = window.__YX96_NATIVE_MUTATION_OBSERVER__;
+  function noopObserver(){ return { observe(){}, disconnect(){}, takeRecords(){ return []; } }; }
+  function shouldBlockObserver(callback){
+    const name = String((callback && callback.name) || '');
+    const src = srcOf(callback);
+    if (['scheduleRestore','scheduleGuardRender','legacyMutationGuard','restoreLegacyLayout'].includes(name)) return true;
+    if (blockLegacy(callback)) return true;
+    return /restoreActive\(|loadCustomerBlocks12[0-4]|loadTodayChanges(?:80|93|95)|renderWarehouse(?:82|95)|periodicCleanup/.test(src);
+  }
+  if (NativeMutationObserver) {
+    window.MutationObserver = function(callback){
+      const blockedCallback = shouldBlockObserver(callback);
+      if (blockedCallback) return noopObserver();
+      const mo = new NativeMutationObserver(callback);
+      return {
+        observe(target, options){
+          try {
+            const isGlobal = target === document || target === document.documentElement || target === document.body;
+            // FIX130：不要整個禁止全頁 observer，否則新功能可能失效；只攔截已判定的舊版 observer。
+            if (isGlobal && options && options.subtree && blockedCallback) return;
+          } catch(_e) {}
+          return mo.observe(target, options);
+        },
+        disconnect(){ return mo.disconnect(); },
+        takeRecords(){ return mo.takeRecords(); }
+      };
+    };
+  } else {
+    window.MutationObserver = function(){ return noopObserver(); };
+  }
   window.__YX96_NOOP_OBSERVER = window.MutationObserver;
+  window.__YX126_SELECTIVE_MUTATION_OBSERVER__ = true;
   const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
   if (nativeFetch && !window.__YX96_FETCH_GUARD__) {
     window.__YX96_FETCH_GUARD__ = true;
     const inFlightGet = new Map();
     const shortGetCache = new Map();
-    const API_CACHE_TTL = 1200;
+    const API_CACHE_TTL = 900;
+    function parseLocalUrl(raw){ try { const u = new URL(String(raw || ''), location.href); return u.origin === location.origin ? u : null; } catch(_e){ return null; } }
+    function clearShortApiCache(reason=''){
+      try { shortGetCache.clear(); inFlightGet.clear(); window.dispatchEvent(new CustomEvent('yx128:api-short-cache-cleared', {detail:{reason}})); } catch(_e) {}
+    }
+    window.__YX127_CLEAR_SHORT_API_CACHE__ = clearShortApiCache;
     window.fetch = function(input, init){
       try{
         const url = String(typeof input === 'string' ? input : (input && input.url) || '');
         const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+        const u = parseLocalUrl(url);
+        const pathname = u ? u.pathname : url;
+        const isCustomerLiveApi = !!(u && (pathname === '/api/customers' || pathname === '/api/customer-items' || pathname.startsWith('/api/customers/')));
+        const isMutation = !['GET','HEAD','OPTIONS'].includes(method);
+        if (isMutation && u && pathname.startsWith('/api/')) clearShortApiCache('mutation-before');
         if (url.includes('/api/warehouse/available-items') && !url.includes('yx_manual=1')) {
           const body = JSON.stringify({success:true, items:[], manual_required:true});
           return Promise.resolve(new Response(body,{status:200,headers:{'Content-Type':'application/json'}}));
         }
-        // FIX110：同一瞬間多個舊函式重複 GET 同一個 API 時，只讓第一個真的送出，
-        // 其他共用回應 clone，減少開頁時 API 風暴與卡頓。
-        if (method === 'GET' && url.includes('/api/') && !url.includes('/api/sync/stream')) {
-          const key = url;
+        // FIX128：客戶 API 是目前最容易被舊事件蓋掉的即時資料，不能再被外層短快取保存舊值。
+        // 其他舊函式重複 GET 仍做 0.9 秒去重，減少 API 風暴但不犧牲客戶編輯 / 移區後的即時刷新。
+        if (method === 'GET' && u && pathname.startsWith('/api/') && !pathname.startsWith('/api/sync/stream') && !isCustomerLiveApi) {
+          const key = u.pathname + '?' + Array.from(u.searchParams.entries()).sort((a,b)=>a[0].localeCompare(b[0]) || String(a[1]).localeCompare(String(b[1]))).map(([k,v]) => `${k}=${v}`).join('&');
           const now = Date.now();
           const cached = shortGetCache.get(key);
           if (cached && cached.expire > now && cached.response) return Promise.resolve(cached.response.clone());
@@ -70,9 +216,12 @@
           const p = nativeFetch(input, init).then(r => {
             try { if (r && r.ok) shortGetCache.set(key, {expire: Date.now() + API_CACHE_TTL, response: r.clone()}); } catch(_e){}
             return r;
-          }).finally(() => nativeSetTimeout(() => inFlightGet.delete(key), 900));
+          }).finally(() => nativeSetTimeout(() => inFlightGet.delete(key), 450));
           inFlightGet.set(key, p);
           return p.then(r => r.clone());
+        }
+        if (isMutation && u && pathname.startsWith('/api/')) {
+          return nativeFetch(input, init).then(r => { try { clearShortApiCache('mutation-after'); } catch(_e) {} return r; });
         }
       }catch(_e){}
       return nativeFetch(input, init);
@@ -2870,12 +3019,12 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function cardHTML(r,source){
     const id=Number(r.id||0);
-    const mat = rowMaterial(r) || '未填材質';
+    const mat = rowMaterial(r) || '';
     const qty = rowQty(r);
     const line = `${String(rowSize(r) || '').replace(/[Ｘ×✕＊*X]/g,'x')} = ${rowSupport(r)}`.replace(/\s+/g,' ').trim();
     return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(r.customer_name||'')}">
       <div class="yx94-card-main">
-        <div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(mat)}</span><span class="yx94-qty">數量 ${qty}</span></div>
+        <div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${mat ? '材質 ' + esc(mat) : ''}</span><span class="yx94-qty">數量 ${qty}</span></div>
         <div class="yx94-card-row yx94-card-product">${esc(line)}</div>
         ${r.customer_name ? `<div class="yx63-item-customer">${esc(r.customer_name)}</div>`:''}
       </div>
@@ -2980,6 +3129,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   document.addEventListener('click',e=>{
     const btn=e.target.closest('[data-yx63-action]'); if(!btn) return;
     const card=btn.closest('.yx63-item-card'); if(!card) return;
+    if(card.classList.contains('yx134-item-card')) return; // FIX135：新版客戶商品卡改由原始商品列 handler 處理，避免舊全列表 row 對錯 id。
     e.preventDefault(); e.stopImmediatePropagation(); cardAction(card,btn.dataset.yx63Action);
   },true);
 
@@ -5092,6 +5242,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   };
   document.addEventListener('click', function(e){
     const card = e.target?.closest?.('#customers-section .customer-region-card,#customers-section .yx-customer-card,#customers-section [data-customer-name]');
+    // FIX124：客戶資料頁新版 yx122 卡片交給 FIX123 母版，避免舊 handler stopImmediatePropagation 擋住「操作」按鈕與長按/右鍵。
+    if (card && card.classList?.contains('yx122-customer-card')) return;
     if (!card) return;
     const name = clean(card.dataset.customer || card.dataset.customerName || card.getAttribute('data-customer-name') || card.querySelector('.customer-card-name,.customer-name,.yx-customer-left')?.textContent || '');
     if (!name) return;
@@ -5713,6 +5865,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!btn) return;
     const card = btn.closest('.yx63-item-card');
     if (!card) return;
+    // FIX136：新版 yx134 客戶商品卡必須交給後方原始商品列母版處理。
+    // 這個舊 window-capture handler 原本會先 stopImmediatePropagation，
+    // 導致編輯 / 直接出貨 / 刪除又抓回舊全列表資料或錯 id。
+    if (card.classList.contains('yx134-item-card') || card.closest('.yx134-product-master')) return;
     e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     robustCardAction(card, btn.dataset.yx63Action || btn.getAttribute('data-yx63-action'));
   }, true);
@@ -12179,6 +12335,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     name = clean(name); uid = clean(uid); region = normRegion(region, '');
     if (!name || !region) return;
     await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, customer_uid:uid, region})});
+    clearCustomerCache126('move-customer');
     latestCustomers.forEach(c => { if (clean(c.name) === name || (uid && clean(c.customer_uid) === uid)) c.region = region; });
     toast(`${name} 已移到${region}`, 'ok');
     await loadCustomerBlocks119(true);
@@ -12487,7 +12644,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         if (list) list.innerHTML = rows.map(it => {
           const p = splitProduct(it.product_text || '');
           const line = `${p.size}${p.support ? ' = ' + p.support : ''}`;
-          return `<div class="card inventory-action-card yx63-item-card" data-source="${source}" data-id="${Number(it.id || 0)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(materialText(it) || '')}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div></div>`;
+          return `<div class="card inventory-action-card yx63-item-card" data-source="${source}" data-id="${Number(it.id || 0)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${materialText(it) ? '材質 ' + esc(materialText(it)) : ''}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div></div>`;
         }).join('');
       }
     }, 120);
@@ -12528,6 +12685,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     document.documentElement.dataset.yx120Events = '1';
     document.addEventListener('click', e => {
       const card = cardFromEvent(e);
+      // FIX124：新版 yx122 客戶卡片已由 FIX123 的單一事件母版處理；
+      // 舊 FIX120 不能再攔截 .customer-region-card，否則會把新版商品清單覆蓋回舊版。
+      if (card && card.classList?.contains('yx122-customer-card')) return;
       if (!card || e.target?.closest?.('.yx119-card-menu,button,a,input,textarea,select')) return;
       const mod = modKey();
       if (!['orders','master_order','ship'].includes(mod)) return;
@@ -12673,7 +12833,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
         const id = Number(it.id || 0);
         const line = `${p.size}${support ? ' = ' + support : ''}`;
         return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx121-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(name)}">
-          <div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(materialText(it) || '')}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div>
+          <div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${materialText(it) ? '材質 ' + esc(materialText(it)) : ''}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div>
           <div class="yx63-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div>
         </div>`;
       }).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${titleOf(source)}商品</div>`;
@@ -12762,6 +12922,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       [120, 360, 900, 1600].forEach(ms => setTimeout(() => { if (active.stamp === stamp) restoreActive(); }, ms));
       return items;
     } catch(err) {
+      if (typeof requestSeq !== 'undefined' && typeof selectRequestSeq !== 'undefined' && requestSeq !== selectRequestSeq) return [];
       if (panel) panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
       toast(err.message || '載入客戶商品失敗', 'error');
       return [];
@@ -12778,6 +12939,9 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       if (!['orders','master_order','ship'].includes(source)) return;
       if (e.target?.closest?.('.yx119-card-menu,button,a,input,textarea,select')) return;
       const card = cardFromEvent(e);
+      // FIX124：新版 yx122 客戶卡片不再讓舊 FIX121 click guard 重複 select，
+      // 避免點客戶後先新版、再被舊版 0件/0筆/舊表格覆蓋。
+      if (card && card.classList?.contains('yx122-customer-card')) return;
       if (!card) return;
       const name = nameFromCard(card), uid = uidFromCard(card);
       if (!name) return;
@@ -13000,7 +13164,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (list) {
       list.classList.add('yx63-card-grid');
       list.dataset.yx122Signature = signature;
-      list.innerHTML = rows.length ? rows.map(it => { const p = splitProduct(it.product_text || it.product_size || ''); const support = p.support || clean(it.support_text || ''); const id = Number(it.id || 0); const src = normalizeSource(it.source || source); const line = `${p.size}${support ? ' = ' + support : ''}`; return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx122-item-card" data-source="${esc(src)}" data-id="${id}" data-customer="${esc(name)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(materialText(it) || '')}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div><div class="yx63-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div></div>`; }).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${esc(sourceTitle(source))}商品</div>`;
+      list.innerHTML = rows.length ? rows.map(it => { const p = splitProduct(it.product_text || it.product_size || ''); const support = p.support || clean(it.support_text || ''); const id = Number(it.id || 0); const src = normalizeSource(it.source || source); const line = `${p.size}${support ? ' = ' + support : ''}`; return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx122-item-card" data-source="${esc(src)}" data-id="${id}" data-customer="${esc(name)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${materialText(it) ? '材質 ' + esc(materialText(it)) : ''}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div><div class="yx63-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div></div>`; }).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${esc(sourceTitle(source))}商品</div>`;
     }
   }
   async function selectCustomer122(name, uid='', opts={}){
@@ -13033,6 +13197,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       renderCustomerItems(name, selected.uid, source, items);
       return items;
     } catch(err) {
+      if (typeof requestSeq !== 'undefined' && typeof selectRequestSeq !== 'undefined' && requestSeq !== selectRequestSeq) return [];
       if (panel) panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
       toast(err.message || '載入客戶商品失敗', 'error');
       return [];
@@ -13061,6 +13226,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if (!ok) return;
     const qs = new URLSearchParams({customer_uid:uid, force:force ? '1' : '0'});
     const data = await api(`/api/customers/${encodeURIComponent(name)}?${qs.toString()}`, {method:'DELETE', body:JSON.stringify({customer_uid:uid, force})});
+    clearCustomerCache126(force ? 'delete-customer' : 'archive-customer');
     toast(data.message || (force ? '客戶已刪除' : '客戶已封存'), 'ok');
     if (selected.name === name) { selected = {name:'', uid:'', source:'', items:[]}; const p=$('selected-customer-items'); if (p) p.innerHTML=''; }
     await loadCustomerBlocks122(true);
@@ -13299,3 +13465,2975 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', install);
 })();
 /* ==== FIX123 end ==== */
+/* ==== FIX124: old customer click handlers bypass yx122 cards ==== */
+try { document.documentElement.dataset.yxFix124 = 'FIX124_CUSTOMER_REGION_OLD_HANDLER_BYPASS'; } catch(_e) {}
+/* ==== FIX124 end ==== */
+
+/* ==== FIX128: current issues - static cache speed + API stale/race guard + customer master ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  if (window.__YX125_CUSTOMER_EVENT_MASTER__) return;
+  window.__YX125_CUSTOMER_EVENT_MASTER__ = true;
+  try { document.documentElement.dataset.yxFix125 = VERSION; document.documentElement.dataset.yxFix126 = VERSION; document.documentElement.dataset.yxFix127 = VERSION; } catch(_e) {}
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const regions = ['北區','中區','南區'];
+  const customerBoardIds = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'];
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset?.module || document.body?.dataset?.module || '';
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e) {} };
+  function validRegion(v, fallback='北區'){ v = clean(v); return regions.includes(v) ? v : fallback; }
+  function isCustomerPage(){ return ['orders','master_order','ship','customers'].includes(moduleKey()); }
+  function boardContainers(kind){
+    const ids = kind === 'customers'
+      ? {'北區':'customers-north','中區':'customers-center','南區':'customers-south'}
+      : {'北區':'region-north','中區':'region-center','南區':'region-south'};
+    return {'北區':$(ids['北區']), '中區':$(ids['中區']), '南區':$(ids['南區'])};
+  }
+  function hasBoard(){ return customerBoardIds.some(id => !!$(id)); }
+  function inCustomerBoard(el){ return !!el?.closest?.('#' + customerBoardIds.join(',#')); }
+  function relation(c){ return c?.relation_counts || {}; }
+  function rowCount(c, mode){
+    const r = relation(c);
+    if (mode === 'orders') return Number(r.order_rows || 0);
+    if (mode === 'master_order') return Number(r.master_rows || 0);
+    if (mode === 'ship') return Number(r.order_rows || 0) + Number(r.master_rows || 0) + Number(r.inventory_rows || 0);
+    return Number(c?.row_count || 0);
+  }
+  function qtyCount(c, mode){
+    const r = relation(c);
+    if (mode === 'orders') return Number(r.order_qty || 0);
+    if (mode === 'master_order') return Number(r.master_qty || 0);
+    if (mode === 'ship') return Number(r.order_qty || 0) + Number(r.master_qty || 0) + Number(r.inventory_qty || 0);
+    return Number(c?.item_count || 0);
+  }
+  function showInModule(c, mode){
+    const selected = clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || '');
+    if (selected && clean(c?.name) === selected) return true;
+    if (mode === 'orders' || mode === 'master_order' || mode === 'ship') return rowCount(c, mode) > 0 || qtyCount(c, mode) > 0;
+    return true;
+  }
+  async function api(url, opt={}){
+    const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const txt = await res.text();
+    let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) {
+      const err = new Error(data.error || data.message || `請求失敗：${res.status}`);
+      err.payload = data;
+      throw err;
+    }
+    return data;
+  }
+  function clearCustomerCache126(reason='manual'){
+    try { if (typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function') window.__YX126_CLEAR_CUSTOMER_CACHE__(reason); } catch(_e) {}
+  }
+
+  // 1) 舊 API 入口不刪，但同一瞬間重複抓客戶/客戶商品時共用結果，避免舊 FIX 用 ts 造成 API 風暴。
+  (function installCustomerFetchCache(){
+    if (window.__YX125_CUSTOMER_FETCH_CACHE__) return;
+    window.__YX125_CUSTOMER_FETCH_CACHE__ = true;
+    const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+    if (!nativeFetch) return;
+    const cache = new Map();
+    const inFlight = new Map();
+    const TTL = 2200;
+    let generation = 0;
+    function clearCustomerCache(reason=''){
+      generation++;
+      cache.clear();
+      inFlight.clear();
+      try { loadingCustomers = null; } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx126:customer-cache-cleared', {detail:{reason}})); } catch(_e) {}
+    }
+    window.__YX126_CLEAR_CUSTOMER_CACHE__ = clearCustomerCache;
+    window.__YX125_CLEAR_CUSTOMER_CACHE__ = clearCustomerCache;
+    function isCustomerMutation(input, init){
+      try {
+        const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+        if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+        const raw = String(typeof input === 'string' ? input : (input && input.url) || '');
+        const u = new URL(raw, location.href);
+        if (u.origin !== location.origin) return false;
+        return u.pathname.startsWith('/api/customers') || u.pathname.startsWith('/api/customer-item') || u.pathname.startsWith('/api/order') || u.pathname.startsWith('/api/master_order') || u.pathname.startsWith('/api/ship');
+      } catch(_e) { return false; }
+    }
+    function normalizedKey(input, init){
+      try {
+        const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+        if (method !== 'GET') return '';
+        const raw = String(typeof input === 'string' ? input : (input && input.url) || '');
+        const u = new URL(raw, location.href);
+        if (u.origin !== location.origin) return '';
+        if (u.pathname !== '/api/customers' && u.pathname !== '/api/customer-items') return '';
+        if (u.searchParams.get('yx_force') === '1' || u.searchParams.get('yx126_force') === '1') return '';
+        if (u.pathname === '/api/customers' && (u.searchParams.get('archived') || u.pathname.includes('/archived'))) return '';
+        u.searchParams.delete('ts');
+        ['yx119','yx120','yx121','yx122','yx123','yx124','yx125','yx126'].forEach(k => u.searchParams.delete(k));
+        return u.pathname + '?' + Array.from(u.searchParams.entries()).sort((a,b)=>a[0].localeCompare(b[0]) || String(a[1]).localeCompare(String(b[1]))).map(([k,v]) => `${k}=${v}`).join('&');
+      } catch(_e) { return ''; }
+    }
+    window.fetch = function(input, init){
+      if (isCustomerMutation(input, init)) {
+        return nativeFetch(input, init).then(r => {
+          try { if (r && r.ok) clearCustomerCache('mutation'); } catch(_e) {}
+          return r;
+        });
+      }
+      const key = normalizedKey(input, init);
+      if (!key) return nativeFetch(input, init);
+      const now = Date.now();
+      const cached = cache.get(key);
+      if (cached && cached.expire > now && cached.response) return Promise.resolve(cached.response.clone());
+      const found = inFlight.get(key);
+      if (found) return found.then(r => r.clone());
+      const token = generation;
+      const p = nativeFetch(input, init).then(r => {
+        try { if (r && r.ok && token === generation) cache.set(key, {expire:Date.now()+TTL, response:r.clone()}); } catch(_e) {}
+        return r;
+      }).finally(() => setTimeout(() => inFlight.delete(key), 600));
+      inFlight.set(key, p);
+      return p.then(r => r.clone());
+    };
+  })();
+
+  // 2) 舊畫面渲染不直接刪功能，但禁止舊版把北/中/南客戶區重畫成 yx119/yx120/yx121/yx122 舊卡。
+  function installRenderGate(){
+    if (window.__YX125_CUSTOMER_RENDER_GATE__) return;
+    window.__YX125_CUSTOMER_RENDER_GATE__ = true;
+    let proto = null, desc = null;
+    try { desc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML'); proto = Element.prototype; } catch(_e) {}
+    if (!desc || !desc.set) {
+      try { desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerHTML'); proto = HTMLElement.prototype; } catch(_e) {}
+    }
+    if (!desc || !desc.set || !proto) return;
+    const nativeSet = desc.set;
+    const nativeGet = desc.get;
+    function isBoardElement(el){ return !!el && customerBoardIds.includes(el.id || ''); }
+    function looksLikeLegacyCustomerBoard(html){
+      html = String(html || '');
+      return html.includes('customer-region-card') || html.includes('yx119-customer-card') || html.includes('yx120-customer-card') || html.includes('yx121-') || html.includes('yx122-customer-card');
+    }
+    try {
+      Object.defineProperty(proto, 'innerHTML', {
+        configurable:true,
+        enumerable:desc.enumerable,
+        get:function(){ return nativeGet ? nativeGet.call(this) : ''; },
+        set:function(value){
+          if (isBoardElement(this) && isCustomerPage() && !window.__YX125_RENDERING_CUSTOMER_BOARD__) {
+            if (looksLikeLegacyCustomerBoard(value)) {
+              try { this.dataset.yx125BlockedLegacyRender = String(Date.now()); } catch(_e) {}
+              scheduleMasterRender(false, 40);
+              return;
+            }
+          }
+          return nativeSet.call(this, value);
+        }
+      });
+    } catch(_e) {}
+  }
+
+  function cardHTML(c, mode){
+    const name = clean(c?.name || '');
+    const qty = qtyCount(c, mode);
+    const rows = rowCount(c, mode);
+    return `<div class="customer-card-main"><div class="customer-card-name">${esc(name)}</div><div class="customer-card-meta">${qty}件 / ${rows}筆</div></div><div class="yx125-card-actions yx122-card-actions"><button type="button" class="yx125-card-menu yx122-card-menu" title="編輯 / 刪除 / 封存">操作</button><span class="customer-card-arrow">→</span></div>`;
+  }
+  function makeCard(c, mode){
+    const div = document.createElement('div');
+    const name = clean(c?.name || '');
+    div.className = 'customer-region-card yx122-customer-card yx125-customer-card';
+    div.setAttribute('role','button');
+    div.tabIndex = 0;
+    div.draggable = false;
+    div.dataset.customerName = name;
+    div.dataset.customer = name;
+    div.dataset.customerUid = c?.customer_uid || c?.uid || '';
+    div.dataset.region = validRegion(c?.region, '北區');
+    div.dataset.yx125 = '1';
+    div.innerHTML = cardHTML(c, mode);
+    return div;
+  }
+
+  let latestCustomers = [];
+  let loadingCustomers = null;
+  let active = {name:'', uid:'', source:'', items:[]};
+  let selectRequestSeq = 0;
+  async function fetchCustomers(force=false){
+    if (loadingCustomers && !force) return loadingCustomers;
+    const qs = new URLSearchParams({yx126:'1', ts:String(Date.now())});
+    if (force) qs.set('yx_force', '1');
+    loadingCustomers = api('/api/customers?' + qs.toString(), {method:'GET'}).then(data => {
+      latestCustomers = Array.isArray(data.items) ? data.items : [];
+      window.state = window.state || {};
+      window.state.customerDirectory = latestCustomers;
+      return latestCustomers;
+    }).finally(() => { loadingCustomers = null; });
+    return loadingCustomers;
+  }
+  function renderInto(kind, items, mode){
+    const cons = boardContainers(kind);
+    if (!Object.values(cons).some(Boolean)) return;
+    const buckets = {'北區':[], '中區':[], '南區':[]};
+    (items || []).forEach(c => buckets[validRegion(c?.region, '北區')].push(c));
+    regions.forEach(region => {
+      const el = cons[region];
+      if (!el) return;
+      el.dataset.region = region;
+      el.classList.add('yx125-drop-zone','yx122-drop-zone');
+      el.classList.remove('yx119-drop-zone','yx120-drop-zone','yx121-drop-zone');
+      const html = buckets[region].length
+        ? buckets[region].map(c => makeCard(c, mode).outerHTML).join('')
+        : '<div class="empty-state-card compact-empty yx125-empty-zone">目前沒有客戶</div>';
+      if (el.dataset.yx125Html !== html) {
+        window.__YX125_RENDERING_CUSTOMER_BOARD__ = true;
+        try { el.innerHTML = html; el.dataset.yx125Html = html; }
+        finally { window.__YX125_RENDERING_CUSTOMER_BOARD__ = false; }
+      }
+    });
+  }
+  async function loadCustomerBlocks125(force=false){
+    if (!hasBoard()) return latestCustomers;
+    const page = moduleKey();
+    if (!['orders','master_order','ship','customers'].includes(page)) return latestCustomers;
+    let list = await fetchCustomers(force);
+    const q = clean($('customer-search')?.value || '').toLowerCase();
+    if (q) list = list.filter(c => String(c.name || '').toLowerCase().includes(q));
+    if (['orders','master_order','ship'].includes(page)) renderInto('module', list.filter(c => showInModule(c, page)), page);
+    if (page === 'customers') renderInto('customers', list, 'customers');
+    return list;
+  }
+  function sourceKey(){ return moduleKey() === 'master_order' ? 'master_order' : moduleKey() === 'orders' ? 'orders' : moduleKey() === 'ship' ? 'ship' : moduleKey(); }
+  function sourceTitle(s){ return s === 'orders' ? '訂單' : s === 'master_order' ? '總單' : s === 'inventory' ? '庫存' : '商品'; }
+  function normalizeSource(s){
+    s = clean(s);
+    if (s === '訂單' || s === 'orders') return 'orders';
+    if (s === '總單' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    return s;
+  }
+  function itemQty(it){ const n = Number(it?.qty ?? it?.total_qty ?? it?.unplaced_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function splitProduct(text){ text = String(text || ''); const p = text.split('='); return {size:(p[0] || text).trim(), support:(p.slice(1).join('=') || '').trim()}; }
+  function materialText(it){ return clean(it?.material || it?.product_code || ''); }
+  function summaryEl(source){ return source === 'orders' ? $('yx63-orders-summary') : source === 'master_order' ? $('yx63-master_order-summary') : $('inventory-summary'); }
+  function listEl(source){ return source === 'orders' ? $('orders-list') : source === 'master_order' ? $('master-list') : $('inventory-inline-list'); }
+  function renderCustomerItems(name, uid, source, items){
+    const rows = (items || []).filter(it => source === 'ship' || normalizeSource(it.source || source) === source || !it.source);
+    const total = rows.reduce((s,it)=>s + itemQty(it), 0);
+    const panel = $('selected-customer-items');
+    if (panel) {
+      panel.classList.remove('hidden');
+      panel.hidden = false;
+      panel.style.removeProperty('display');
+      if (!rows.length) {
+        panel.innerHTML = `<div class="customer-detail-card yx125-customer-detail"><div class="section-title">${esc(name)}</div><div class="empty-state-card compact-empty">此客戶目前沒有${esc(sourceTitle(source))}商品</div></div>`;
+      } else {
+        const body = rows.map(it => { const p = splitProduct(it.product_text || it.product_size || ''); return `<tr><td>${esc(materialText(it))}</td><td>${esc(p.size)}</td><td>${esc(p.support || it.support_text || '')}</td><td>${esc(it.source || sourceTitle(source))}</td><td>${itemQty(it)}</td></tr>`; }).join('');
+        panel.innerHTML = `<div class="customer-detail-card yx125-customer-detail"><div class="customer-detail-header"><div><div class="section-title">${esc(name)}</div><div class="muted">${total}件 / ${rows.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>來源</th><th>數量</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+      }
+    }
+    const summary = summaryEl(source);
+    const list = listEl(source);
+    const signature = `${VERSION}|${source}|${name}|${rows.length}|${total}|${rows.map(x => `${x.source}:${x.id}:${x.product_text}:${itemQty(x)}:${materialText(x)}`).join('|')}`;
+    if (summary && summary.dataset.yx125Signature !== signature) {
+      summary.className = 'yx63-summary table-card yx125-summary yx122-summary';
+      const body = rows.length ? rows.map(it => { const p = splitProduct(it.product_text || it.product_size || ''); const id = Number(it.id || 0); const src = normalizeSource(it.source || source); return `<tr class="yx63-summary-row yx125-summary-row" data-source="${esc(src)}" data-id="${id}"><td class="yx63-material-cell">${esc(materialText(it))}</td><td class="yx63-size-cell" title="點尺寸選取"><input class="yx63-row-check" type="checkbox" data-source="${esc(src)}" data-id="${id}" hidden><span>${esc(p.size)}</span></td><td class="yx63-support-cell">${esc(p.support || it.support_text || '')}</td><td class="yx63-qty-cell">${itemQty(it)}</td></tr>`; }).join('') : `<tr><td colspan="4">此客戶目前沒有${esc(sourceTitle(source))}商品</td></tr>`;
+      summary.dataset.yx125Signature = signature;
+      summary.innerHTML = `<div class="yx63-summary-head yx125-summary-head"><strong>${total}件 / ${rows.length}筆商品</strong><span>${esc(name)}｜${esc(sourceTitle(source))}統整</span></div><div class="yx63-table-wrap"><table class="yx63-summary-table"><thead><tr><th class="yx63-material-col">材質</th><th class="yx63-size-col">尺寸</th><th class="yx63-support-col">支數 x 件數</th><th class="yx63-qty-col">數量</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+    if (list && list.dataset.yx125Signature !== signature) {
+      list.classList.add('yx63-card-grid');
+      list.dataset.yx125Signature = signature;
+      list.innerHTML = rows.length ? rows.map(it => { const p = splitProduct(it.product_text || it.product_size || ''); const support = p.support || clean(it.support_text || ''); const id = Number(it.id || 0); const src = normalizeSource(it.source || source); const line = `${p.size}${support ? ' = ' + support : ''}`; return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx125-item-card" data-source="${esc(src)}" data-id="${id}" data-customer="${esc(name)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${materialText(it) ? '材質 ' + esc(materialText(it)) : ''}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div><div class="yx63-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div></div>`; }).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${esc(sourceTitle(source))}商品</div>`;
+    }
+  }
+  async function selectCustomer125(name, uid='', opts={}){
+    name = clean(name); uid = clean(uid);
+    if (!name) return [];
+    const source = sourceKey();
+    const requestSeq = ++selectRequestSeq;
+    window.__YX_SELECTED_CUSTOMER__ = name;
+    window.state = window.state || {};
+    window.state.currentCustomer = name;
+    window.state.currentCustomerUid = uid;
+    const input = $('customer-name');
+    if (input) {
+      input.value = name;
+      input.dataset.customerUid = uid || '';
+      if (!opts.noInputEvents) {
+        input.dispatchEvent(new Event('input', {bubbles:true}));
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+      }
+    }
+    if (source === 'customers') {
+      if (typeof window.fillCustomerForm === 'function') await window.fillCustomerForm(name);
+      return [];
+    }
+    if (!['orders','master_order','ship'].includes(source)) return [];
+    const panel = $('selected-customer-items');
+    if (panel && !opts.silent) { panel.classList.remove('hidden'); panel.hidden = false; panel.style.removeProperty('display'); panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>'; }
+    try {
+      const qs = new URLSearchParams({name, customer_uid:uid, source, yx126:'1', ts:String(Date.now())});
+      if (opts.force) qs.set('yx_force', '1');
+      const data = await api('/api/customer-items?' + qs.toString(), {method:'GET'});
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (typeof requestSeq !== 'undefined' && typeof selectRequestSeq !== 'undefined' && requestSeq !== selectRequestSeq) return items;
+      active = {name, uid:data.customer_uid || uid, source, items};
+      renderCustomerItems(name, active.uid, source, items);
+      return items;
+    } catch(err) {
+      if (typeof requestSeq !== 'undefined' && typeof selectRequestSeq !== 'undefined' && requestSeq !== selectRequestSeq) return [];
+      if (panel) panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
+      toast(err.message || '載入客戶商品失敗', 'error');
+      return [];
+    }
+  }
+  async function moveCustomer125(name, region, uid=''){
+    name = clean(name); uid = clean(uid); region = validRegion(region, '');
+    if (!name || !region) return;
+    await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, customer_uid:uid, region})});
+    latestCustomers.forEach(c => { if (clean(c.name) === name || (uid && clean(c.customer_uid || c.uid) === uid)) c.region = region; });
+    toast(`${name} 已移到${region}`, 'ok');
+    await loadCustomerBlocks125(true);
+    if (active.name === name) await selectCustomer125(name, uid || active.uid, {silent:true});
+  }
+  function removeOldActionModals(){
+    ['customer-action-sheet','yx112-customer-actions','yx113-customer-action-modal','yx114-customer-action-modal','yx116-customer-action-modal','yx119-customer-action-modal','yx122-customer-action-modal','yx125-customer-action-modal','yx122-customer-edit-modal','yx125-customer-edit-modal'].forEach(id => { const el=$(id); if (el) el.remove(); });
+  }
+  function askConfirm(title, message, confirmText='確認', danger=false){
+    if (typeof window.confirmDialog === 'function') return window.confirmDialog({title, message, confirmText, danger});
+    return Promise.resolve(window.confirm((String(title || '') + '\n' + String(message || '').replace(/<[^>]+>/g, '')).trim()));
+  }
+  async function archiveOrDeleteCustomer125(name, uid='', force=false){
+    name = clean(name); uid = clean(uid);
+    if (!name) return;
+    const message = force
+      ? `<div>確定刪除客戶「${esc(name)}」？</div><div class="small-note">只刪除客戶資料卡，商品 / 訂單 / 總單 / 出貨歷史保留。</div>`
+      : `<div>確定封存客戶「${esc(name)}」？</div><div class="small-note">封存後會從北中南客戶區隱藏，可在封存客戶視窗還原。</div>`;
+    const ok = await askConfirm(force ? '刪除客戶' : '封存客戶', message, force ? '確認刪除' : '確認封存', true);
+    if (!ok) return;
+    const qs = new URLSearchParams({customer_uid:uid, force:force ? '1' : '0'});
+    const data = await api(`/api/customers/${encodeURIComponent(name)}?${qs.toString()}`, {method:'DELETE', body:JSON.stringify({customer_uid:uid, force})});
+    toast(data.message || (force ? '客戶已刪除' : '客戶已封存'), 'ok');
+    if (active.name === name) { active = {name:'', uid:'', source:'', items:[]}; const p=$('selected-customer-items'); if (p) p.innerHTML=''; }
+    await loadCustomerBlocks125(true);
+  }
+  async function openEditModal125(name, uid=''){
+    name = clean(name); uid = clean(uid);
+    removeOldActionModals();
+    let detail = {item:{name, region:'北區'}};
+    try { detail = await api(`/api/customers/${encodeURIComponent(name)}?customer_uid=${encodeURIComponent(uid)}&yx125=1`, {method:'GET'}); } catch(_e) {}
+    const item = detail.item || {};
+    const modal = document.createElement('div');
+    modal.id = 'yx125-customer-edit-modal';
+    modal.className = 'modal yx125-customer-edit-modal yx122-customer-edit-modal';
+    modal.innerHTML = `<div class="modal-card glass"><div class="modal-head"><div class="section-title">編輯客戶：${esc(name)}</div><button type="button" class="icon-btn" data-yx125-close>✕</button></div><label class="field-label">客戶名稱</label><input class="text-input" id="yx125-edit-name" value="${esc(item.name || name)}"><label class="field-label">區域</label><select class="text-input" id="yx125-edit-region"><option value="北區">北區</option><option value="中區">中區</option><option value="南區">南區</option></select><label class="field-label">電話</label><input class="text-input" id="yx125-edit-phone" value="${esc(item.phone || '')}"><label class="field-label">地址</label><input class="text-input" id="yx125-edit-address" value="${esc(item.address || '')}"><label class="field-label">備註</label><textarea class="text-area small" id="yx125-edit-notes">${esc(item.notes || '')}</textarea><div class="btn-row"><button type="button" class="ghost-btn" data-yx125-close>取消</button><button type="button" class="primary-btn" data-yx125-save>儲存</button></div></div>`;
+    document.body.appendChild(modal);
+    const regionSel = $('yx125-edit-region'); if (regionSel) regionSel.value = validRegion(item.region, '北區');
+    modal.addEventListener('click', async e => {
+      if (e.target === modal || e.target.closest('[data-yx125-close]')) { modal.remove(); return; }
+      if (!e.target.closest('[data-yx125-save]')) return;
+      const nextName = clean($('yx125-edit-name')?.value || '');
+      if (!nextName) return toast('請輸入客戶名稱', 'warn');
+      const payload = {name:nextName, customer_uid:uid, region:clean($('yx125-edit-region')?.value || ''), phone:clean($('yx125-edit-phone')?.value || ''), address:clean($('yx125-edit-address')?.value || ''), notes:clean($('yx125-edit-notes')?.value || ''), preserve_existing:true};
+      try {
+        if (name && nextName !== name) {
+          await api(`/api/customers/${encodeURIComponent(name)}`, {method:'PUT', body:JSON.stringify({new_name:nextName, customer_uid:uid})});
+          clearCustomerCache126('rename-customer');
+        }
+        await api('/api/customers', {method:'POST', body:JSON.stringify(payload)});
+        clearCustomerCache126('save-customer');
+        modal.remove();
+        toast('客戶已儲存', 'ok');
+        await loadCustomerBlocks125(true);
+        await selectCustomer125(nextName, uid, {silent:true, force:true});
+      } catch(err) { toast(err.message || '客戶儲存失敗', 'error'); }
+    });
+  }
+  function openActionModal125(name, uid=''){
+    name = clean(name); uid = clean(uid);
+    if (!name) return;
+    removeOldActionModals();
+    const modal = document.createElement('div');
+    modal.id = 'yx125-customer-action-modal';
+    modal.className = 'modal yx125-customer-action-modal yx122-customer-action-modal';
+    modal.dataset.customer = name;
+    modal.dataset.customerUid = uid;
+    modal.innerHTML = `<div class="modal-card glass yx125-action-card"><div class="modal-head"><div class="section-title">客戶操作：${esc(name)}</div><button type="button" class="icon-btn" data-yx125-close>✕</button></div><div class="small-note">長按可編輯 / 刪除；拖拉客戶卡片可移動北區 / 中區 / 南區。</div><div class="btn-row yx125-action-list"><button class="primary-btn" type="button" data-yx125-open>打開客戶商品</button><button class="ghost-btn" type="button" data-yx125-edit>編輯客戶</button><div class="yx125-region-buttons"><button class="ghost-btn small-btn" type="button" data-yx125-move="北區">移到北區</button><button class="ghost-btn small-btn" type="button" data-yx125-move="中區">移到中區</button><button class="ghost-btn small-btn" type="button" data-yx125-move="南區">移到南區</button></div><button class="ghost-btn danger-btn" type="button" data-yx125-archive>封存客戶</button><button class="ghost-btn danger-btn" type="button" data-yx125-delete>刪除客戶</button><button class="ghost-btn" type="button" data-yx125-close>取消</button></div></div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', async e => {
+      if (e.target === modal || e.target.closest('[data-yx125-close]')) { modal.remove(); return; }
+      const moveBtn = e.target.closest('[data-yx125-move]');
+      try {
+        if (e.target.closest('[data-yx125-open]')) { modal.remove(); await selectCustomer125(name, uid); }
+        else if (e.target.closest('[data-yx125-edit]')) { modal.remove(); await openEditModal125(name, uid); }
+        else if (moveBtn) { modal.remove(); await moveCustomer125(name, moveBtn.getAttribute('data-yx125-move'), uid); }
+        else if (e.target.closest('[data-yx125-archive]')) { modal.remove(); await archiveOrDeleteCustomer125(name, uid, false); }
+        else if (e.target.closest('[data-yx125-delete]')) { modal.remove(); await archiveOrDeleteCustomer125(name, uid, true); }
+      } catch(err) { toast(err.message || '客戶操作失敗', 'error'); }
+    });
+  }
+
+  function boardCardFromTarget(t){
+    const card = t?.closest?.('.yx125-customer-card,.yx122-customer-card,.yx119-customer-card,.yx120-customer-card,.yx81-customer-card,.customer-region-card');
+    return card && inCustomerBoard(card) ? card : null;
+  }
+  function nameFromCard(card){ return clean(card?.dataset?.customerName || card?.dataset?.customer || card?.getAttribute?.('data-customer-name') || card?.querySelector?.('.customer-card-name,.customer-name,.yx-customer-left')?.textContent || ''); }
+  function uidFromCard(card){ return clean(card?.dataset?.customerUid || card?.dataset?.uid || ''); }
+  function regionFromPoint(x, y){
+    const el = document.elementFromPoint(x, y);
+    const box = el?.closest?.('.category-box[data-region]');
+    if (box) return validRegion(box.dataset.region, '');
+    const list = el?.closest?.('.customer-list');
+    const id = list?.id || el?.id || '';
+    return {'region-north':'北區','region-center':'中區','region-south':'南區','customers-north':'北區','customers-center':'中區','customers-south':'南區'}[id] || '';
+  }
+  function markDrop(region){
+    document.querySelectorAll('.yx125-drop-over,.yx122-drop-over').forEach(el => el.classList.remove('yx125-drop-over','yx122-drop-over'));
+    if (!region) return;
+    const id = moduleKey() === 'customers' ? {'北區':'customers-north','中區':'customers-center','南區':'customers-south'}[region] : {'北區':'region-north','中區':'region-center','南區':'region-south'}[region];
+    $(id)?.classList.add('yx125-drop-over','yx122-drop-over');
+  }
+  let pointer = null;
+  let holdTimer = null;
+  let suppressClickUntil = 0;
+  function clearHold(){ if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } }
+  function clearDrag(){ document.body.classList.remove('yx125-dragging-customer','yx122-dragging-customer','yx119-dragging-customer'); document.querySelectorAll('.yx125-touch-dragging,.yx122-touch-dragging,.yx119-touch-dragging,.yx125-drop-over,.yx122-drop-over,.yx119-drop-over').forEach(el => el.classList.remove('yx125-touch-dragging','yx122-touch-dragging','yx119-touch-dragging','yx125-drop-over','yx122-drop-over','yx119-drop-over')); }
+  function stopOld(e, prevent=true){ try { if (prevent) e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); } catch(_e) {} }
+  function installCaptureEvents(){
+    if (document.documentElement.dataset.yx125CaptureEvents === '1') return;
+    document.documentElement.dataset.yx125CaptureEvents = '1';
+    window.addEventListener('pointerdown', e => {
+      const card = boardCardFromTarget(e.target);
+      if (!card || e.button > 0) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      stopOld(e, false);
+      clearHold();
+      pointer = {id:e.pointerId, card, name, uid, x:e.clientX, y:e.clientY, moved:false, longPressed:false};
+      holdTimer = setTimeout(() => {
+        if (!pointer || pointer.id !== e.pointerId || pointer.moved) return;
+        pointer.longPressed = true;
+        suppressClickUntil = Date.now() + 900;
+        openActionModal125(name, uid);
+      }, 650);
+    }, true);
+    window.addEventListener('pointermove', e => {
+      if (!pointer || pointer.id !== e.pointerId) return;
+      const dist = Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y);
+      if (dist > 14) {
+        stopOld(e, true);
+        clearHold();
+        pointer.moved = true;
+        document.body.classList.add('yx125-dragging-customer','yx122-dragging-customer');
+        pointer.card.classList.add('yx125-touch-dragging','yx122-touch-dragging');
+        markDrop(regionFromPoint(e.clientX, e.clientY));
+        suppressClickUntil = Date.now() + 900;
+      }
+    }, true);
+    window.addEventListener('pointerup', async e => {
+      const p = pointer;
+      pointer = null;
+      clearHold();
+      const moved = !!p?.moved;
+      const longPressed = !!p?.longPressed;
+      clearDrag();
+      if (!p) return;
+      if (moved) {
+        stopOld(e, true);
+        suppressClickUntil = Date.now() + 900;
+        const region = regionFromPoint(e.clientX, e.clientY);
+        if (region) {
+          try { await moveCustomer125(p.name, region, p.uid); } catch(err) { toast(err.message || '移動失敗', 'error'); }
+        }
+      } else if (longPressed) {
+        stopOld(e, true);
+      }
+    }, true);
+    ['pointercancel','touchcancel','scroll'].forEach(evt => window.addEventListener(evt, () => { pointer = null; clearHold(); clearDrag(); }, true));
+    window.addEventListener('click', async e => {
+      const card = boardCardFromTarget(e.target);
+      if (!card) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      stopOld(e, true);
+      if (Date.now() < suppressClickUntil) return;
+      if (e.target?.closest?.('.yx125-card-menu,.yx122-card-menu')) { openActionModal125(name, uid); return; }
+      if (e.target?.closest?.('button,a,input,textarea,select')) return;
+      await selectCustomer125(name, uid);
+    }, true);
+    window.addEventListener('contextmenu', e => {
+      const card = boardCardFromTarget(e.target);
+      if (!card) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      stopOld(e, true);
+      if (document.body.classList.contains('yx125-dragging-customer')) return;
+      openActionModal125(name, uid);
+    }, true);
+    window.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = boardCardFromTarget(e.target);
+      if (!card) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      stopOld(e, true);
+      selectCustomer125(name, uid);
+    }, true);
+  }
+
+  let renderTimer = null;
+  function scheduleMasterRender(force=false, delay=80){
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(() => {
+      if (isCustomerPage()) loadCustomerBlocks125(force).catch(err => toast(err.message || '客戶區載入失敗', 'error'));
+    }, delay);
+  }
+  function safeSetGlobal(name, value){
+    try { Object.defineProperty(window, name, {value, configurable:true, writable:true}); return true; }
+    catch(_e) { try { window[name] = value; return true; } catch(__e) { return false; } }
+  }
+  function patchGlobals(){
+    const controller = {
+      version: VERSION,
+      loadCustomerBlocks: loadCustomerBlocks125,
+      renderCustomers: loadCustomerBlocks125,
+      selectCustomerForModule: selectCustomer125,
+      openProducts: selectCustomer125,
+      openActionSheet: openActionModal125,
+      editCustomer: openEditModal125,
+      moveRegion: moveCustomer125,
+      archiveCustomer: (name, uid='') => archiveOrDeleteCustomer125(name, uid, false),
+      deleteCustomer: (name, uid='') => archiveOrDeleteCustomer125(name, uid, true),
+      bindCards: installCaptureEvents,
+      refresh: () => loadCustomerBlocks125(true),
+      clearCache: clearCustomerCache126
+    };
+    safeSetGlobal('YX_CUSTOMER_CARD_CONTROLLER', controller);
+    safeSetGlobal('loadCustomerBlocks', loadCustomerBlocks125);
+    safeSetGlobal('renderCustomers', loadCustomerBlocks125);
+    safeSetGlobal('selectCustomerForModule', selectCustomer125);
+    ['yx119OpenCustomerAction','yx122OpenCustomerAction'].forEach(n => safeSetGlobal(n, openActionModal125));
+    ['yx119MoveCustomerRegion','yx122MoveCustomerRegion'].forEach(n => safeSetGlobal(n, moveCustomer125));
+    ['yx119DeleteOrArchiveCustomer','yx122DeleteOrArchiveCustomer'].forEach(n => safeSetGlobal(n, archiveOrDeleteCustomer125));
+    ['yx120SelectCustomerForModule','yx121SelectCustomerForModule','yx122SelectCustomerForModule','yx125SelectCustomerForModule'].forEach(n => safeSetGlobal(n, selectCustomer125));
+    safeSetGlobal('yx125OpenCustomerAction', openActionModal125);
+    safeSetGlobal('yx125MoveCustomerRegion', moveCustomer125);
+    safeSetGlobal('yx125DeleteOrArchiveCustomer', archiveOrDeleteCustomer125);
+    safeSetGlobal('yx125EditCustomer', openEditModal125);
+    const oldMaster = (window.YX_MASTER && typeof window.YX_MASTER === 'object') ? window.YX_MASTER : {};
+    const nextMaster = {...oldMaster, version:VERSION + '_SAFE_OVERRIDE', loadCustomerBlocks:loadCustomerBlocks125, renderCustomers:loadCustomerBlocks125, selectCustomerForModule:selectCustomer125, yx125OpenCustomerAction:openActionModal125, yx125MoveCustomerRegion:moveCustomer125, yx125DeleteOrArchiveCustomer:archiveOrDeleteCustomer125, yx125EditCustomer:openEditModal125};
+    try { Object.defineProperty(window, 'YX_MASTER', {value:nextMaster, configurable:true, writable:true}); }
+    catch(_e) { try { window.YX_MASTER = nextMaster; } catch(__e) {} }
+  }
+  function cleanupLegacyCustomerDom(){
+    removeOldActionModals();
+    document.querySelectorAll('.yx119-touch-dragging,.yx119-dragging-card,.yx119-drop-over,.yx120-drop-over,.yx121-drop-over,.yx122-touch-dragging,.yx122-drop-over').forEach(el => el.classList.remove('yx119-touch-dragging','yx119-dragging-card','yx119-drop-over','yx120-drop-over','yx121-drop-over','yx122-touch-dragging','yx122-drop-over'));
+  }
+  function installStyle(){
+    if ($('yx125-customer-style')) return;
+    const s = document.createElement('style');
+    s.id = 'yx125-customer-style';
+    s.textContent = `.yx125-touch-dragging{opacity:.74;transform:scale(.985);box-shadow:0 14px 30px rgba(0,0,0,.18)!important}.yx125-drop-over{outline:2px dashed rgba(120,72,32,.55);outline-offset:4px;background:rgba(120,72,32,.06)!important}.yx125-customer-card .yx125-card-menu{touch-action:manipulation}.yx125-empty-zone{min-height:42px}`;
+    document.head.appendChild(s);
+  }
+  function install(){
+    try { document.documentElement.dataset.yxFix125 = VERSION; document.documentElement.dataset.yxFix126 = VERSION; document.documentElement.dataset.yxFix127 = VERSION; } catch(_e) {}
+    installRenderGate();
+    installStyle();
+    patchGlobals();
+    cleanupLegacyCustomerDom();
+    installCaptureEvents();
+    if (isCustomerPage()) {
+      scheduleMasterRender(true, 0);
+      // FIX128：保留一次延後校正，避免舊 async 渲染蓋版；取消 3 次連續重畫，降低切頁卡頓。
+      [260].forEach(ms => setTimeout(() => { if (isCustomerPage()) loadCustomerBlocks125(false).catch(()=>{}); }, ms));
+    }
+    const existing = clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || '');
+    if (existing && ['orders','master_order','ship'].includes(moduleKey())) setTimeout(() => selectCustomer125(existing, $('customer-name')?.dataset?.customerUid || '', {silent:true}).catch(()=>{}), 220);
+  }
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', install, true);
+    document.addEventListener('DOMContentLoaded', install, {once:true});
+  } else install();
+  window.addEventListener('pageshow', install);
+  window.addEventListener('popstate', () => scheduleMasterRender(true, 80));
+})();
+/* ==== FIX128 end ==== */
+
+/* ==== FIX128: current issue hardening - lock customer master + clear live data after mutations ==== */
+(function(){
+  'use strict';
+  if (window.__YX128_CURRENT_ISSUES_FINAL_STABILITY__) return;
+  window.__YX128_CURRENT_ISSUES_FINAL_STABILITY__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const customerBoardIds = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'];
+  const legacyNeedles = [
+    'loadCustomerBlocks119','loadCustomerBlocks120','loadCustomerBlocks121','loadCustomerBlocks122','loadCustomerBlocks123','loadCustomerBlocks124',
+    'yx119','yx120','yx121','yx122','FIX119','FIX120','FIX121','FIX122','FIX123','FIX124',
+    'renderWarehouse82','renderWarehouse95','renderWarehouseLegacy','loadTodayChanges80','loadTodayChanges93','loadTodayChanges95'
+  ];
+  function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
+  function isLegacyFunction(fn){ const s = srcOf(fn); return !!s && legacyNeedles.some(n => s.indexOf(n) >= 0); }
+  function ctrl(){ return (window.YX_CUSTOMER_CARD_CONTROLLER && typeof window.YX_CUSTOMER_CARD_CONTROLLER === 'object') ? window.YX_CUSTOMER_CARD_CONTROLLER : {}; }
+  function clearLive(reason){
+    try { if (typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function') window.__YX126_CLEAR_CUSTOMER_CACHE__(reason || 'fix129'); } catch(_e) {}
+    try { if (typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function') window.__YX127_CLEAR_SHORT_API_CACHE__(reason || 'fix129'); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx128:live-cache-cleared', {detail:{reason:reason || 'fix129'}})); } catch(_e) {}
+  }
+  function lockFunction(globalName, controllerName){
+    let fallback = typeof window[globalName] === 'function' && !isLegacyFunction(window[globalName]) ? window[globalName] : null;
+    try {
+      Object.defineProperty(window, globalName, {
+        configurable:true,
+        enumerable:true,
+        get(){ return (typeof ctrl()[controllerName] === 'function' ? ctrl()[controllerName] : fallback); },
+        set(v){
+          if (typeof v !== 'function') { fallback = v; return; }
+          if (isLegacyFunction(v)) return;
+          fallback = v;
+        }
+      });
+    } catch(_e) {
+      try { if (typeof ctrl()[controllerName] === 'function') window[globalName] = ctrl()[controllerName]; } catch(__e) {}
+    }
+  }
+  lockFunction('loadCustomerBlocks', 'loadCustomerBlocks');
+  lockFunction('renderCustomers', 'renderCustomers');
+  lockFunction('selectCustomerForModule', 'selectCustomerForModule');
+  lockFunction('yx120SelectCustomerForModule', 'selectCustomerForModule');
+  lockFunction('yx121SelectCustomerForModule', 'selectCustomerForModule');
+  lockFunction('yx122SelectCustomerForModule', 'selectCustomerForModule');
+  lockFunction('yx125SelectCustomerForModule', 'selectCustomerForModule');
+
+  let masterBase = (window.YX_MASTER && typeof window.YX_MASTER === 'object') ? {...window.YX_MASTER} : {};
+  function buildMaster(){
+    const c = ctrl();
+    return {
+      ...masterBase,
+      version: VERSION + '_LOCKED',
+      loadCustomerBlocks: c.loadCustomerBlocks || masterBase.loadCustomerBlocks,
+      renderCustomers: c.renderCustomers || c.loadCustomerBlocks || masterBase.renderCustomers,
+      selectCustomerForModule: c.selectCustomerForModule || masterBase.selectCustomerForModule,
+      openProducts: c.openProducts || c.selectCustomerForModule || masterBase.openProducts,
+      openActionSheet: c.openActionSheet || masterBase.openActionSheet,
+      editCustomer: c.editCustomer || masterBase.editCustomer,
+      moveRegion: c.moveRegion || masterBase.moveRegion,
+      archiveCustomer: c.archiveCustomer || masterBase.archiveCustomer,
+      deleteCustomer: c.deleteCustomer || masterBase.deleteCustomer,
+      refresh: c.refresh || masterBase.refresh,
+      clearCache: clearLive
+    };
+  }
+  try {
+    Object.defineProperty(window, 'YX_MASTER', {
+      configurable:true,
+      enumerable:true,
+      get(){ return buildMaster(); },
+      set(v){ if (v && typeof v === 'object') masterBase = {...masterBase, ...v}; }
+    });
+  } catch(_e) { try { window.YX_MASTER = buildMaster(); } catch(__e) {} }
+
+  function parseLocal(raw){ try { const u = new URL(String(raw || ''), location.href); return u.origin === location.origin ? u : null; } catch(_e){ return null; } }
+  function isLiveMutation(input, init){
+    try {
+      const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
+      const raw = String(typeof input === 'string' ? input : (input && input.url) || '');
+      const u = parseLocal(raw);
+      if (!u) return false;
+      return /^\/api\/(customers|customer-item|customer-items|inventory|orders|master_orders|master-order|ship|warehouse)/.test(u.pathname);
+    } catch(_e) { return false; }
+  }
+  const previousFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (previousFetch && !window.__YX128_FETCH_LIVE_INVALIDATOR__) {
+    window.__YX128_FETCH_LIVE_INVALIDATOR__ = true;
+    window.fetch = function(input, init){
+      const liveMutation = isLiveMutation(input, init);
+      if (liveMutation) clearLive('mutation-before');
+      const p = previousFetch(input, init);
+      if (!liveMutation || !p || typeof p.then !== 'function') return p;
+      return p.then(res => { try { if (res && res.ok) clearLive('mutation-after'); } catch(_e) {} return res; })
+              .catch(err => { try { clearLive('mutation-error'); } catch(_e) {} throw err; });
+    };
+  }
+
+  function normalizeCustomerBoard(){
+    let needsRefresh = false;
+    customerBoardIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const legacyCards = el.querySelectorAll('.customer-region-card:not(.yx125-customer-card),.yx119-customer-card:not(.yx125-customer-card),.yx120-customer-card:not(.yx125-customer-card),.yx121-customer-card:not(.yx125-customer-card)');
+      if (legacyCards.length) needsRefresh = true;
+    });
+    if (needsRefresh && typeof ctrl().refresh === 'function') {
+      try { requestAnimationFrame(() => ctrl().refresh()); } catch(_e) { try { ctrl().refresh(); } catch(__e) {} }
+    }
+  }
+  ['DOMContentLoaded','pageshow'].forEach(evt => window.addEventListener(evt, normalizeCustomerBoard, true));
+  window.addEventListener('yx126:customer-cache-cleared', normalizeCustomerBoard, true);
+  window.addEventListener('yx128:live-cache-cleared', () => {
+    if (typeof ctrl().bindCards === 'function') { try { ctrl().bindCards(); } catch(_e) {} }
+  }, true);
+
+  try {
+    document.documentElement.dataset.yxFix128 = VERSION;
+    window.__YX_BUILD_VERSION__ = 'fix133-current-issues-final-polish';
+    window.__YX_FIX128_MARKER__ = VERSION;
+    window.__YX_FIX129_MARKER__ = VERSION;
+    window.__YX_FORCE_NO_OLD_UI__ = true;
+  } catch(_e) {}
+})();
+/* ==== FIX128 end ==== */
+
+
+/* ==== FIX130: final current-problem convergence, keep features ==== */
+(function(){
+  'use strict';
+  if (window.__YX130_FINAL_CURRENT_PROBLEM_CONVERGE__) return;
+  window.__YX130_FINAL_CURRENT_PROBLEM_CONVERGE__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const BUILD = 'fix133-current-issues-final-polish';
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+  function pageKey(){
+    const p = location.pathname || '';
+    if (p.includes('/today-changes')) return 'today_changes';
+    if (p.includes('/warehouse')) return 'warehouse';
+    if (p.includes('/master-order')) return 'master_order';
+    if (p.includes('/shipping-query')) return 'shipping_query';
+    return p.split('/').filter(Boolean)[0] || 'home';
+  }
+  async function jfetch(url, options={}){
+    const opts = {...options, credentials:'same-origin'};
+    opts.headers = {...(opts.headers||{})};
+    if (opts.body && !(opts.body instanceof FormData) && !opts.headers['Content-Type']) opts.headers['Content-Type']='application/json';
+    const r = await fetch(url, opts);
+    let d = null;
+    try { d = await r.json(); } catch(_e) {}
+    if (!r.ok || (d && d.success === false)) throw new Error((d && (d.error || d.message)) || `HTTP ${r.status}`);
+    return d || {success:true};
+  }
+  function toast(msg, kind='ok'){
+    try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); }
+    catch(_e) { try { console.log(msg); } catch(__e) {} }
+  }
+  function clearLive(reason){
+    try { if (typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function') window.__YX126_CLEAR_CUSTOMER_CACHE__(reason || 'fix130'); } catch(_e) {}
+    try { if (typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function') window.__YX127_CLEAR_SHORT_API_CACHE__(reason || 'fix130'); } catch(_e) {}
+  }
+
+  // 今日異動：最後只保留一套直列卡片 + 手動刷新；不讓舊版橫排/重算邏輯回來。
+  let todayLoading = null;
+  let onlyUnread = false;
+  function t24(v){ const raw=clean(v); const m=raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/); return m ? `${m[1]} ${m[2]}` : raw; }
+  function logHTML(r){
+    const id = Number(r.id || 0);
+    return `<div class="today-item deduct-card yx130-today-row" data-log-id="${id}">
+      <div><strong>${esc(r.action || '異動')}</strong></div>
+      <div class="small-note">${esc(t24(r.created_at || r.time || ''))}｜${esc(r.username || '')}</div>
+      <button type="button" class="ghost-btn tiny-btn danger-btn" data-yx130-delete-log="${id}">刪除</button>
+    </div>`;
+  }
+  function fill(id, rows, empty){ const el=$(id); if(el) el.innerHTML=(rows||[]).map(logHTML).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`; }
+  async function loadTodayFinal(opts={}){
+    if (pageKey() !== 'today_changes') return null;
+    if (todayLoading) return todayLoading;
+    todayLoading = (async()=>{
+      const manual = opts === true || opts.force === true || opts.manual === true;
+      const d = await jfetch('/api/today-changes?ts=' + Date.now() + (manual ? '&manual=1' : ''), {method:'GET'});
+      const s = d.summary || {};
+      const badge = $('today-unread-badge');
+      if (badge) badge.textContent = String(Number(s.unread_count || 0));
+      const summary = $('today-summary-cards');
+      if (summary) {
+        summary.className = 'card-list yx130-today-summary';
+        summary.innerHTML = [
+          ['進貨', Number(s.inbound_count||0), '筆'],
+          ['出貨', Number(s.outbound_count||0), '筆'],
+          ['新增訂單', Number(s.new_order_count||0), '筆'],
+          ['未錄入倉庫圖', Number(s.unplaced_count||0), '件']
+        ].map(x=>`<div class="deduct-card yx130-summary-card"><strong>${esc(x[0])}</strong><div class="big-number">${x[1]}${esc(x[2])}</div></div>`).join('');
+        if (!$('yx130-refresh-today')) {
+          const row = document.createElement('div');
+          row.className = 'btn-row compact-row yx130-refresh-row';
+          row.innerHTML = '<button type="button" class="ghost-btn small-btn" id="yx130-refresh-today">刷新</button>';
+          summary.insertAdjacentElement('beforebegin', row);
+          $('yx130-refresh-today').addEventListener('click', () => loadTodayFinal({manual:true, force:true}).catch(e=>toast(e.message||'刷新失敗','error')));
+        }
+      }
+      fill('today-inbound-list', d.feed && d.feed.inbound, '今天沒有進貨');
+      fill('today-outbound-list', d.feed && d.feed.outbound, '今天沒有出貨');
+      fill('today-order-list', d.feed && d.feed.new_orders, '今天沒有新增訂單');
+      const u = $('today-unplaced-list');
+      if (u) {
+        const arr = Array.isArray(d.unplaced_items) ? d.unplaced_items : [];
+        u.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card yx130-unplaced-row"><strong>${esc(it.product_text || it.product_size || '')}</strong><div class="small-note">${esc(it.customer_name || '未指定客戶')}｜未錄入 ${Number(it.unplaced_qty || it.qty || 0)} 件${it.source_summary ? `｜來源：${esc(it.source_summary)}` : ''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
+      }
+      document.querySelectorAll('.yx93-today-card,.yx95-today-card,#yx94-refresh-today,#yx95-refresh-today,#yx96-refresh-today,#yx99-today-old').forEach(el=>{ try { el.remove(); } catch(_e) {} });
+      try { await jfetch('/api/today-changes/read', {method:'POST', body:'{}'}); } catch(_e) {}
+      return d;
+    })().finally(()=>{ todayLoading=null; });
+    return todayLoading;
+  }
+  try { Object.defineProperty(window, 'loadTodayChanges', {configurable:true, writable:true, value:loadTodayFinal}); } catch(_e) { window.loadTodayChanges = loadTodayFinal; }
+  document.addEventListener('click', async ev => {
+    const del = ev.target && ev.target.closest && ev.target.closest('[data-yx130-delete-log]');
+    if (del) {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = Number(del.getAttribute('data-yx130-delete-log') || 0);
+      if (!id) return;
+      try { await jfetch('/api/today-changes/' + id, {method:'DELETE'}); clearLive('today-delete'); await loadTodayFinal({manual:true, force:true}); toast('已刪除異動','ok'); }
+      catch(e){ toast(e.message || '刪除失敗','error'); }
+      return;
+    }
+    if (ev.target && ev.target.id === 'today-unread-toggle') {
+      ev.preventDefault();
+      onlyUnread = !onlyUnread;
+      ev.target.classList.toggle('active', onlyUnread);
+      ev.target.textContent = onlyUnread ? '顯示全部' : '只看未讀';
+      document.querySelectorAll('.yx130-today-row').forEach(row => row.classList.toggle('hidden', onlyUnread && Number($('today-unread-badge')?.textContent || 0) <= 0));
+    }
+  }, true);
+  document.addEventListener('DOMContentLoaded', () => { if (pageKey() === 'today_changes') loadTodayFinal({manual:true, force:true}).catch(e=>toast(e.message||'今日異動載入失敗','error')); }, {once:true});
+  window.addEventListener('pageshow', () => { if (pageKey() === 'today_changes') loadTodayFinal({manual:true, force:true}).catch(()=>{}); }, true);
+
+  // 客戶母版重綁：舊入口仍可叫，但只轉接新版 controller，避免功能消失。
+  function relockCustomer(){
+    const c = window.YX_CUSTOMER_CARD_CONTROLLER || {};
+    if (typeof c.loadCustomerBlocks === 'function') {
+      try { window.loadCustomerBlocks = c.loadCustomerBlocks; window.renderCustomers = c.renderCustomers || c.loadCustomerBlocks; } catch(_e) {}
+    }
+    if (typeof c.selectCustomerForModule === 'function') {
+      try { window.selectCustomerForModule = c.selectCustomerForModule; } catch(_e) {}
+    }
+    try { if (typeof c.bindCards === 'function') c.bindCards(); } catch(_e) {}
+  }
+  ['DOMContentLoaded','pageshow','yx128:live-cache-cleared'].forEach(evt => window.addEventListener(evt, relockCustomer, true));
+  setTimeout(relockCustomer, 80);
+  setTimeout(relockCustomer, 420);
+
+  try {
+    document.documentElement.dataset.yxFix130 = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX130_MARKER__ = VERSION;
+    window.__YX_FORCE_NO_OLD_UI__ = true;
+  } catch(_e) {}
+})();
+/* ==== FIX130 end ==== */
+
+/* ==== FIX131: current issues - lock Today Changes final UI and home action layout ==== */
+(function(){
+  'use strict';
+  if (window.__YX131_TODAY_HOME_LEGACY_TIMER_FIX__) return;
+  window.__YX131_TODAY_HOME_LEGACY_TIMER_FIX__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const BUILD = 'fix133-current-issues-final-polish';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const pageKey = () => (location.pathname || '').includes('/today-changes') ? 'today_changes' : ((location.pathname || '/').split('/').filter(Boolean)[0] || 'home');
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
+
+  function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
+
+  // 舊 FIX99 仍會在 click / DOMContentLoaded 後用 setTimeout 把今日異動新版卡片隱藏。
+  // 不刪舊功能，只阻擋「清掉新版今日異動畫面」這類延後重繪。
+  (function blockLegacyTodayTimers(){
+    if (window.__YX131_BLOCK_LEGACY_TODAY_TIMERS__) return;
+    window.__YX131_BLOCK_LEGACY_TODAY_TIMERS__ = true;
+    const nativeSetTimeout = window.setTimeout.bind(window);
+    window.__YX131_NATIVE_SET_TIMEOUT__ = nativeSetTimeout;
+    window.setTimeout = function(fn, delay, ...args){
+      try {
+        if (pageKey() === 'today_changes') {
+          const s = srcOf(fn);
+          if (/clearTodayTop99|installTodayLabelHandlers99|loadTodayChanges99\(|yx99-removed-today|applyTodayFilter99/.test(s) && !/FIX133_CURRENT_ISSUES_FINAL_POLISH/.test(s)) {
+            try { (window.__YX131_BLOCKED_TODAY_TIMERS__ = window.__YX131_BLOCKED_TODAY_TIMERS__ || []).push({delay:Number(delay||0), at:Date.now()}); } catch(_e) {}
+            return 0;
+          }
+        }
+      } catch(_e) {}
+      return nativeSetTimeout(fn, delay, ...args);
+    };
+  })();
+
+  async function jfetch(url, options={}){
+    const opts = {...options, credentials:'same-origin', cache:'no-store'};
+    opts.headers = {...(opts.headers || {})};
+    if (opts.body && !(opts.body instanceof FormData) && !opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
+    const r = await fetch(url, opts);
+    let d = null;
+    try { d = await r.json(); } catch(_e) {}
+    if (!r.ok || (d && d.success === false)) throw new Error((d && (d.error || d.message)) || `HTTP ${r.status}`);
+    return d || {success:true};
+  }
+
+  function time24(v){
+    const raw = clean(v);
+    const m = raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    return m ? `${m[1]} ${m[2]}` : raw;
+  }
+  function logRow(r){
+    const id = Number(r?.id || 0);
+    const target = clean(r?.target || r?.customer_name || r?.name || '');
+    const product = clean(r?.product_text || r?.message || r?.product || '');
+    return `<div class="today-item deduct-card yx131-today-row" data-log-id="${id}">
+      <div class="yx131-today-main"><strong>${esc(r?.action || '異動')}</strong>${target ? `<span>${esc(target)}</span>` : ''}</div>
+      ${product ? `<div class="small-note">${esc(product)}</div>` : ''}
+      <div class="small-note">${esc(time24(r?.created_at || r?.time || ''))}｜${esc(r?.username || '')}</div>
+      ${id ? `<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx131-delete-log="${id}">刪除</button>` : ''}
+    </div>`;
+  }
+  function ensureTodayChrome(){
+    const summary = $('today-summary-cards');
+    if (summary) {
+      summary.style.display = '';
+      summary.className = 'card-list yx131-today-summary';
+    }
+    const filterBar = document.querySelector('.today-filter-bar');
+    if (filterBar) {
+      filterBar.style.display = '';
+      filterBar.classList.remove('yx99-removed-today-filterbar');
+    }
+    let row = $('yx131-refresh-row');
+    if (!row && summary) {
+      row = document.createElement('div');
+      row.id = 'yx131-refresh-row';
+      row.className = 'btn-row compact-row yx131-refresh-row';
+      row.innerHTML = '<button type="button" class="ghost-btn small-btn" id="yx131-refresh-today">刷新</button>';
+      summary.insertAdjacentElement('beforebegin', row);
+      $('yx131-refresh-today')?.addEventListener('click', () => loadToday131({manual:true, force:true}).catch(e => toast(e.message || '刷新失敗', 'error')));
+    }
+    document.querySelectorAll('.yx94-today-refresh-row,.yx95-today-refresh-row,.yx96-today-refresh-row,.yx98-today-refresh-row,#yx94-refresh-today,#yx95-refresh-today,#yx96-refresh-today,#yx98-refresh-today,#yx130-refresh-today').forEach(el => { try { (el.closest?.('.btn-row') || el).remove(); } catch(_e) {} });
+  }
+  function fill(id, rows, empty){
+    const el = $(id);
+    if (el) el.innerHTML = (rows || []).map(logRow).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`;
+  }
+  function applyTodayFilter(kind){
+    kind = kind || document.querySelector('[data-today-filter].active')?.getAttribute('data-today-filter') || 'all';
+    document.querySelectorAll('[data-today-filter]').forEach(btn => btn.classList.toggle('active', (btn.getAttribute('data-today-filter') || 'all') === kind));
+    document.querySelectorAll('[data-today-panel]').forEach(panel => {
+      const key = panel.getAttribute('data-today-panel') || '';
+      panel.style.display = (kind === 'all' || key === kind) ? '' : 'none';
+    });
+  }
+
+  let todayLoading = null;
+  let lastTodayData = null;
+  function renderToday131(data){
+    if (pageKey() !== 'today_changes') return data;
+    ensureTodayChrome();
+    const d = data || lastTodayData || {};
+    const s = d.summary || {};
+    const badge = $('today-unread-badge');
+    if (badge) badge.textContent = String(Number(s.unread_count || 0));
+    const summary = $('today-summary-cards');
+    if (summary) {
+      summary.innerHTML = [
+        ['進貨', Number(s.inbound_count || 0), '筆'],
+        ['出貨', Number(s.outbound_count || 0), '筆'],
+        ['新增訂單', Number(s.new_order_count || 0), '筆'],
+        ['未錄入倉庫圖', Number(s.unplaced_count || 0), '件']
+      ].map(x => `<div class="deduct-card yx131-summary-card"><strong>${esc(x[0])}</strong><div class="big-number">${x[1]}${esc(x[2])}</div></div>`).join('');
+    }
+    fill('today-inbound-list', d.feed && d.feed.inbound, '今天沒有進貨');
+    fill('today-outbound-list', d.feed && d.feed.outbound, '今天沒有出貨');
+    fill('today-order-list', d.feed && d.feed.new_orders, '今天沒有新增訂單');
+    const u = $('today-unplaced-list');
+    if (u) {
+      const arr = Array.isArray(d.unplaced_items) ? d.unplaced_items : [];
+      u.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card yx131-unplaced-row"><strong>${esc(it.product_text || it.product_size || '')}</strong><div class="small-note">${esc(it.customer_name || '未指定客戶')}｜未錄入 ${Number(it.unplaced_qty || it.qty || 0)} 件${it.source_summary ? `｜來源：${esc(it.source_summary)}` : ''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
+    }
+    document.querySelectorAll('.yx99-today-row,.yx99-today-unplaced,.yx93-today-card,.yx95-today-card,#yx99-today-old').forEach(el => { try { el.remove(); } catch(_e) {} });
+    applyTodayFilter();
+    return d;
+  }
+  async function loadToday131(opts={}){
+    if (pageKey() !== 'today_changes') return null;
+    if (todayLoading) return todayLoading;
+    const manual = opts === true || opts.force === true || opts.manual === true;
+    todayLoading = (async()=>{
+      try {
+        const d = await jfetch('/api/today-changes?ts=' + Date.now() + '&yx131=1' + (manual ? '&manual=1' : ''), {method:'GET'});
+        lastTodayData = d;
+        renderToday131(d);
+        try { await jfetch('/api/today-changes/read', {method:'POST', body:'{}'}); } catch(_e) {}
+        return d;
+      } finally { todayLoading = null; }
+    })();
+    return todayLoading;
+  }
+
+  try { Object.defineProperty(window, 'loadTodayChanges', {configurable:true, writable:true, value:loadToday131}); } catch(_e) { window.loadTodayChanges = loadToday131; }
+  try { Object.defineProperty(window, 'loadTodayChanges99', {configurable:true, writable:true, value:loadToday131}); } catch(_e) { window.loadTodayChanges99 = loadToday131; }
+
+  document.addEventListener('click', async ev => {
+    const filter = ev.target?.closest?.('[data-today-filter]');
+    if (filter && pageKey() === 'today_changes') {
+      ev.preventDefault(); ev.stopPropagation();
+      applyTodayFilter(filter.getAttribute('data-today-filter') || 'all');
+      renderToday131(lastTodayData);
+      return;
+    }
+    const del = ev.target?.closest?.('[data-yx131-delete-log],[data-yx130-delete-log]');
+    if (del && pageKey() === 'today_changes') {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = Number(del.getAttribute('data-yx131-delete-log') || del.getAttribute('data-yx130-delete-log') || 0);
+      if (!id) return;
+      try { await jfetch('/api/today-changes/' + id, {method:'DELETE'}); await loadToday131({manual:true, force:true}); toast('已刪除異動','ok'); }
+      catch(e){ toast(e.message || '刪除失敗','error'); }
+      return;
+    }
+    if (ev.target && ev.target.id === 'today-clear-read-btn' && pageKey() === 'today_changes') {
+      ev.preventDefault(); ev.stopPropagation();
+      try { await jfetch('/api/today-changes/read', {method:'POST', body:'{}'}); await loadToday131({manual:true, force:true}); toast('已清除未讀數','ok'); }
+      catch(e){ toast(e.message || '清除失敗','error'); }
+      return;
+    }
+  }, true);
+
+  function bootToday131(){
+    if (pageKey() !== 'today_changes') return;
+    ensureTodayChrome();
+    loadToday131({manual:true, force:true}).catch(e => toast(e.message || '今日異動載入失敗', 'error'));
+    // 舊版若已在同一次 DOMContentLoaded 先跑，這裡只用最後資料補畫，不再重打 API。
+    [80, 220, 520, 980, 1600].forEach(ms => (window.__YX131_NATIVE_SET_TIMEOUT__ || window.setTimeout)(() => renderToday131(lastTodayData), ms));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootToday131, {once:true}); else bootToday131();
+  window.addEventListener('pageshow', bootToday131, true);
+
+  try {
+    document.documentElement.dataset.yxFix131 = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX131_MARKER__ = VERSION;
+    window.__YX_FORCE_NO_OLD_UI__ = true;
+  } catch(_e) {}
+})();
+/* ==== FIX131 end ==== */
+
+/* ==== FIX132: current problem cleanup - today unread + duplicate load guard ==== */
+(function(){
+  'use strict';
+  if (window.__YX132_TODAY_UNREAD_STABLE__) return;
+  window.__YX132_TODAY_UNREAD_STABLE__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const BUILD = 'fix133-current-issues-final-polish';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const pageKey = () => (location.pathname || '').includes('/today-changes') ? 'today_changes' : ((location.pathname || '/').split('/').filter(Boolean)[0] || 'home');
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
+
+  // 同一瞬間舊版與新版都請求今日異動時，只讓網路請求跑一次，避免畫面載入卡頓。
+  (function installTodayFetchCoalesce(){
+    if (window.__YX132_TODAY_FETCH_COALESCE__) return;
+    const prevFetch = window.fetch ? window.fetch.bind(window) : null;
+    if (!prevFetch) return;
+    window.__YX132_TODAY_FETCH_COALESCE__ = true;
+    const inFlight = new Map();
+    window.fetch = function(input, init){
+      try {
+        const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+        const raw = String(typeof input === 'string' ? input : (input && input.url) || '');
+        const u = new URL(raw, location.href);
+        const isTodayRead = u.origin === location.origin && u.pathname === '/api/today-changes/read';
+        const isTodayGet = u.origin === location.origin && u.pathname === '/api/today-changes' && method === 'GET';
+        if (isTodayRead) {
+          try { window.__YX132_LAST_READ_AT__ = Date.now(); } catch(_e) {}
+        }
+        if (isTodayGet && pageKey() === 'today_changes') {
+          const key = u.pathname + '|full';
+          const hit = inFlight.get(key);
+          if (hit) return hit.then(res => res.clone());
+          const p = prevFetch(input, init).then(res => {
+            setTimeout(() => inFlight.delete(key), 450);
+            return res;
+          }).catch(err => { inFlight.delete(key); throw err; });
+          inFlight.set(key, p);
+          return p.then(res => res.clone());
+        }
+      } catch(_e) {}
+      return prevFetch(input, init);
+    };
+  })();
+
+  async function jfetch(url, options={}){
+    const opts = {...options, credentials:'same-origin', cache:'no-store'};
+    opts.headers = {...(opts.headers || {})};
+    if (opts.body && !(opts.body instanceof FormData) && !opts.headers['Content-Type']) opts.headers['Content-Type'] = 'application/json';
+    const r = await fetch(url, opts);
+    let d = null;
+    try { d = await r.json(); } catch(_e) {}
+    if (!r.ok || (d && d.success === false)) throw new Error((d && (d.error || d.message)) || `HTTP ${r.status}`);
+    return d || {success:true};
+  }
+
+  function time24(v){
+    const raw = clean(v);
+    const m = raw.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+    return m ? `${m[1]} ${m[2]}` : raw;
+  }
+  function isUnreadRow(r, readAt){
+    const t = String(r?.created_at || r?.time || '');
+    const mark = String(readAt || '');
+    return !mark || (t && t > mark);
+  }
+  function logRow(r, readAt){
+    const id = Number(r?.id || 0);
+    const target = clean(r?.target || r?.customer_name || r?.name || '');
+    const product = clean(r?.product_text || r?.message || r?.product || '');
+    const unread = isUnreadRow(r, readAt);
+    return `<div class="today-item deduct-card yx132-today-row${unread ? ' yx132-unread' : ''}" data-log-id="${id}" data-yx132-unread="${unread ? 1 : 0}">
+      <div class="yx132-today-main"><strong>${esc(r?.action || '異動')}</strong>${target ? `<span>${esc(target)}</span>` : ''}${unread ? '<em class="yx132-unread-dot">新</em>' : ''}</div>
+      ${product ? `<div class="small-note">${esc(product)}</div>` : ''}
+      <div class="small-note">${esc(time24(r?.created_at || r?.time || ''))}｜${esc(r?.username || '')}</div>
+      ${id ? `<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx132-delete-log="${id}">刪除</button>` : ''}
+    </div>`;
+  }
+
+  function ensureChrome132(){
+    const summary = $('today-summary-cards');
+    if (summary) {
+      summary.style.display = '';
+      summary.className = 'card-list yx132-today-summary';
+    }
+    const filterBar = document.querySelector('.today-filter-bar');
+    if (filterBar) {
+      filterBar.style.display = '';
+      filterBar.classList.remove('yx99-removed-today-filterbar');
+    }
+    let row = $('yx132-refresh-row');
+    if (!row && summary) {
+      row = document.createElement('div');
+      row.id = 'yx132-refresh-row';
+      row.className = 'btn-row compact-row yx132-refresh-row';
+      row.innerHTML = '<button type="button" class="ghost-btn small-btn" id="yx132-refresh-today">刷新</button>';
+      summary.insertAdjacentElement('beforebegin', row);
+      $('yx132-refresh-today')?.addEventListener('click', () => loadToday132({manual:true, force:true}).catch(e => toast(e.message || '刷新失敗', 'error')));
+    }
+    document.querySelectorAll('.yx94-today-refresh-row,.yx95-today-refresh-row,.yx96-today-refresh-row,.yx98-today-refresh-row,.yx130-refresh-row,.yx131-refresh-row,#yx94-refresh-today,#yx95-refresh-today,#yx96-refresh-today,#yx98-refresh-today,#yx130-refresh-today,#yx131-refresh-today').forEach(el => { try { (el.closest?.('.btn-row') || el).remove(); } catch(_e) {} });
+    const unreadBtn = $('today-unread-toggle');
+    if (unreadBtn) {
+      unreadBtn.textContent = onlyUnread ? '顯示全部' : '只看未讀';
+      unreadBtn.classList.toggle('active', onlyUnread);
+    }
+    const clearBtn = $('today-clear-read-btn');
+    if (clearBtn) clearBtn.textContent = '清除未讀數';
+  }
+
+  function fill(id, rows, empty, readAt){
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = (rows || []).map(r => logRow(r, readAt)).join('') || `<div class="empty-state-card compact-empty">${esc(empty)}</div>`;
+  }
+  function getActiveFilter(){ return document.querySelector('[data-today-filter].active')?.getAttribute('data-today-filter') || 'all'; }
+  function applyVisibility132(kind){
+    kind = kind || getActiveFilter();
+    document.querySelectorAll('[data-today-filter]').forEach(btn => btn.classList.toggle('active', (btn.getAttribute('data-today-filter') || 'all') === kind));
+    document.querySelectorAll('[data-today-panel]').forEach(panel => {
+      const key = panel.getAttribute('data-today-panel') || '';
+      const showPanel = (kind === 'all' || key === kind);
+      panel.style.display = showPanel ? '' : 'none';
+    });
+    document.querySelectorAll('.yx132-today-row').forEach(row => {
+      row.classList.toggle('hidden', onlyUnread && row.getAttribute('data-yx132-unread') !== '1');
+    });
+    const unreadBtn = $('today-unread-toggle');
+    if (unreadBtn) {
+      unreadBtn.textContent = onlyUnread ? '顯示全部' : '只看未讀';
+      unreadBtn.classList.toggle('active', onlyUnread);
+    }
+  }
+
+  let onlyUnread = false;
+  try { onlyUnread = localStorage.getItem('yxTodayOnlyUnread132') === '1'; } catch(_e) {}
+  let todayLoading = null;
+  let lastTodayData = null;
+  let lastReadAtForRows = '';
+
+  function renderToday132(data){
+    if (pageKey() !== 'today_changes') return data;
+    ensureChrome132();
+    const d = data || lastTodayData || {};
+    const s = d.summary || {};
+    const readAtForRows = d.__yx132ReadAtForRows ?? d.read_at ?? lastReadAtForRows ?? '';
+    lastReadAtForRows = readAtForRows;
+    const badge = $('today-unread-badge');
+    if (badge) badge.textContent = String(Number(s.unread_count || 0));
+    const summary = $('today-summary-cards');
+    if (summary) {
+      summary.innerHTML = [
+        ['進貨', Number(s.inbound_count || 0), '筆'],
+        ['出貨', Number(s.outbound_count || 0), '筆'],
+        ['新增訂單', Number(s.new_order_count || 0), '筆'],
+        ['未錄入倉庫圖', Number(s.unplaced_count || 0), '件']
+      ].map(x => `<div class="deduct-card yx132-summary-card"><strong>${esc(x[0])}</strong><div class="big-number">${x[1]}${esc(x[2])}</div></div>`).join('');
+    }
+    fill('today-inbound-list', d.feed && d.feed.inbound, '今天沒有進貨', readAtForRows);
+    fill('today-outbound-list', d.feed && d.feed.outbound, '今天沒有出貨', readAtForRows);
+    fill('today-order-list', d.feed && d.feed.new_orders, '今天沒有新增訂單', readAtForRows);
+    const u = $('today-unplaced-list');
+    if (u) {
+      const arr = Array.isArray(d.unplaced_items) ? d.unplaced_items : [];
+      u.innerHTML = arr.length ? arr.map(it => `<div class="deduct-card yx132-unplaced-row"><strong>${esc(it.product_text || it.product_size || '')}</strong><div class="small-note">${esc(it.customer_name || '未指定客戶')}｜未錄入 ${Number(it.unplaced_qty || it.qty || 0)} 件${it.source_summary ? `｜來源：${esc(it.source_summary)}` : ''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
+    }
+    document.querySelectorAll('.yx99-today-row,.yx99-today-unplaced,.yx93-today-card,.yx95-today-card,.yx130-today-row,.yx131-today-row,.yx130-unplaced-row,.yx131-unplaced-row,#yx99-today-old').forEach(el => { try { el.remove(); } catch(_e) {} });
+    applyVisibility132();
+    return d;
+  }
+
+  async function loadToday132(opts={}){
+    if (pageKey() !== 'today_changes') return null;
+    if (todayLoading) return todayLoading;
+    const manual = opts === true || opts.force === true || opts.manual === true;
+    todayLoading = (async()=>{
+      try {
+        const d = await jfetch('/api/today-changes?ts=' + Date.now() + '&yx132=1' + (manual ? '&manual=1' : ''), {method:'GET'});
+        d.__yx132ReadAtForRows = d.read_at || lastReadAtForRows || '';
+        lastTodayData = d;
+        renderToday132(d);
+        try {
+          await jfetch('/api/today-changes/read', {method:'POST', body:'{}'});
+          if (d.summary) d.summary.unread_count = 0;
+          const badge = $('today-unread-badge');
+          if (badge) badge.textContent = '0';
+          try { window.dispatchEvent(new CustomEvent('yx132:today-read-cleared')); } catch(_e) {}
+        } catch(_e) {}
+        return d;
+      } finally { todayLoading = null; }
+    })();
+    return todayLoading;
+  }
+
+  try { Object.defineProperty(window, 'loadTodayChanges', {configurable:true, writable:true, value:loadToday132}); } catch(_e) { window.loadTodayChanges = loadToday132; }
+  try { Object.defineProperty(window, 'loadTodayChanges99', {configurable:true, writable:true, value:loadToday132}); } catch(_e) { window.loadTodayChanges99 = loadToday132; }
+  try { Object.defineProperty(window, 'loadTodayChanges131', {configurable:true, writable:true, value:loadToday132}); } catch(_e) { window.loadTodayChanges131 = loadToday132; }
+
+  document.addEventListener('click', async ev => {
+    if (pageKey() !== 'today_changes') return;
+    const filter = ev.target?.closest?.('[data-today-filter]');
+    if (filter) {
+      ev.preventDefault(); ev.stopPropagation();
+      applyVisibility132(filter.getAttribute('data-today-filter') || 'all');
+      return;
+    }
+    if (ev.target && ev.target.id === 'today-unread-toggle') {
+      ev.preventDefault(); ev.stopPropagation();
+      onlyUnread = !onlyUnread;
+      try { localStorage.setItem('yxTodayOnlyUnread132', onlyUnread ? '1' : '0'); } catch(_e) {}
+      applyVisibility132();
+      return;
+    }
+    const del = ev.target?.closest?.('[data-yx132-delete-log],[data-yx131-delete-log],[data-yx130-delete-log]');
+    if (del) {
+      ev.preventDefault(); ev.stopPropagation();
+      const id = Number(del.getAttribute('data-yx132-delete-log') || del.getAttribute('data-yx131-delete-log') || del.getAttribute('data-yx130-delete-log') || 0);
+      if (!id) return;
+      try { await jfetch('/api/today-changes/' + id, {method:'DELETE'}); await loadToday132({manual:true, force:true}); toast('已刪除異動','ok'); }
+      catch(e){ toast(e.message || '刪除失敗','error'); }
+      return;
+    }
+    if (ev.target && ev.target.id === 'today-clear-read-btn') {
+      ev.preventDefault(); ev.stopPropagation();
+      try {
+        await jfetch('/api/today-changes/read', {method:'POST', body:'{}'});
+        if (lastTodayData && lastTodayData.summary) lastTodayData.summary.unread_count = 0;
+        const badge = $('today-unread-badge');
+        if (badge) badge.textContent = '0';
+        toast('已清除未讀數','ok');
+      } catch(e){ toast(e.message || '清除失敗','error'); }
+      return;
+    }
+  }, true);
+
+  function bootToday132(){
+    if (pageKey() !== 'today_changes') return;
+    ensureChrome132();
+    loadToday132({manual:true, force:true}).catch(e => toast(e.message || '今日異動載入失敗', 'error'));
+    [120, 360, 900, 1700].forEach(ms => (window.__YX131_NATIVE_SET_TIMEOUT__ || window.__YX132_NATIVE_SET_TIMEOUT__ || window.setTimeout)(() => renderToday132(lastTodayData), ms));
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootToday132, {once:true}); else bootToday132();
+  window.addEventListener('pageshow', bootToday132, true);
+
+  try {
+    document.documentElement.dataset.yxFix132 = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX132_MARKER__ = VERSION;
+    window.__YX_FORCE_NO_OLD_UI__ = true;
+  } catch(_e) {}
+})();
+/* ==== FIX132 end ==== */
+
+/* ==== FIX133: current issues - final Today unread visual clear, swipe delete, legacy UI guard ==== */
+(function(){
+  'use strict';
+  if (window.__YX133_CURRENT_ISSUES_FINAL_POLISH__) return;
+  window.__YX133_CURRENT_ISSUES_FINAL_POLISH__ = true;
+  const VERSION = 'FIX133_CURRENT_ISSUES_FINAL_POLISH';
+  const BUILD = 'fix133-current-issues-final-polish';
+  const $ = id => document.getElementById(id);
+  const pageKey = () => (window.__YX_PAGE_ENDPOINT__ || document.querySelector('.module-screen')?.dataset?.module || '').replace(/_page$/, '');
+  const isToday = () => pageKey() === 'today_changes' || !!$('today-summary-cards');
+  function toast(msg, kind='ok') { try { (window.toast || window.showToast || console.log)(msg, kind); } catch(_e) {} }
+  function rowLists(){ return ['today-inbound-list','today-outbound-list','today-order-list'].map($).filter(Boolean); }
+  function unreadMode(){ return !!$('today-unread-toggle')?.classList?.contains('active') || localStorage.getItem('yxTodayOnlyUnread132') === '1' || localStorage.getItem('yxTodayOnlyUnread133') === '1'; }
+  function setBadge(n){ const b=$('today-unread-badge'); if (b) b.textContent = String(Number(n || 0)); }
+  function cleanLegacyTodayDom(){
+    if (!isToday()) return;
+    document.querySelectorAll('.yx99-today-row,.yx99-today-unplaced,.yx93-today-card,.yx94-today-card,.yx95-today-card,.yx130-today-row,.yx131-today-row,.yx130-unplaced-row,.yx131-unplaced-row,#yx99-today-old,.yx94-today-refresh-row,.yx95-today-refresh-row,.yx96-today-refresh-row,.yx98-today-refresh-row,.yx130-refresh-row,.yx131-refresh-row,#yx94-refresh-today,#yx95-refresh-today,#yx96-refresh-today,#yx98-refresh-today,#yx130-refresh-today,#yx131-refresh-today').forEach(el => { try { (el.closest?.('.btn-row') && /^yx(94|95|96|98|130|131)-refresh/.test(el.id || '') ? el.closest('.btn-row') : el).remove(); } catch(_e) {} });
+  }
+  function ensureRefreshButton(){
+    if (!isToday()) return;
+    const summary = $('today-summary-cards');
+    if (!summary) return;
+    let row = $('yx132-refresh-row') || $('yx133-refresh-row');
+    if (!row) {
+      row = document.createElement('div');
+      row.id = 'yx133-refresh-row';
+      row.className = 'btn-row compact-row yx132-refresh-row yx133-refresh-row';
+      row.innerHTML = '<button type="button" class="ghost-btn small-btn" id="yx133-refresh-today">刷新</button>';
+      summary.insertAdjacentElement('beforebegin', row);
+    }
+    const btn = $('yx133-refresh-today') || $('yx132-refresh-today');
+    if (btn && !btn.dataset.yx133Bound) {
+      btn.dataset.yx133Bound = '1';
+      btn.addEventListener('click', ev => {
+        ev.preventDefault();
+        try { (window.loadTodayChanges || window.loadTodayChanges99 || window.loadTodayChanges131)?.({manual:true, force:true}); }
+        catch(e){ toast(e.message || '刷新失敗', 'error'); }
+      });
+    }
+  }
+  function clearUnreadVisual(){
+    if (!isToday()) return;
+    setBadge(0);
+    document.querySelectorAll('.yx132-today-row,.yx133-today-row').forEach(row => {
+      row.classList.remove('yx132-unread','yx133-unread');
+      row.setAttribute('data-yx132-unread','0');
+      row.setAttribute('data-yx133-unread','0');
+      row.querySelectorAll('.yx132-unread-dot,.yx133-unread-dot').forEach(x => x.remove());
+    });
+    try { localStorage.setItem('yxTodayLastManualClear133', new Date().toISOString()); } catch(_e) {}
+    applyUnreadVisibility();
+  }
+  function applyUnreadVisibility(){
+    if (!isToday()) return;
+    const only = unreadMode();
+    const unplacedPanel = document.querySelector('[data-today-panel="unplaced"]');
+    if (unplacedPanel) unplacedPanel.classList.toggle('yx133-hidden-by-unread', only);
+    rowLists().forEach(list => {
+      list.querySelectorAll('.yx133-empty-unread').forEach(x => x.remove());
+      const rows = Array.from(list.querySelectorAll('.yx132-today-row,.yx133-today-row'));
+      let visible = 0;
+      rows.forEach(row => {
+        const unread = row.getAttribute('data-yx132-unread') === '1' || row.getAttribute('data-yx133-unread') === '1' || row.classList.contains('yx132-unread') || row.classList.contains('yx133-unread');
+        row.classList.toggle('hidden', only && !unread);
+        if (!only || unread) visible++;
+      });
+      if (only && rows.length && visible === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state-card compact-empty yx133-empty-unread';
+        empty.textContent = '目前沒有未讀異動';
+        list.appendChild(empty);
+      }
+    });
+    const btn = $('today-unread-toggle');
+    if (btn) {
+      btn.textContent = only ? '顯示全部' : '只看未讀';
+      btn.classList.toggle('active', only);
+    }
+  }
+  function ensureTodayStable(){
+    if (!isToday()) return;
+    cleanLegacyTodayDom();
+    ensureRefreshButton();
+    const clearBtn = $('today-clear-read-btn');
+    if (clearBtn) clearBtn.textContent = '清除未讀數';
+    const summary = $('today-summary-cards');
+    if (summary) summary.classList.add('yx132-today-summary','yx133-today-summary');
+    document.querySelectorAll('.yx132-today-row').forEach(row => row.classList.add('yx133-today-row'));
+    document.querySelectorAll('.yx132-unread').forEach(row => row.classList.add('yx133-unread'));
+    document.querySelectorAll('.yx132-unread-dot').forEach(dot => dot.classList.add('yx133-unread-dot'));
+    applyUnreadVisibility();
+  }
+  const nativeLoad = window.loadTodayChanges;
+  if (typeof nativeLoad === 'function' && !nativeLoad.__yx133Wrapped) {
+    const wrapped = function(...args){
+      return Promise.resolve(nativeLoad.apply(this, args)).then(r => { setTimeout(ensureTodayStable, 0); setTimeout(ensureTodayStable, 160); return r; });
+    };
+    wrapped.__yx133Wrapped = true;
+    try { Object.defineProperty(window, 'loadTodayChanges', {configurable:true, writable:true, value:wrapped}); } catch(_e) { window.loadTodayChanges = wrapped; }
+  }
+  document.addEventListener('click', ev => {
+    if (!isToday()) return;
+    if (ev.target?.id === 'today-clear-read-btn') {
+      setTimeout(clearUnreadVisual, 80);
+      setTimeout(clearUnreadVisual, 260);
+    }
+    if (ev.target?.id === 'today-unread-toggle' || ev.target?.closest?.('[data-today-filter]')) {
+      setTimeout(() => {
+        try { localStorage.setItem('yxTodayOnlyUnread133', $('today-unread-toggle')?.classList?.contains('active') ? '1' : '0'); } catch(_e) {}
+        ensureTodayStable();
+      }, 0);
+      setTimeout(ensureTodayStable, 180);
+    }
+    const legacyDel = ev.target?.closest?.('[data-yx68-delete-today],[data-log-id]');
+    if (legacyDel && !ev.target.closest('[data-yx132-delete-log],[data-yx131-delete-log],[data-yx130-delete-log]')) {
+      const id = Number(legacyDel.getAttribute('data-yx68-delete-today') || legacyDel.getAttribute('data-log-id') || 0);
+      if (id && !legacyDel.dataset.yx133DeleteForwarded) {
+        legacyDel.dataset.yx133DeleteForwarded = '1';
+        fetch('/api/today-changes/' + id, {method:'DELETE', credentials:'same-origin'}).then(() => (window.loadTodayChanges || nativeLoad)?.({manual:true, force:true})).catch(e => toast(e.message || '刪除失敗','error'));
+      }
+    }
+  }, true);
+
+  // 左滑今日異動卡片可刪除，保留原本刪除按鈕，手機操作比較快。
+  let swipe = null;
+  document.addEventListener('pointerdown', ev => {
+    if (!isToday()) return;
+    const row = ev.target?.closest?.('.yx132-today-row,.yx133-today-row');
+    if (!row || ev.target.closest('button,a,input,select,textarea')) return;
+    swipe = {row, id:ev.pointerId, x:ev.clientX, y:ev.clientY, moved:false};
+  }, true);
+  document.addEventListener('pointermove', ev => {
+    if (!swipe || swipe.id !== ev.pointerId) return;
+    const dx = ev.clientX - swipe.x, dy = ev.clientY - swipe.y;
+    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      swipe.moved = true;
+      swipe.row.style.transform = 'translateX(' + Math.max(-96, Math.min(0, dx)) + 'px)';
+    }
+  }, true);
+  document.addEventListener('pointerup', ev => {
+    if (!swipe || swipe.id !== ev.pointerId) { swipe = null; return; }
+    const dx = ev.clientX - swipe.x;
+    const row = swipe.row;
+    row.style.transform = '';
+    if (swipe.moved && dx < -64) {
+      const btn = row.querySelector('[data-yx132-delete-log],[data-yx131-delete-log],[data-yx130-delete-log]');
+      if (btn) btn.click();
+    }
+    swipe = null;
+  }, true);
+  document.addEventListener('pointercancel', () => { if (swipe?.row) swipe.row.style.transform = ''; swipe = null; }, true);
+
+  function boot(){
+    if (!isToday()) return;
+    ensureTodayStable();
+    [120, 360, 900, 1800].forEach(ms => setTimeout(ensureTodayStable, ms));
+    try {
+      const host = document.querySelector('.home-shell') || document.body;
+      let queued = false;
+      const mo = new MutationObserver(() => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => { queued = false; ensureTodayStable(); });
+      });
+      mo.observe(host, {childList:true, subtree:true});
+      window.__YX133_TODAY_OBSERVER__ = mo;
+    } catch(_e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  try {
+    document.documentElement.dataset.yxFix133 = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX133_MARKER__ = VERSION;
+  } catch(_e) {}
+})();
+/* ==== FIX133 end ==== */
+
+/* ==== FIX134: product rows exact id + clean customer product renderer ==== */
+(function(){
+  'use strict';
+  if (window.__YX134_PRODUCT_RENDER_MASTER__) return;
+  window.__YX134_PRODUCT_RENDER_MASTER__ = true;
+  const VERSION = 'FIX136_PRODUCT_ACTION_CAPTURE_FIX';
+  const BUILD = 'fix136-product-action-capture-fix';
+  try { document.documentElement.dataset.yxFix134 = VERSION; window.__YX_BUILD_VERSION__ = BUILD; window.__YX_FIX134_MARKER__ = VERSION; } catch(_e) {}
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+  const compact = v => clean(v).replace(/[×ＸX✕＊*]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'').toLowerCase();
+  const pageKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const sourceKey = () => pageKey() === 'master_order' ? 'master_order' : pageKey() === 'orders' ? 'orders' : pageKey() === 'ship' ? 'ship' : pageKey();
+  const titleOf = s => s === 'orders' ? '訂單' : s === 'master_order' ? '總單' : s === 'inventory' ? '庫存' : s === 'ship' ? '出貨' : '商品';
+  function toast(msg, kind='ok') { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { console.log(msg); } }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload = data; throw e; }
+    return data;
+  }
+  function normalizeSource(s){
+    s = clean(s);
+    if (s === '訂單' || s === 'orders' || s === 'order') return 'orders';
+    if (s === '總單' || s === 'master_order' || s === 'master_orders' || s === 'master') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    return s;
+  }
+  function sourceLabel(s){ return titleOf(normalizeSource(s)); }
+  function itemQty(it){
+    const n = Number(it?.qty ?? it?.total_qty ?? it?.unplaced_qty ?? 0);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+  function looksLikeProductValue(v, productText=''){
+    const n = compact(v), p = compact(productText);
+    if (!n) return false;
+    if (p && n === p) return true;
+    if (n.includes('=')) return true;
+    if (/^\d+(?:\.\d+)?x\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?$/.test(n)) return true;
+    if (/^\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)+$/.test(n)) return true;
+    if (/^(未填材質|未填|商品|材質|無)$/.test(n)) return true;
+    return false;
+  }
+  function materialText(it){
+    const productText = clean(it?.product_text || it?.product_size || '');
+    const m = clean(it?.material || it?.product_code || '');
+    return looksLikeProductValue(m, productText) ? '' : m.toUpperCase();
+  }
+  function splitProduct(text, supportHint=''){
+    const raw = clean(text).replace(/[×ＸX✕＊*]/g,'x').replace(/[＝]/g,'=');
+    const parts = raw.split('=');
+    const size = clean(parts[0] || raw);
+    const support = clean(supportHint || parts.slice(1).join('='));
+    return {size, support};
+  }
+  function normalizeItem(raw, fallbackSource){
+    const it = raw || {};
+    const productText = clean(it.product_text || it.product_size || it.product || '');
+    const p = splitProduct(productText, it.support_text || '');
+    const source = normalizeSource(it.source || fallbackSource || '');
+    return {
+      ...it,
+      id: Number(it.id || 0),
+      source,
+      sourceLabel: sourceLabel(source),
+      product_text: productText,
+      size: clean(it.size_text || p.size || productText),
+      support: clean(it.support_text || p.support || ''),
+      material: materialText(it),
+      qty: itemQty(it)
+    };
+  }
+  function filterRows(items, source){
+    const rows = (items || []).map(it => normalizeItem(it, source)).filter(it => it.product_text);
+    if (source === 'ship') return rows;
+    return rows.filter(it => normalizeSource(it.source || source) === source || !it.source);
+  }
+  function signature(rows, name, source){
+    return `${VERSION}|${source}|${name}|${rows.length}|${rows.map(r => `${r.source}:${r.id}:${r.product_text}:${r.qty}:${r.material}`).join('|')}`;
+  }
+  function productLine(r){ return `${r.size}${r.support ? '=' + r.support : ''}`; }
+  function renderPanel(name, source, rows){
+    const panel = $('selected-customer-items');
+    if (!panel) return;
+    const total = rows.reduce((s,r)=>s+r.qty,0);
+    panel.classList.remove('hidden');
+    panel.classList.add('yx134-product-master');
+    panel.hidden = false;
+    panel.style.removeProperty('display');
+    const rowsHtml = rows.length ? rows.map(r => `<tr class="yx134-product-row" data-source="${esc(r.source)}" data-id="${r.id}" data-product-text="${esc(r.product_text)}" data-qty="${r.qty}" data-material="${esc(r.material)}" data-size="${esc(r.size)}" data-support="${esc(r.support)}"><td class="yx134-material-cell">${esc(r.material)}</td><td class="yx134-size-cell">${esc(r.size)}</td><td class="yx134-support-cell">${esc(r.support)}</td><td class="yx134-source-cell">${esc(r.sourceLabel)}</td><td class="yx134-qty-cell">${r.qty}</td></tr>`).join('') : `<tr><td colspan="5">此客戶目前沒有${esc(titleOf(source))}商品</td></tr>`;
+    panel.dataset.yx134Signature = signature(rows, name, source);
+    panel.innerHTML = `<div class="customer-detail-card yx134-customer-detail"><div class="customer-detail-header"><div><div class="section-title">${esc(name)}</div><div class="muted">${total}件 / ${rows.length}筆商品</div></div></div><div class="table-card customer-table-wrap yx134-table-wrap"><table class="yx134-product-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數x件數</th><th>來源</th><th>件數</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div>`;
+  }
+  function summaryEl(source){ return source === 'orders' ? $('yx63-orders-summary') : source === 'master_order' ? $('yx63-master_order-summary') : source === 'inventory' ? $('inventory-summary') : null; }
+  function listEl(source){ return source === 'orders' ? $('orders-list') : source === 'master_order' ? $('master-list') : source === 'inventory' ? $('inventory-inline-list') : null; }
+  function renderSummary(name, source, rows){
+    const summary = summaryEl(source); if (!summary) return;
+    const total = rows.reduce((s,r)=>s+r.qty,0);
+    const sig = signature(rows, name, source);
+    if (summary.dataset.yx134Signature === sig) return;
+    const body = rows.length ? rows.map(r => `<tr class="yx63-summary-row yx134-summary-row" data-source="${esc(r.source)}" data-id="${r.id}" data-product-text="${esc(r.product_text)}" data-qty="${r.qty}" data-material="${esc(r.material)}" data-size="${esc(r.size)}" data-support="${esc(r.support)}"><td class="yx63-material-cell yx134-material-cell">${esc(r.material)}</td><td class="yx63-size-cell yx134-size-cell" title="點尺寸選取"><input class="yx63-row-check" type="checkbox" data-source="${esc(r.source)}" data-id="${r.id}" data-product-text="${esc(r.product_text)}" data-qty="${r.qty}" hidden><span>${esc(r.size)}</span></td><td class="yx63-support-cell yx134-support-cell">${esc(r.support)}</td><td class="yx63-qty-cell yx134-qty-cell">${r.qty}</td></tr>`).join('') : `<tr><td colspan="4">此客戶目前沒有${esc(titleOf(source))}商品</td></tr>`;
+    summary.dataset.yx134Signature = sig;
+    summary.className = 'yx63-summary table-card yx134-summary';
+    summary.innerHTML = `<div class="yx63-summary-head yx134-summary-head"><strong>${total}件 / ${rows.length}筆商品</strong><span>${esc(name)}｜${esc(titleOf(source))}統整</span></div><div class="yx63-table-wrap"><table class="yx63-summary-table"><thead><tr><th class="yx63-material-col">材質</th><th class="yx63-size-col">尺寸</th><th class="yx63-support-col">支數x件數</th><th class="yx63-qty-col">件數</th></tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+  function renderCards(name, source, rows){
+    const list = listEl(source); if (!list) return;
+    const sig = signature(rows, name, source);
+    if (list.dataset.yx134Signature === sig) return;
+    list.dataset.yx134Signature = sig;
+    list.classList.add('yx63-card-grid','yx134-card-grid');
+    list.innerHTML = rows.length ? rows.map(r => `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx134-item-card" data-source="${esc(r.source)}" data-id="${r.id}" data-customer="${esc(name)}" data-product-text="${esc(r.product_text)}" data-qty="${r.qty}" data-material="${esc(r.material)}" data-size="${esc(r.size)}" data-support="${esc(r.support)}"><div class="yx134-card-main"><div class="yx134-card-top"><span class="yx134-mat">${esc(r.material)}</span><span class="yx134-qty">${r.qty}件</span></div><div class="yx134-card-product">${esc(productLine(r))}</div></div><div class="yx63-card-actions yx134-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div></div>`).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${esc(titleOf(source))}商品</div>`;
+  }
+  let seq = 0;
+  async function selectCustomer134(name, uid='', opts={}){
+    name = clean(name); uid = clean(uid);
+    if (!name) return [];
+    const source = sourceKey();
+    const mySeq = ++seq;
+    window.__YX_SELECTED_CUSTOMER__ = name;
+    window.state = window.state || {};
+    window.state.currentCustomer = name;
+    window.state.currentCustomerUid = uid;
+    const input = $('customer-name');
+    if (input) {
+      input.value = name;
+      input.dataset.customerUid = uid || '';
+      if (!opts.noInputEvents) {
+        input.dispatchEvent(new Event('input', {bubbles:true}));
+        input.dispatchEvent(new Event('change', {bubbles:true}));
+      }
+    }
+    if (source === 'customers') {
+      if (typeof window.fillCustomerForm === 'function') await window.fillCustomerForm(name);
+      return [];
+    }
+    if (!['orders','master_order','ship'].includes(source)) return [];
+    const panel = $('selected-customer-items');
+    if (panel && !opts.silent) {
+      panel.classList.remove('hidden'); panel.hidden = false; panel.style.removeProperty('display');
+      panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
+    }
+    try {
+      const qs = new URLSearchParams({name, customer_uid:uid, source, raw:'1', exact:'1', yx134:'1', yx_force:'1', ts:String(Date.now())});
+      const data = await api('/api/customer-items?' + qs.toString(), {method:'GET'});
+      if (mySeq !== seq) return [];
+      const rows = filterRows(Array.isArray(data.items) ? data.items : [], source);
+      const resolvedUid = data.customer_uid || uid;
+      window.__YX134_ACTIVE_CUSTOMER_ITEMS__ = {name, uid:resolvedUid, source, rows};
+      renderPanel(name, source, rows);
+      renderSummary(name, source, rows);
+      renderCards(name, source, rows);
+      return rows;
+    } catch(err) {
+      if (mySeq !== seq) return [];
+      if (panel) panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
+      toast(err.message || '載入客戶商品失敗', 'error');
+      return [];
+    }
+  }
+  function reinstallController(){
+    window.selectCustomerForModule = selectCustomer134;
+    window.selectCustomer134 = selectCustomer134;
+    window.renderCustomerItems134 = function(name, uid, source, items){ const rows = filterRows(items || [], source || sourceKey()); renderPanel(name, source || sourceKey(), rows); renderSummary(name, source || sourceKey(), rows); renderCards(name, source || sourceKey(), rows); };
+    if (window.YX_CUSTOMER_CARD_CONTROLLER && typeof window.YX_CUSTOMER_CARD_CONTROLLER === 'object') {
+      window.YX_CUSTOMER_CARD_CONTROLLER.openProducts = selectCustomer134;
+    }
+  }
+  document.addEventListener('click', function(e){
+    const sizeCell = e.target.closest?.('.yx134-summary-row .yx63-size-cell');
+    if (sizeCell) {
+      const tr = sizeCell.closest('tr');
+      const ch = tr?.querySelector?.('.yx63-row-check');
+      if (ch) { ch.checked = !ch.checked; tr.classList.toggle('yx63-row-selected', ch.checked); }
+      return;
+    }
+    const card = e.target.closest?.('.yx125-customer-card,.yx122-customer-card,.customer-region-card[data-customer],.customer-region-card[data-customer-name]');
+    if (!card) return;
+    const actionBtn = e.target.closest?.('button,[data-yx122-menu],[data-yx125-menu]');
+    if (actionBtn) return;
+    const name = card.dataset.customer || card.dataset.customerName || card.getAttribute('data-customer') || '';
+    const uid = card.dataset.customerUid || card.dataset.uid || '';
+    if (!name) return;
+    // 最後一層保護：點客戶商品時一定走 FIX134 raw rows，不讓舊聚合 id 回來。
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    selectCustomer134(name, uid).catch(err => toast(err.message || '載入客戶商品失敗', 'error'));
+  }, true);
+  function boot(){ reinstallController(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  [80, 300, 800, 1600].forEach(ms => setTimeout(boot, ms));
+})();
+/* ==== FIX134 end ==== */
+
+
+/* ==== FIX135: product action source sync + selected-customer refresh guard ==== */
+(function(){
+  'use strict';
+  if (window.__YX135_PRODUCT_ACTION_SOURCE_SYNC__) return;
+  window.__YX135_PRODUCT_ACTION_SOURCE_SYNC__ = true;
+  const VERSION = 'FIX136_PRODUCT_ACTION_CAPTURE_FIX';
+  const BUILD = 'fix136-product-action-capture-fix';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { try { console.log(msg); } catch(__e) {} } };
+  function pageKey(){ return document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || ''; }
+  function normalizeSource(s){
+    s = clean(s);
+    if (s === '訂單' || s === 'orders' || s === 'order') return 'orders';
+    if (s === '總單' || s === 'master' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    if (s === '出貨' || s === 'ship' || s === 'shipping') return 'ship';
+    return s;
+  }
+  function apiSource(s){
+    s = normalizeSource(s);
+    return s === 'master_order' ? 'master_orders' : s;
+  }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload = data; throw e; }
+    return data;
+  }
+  function qtyOf(it){ const n = Number(it?.qty ?? it?.total_qty ?? it?.unplaced_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function active(){ return window.__YX134_ACTIVE_CUSTOMER_ITEMS__ || window.__YX135_ACTIVE_CUSTOMER_ITEMS__ || null; }
+  function activeRows(){ const a = active(); return Array.isArray(a?.rows) ? a.rows : []; }
+  function findActiveRow(source, id){
+    source = normalizeSource(source); id = Number(id || 0);
+    return activeRows().find(r => Number(r.id || 0) === id && normalizeSource(r.source || source) === source) ||
+           activeRows().find(r => Number(r.id || 0) === id) || null;
+  }
+  async function selectCustomer135(name, uid='', opts={}){
+    name = clean(name); uid = clean(uid);
+    if (!name) return [];
+    const fn = window.selectCustomer134;
+    if (typeof fn === 'function') {
+      const rows = await fn(name, uid, opts || {});
+      try { window.__YX135_ACTIVE_CUSTOMER_ITEMS__ = {name, uid, source:pageKey(), rows:Array.isArray(rows) ? rows : activeRows()}; } catch(_e) {}
+      return rows;
+    }
+    if (typeof window.__YX125_SELECT_CUSTOMER_FALLBACK__ === 'function') return window.__YX125_SELECT_CUSTOMER_FALLBACK__(name, uid);
+    return [];
+  }
+  function syncController(){
+    try {
+      const c = (window.YX_CUSTOMER_CARD_CONTROLLER && typeof window.YX_CUSTOMER_CARD_CONTROLLER === 'object') ? window.YX_CUSTOMER_CARD_CONTROLLER : {};
+      if (typeof window.selectCustomer134 === 'function') {
+        c.selectCustomerForModule = selectCustomer135;
+        c.openProducts = selectCustomer135;
+        window.YX_CUSTOMER_CARD_CONTROLLER = c;
+      }
+      Object.defineProperty(window, 'selectCustomerForModule', {value:selectCustomer135, configurable:true, writable:true});
+      Object.defineProperty(window, 'yx125SelectCustomerForModule', {value:selectCustomer135, configurable:true, writable:true});
+      Object.defineProperty(window, 'yx122SelectCustomerForModule', {value:selectCustomer135, configurable:true, writable:true});
+      const m = (window.YX_MASTER && typeof window.YX_MASTER === 'object') ? {...window.YX_MASTER} : {};
+      m.version = VERSION;
+      m.selectCustomerForModule = selectCustomer135;
+      m.openProducts = selectCustomer135;
+      Object.defineProperty(window, 'YX_MASTER', {value:m, configurable:true, writable:true});
+    } catch(_e) {
+      try { window.selectCustomerForModule = selectCustomer135; } catch(__e) {}
+    }
+    try { document.documentElement.dataset.yxFix135 = VERSION; window.__YX_BUILD_VERSION__ = BUILD; window.__YX_FIX135_MARKER__ = VERSION; } catch(_e) {}
+  }
+  async function refreshActiveCustomer(delay=0){
+    const a = active();
+    const name = clean(a?.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || '');
+    const uid = clean(a?.uid || $('customer-name')?.dataset?.customerUid || '');
+    if (!name || !['orders','master_order','ship'].includes(pageKey())) return;
+    const run = () => selectCustomer135(name, uid, {silent:true, noInputEvents:true}).catch(err => toast(err.message || '重新載入商品失敗','error'));
+    if (delay > 0) setTimeout(run, delay); else await run();
+  }
+  async function handleProductAction(e){
+    const btn = e.target?.closest?.('.yx134-item-card [data-yx63-action], .yx134-product-master [data-yx63-action]');
+    if (!btn) return;
+    const card = btn.closest('.yx134-item-card,.yx134-product-row,.yx134-summary-row');
+    const source = normalizeSource(card?.dataset?.source || pageKey());
+    const id = Number(card?.dataset?.id || 0);
+    const act = btn.getAttribute('data-yx63-action') || '';
+    if (!source || !id || !act) return;
+    const row = findActiveRow(source, id) || {};
+    e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    if (act === 'delete') {
+      if (!confirm('確定刪除此商品？')) return;
+      try { await api('/api/customer-item', {method:'DELETE', body:JSON.stringify({source:apiSource(source), id})}); toast('已刪除商品','ok'); await refreshActiveCustomer(80); }
+      catch(err){ toast(err.message || '刪除失敗','error'); }
+      return;
+    }
+    if (act === 'edit') {
+      const currentProduct = clean(row.product_text || row.size || '');
+      const next = prompt('修改商品資料', currentProduct);
+      if (next === null) return;
+      const q = prompt('修改數量', String(qtyOf(row) || 1));
+      if (q === null) return;
+      const material = clean(row.material || row.product_code || '');
+      try { await api('/api/customer-item', {method:'POST', body:JSON.stringify({source:apiSource(source), id, product_text:next, qty:Number(q)||qtyOf(row)||1, material})}); toast('已更新商品','ok'); await refreshActiveCustomer(80); }
+      catch(err){ toast(err.message || '更新失敗','error'); }
+      return;
+    }
+    if (act === 'ship') {
+      const a = active();
+      const customer = clean(a?.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || row.customer_name || '');
+      const draft = {customer_name:customer, product_text:row.product_text || `${row.size || ''}${row.support ? '=' + row.support : ''}`, qty:qtyOf(row), source:apiSource(source), id, at:Date.now()};
+      try { localStorage.setItem('yxShipDraft', JSON.stringify(draft)); } catch(_e) {}
+      if (pageKey() === 'ship') {
+        if ($('customer-name')) $('customer-name').value = customer;
+        const txt = $('ocr-text');
+        if (txt) { txt.value = draft.product_text || ''; txt.focus(); }
+        toast('已加入出貨草稿','ok');
+      } else {
+        location.href = '/ship';
+      }
+    }
+  }
+  document.addEventListener('click', handleProductAction, true);
+  window.addEventListener('yx128:live-cache-cleared', () => refreshActiveCustomer(260), true);
+  window.addEventListener('yx135:refresh-active-customer', () => refreshActiveCustomer(80), true);
+  function boot(){ syncController(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  [100, 350, 900, 1800].forEach(ms => setTimeout(boot, ms));
+})();
+/* ==== FIX135 end ==== */
+
+
+/* ==== FIX136: current issue - product action capture handoff guard ==== */
+(function(){
+  'use strict';
+  if (window.__YX136_PRODUCT_ACTION_CAPTURE_FIX__) return;
+  window.__YX136_PRODUCT_ACTION_CAPTURE_FIX__ = true;
+  const VERSION = 'FIX136_PRODUCT_ACTION_CAPTURE_FIX';
+  const BUILD = 'fix136-product-action-capture-fix';
+  try {
+    document.documentElement.dataset.yxFix136 = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    window.__YX_FIX136_MARKER__ = VERSION;
+  } catch(_e) {}
+  // 若舊事件被保留，這裡只做標記與低成本保護；真正操作仍由 FIX134/FIX135 母版處理。
+  function mark(){
+    try {
+      document.querySelectorAll('.yx134-item-card [data-yx63-action]').forEach(btn => {
+        btn.dataset.yx136RawAction = '1';
+      });
+    } catch(_e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mark, {once:true}); else mark();
+  window.addEventListener('pageshow', mark, true);
+  window.addEventListener('yx128:live-cache-cleared', mark, true);
+  window.addEventListener('yx135:refresh-active-customer', () => setTimeout(mark, 120), true);
+})();
+/* ==== FIX136 end ==== */
+
+/* ==== FIX137: product action final sync - handle yx134 cards before every legacy product handler ==== */
+(function(){
+  'use strict';
+  if (window.__YX137_PRODUCT_ACTION_FINAL_SYNC__) return;
+  window.__YX137_PRODUCT_ACTION_FINAL_SYNC__ = true;
+  const VERSION = 'FIX137_PRODUCT_ACTION_FINAL_SYNC';
+  const BUILD = 'fix137-product-action-final-sync';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { try { console.log(msg); } catch(__e) {} } };
+  function pageKey(){ return document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || ''; }
+  function normalizeSource(s){
+    s = clean(s);
+    if (s === '訂單' || s === 'orders' || s === 'order') return 'orders';
+    if (s === '總單' || s === 'master' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    if (s === '出貨' || s === 'ship' || s === 'shipping') return 'ship';
+    return s;
+  }
+  function apiSource(s){ s = normalizeSource(s); return s === 'master_order' ? 'master_orders' : s; }
+  function qtyOf(row){ const n = Number(row?.qty ?? row?.total_qty ?? row?.unplaced_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function productOf(row){ return clean(row?.product_text || ((row?.size || '') + (row?.support ? '=' + row.support : ''))); }
+  function active(){ return window.__YX135_ACTIVE_CUSTOMER_ITEMS__ || window.__YX134_ACTIVE_CUSTOMER_ITEMS__ || null; }
+  function activeRows(){ const a = active(); return Array.isArray(a?.rows) ? a.rows : []; }
+  function selectedCustomer(){ return clean(active()?.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || ''); }
+  function selectedUid(){ return clean(active()?.uid || $('customer-name')?.dataset?.customerUid || ''); }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  }
+  function rowFromNode(node){
+    if (!node) return null;
+    const source = normalizeSource(node.dataset.source || pageKey());
+    const id = Number(node.dataset.id || 0);
+    if (!source || !id) return null;
+    const productText = clean(node.dataset.productText || '');
+    const size = clean(node.dataset.size || '');
+    const support = clean(node.dataset.support || '');
+    return {source, id, product_text: productText || (size + (support ? '=' + support : '')), size, support, qty: qtyOf(node.dataset), material: clean(node.dataset.material || ''), customer_name: clean(node.dataset.customer || selectedCustomer())};
+  }
+  function findRow(source, id, node){
+    source = normalizeSource(source); id = Number(id || 0);
+    const rows = activeRows();
+    return rows.find(r => Number(r.id || 0) === id && normalizeSource(r.source || source) === source) || rows.find(r => Number(r.id || 0) === id) || rowFromNode(node) || {};
+  }
+  async function reloadSelected(delay=80){
+    const run = async () => {
+      const name = selectedCustomer();
+      const uid = selectedUid();
+      if (!name) return;
+      try { if (typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function') window.__YX127_CLEAR_SHORT_API_CACHE__('fix137-product-action'); } catch(_e) {}
+      try { if (typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function') window.__YX126_CLEAR_CUSTOMER_CACHE__('fix137-product-action'); } catch(_e) {}
+      if (typeof window.selectCustomer134 === 'function') return window.selectCustomer134(name, uid, {silent:true, noInputEvents:true});
+      if (typeof window.selectCustomerForModule === 'function') return window.selectCustomerForModule(name, uid, {silent:true, noInputEvents:true});
+    };
+    if (delay > 0) setTimeout(() => run().catch(err => toast(err.message || '重新載入商品失敗', 'error')), delay);
+    else return run();
+  }
+  async function editRow(row){
+    const currentProduct = productOf(row);
+    const next = prompt('修改商品資料', currentProduct);
+    if (next === null) return;
+    const q = prompt('修改數量', String(qtyOf(row) || 1));
+    if (q === null) return;
+    const materialPrompt = prompt('修改材質（可空白）', clean(row.material || row.product_code || ''));
+    if (materialPrompt === null) return;
+    await api('/api/customer-item', {method:'POST', body:JSON.stringify({source:apiSource(row.source), id:Number(row.id), product_text:next, qty:Number(q) || qtyOf(row) || 1, material:clean(materialPrompt)})});
+    toast('已更新商品', 'ok');
+    await reloadSelected(60);
+  }
+  async function deleteRow(row){
+    if (!confirm('確定刪除此商品？')) return;
+    await api('/api/customer-item', {method:'DELETE', body:JSON.stringify({source:apiSource(row.source), id:Number(row.id)})});
+    toast('已刪除商品', 'ok');
+    await reloadSelected(60);
+  }
+  function shipRow(row){
+    const customer = selectedCustomer() || clean(row.customer_name || '');
+    const productText = productOf(row);
+    if (!customer) return toast('直接出貨需要客戶名稱', 'warn');
+    if (!productText) return toast('找不到商品資料', 'error');
+    const draft = {customer_name:customer, product_text:productText, qty:qtyOf(row), source:apiSource(row.source), id:Number(row.id || 0), at:Date.now(), from:'fix137'};
+    try { localStorage.setItem('yxShipDraft', JSON.stringify(draft)); } catch(_e) {}
+    if (pageKey() === 'ship') {
+      if ($('customer-name')) $('customer-name').value = customer;
+      const txt = $('ocr-text');
+      if (txt) { txt.value = productText; txt.dispatchEvent(new Event('input', {bubbles:true})); txt.focus(); }
+      toast('已帶入出貨資料，請按確認送出產生預覽', 'ok');
+    } else {
+      location.href = '/ship';
+    }
+  }
+  async function handleAction(e){
+    const btn = e.target?.closest?.('.yx134-item-card [data-yx63-action], .yx134-product-master [data-yx63-action], .yx134-summary-row [data-yx63-action]');
+    if (!btn) return;
+    const node = btn.closest('.yx134-item-card,.yx134-product-row,.yx134-summary-row');
+    if (!node) return;
+    const act = btn.getAttribute('data-yx63-action') || btn.dataset.yx63Action || '';
+    const source = normalizeSource(node.dataset.source || pageKey());
+    const id = Number(node.dataset.id || 0);
+    if (!act || !source || !id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    const row = findRow(source, id, node);
+    try {
+      if (act === 'edit') return await editRow(row);
+      if (act === 'delete') return await deleteRow(row);
+      if (act === 'ship') return shipRow(row);
+    } catch(err) {
+      toast(err.message || '商品操作失敗', 'error');
+    }
+  }
+  // Window capture is intentional: it runs before old document-capture handlers that used to steal product actions.
+  window.addEventListener('click', handleAction, true);
+  function markCards(){
+    try {
+      document.querySelectorAll('.yx134-item-card,.yx134-product-row,.yx134-summary-row').forEach(el => {
+        el.dataset.yx137ActionFinal = '1';
+      });
+    } catch(_e) {}
+  }
+  function boot(){
+    try { document.documentElement.dataset.yxFix137 = VERSION; window.__YX_BUILD_VERSION__ = BUILD; window.__YX_FIX137_MARKER__ = VERSION; } catch(_e) {}
+    markCards();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  window.addEventListener('yx128:api-short-cache-cleared', () => setTimeout(markCards, 80), true);
+  window.addEventListener('yx135:refresh-active-customer', () => setTimeout(markCards, 120), true);
+})();
+/* ==== FIX137 end ==== */
+
+
+
+/* ==== FIX138: product table single master + selected panel actions/batch ==== */
+(function(){
+  'use strict';
+  if (window.__YX138_PRODUCT_TABLE_SINGLE_MASTER__) return;
+  window.__YX138_PRODUCT_TABLE_SINGLE_MASTER__ = true;
+  const VERSION = 'FIX138_PRODUCT_TABLE_SINGLE_MASTER';
+  const BUILD = 'fix138-product-table-single-master';
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { try { console.log(msg); } catch(__e) {} } };
+  function pageKey(){ return document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || ''; }
+  function normalizeSource(s){
+    s = clean(s);
+    if (s === '訂單' || s === 'orders' || s === 'order') return 'orders';
+    if (s === '總單' || s === 'master' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    if (s === '出貨' || s === 'ship' || s === 'shipping') return 'ship';
+    return s;
+  }
+  function apiSource(s){ s = normalizeSource(s); return s === 'master_order' ? 'master_orders' : s; }
+  function active(){ return window.__YX135_ACTIVE_CUSTOMER_ITEMS__ || window.__YX134_ACTIVE_CUSTOMER_ITEMS__ || null; }
+  function selectedCustomer(){ return clean(active()?.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || ''); }
+  function selectedUid(){ return clean(active()?.uid || $('customer-name')?.dataset?.customerUid || ''); }
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    return data;
+  }
+  function currentRows(){
+    const panel = $('selected-customer-items');
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll('.yx134-product-row')).map(row => ({
+      row,
+      source: normalizeSource(row.dataset.source || pageKey()),
+      id: Number(row.dataset.id || 0),
+      product_text: clean(row.dataset.productText || ''),
+      qty: Number(row.dataset.qty || 0),
+      material: clean(row.dataset.material || ''),
+      size: clean(row.dataset.size || ''),
+      support: clean(row.dataset.support || '')
+    })).filter(x => x.source && x.id > 0);
+  }
+  function selectedRows(){
+    return currentRows().filter(x => !!x.row.querySelector('.yx138-row-check')?.checked);
+  }
+  function rowPayloads(rows){ return rows.map(x => ({source: apiSource(x.source), id: Number(x.id || 0)})).filter(x => x.id > 0); }
+  function updateSelectedCount(){
+    const n = selectedRows().length;
+    const all = currentRows().length;
+    const note = $('yx138-selected-note');
+    if (note) note.textContent = n ? `已選 ${n} / ${all} 筆` : `共 ${all} 筆，可勾選後批量操作`;
+    const allBtn = $('yx138-select-all');
+    if (allBtn) allBtn.textContent = n && n === all ? '取消全選' : '全選目前清單';
+  }
+  function setMode(){
+    const panel = $('selected-customer-items');
+    const on = !!(panel && !panel.classList.contains('hidden') && panel.querySelector('.yx134-customer-detail'));
+    document.documentElement.classList.toggle('yx138-customer-product-mode', on);
+    if (panel) panel.classList.toggle('yx138-single-master-panel', on);
+  }
+  function ensureToolbar(panel, source){
+    if (!panel || panel.querySelector('.yx138-selected-toolbar')) return;
+    const bar = document.createElement('div');
+    bar.className = 'yx138-selected-toolbar';
+    bar.innerHTML = `<div class="yx138-toolbar-main"><strong>商品操作</strong><span class="small-note" id="yx138-selected-note"></span></div><div class="yx138-toolbar-actions"><button class="ghost-btn small-btn" type="button" id="yx138-select-all">全選目前清單</button><select class="text-input small" id="yx138-selected-material"><option value="">選擇材質</option><option>SPF</option><option>HF</option><option>DF</option><option>RDT</option><option>SPY</option><option>SP</option><option>RP</option><option>TD</option><option>MKJ</option><option>LVL</option><option>尤加利</option></select><button class="ghost-btn small-btn" type="button" id="yx138-batch-material">批量加材質</button><button class="ghost-btn small-btn danger-btn" type="button" id="yx138-batch-delete">批量刪除</button></div>`;
+    const detail = panel.querySelector('.yx134-customer-detail');
+    const head = panel.querySelector('.customer-detail-header');
+    if (head) head.insertAdjacentElement('afterend', bar); else if (detail) detail.prepend(bar); else panel.prepend(bar);
+    bar.dataset.source = normalizeSource(source || pageKey());
+  }
+  function ensurePanelRows(){
+    const panel = $('selected-customer-items');
+    if (!panel || !panel.querySelector('.yx134-customer-detail')) { setMode(); return; }
+    const source = normalizeSource(active()?.source || pageKey());
+    ensureToolbar(panel, source);
+    const table = panel.querySelector('.yx134-product-table');
+    if (table && !table.dataset.yx138ActionColumn) {
+      const headRow = table.querySelector('thead tr');
+      if (headRow) headRow.insertAdjacentHTML('afterbegin', '<th class="yx138-check-col">選</th>');
+      if (headRow) headRow.insertAdjacentHTML('beforeend', '<th class="yx138-action-col">操作</th>');
+      table.dataset.yx138ActionColumn = '1';
+    }
+    panel.querySelectorAll('.yx134-product-row').forEach(row => {
+      if (!row.dataset.yx138Enhanced) {
+        const source = normalizeSource(row.dataset.source || pageKey());
+        const id = Number(row.dataset.id || 0);
+        row.insertAdjacentHTML('afterbegin', `<td class="yx138-check-cell"><input class="yx138-row-check yx63-row-check" type="checkbox" data-source="${esc(source)}" data-id="${id}"></td>`);
+        row.insertAdjacentHTML('beforeend', `<td class="yx138-action-cell"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></td>`);
+        row.dataset.yx138Enhanced = '1';
+      }
+    });
+    updateSelectedCount();
+    setMode();
+  }
+  async function reloadSelected(delay=80){
+    const run = async () => {
+      try { if (typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function') window.__YX127_CLEAR_SHORT_API_CACHE__('fix138-product-table'); } catch(_e) {}
+      const name = selectedCustomer(); const uid = selectedUid();
+      if (!name) return;
+      if (typeof window.selectCustomer134 === 'function') await window.selectCustomer134(name, uid, {silent:true, noInputEvents:true});
+      else if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(name, uid, {silent:true, noInputEvents:true});
+      setTimeout(ensurePanelRows, 50);
+    };
+    if (delay > 0) setTimeout(() => run().catch(err => toast(err.message || '重新載入商品失敗', 'error')), delay);
+    else return run();
+  }
+  async function batchMaterial(){
+    const material = clean($('yx138-selected-material')?.value || '').toUpperCase();
+    if (!material) return toast('請先選擇材質', 'warn');
+    let rows = selectedRows();
+    if (!rows.length) {
+      if (!confirm('沒有勾選商品，是否套用到目前客戶全部商品？')) return;
+      rows = currentRows();
+    }
+    const items = rowPayloads(rows);
+    if (!items.length) return toast('目前沒有可套用材質的商品', 'warn');
+    try { await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})}); toast(`已套用材質 ${material}：${items.length} 筆`, 'ok'); await reloadSelected(60); }
+    catch(err) { toast(err.message || '批量加材質失敗', 'error'); }
+  }
+  async function batchDelete(){
+    let rows = selectedRows();
+    if (!rows.length) {
+      if (!confirm('沒有勾選商品，是否刪除目前客戶全部商品？')) return;
+      rows = currentRows();
+    }
+    const items = rowPayloads(rows);
+    if (!items.length) return toast('目前沒有可刪除的商品', 'warn');
+    if (!confirm(`確定刪除 ${items.length} 筆商品？`)) return;
+    try { await api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})}); toast(`已刪除 ${items.length} 筆商品`, 'ok'); await reloadSelected(60); }
+    catch(err) { toast(err.message || '批量刪除失敗', 'error'); }
+  }
+  function installControllerRefresh(){
+    const old = window.renderCustomerItems134;
+    if (typeof old === 'function' && old.__yx138Wrapped !== true) {
+      const wrapped = function(...args){ const ret = old.apply(this, args); setTimeout(ensurePanelRows, 0); setTimeout(ensurePanelRows, 80); return ret; };
+      wrapped.__yx138Wrapped = true;
+      window.renderCustomerItems134 = wrapped;
+    }
+  }
+  document.addEventListener('click', function(e){
+    const btn = e.target?.closest?.('#yx138-select-all,#yx138-batch-material,#yx138-batch-delete');
+    if (btn) {
+      e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if (btn.id === 'yx138-select-all') {
+        const rows = currentRows(); const selected = selectedRows(); const makeChecked = !(rows.length && selected.length === rows.length);
+        rows.forEach(x => { const ch = x.row.querySelector('.yx138-row-check'); if (ch) ch.checked = makeChecked; x.row.classList.toggle('yx138-row-selected', makeChecked); });
+        updateSelectedCount();
+      } else if (btn.id === 'yx138-batch-material') batchMaterial();
+      else if (btn.id === 'yx138-batch-delete') batchDelete();
+      return;
+    }
+    const row = e.target?.closest?.('#selected-customer-items .yx134-product-row');
+    if (!row) return;
+    if (e.target.closest('button,select,input,[data-yx63-action]')) { setTimeout(updateSelectedCount, 0); return; }
+    e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    const ch = row.querySelector('.yx138-row-check');
+    if (ch) { ch.checked = !ch.checked; row.classList.toggle('yx138-row-selected', ch.checked); updateSelectedCount(); }
+  }, true);
+  document.addEventListener('change', function(e){
+    if (!e.target?.matches?.('#selected-customer-items .yx138-row-check')) return;
+    const row = e.target.closest('.yx134-product-row');
+    if (row) row.classList.toggle('yx138-row-selected', !!e.target.checked);
+    updateSelectedCount();
+  }, true);
+  function boot(){
+    try { document.documentElement.dataset.yxFix138 = VERSION; window.__YX_BUILD_VERSION__ = BUILD; window.__YX_FIX138_MARKER__ = VERSION; } catch(_e) {}
+    installControllerRefresh();
+    ensurePanelRows();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  window.addEventListener('yx128:api-short-cache-cleared', () => setTimeout(ensurePanelRows, 90), true);
+  window.addEventListener('yx135:refresh-active-customer', () => setTimeout(ensurePanelRows, 120), true);
+  try {
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (NativeMO) {
+      const mo = new NativeMO(() => ensurePanelRows());
+      const start = () => { const p = $('selected-customer-items'); if (p && !p.dataset.yx138Observed) { p.dataset.yx138Observed='1'; mo.observe(p, {childList:true, subtree:true}); } };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true}); else start();
+      window.addEventListener('pageshow', start, true);
+    }
+  } catch(_e) {}
+})();
+/* ==== FIX138 end ==== */
+
+
+/* ==== FIX139: modular event/container isolation + unified store/actions ==== */
+(function(){
+  'use strict';
+  if (window.__YX139_MODULE_ISOLATION__) return;
+  window.__YX139_MODULE_ISOLATION__ = true;
+  const VERSION = 'FIX139_MODULE_ISOLATION';
+  const BUILD = 'fix139-module-isolation';
+  const MODULES = Object.freeze({
+    customerCards: '客戶卡片模組',
+    productTable: '商品表格模組',
+    productCards: '商品小卡模組',
+    todayChanges: '今日異動模組',
+    warehouseGrid: '倉庫格子模組',
+    actionSheet: '長按操作表模組',
+    dragRegion: '拖拉換區模組',
+    batchOps: '批量操作模組',
+    searchFilter: '搜尋篩選模組',
+    homeBadge: '首頁徽章模組'
+  });
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const log = (...args) => { try { if (window.localStorage?.getItem('YX_DEBUG') === '1') console.log('[YX139]', ...args); } catch(_e) {} };
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { try { console.log(msg); } catch(__e) {} } };
+  const pageKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const normalizeSource = s => {
+    s = clean(s);
+    if (s === '訂單' || s === 'orders' || s === 'order') return 'orders';
+    if (s === '總單' || s === 'master' || s === 'master_order' || s === 'master_orders') return 'master_order';
+    if (s === '庫存' || s === 'inventory') return 'inventory';
+    if (s === '出貨' || s === 'ship' || s === 'shipping') return 'ship';
+    return s;
+  };
+  const apiSource = s => normalizeSource(s) === 'master_order' ? 'master_orders' : normalizeSource(s);
+
+  const YX = window.YX = window.YX || {};
+  YX.version = BUILD;
+  YX.fix = VERSION;
+  YX.modules = YX.modules || {};
+  YX.actions = YX.actions || {};
+  YX.legacy = YX.legacy || {};
+  YX.store = YX.store || {};
+  if (!YX.store.cache) YX.store.cache = new Map();
+  YX.store.clear = function(scope='all'){
+    try {
+      const cache = YX.store.cache;
+      if (scope === 'all') cache.clear();
+      else Array.from(cache.keys()).forEach(k => { if (String(k).includes(scope)) cache.delete(k); });
+      if (typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function') window.__YX127_CLEAR_SHORT_API_CACHE__('fix139-' + scope);
+      if (typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function') window.__YX126_CLEAR_CUSTOMER_CACHE__('fix139-' + scope);
+      window.dispatchEvent(new CustomEvent('yx139:store-cleared', {detail:{scope}}));
+    } catch(_e) {}
+  };
+  YX.store.clearAll = () => YX.store.clear('all');
+  YX.api = async function(url, opt={}){
+    const method = String(opt.method || 'GET').toUpperCase();
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const text = await res.text(); let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload = data; throw err; }
+    if (method !== 'GET') YX.store.clear('mutate');
+    return data;
+  };
+
+  function setModule(el, mod, container){
+    if (!el) return null;
+    if (mod) el.dataset.yxModule = mod;
+    if (container) el.dataset.yxContainer = container;
+    el.classList.add('yx139-module-owned');
+    return el;
+  }
+  function tagStaticModules(){
+    setModule($('region-picker-section'), 'customerCards', 'customer-region-panel');
+    ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].forEach(id => setModule($(id), 'customerCards', 'customer-list'));
+    setModule($('selected-customer-items'), 'productTable', 'selected-customer-items');
+    if ($('selected-customer-items')) $('selected-customer-items').dataset.yxSubmodules = 'productCards batchOps';
+    ['inventory-inline-list','orders-list','master-list','ship-selected-items'].forEach(id => setModule($(id), 'productCards', id));
+    ['yx63-orders-summary','yx63-master_order-summary','inventory-summary'].forEach(id => setModule($(id), 'productTable', id));
+    setModule($('warehouse-section'), 'warehouseGrid', 'warehouse-section');
+    ['zone-A-grid','zone-B-grid'].forEach(id => setModule($(id), 'warehouseGrid', 'warehouse-zone-grid'));
+    ['warehouse-search','customer-search','ship-keyword'].forEach(id => setModule($(id), 'searchFilter', id));
+    const todayRoot = document.querySelector('[data-yx-container="today-page"]') || document.querySelector('.home-shell');
+    if (location.pathname.includes('today-changes')) setModule(todayRoot, 'todayChanges', 'today-page');
+    ['today-summary-cards','today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list'].forEach(id => setModule($(id), 'todayChanges', id));
+    setModule($('today-changes-btn'), 'homeBadge', 'today-button');
+  }
+  function tagDynamicModules(root=document){
+    try {
+      root.querySelectorAll?.('.yx122-customer-card,.yx125-customer-card,.customer-region-card[data-customer],.customer-region-card[data-customer-name]').forEach(el => {
+        setModule(el, 'customerCards', 'customer-card');
+        el.dataset.yxOwner = 'customerCards';
+      });
+      root.querySelectorAll?.('.yx134-product-row').forEach(el => { setModule(el, 'productTable', 'product-row'); el.dataset.yxOwner = 'productTable'; });
+      root.querySelectorAll?.('.yx134-item-card,.inventory-action-card[data-id]').forEach(el => { setModule(el, 'productCards', 'product-card'); el.dataset.yxOwner = 'productCards'; });
+      root.querySelectorAll?.('.yx138-selected-toolbar,.yx138-row-check,#yx138-select-all,#yx138-batch-material,#yx138-batch-delete').forEach(el => { setModule(el, 'batchOps', 'batch-control'); el.dataset.yxOwner = 'batchOps'; });
+      root.querySelectorAll?.('.warehouse-slot,.warehouse-cell,.yx92-cell,.yx102-warehouse-cell,[data-slot-key]').forEach(el => { setModule(el, 'warehouseGrid', 'warehouse-cell'); el.dataset.yxOwner = 'warehouseGrid'; });
+      root.querySelectorAll?.('.today-item,.deduct-card[data-log-id],[data-yx68-delete-today],[data-yx69-delete-today],[data-yx70-delete-today]').forEach(el => { setModule(el, 'todayChanges', 'today-item'); el.dataset.yxOwner = 'todayChanges'; });
+      root.querySelectorAll?.('.modal,.action-sheet,.yx122-action-sheet,.customer-action-sheet').forEach(el => { if (!el.dataset.yxModule) setModule(el, 'actionSheet', 'modal-or-sheet'); });
+    } catch(_e) {}
+  }
+
+  function moduleOf(target){
+    const el = target?.closest?.('[data-yx-module]');
+    return el ? el.dataset.yxModule : '';
+  }
+  function claim(e, mod){ try { e.__yx139Module = mod; } catch(_e) {} }
+  function stop(e){ e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
+
+  async function openCustomerProducts(name, uid='', opts={}){
+    name = clean(name); uid = clean(uid);
+    if (!name) return [];
+    YX.store.clear('customer');
+    if (typeof window.selectCustomer134 === 'function') return window.selectCustomer134(name, uid, {silent:false, noInputEvents:false, ...opts});
+    const fn = YX.legacy.selectCustomerForModule || window.selectCustomerForModule;
+    if (typeof fn === 'function' && fn !== openCustomerProducts) return fn(name, uid, opts);
+    return [];
+  }
+  async function refreshCustomerCards(){
+    tagStaticModules(); tagDynamicModules(document);
+    const fn = YX.legacy.loadCustomerBlocks || YX.legacy.renderCustomers;
+    if (typeof fn === 'function') {
+      try { return await fn.apply(window, arguments); } finally { setTimeout(() => tagDynamicModules(document), 0); }
+    }
+  }
+  async function refreshProducts(){
+    const active = window.__YX135_ACTIVE_CUSTOMER_ITEMS__ || window.__YX134_ACTIVE_CUSTOMER_ITEMS__ || null;
+    const name = clean(active?.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || '');
+    const uid = clean(active?.uid || $('customer-name')?.dataset?.customerUid || '');
+    if (name) return openCustomerProducts(name, uid, {silent:true, noInputEvents:true});
+  }
+  async function refreshTodayChanges(){
+    const fn = YX.legacy.loadTodayChanges || window.loadTodayChanges;
+    if (typeof fn === 'function' && fn !== refreshTodayChanges) return fn.apply(window, arguments);
+  }
+  async function refreshWarehouse(){
+    const fn = YX.legacy.renderWarehouse;
+    if (typeof fn === 'function') return fn.apply(window, arguments);
+  }
+  async function refreshHomeBadge(){
+    const btn = $('today-changes-btn'); if (!btn) return;
+    try {
+      const d = await YX.api('/api/today-changes?summary_only=1&yx139=1&ts=' + Date.now(), {method:'GET'});
+      let badge = $('today-changes-home-badge');
+      if (!badge) { badge = document.createElement('span'); badge.id = 'today-changes-home-badge'; badge.className = 'today-home-badge'; btn.appendChild(badge); }
+      const n = Number(d?.summary?.unread_count || 0);
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.style.display = n > 0 ? 'inline-flex' : 'none';
+      btn.classList.toggle('has-unread', n > 0);
+    } catch(_e) {}
+  }
+
+  Object.assign(YX.modules, {
+    customerCards: {name:MODULES.customerCards, selector:'#region-picker-section,#customers-section', refresh:refreshCustomerCards},
+    productTable: {name:MODULES.productTable, selector:'#selected-customer-items,.yx134-product-table', refresh:refreshProducts},
+    productCards: {name:MODULES.productCards, selector:'.yx134-item-card,#inventory-inline-list,#orders-list,#master-list', refresh:refreshProducts},
+    todayChanges: {name:MODULES.todayChanges, selector:'[data-yx-module="todayChanges"]', refresh:refreshTodayChanges},
+    warehouseGrid: {name:MODULES.warehouseGrid, selector:'#warehouse-section,#zone-A-grid,#zone-B-grid', refresh:refreshWarehouse},
+    actionSheet: {name:MODULES.actionSheet, selector:'.modal,.action-sheet,.yx122-action-sheet'},
+    dragRegion: {name:MODULES.dragRegion, selector:'[data-yx-region-drop],.category-box'},
+    batchOps: {name:MODULES.batchOps, selector:'.yx138-selected-toolbar'},
+    searchFilter: {name:MODULES.searchFilter, selector:'input[type="search"],#warehouse-search,#customer-search,#ship-keyword'},
+    homeBadge: {name:MODULES.homeBadge, selector:'#today-changes-btn', refresh:refreshHomeBadge}
+  });
+
+  Object.assign(YX.actions, {
+    openCustomerProducts,
+    refreshCustomerCards,
+    refreshProducts,
+    refreshTodayChanges,
+    refreshWarehouse,
+    refreshHomeBadge,
+    clearCache: YX.store.clear,
+    async moveCustomerRegion(name, region){
+      name = clean(name); region = clean(region); if (!name || !region) return;
+      const c = window.YX_CUSTOMER_CARD_CONTROLLER;
+      if (c && typeof c.moveRegion === 'function') return c.moveRegion(name, region);
+      await YX.api('/api/customers/' + encodeURIComponent(name) + '/region', {method:'POST', body:JSON.stringify({region})});
+      YX.store.clear('customer'); return refreshCustomerCards();
+    },
+    async deleteCustomer(name){
+      name = clean(name); if (!name) return;
+      const c = window.YX_CUSTOMER_CARD_CONTROLLER;
+      if (c && typeof c.deleteCustomer === 'function') return c.deleteCustomer(name);
+      if (!confirm('確定刪除此客戶？')) return;
+      await YX.api('/api/customers/' + encodeURIComponent(name), {method:'DELETE', body:JSON.stringify({})});
+      YX.store.clear('customer'); return refreshCustomerCards();
+    },
+    async archiveCustomer(name){
+      name = clean(name); if (!name) return;
+      const c = window.YX_CUSTOMER_CARD_CONTROLLER;
+      if (c && typeof c.archiveCustomer === 'function') return c.archiveCustomer(name);
+      await YX.api('/api/customers/' + encodeURIComponent(name) + '/archive', {method:'POST', body:JSON.stringify({})});
+      YX.store.clear('customer'); return refreshCustomerCards();
+    }
+  });
+
+  function handleCustomerCardEvent(e){
+    const card = e.target?.closest?.('[data-yx-module="customerCards"][data-yx-container="customer-card"],.yx122-customer-card,.yx125-customer-card,.customer-region-card[data-customer],.customer-region-card[data-customer-name]');
+    if (!card) return false;
+    if (e.type === 'click' && e.target?.closest?.('button,[data-yx122-menu],[data-yx125-menu],[data-yx-action]')) return false;
+    const name = clean(card.dataset.customer || card.dataset.customerName || card.getAttribute('data-customer') || '');
+    const uid = clean(card.dataset.customerUid || card.dataset.uid || '');
+    if (!name) return false;
+    if (e.type === 'click') {
+      claim(e, 'customerCards'); stop(e);
+      openCustomerProducts(name, uid).catch(err => toast(err.message || '載入客戶商品失敗', 'error'));
+      return true;
+    }
+    if (e.type === 'contextmenu') {
+      claim(e, 'actionSheet'); stop(e);
+      const c = window.YX_CUSTOMER_CARD_CONTROLLER;
+      if (c && typeof c.openActionSheet === 'function') c.openActionSheet(name, card.dataset.region || card.closest('[data-region]')?.dataset.region || '', card);
+      else card.querySelector('[data-yx122-menu],[data-yx125-menu],button')?.click?.();
+      return true;
+    }
+    return false;
+  }
+  function handleTodayActions(e){
+    if (!location.pathname.includes('today-changes')) return false;
+    const mod = moduleOf(e.target);
+    if (mod !== 'todayChanges') return false;
+    const del = e.target?.closest?.('[data-yx68-delete-today],[data-yx69-delete-today],[data-yx70-delete-today]');
+    if (del && e.type === 'click') { claim(e, 'todayChanges'); return false; }
+    if (e.type === 'click' && e.target?.matches?.('[data-today-filter],#today-unread-toggle,#today-clear-read-btn')) { claim(e, 'todayChanges'); return false; }
+    return false;
+  }
+  function handleBatchActions(e){
+    const btn = e.target?.closest?.('#yx138-select-all,#yx138-batch-material,#yx138-batch-delete,.yx138-row-check');
+    if (!btn) return false;
+    claim(e, 'batchOps');
+    return false;
+  }
+  function handleWarehouseActions(e){
+    const mod = moduleOf(e.target);
+    if (mod !== 'warehouseGrid') return false;
+    claim(e, 'warehouseGrid');
+    // 倉庫有很多格位長按 / 點擊 / 拖拉舊功能仍是正式功能，這裡只標記歸屬，不攔截。
+    return false;
+  }
+  function moduleCapture(e){
+    try {
+      const root = e.target?.closest?.('[data-yx-module],.yx122-customer-card,.yx125-customer-card,.customer-region-card,.yx134-product-row,.yx134-item-card,.warehouse-slot,.warehouse-cell,.today-item,.deduct-card') || e.target || document;
+      if (root && root.nodeType === 1) tagDynamicModules(root);
+      if (handleCustomerCardEvent(e)) return;
+      if (handleTodayActions(e)) return;
+      if (handleBatchActions(e)) return;
+      if (handleWarehouseActions(e)) return;
+    } catch(err) { log('event error', err); }
+  }
+  ['click','contextmenu','pointerdown','pointerup','dragstart','dragover','drop','change'].forEach(type => window.addEventListener(type, moduleCapture, true));
+
+  function protectGlobal(name, moduleName, wrapperFactory){
+    const current = window[name];
+    if (typeof current === 'function') YX.legacy[name] = current;
+    const wrapper = wrapperFactory(function(){ return YX.legacy[name]; });
+    try { Object.defineProperty(wrapper, 'name', {value: name + '139'}); } catch(_e) {}
+    try {
+      Object.defineProperty(window, name, {
+        configurable:true,
+        enumerable:true,
+        get(){ return wrapper; },
+        set(fn){
+          if (typeof fn === 'function' && fn !== wrapper) {
+            YX.legacy[name] = fn;
+            log('captured reassignment', name, '->', moduleName);
+          }
+        }
+      });
+    } catch(_e) { window[name] = wrapper; }
+  }
+  protectGlobal('selectCustomerForModule', 'productTable', getLegacy => async function(name, uid, opts){ return openCustomerProducts(name, uid, opts); });
+  protectGlobal('loadCustomerBlocks', 'customerCards', getLegacy => async function(){ const fn = getLegacy(); return typeof fn === 'function' ? fn.apply(this, arguments) : undefined; });
+  protectGlobal('renderCustomers', 'customerCards', getLegacy => async function(){ const fn = getLegacy(); return typeof fn === 'function' ? fn.apply(this, arguments) : undefined; });
+  protectGlobal('loadTodayChanges', 'todayChanges', getLegacy => async function(){ const fn = getLegacy(); return typeof fn === 'function' ? fn.apply(this, arguments) : undefined; });
+  protectGlobal('renderWarehouse', 'warehouseGrid', getLegacy => async function(){ const fn = getLegacy(); return typeof fn === 'function' ? fn.apply(this, arguments) : undefined; });
+
+  function installMutationTagger(){
+    try {
+      const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+      if (!NativeMO || window.__YX139_MODULE_OBSERVER__) return;
+      window.__YX139_MODULE_OBSERVER__ = true;
+      const mo = new NativeMO(muts => {
+        for (const m of muts) {
+          for (const n of m.addedNodes || []) if (n && n.nodeType === 1) tagDynamicModules(n);
+        }
+      });
+      mo.observe(document.body || document.documentElement, {childList:true, subtree:true});
+    } catch(_e) {}
+  }
+
+  function boot(){
+    try {
+      document.documentElement.dataset.yxFix139 = VERSION;
+      window.__YX_BUILD_VERSION__ = BUILD;
+      window.__YX_FIX139_MARKER__ = VERSION;
+      window.__YX_MODULES__ = MODULES;
+      window.__YX_FORCE_NO_OLD_UI__ = true;
+    } catch(_e) {}
+    tagStaticModules();
+    tagDynamicModules(document);
+    installMutationTagger();
+    if (location.pathname === '/' || location.pathname === '') setTimeout(refreshHomeBadge, 80);
+    if (location.pathname.includes('/today-changes')) setTimeout(() => { tagDynamicModules(document); }, 80);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', boot, true);
+  window.addEventListener('yx139:store-cleared', () => setTimeout(() => tagDynamicModules(document), 40), true);
+  window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:VERSION, build:BUILD, modules:YX.modules, actions:YX.actions, store:YX.store, api:YX.api});
+})();
+/* ==== FIX139 end ==== */
+
+
+/* ==== FIX140: legacy archive + DOM write lock + render token + overwrite detector ==== */
+(function(){
+  'use strict';
+  if (window.__YX140_LEGACY_ARCHIVE_DOM_LOCK__) return;
+  window.__YX140_LEGACY_ARCHIVE_DOM_LOCK__ = true;
+  const VERSION = 'FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS';
+  const BUILD = 'fix142-readme-implementation-audit-actions';
+  const MODULE_GROUP = {
+    customerCards:'customer', dragRegion:'customer', actionSheet:'action',
+    productTable:'products', productCards:'products', batchOps:'products',
+    todayChanges:'today', warehouseGrid:'warehouse', searchFilter:'search', homeBadge:'home'
+  };
+  const OWNERS = {
+    customerCards:['region-picker-section','region-north','region-center','region-south','customers-north','customers-center','customers-south'],
+    productTable:['selected-customer-items','yx63-orders-summary','yx63-master_order-summary','inventory-summary','orders-list','master-list','inventory-inline-list','ship-selected-items'],
+    todayChanges:['today-summary-cards','today-inbound-list','today-outbound-list','today-order-list','today-unplaced-list'],
+    warehouseGrid:['warehouse-section','zone-A-grid','zone-B-grid'],
+    homeBadge:['today-changes-btn','today-changes-home-badge']
+  };
+  const LEGACY_NAMES = ['loadCustomerBlocks','renderCustomers','selectCustomerForModule','loadTodayChanges','renderWarehouse','renderCustomerItems134','renderCustomerItems','renderSourceList','renderCards','renderSummary'];
+  const oldSelectors = [
+    '.yx119-customer-card:not([data-yx-module])','.yx120-customer-card:not([data-yx-module])','.yx121-customer-card:not([data-yx-module])',
+    '.old-today-row','.today-old-row','.legacy-today-row','.yx80-today-row','.yx93-today-row',
+    '.yx63-item-card:not(.yx134-item-card):not([data-yx-module])','.customer-region-card:not([data-yx-module])'
+  ];
+  const d = document;
+  const $ = id => d.getElementById(id);
+  const srcOf = fn => { try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } };
+  const log = (...args) => { try { if (localStorage.getItem('YX_DEBUG') === '1') console.warn('[YX140]', ...args); } catch(_e) {} };
+  const YX = window.YX = window.YX || {};
+  YX.legacy = YX.legacy || {};
+  YX.modules = YX.modules || {};
+  YX.actions = YX.actions || {};
+  YX.guard = YX.guard || {};
+  const state = {
+    current:null,
+    latestToken:Object.create(null),
+    legacyTimers:new Set(),
+    violations:[],
+    refreshTimers:Object.create(null),
+    booted:false
+  };
+  function groupOf(owner){ return MODULE_GROUP[owner] || owner || ''; }
+  function sameOwner(a,b){ return a === b || (a && b && groupOf(a) === groupOf(b)); }
+  function ownerFromElement(el){
+    if (!el || el.nodeType !== 1) return '';
+    const owned = el.closest?.('[data-yx-owner],[data-yx-module]');
+    return owned?.dataset?.yxOwner || owned?.dataset?.yxModule || '';
+  }
+  function protectedOwner(el){
+    if (!el || el.nodeType !== 1) return '';
+    if (el.dataset?.yxOwner || el.dataset?.yxModule) return ownerFromElement(el);
+    const id = el.id || '';
+    for (const [owner, ids] of Object.entries(OWNERS)) if (ids.includes(id)) return owner;
+    return '';
+  }
+  function nextToken(owner){
+    owner = owner || 'system';
+    state.latestToken[owner] = (state.latestToken[owner] || 0) + 1;
+    return state.latestToken[owner];
+  }
+  function isCurrent(owner, token){ return !owner || !token || state.latestToken[owner] === token; }
+  function withOwner(owner, fn, opts={}){
+    owner = owner || 'system';
+    const token = opts.token || nextToken(owner);
+    const prev = state.current;
+    state.current = {owner, token, started:Date.now()};
+    const restore = () => { if (state.current && state.current.owner === owner && state.current.token === token) state.current = prev || null; };
+    try {
+      const out = fn(token);
+      if (out && typeof out.then === 'function') return out.finally(restore);
+      restore();
+      return out;
+    } catch(err) { restore(); throw err; }
+  }
+  function allowWrite(target){
+    const owner = protectedOwner(target);
+    if (!owner) return true;
+    const ctx = state.current;
+    if (!ctx) return false;
+    if (ctx.owner === 'system') return true;
+    return sameOwner(ctx.owner, owner) && isCurrent(ctx.owner, ctx.token);
+  }
+  function reportViolation(type, target){
+    const owner = protectedOwner(target) || 'unknown';
+    const rec = {type, owner, id:target?.id || '', className:String(target?.className || '').slice(0,120), at:Date.now()};
+    state.violations.push(rec);
+    if (state.violations.length > 80) state.violations.shift();
+    try { window.__YX140_DOM_VIOLATIONS__ = state.violations; } catch(_e) {}
+    log('blocked DOM write', rec);
+    scheduleRefresh(owner);
+  }
+  function patchDomWrites(){
+    if (window.__YX140_DOM_WRITE_LOCK__) return;
+    window.__YX140_DOM_WRITE_LOCK__ = true;
+    try {
+      const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML') || Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerHTML');
+      if (desc && desc.set && desc.get) {
+        Object.defineProperty(Element.prototype, 'innerHTML', {
+          configurable:true,
+          get(){ return desc.get.call(this); },
+          set(value){ if (!allowWrite(this)) { reportViolation('innerHTML', this); return; } return desc.set.call(this, value); }
+        });
+      }
+    } catch(_e) {}
+    try {
+      const nativeInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+      Element.prototype.insertAdjacentHTML = function(position, html){ if (!allowWrite(this)) { reportViolation('insertAdjacentHTML', this); return undefined; } return nativeInsertAdjacentHTML.call(this, position, html); };
+    } catch(_e) {}
+    try {
+      const nativeReplaceChildren = Element.prototype.replaceChildren;
+      if (nativeReplaceChildren) Element.prototype.replaceChildren = function(...nodes){ if (!allowWrite(this)) { reportViolation('replaceChildren', this); return undefined; } return nativeReplaceChildren.apply(this, nodes); };
+    } catch(_e) {}
+    try {
+      const nativeAppendChild = Node.prototype.appendChild;
+      Node.prototype.appendChild = function(child){ if (this && this.nodeType === 1 && !allowWrite(this)) { reportViolation('appendChild', this); return child; } return nativeAppendChild.call(this, child); };
+      const nativeInsertBefore = Node.prototype.insertBefore;
+      Node.prototype.insertBefore = function(child, ref){ if (this && this.nodeType === 1 && !allowWrite(this)) { reportViolation('insertBefore', this); return child; } return nativeInsertBefore.call(this, child, ref); };
+      const nativeReplaceChild = Node.prototype.replaceChild;
+      Node.prototype.replaceChild = function(child, oldChild){ if (this && this.nodeType === 1 && !allowWrite(this)) { reportViolation('replaceChild', this); return oldChild; } return nativeReplaceChild.call(this, child, oldChild); };
+    } catch(_e) {}
+  }
+  function tag(el, owner, container){
+    if (!el || el.nodeType !== 1) return;
+    el.dataset.yxOwner = owner;
+    el.dataset.yxModule = el.dataset.yxModule || owner;
+    if (container) el.dataset.yxContainer = container;
+    el.classList.add('yx140-owned');
+  }
+  function tagOwned(root=d){
+    try {
+      for (const [owner, ids] of Object.entries(OWNERS)) ids.forEach(id => tag($(id), owner, id));
+      if (location.pathname.includes('/today-changes')) tag(d.querySelector('[data-yx-container="today-page"]') || d.querySelector('main') || d.body, 'todayChanges', 'today-page');
+      root.querySelectorAll?.('.yx122-customer-card,.yx125-customer-card,.customer-region-card[data-customer],.customer-region-card[data-customer-name]').forEach(el => tag(el, 'customerCards', 'customer-card'));
+      root.querySelectorAll?.('.yx134-product-row,.yx138-product-row').forEach(el => tag(el, 'productTable', 'product-row'));
+      root.querySelectorAll?.('.yx134-item-card,.inventory-action-card[data-id]').forEach(el => tag(el, 'productCards', 'product-card'));
+      root.querySelectorAll?.('.yx138-selected-toolbar,.yx138-row-check,#yx138-select-all,#yx138-batch-material,#yx138-batch-delete').forEach(el => tag(el, 'batchOps', 'batch-control'));
+      root.querySelectorAll?.('.warehouse-slot,.warehouse-cell,.yx92-cell,.yx102-warehouse-cell,[data-slot-key]').forEach(el => tag(el, 'warehouseGrid', 'warehouse-cell'));
+      root.querySelectorAll?.('.today-item,.deduct-card[data-log-id],[data-yx68-delete-today],[data-yx69-delete-today],[data-yx70-delete-today]').forEach(el => tag(el, 'todayChanges', 'today-item'));
+      root.querySelectorAll?.('input[type="search"],#warehouse-search,#customer-search,#ship-keyword').forEach(el => tag(el, 'searchFilter', 'search-control'));
+    } catch(err) { log('tagOwned error', err); }
+  }
+  function clearCaches(scope='fix140'){
+    try { YX.store && typeof YX.store.clear === 'function' && YX.store.clear(scope); } catch(_e) {}
+    try { typeof window.__YX127_CLEAR_SHORT_API_CACHE__ === 'function' && window.__YX127_CLEAR_SHORT_API_CACHE__(scope); } catch(_e) {}
+    try { typeof window.__YX126_CLEAR_CUSTOMER_CACHE__ === 'function' && window.__YX126_CLEAR_CUSTOMER_CACHE__(scope); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx140:cache-cleared', {detail:{scope}})); } catch(_e) {}
+  }
+  async function callCustomerRefresh(force=true){
+    const c = window.YX_CUSTOMER_CARD_CONTROLLER || {};
+    const fn = c.loadCustomerBlocks || c.refresh || YX.legacy.loadCustomerBlocks;
+    if (typeof fn === 'function') return withOwner('customerCards', () => fn.call(c, force));
+  }
+  async function callProductRefresh(){
+    const active = window.__YX135_ACTIVE_CUSTOMER_ITEMS__ || window.__YX134_ACTIVE_CUSTOMER_ITEMS__ || {};
+    const name = active.name || window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || '';
+    const uid = active.uid || $('customer-name')?.dataset?.customerUid || '';
+    if (name && typeof window.selectCustomer134 === 'function') return withOwner('productTable', () => window.selectCustomer134(name, uid, {silent:true, noInputEvents:true, force:true}));
+  }
+  async function callTodayRefresh(){
+    const fn = YX.legacy.loadTodayChanges;
+    if (typeof fn === 'function') return withOwner('todayChanges', () => fn(true));
+  }
+  async function callWarehouseRefresh(){
+    const fn = YX.legacy.renderWarehouse;
+    if (typeof fn === 'function') return withOwner('warehouseGrid', () => fn(true));
+  }
+  function scheduleRefresh(owner){
+    owner = owner || 'system';
+    clearTimeout(state.refreshTimers[owner]);
+    state.refreshTimers[owner] = setTimeout(() => {
+      try {
+        if (sameOwner(owner,'customerCards')) callCustomerRefresh(false);
+        else if (sameOwner(owner,'productTable') || sameOwner(owner,'productCards') || sameOwner(owner,'batchOps')) callProductRefresh();
+        else if (sameOwner(owner,'todayChanges')) callTodayRefresh();
+        else if (sameOwner(owner,'warehouseGrid')) callWarehouseRefresh();
+      } catch(_e) {}
+    }, 120);
+  }
+  function archiveFunction(name, owner, resolver){
+    let stored = window[name];
+    if (typeof stored === 'function' && !stored.__yx140Wrapper) YX.legacy[name] = stored;
+    const wrapper = async function(){
+      const fn = resolver ? resolver() : YX.legacy[name];
+      if (typeof fn !== 'function') return undefined;
+      const token = nextToken(owner);
+      return withOwner(owner, () => fn.apply(this, arguments), {token});
+    };
+    try { wrapper.__yx140Wrapper = true; Object.defineProperty(wrapper, 'name', {value:name + '140'}); } catch(_e) {}
+    try {
+      Object.defineProperty(window, name, {
+        configurable:true,
+        enumerable:true,
+        get(){ return wrapper; },
+        set(fn){ if (typeof fn === 'function' && fn !== wrapper) { YX.legacy[name] = fn; log('archived legacy assignment', name); } }
+      });
+    } catch(_e) { window[name] = wrapper; }
+    return wrapper;
+  }
+  function installLegacyArchive(){
+    archiveFunction('loadCustomerBlocks', 'customerCards', () => (window.YX_CUSTOMER_CARD_CONTROLLER||{}).loadCustomerBlocks || YX.legacy.loadCustomerBlocks);
+    archiveFunction('renderCustomers', 'customerCards', () => (window.YX_CUSTOMER_CARD_CONTROLLER||{}).renderCustomers || (window.YX_CUSTOMER_CARD_CONTROLLER||{}).loadCustomerBlocks || YX.legacy.renderCustomers);
+    archiveFunction('selectCustomer134', 'productTable', () => YX.legacy.selectCustomer134);
+    archiveFunction('selectCustomerForModule', 'productTable', () => window.selectCustomer134 || (window.YX_CUSTOMER_CARD_CONTROLLER||{}).openProducts || YX.legacy.selectCustomerForModule);
+    archiveFunction('renderCustomerItems134', 'productTable', () => YX.legacy.renderCustomerItems134);
+    archiveFunction('loadTodayChanges', 'todayChanges', () => YX.legacy.loadTodayChanges);
+    archiveFunction('renderWarehouse', 'warehouseGrid', () => YX.legacy.renderWarehouse);
+    archiveFunction('saveWarehouseCell', 'warehouseGrid', () => YX.legacy.saveWarehouseCell);
+    archiveFunction('confirmSubmit', 'productTable', () => YX.legacy.confirmSubmit);
+    const c = (window.YX_CUSTOMER_CARD_CONTROLLER && typeof window.YX_CUSTOMER_CARD_CONTROLLER === 'object') ? window.YX_CUSTOMER_CARD_CONTROLLER : null;
+    if (c && !c.__yx140Wrapped) {
+      ['loadCustomerBlocks','renderCustomers','selectCustomerForModule','openProducts','moveRegion','archiveCustomer','deleteCustomer','editCustomer','openActionSheet'].forEach(k => {
+        const fn = c[k];
+        if (typeof fn !== 'function') return;
+        const owner = (k === 'openProducts' || k === 'selectCustomerForModule') ? 'productTable' : (k === 'openActionSheet' ? 'actionSheet' : 'customerCards');
+        c[k] = function(){ return withOwner(owner, () => fn.apply(c, arguments)); };
+      });
+      try { c.__yx140Wrapped = true; } catch(_e) {}
+    }
+    const master = (window.YX_MASTER && typeof window.YX_MASTER === 'object') ? window.YX_MASTER : {};
+    const next = {...master, version:VERSION, build:BUILD, guard:YX.guard, actions:YX.actions, legacy:YX.legacy,
+      loadCustomerBlocks: window.loadCustomerBlocks,
+      renderCustomers: window.renderCustomers,
+      selectCustomerForModule: window.selectCustomerForModule,
+      loadTodayChanges: window.loadTodayChanges,
+      renderWarehouse: window.renderWarehouse
+    };
+    try { Object.defineProperty(window, 'YX_MASTER', {value:next, configurable:true, writable:true}); } catch(_e) { window.YX_MASTER = next; }
+  }
+  function patchFetchCacheClear(){
+    if (window.__YX140_FETCH_CACHE_CLEAR__) return;
+    const nativeFetch = window.fetch && window.fetch.bind(window);
+    if (!nativeFetch) return;
+    window.__YX140_FETCH_CACHE_CLEAR__ = true;
+    window.fetch = async function(input, init={}){
+      const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      const res = await nativeFetch(input, init);
+      if (!['GET','HEAD','OPTIONS'].includes(method)) clearCaches('fetch-' + method.toLowerCase());
+      return res;
+    };
+  }
+  function patchTimers(){
+    if (window.__YX140_TIMER_GUARD__) return;
+    window.__YX140_TIMER_GUARD__ = true;
+    const nativeSetTimeout = window.setTimeout.bind(window);
+    const nativeSetInterval = window.setInterval.bind(window);
+    const nativeClearTimeout = window.clearTimeout.bind(window);
+    const nativeClearInterval = window.clearInterval.bind(window);
+    function isLegacyTimer(fn){
+      const s = srcOf(fn);
+      if (!s || /FIX140|FIX139|FIX138|FIX137|FIX136|FIX135|FIX134|YX_CUSTOMER_CARD_CONTROLLER|selectCustomer134/.test(s)) return false;
+      return /loadCustomerBlocks(?:119|120|121|122|123|124)|loadTodayChanges(?:80|93|95)|renderWarehouse(?:82|95)|toggleUnplaced93|refreshUnplaced95|periodicCleanup|restoreLegacyLayout|legacyMutationGuard/.test(s);
+    }
+    window.setTimeout = function(fn, delay, ...args){
+      if (isLegacyTimer(fn)) { log('blocked legacy timeout'); return 0; }
+      const id = nativeSetTimeout(function(...a){ state.legacyTimers.delete(id); return typeof fn === 'function' ? fn.apply(this, a) : (0,eval)(fn); }, delay, ...args);
+      state.legacyTimers.add(id);
+      return id;
+    };
+    window.clearTimeout = function(id){ state.legacyTimers.delete(id); return nativeClearTimeout(id); };
+    window.setInterval = function(fn, delay, ...args){
+      if (isLegacyTimer(fn)) { log('blocked legacy interval'); return 0; }
+      const id = nativeSetInterval(fn, delay, ...args);
+      state.legacyTimers.add(id);
+      return id;
+    };
+    window.clearInterval = function(id){ state.legacyTimers.delete(id); return nativeClearInterval(id); };
+    YX.guard.cancelLegacyTimers = function(){
+      try { state.legacyTimers.forEach(id => { nativeClearTimeout(id); nativeClearInterval(id); }); state.legacyTimers.clear(); } catch(_e) {}
+      try { window.__YX96_INTERVALS__?.forEach?.(id => { nativeClearInterval(id); }); window.__YX96_INTERVALS__?.clear?.(); } catch(_e) {}
+    };
+  }
+  function installEventFirewall(){
+    if (window.__YX140_EVENT_FIREWALL__) return;
+    window.__YX140_EVENT_FIREWALL__ = true;
+    function modOf(e){ return e.target?.closest?.('[data-yx-module]')?.dataset?.yxModule || ''; }
+    window.addEventListener('click', e => {
+      const mod = modOf(e);
+      if (!mod) return;
+      // 這層只處理已知新版控制項，其餘交給各模組正式 handler，避免誤殺倉庫格位功能。
+      if (mod === 'customerCards' && e.target?.closest?.('.yx122-customer-card,.yx125-customer-card,.customer-region-card[data-customer],.customer-region-card[data-customer-name]')) {
+        e.__yx140Claimed = 'customerCards';
+      }
+      if ((mod === 'productTable' || mod === 'productCards' || mod === 'batchOps') && e.target?.closest?.('[data-yx63-action],#yx138-select-all,#yx138-batch-material,#yx138-batch-delete,.yx138-row-check')) {
+        e.__yx140Claimed = 'products';
+      }
+      if (mod === 'todayChanges' && e.target?.closest?.('[data-yx-action],[data-today-filter],[data-yx68-delete-today],[data-yx69-delete-today],[data-yx70-delete-today]')) {
+        e.__yx140Claimed = 'todayChanges';
+      }
+    }, true);
+  }
+  function installOverwriteDetector(){
+    if (window.__YX140_OVERWRITE_DETECTOR__) return;
+    window.__YX140_OVERWRITE_DETECTOR__ = true;
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (!NativeMO) return;
+    const mo = new NativeMO(muts => {
+      for (const m of muts) {
+        for (const n of m.addedNodes || []) {
+          if (!n || n.nodeType !== 1) continue;
+          tagOwned(n);
+          const owner = ownerFromElement(n) || ownerFromElement(m.target) || protectedOwner(m.target);
+          let hit = false;
+          try { hit = oldSelectors.some(sel => n.matches?.(sel) || n.querySelector?.(sel)); } catch(_e) {}
+          if (hit && owner) {
+            try { n.classList?.add('yx140-legacy-overwrite-detected'); } catch(_e) {}
+            state.violations.push({type:'legacy-dom-detected', owner, at:Date.now()});
+            scheduleRefresh(owner);
+          }
+        }
+      }
+    });
+    try { mo.observe(d.body || d.documentElement, {childList:true, subtree:true}); } catch(_e) {}
+    YX.guard.overwriteObserver = mo;
+  }
+  function installBoot(){
+    if (window.YX_BOOT && window.YX_BOOT.__yx140) return;
+    window.YX_BOOT = {
+      __yx140:true,
+      version:VERSION,
+      start(){
+        if (state.booted) return;
+        state.booted = true;
+        tagOwned(d);
+        try { YX.guard.cancelLegacyTimers && YX.guard.cancelLegacyTimers(); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx140:booted', {detail:{version:VERSION}})); } catch(_e) {}
+      },
+      refresh(owner){ scheduleRefresh(owner || 'system'); },
+      clearCache: clearCaches
+    };
+  }
+  function installActions(){
+    Object.assign(YX.guard, {version:VERSION, build:BUILD, state, withOwner, nextToken, isCurrent, tagOwned, clearCaches, scheduleRefresh});
+    Object.assign(YX.actions, {
+      clearCache: clearCaches,
+      refreshCustomerCards: () => callCustomerRefresh(true),
+      refreshProducts: callProductRefresh,
+      refreshTodayChanges: callTodayRefresh,
+      refreshWarehouse: callWarehouseRefresh,
+      withOwner
+    });
+  }
+  function boot(){
+    try {
+      window.__YX_BUILD_VERSION__ = BUILD;
+      window.__YX_FIX140_MARKER__ = VERSION;
+      d.documentElement.dataset.yxFix140 = VERSION;
+      d.documentElement.dataset.yxBuildVersion = BUILD;
+    } catch(_e) {}
+    installActions();
+    tagOwned(d);
+    patchDomWrites();
+    patchFetchCacheClear();
+    patchTimers();
+    installLegacyArchive();
+    installEventFirewall();
+    installOverwriteDetector();
+    installBoot();
+    try { window.YX_BOOT.start(); } catch(_e) {}
+  }
+  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  window.addEventListener('pageshow', () => { tagOwned(d); }, true);
+  window.addEventListener('yx139:store-cleared', () => clearCaches('from-yx139'), true);
+})();
+/* ==== FIX140 end ==== */
+
+
+/* ==== FIX142: README implementation audit + unified product action exposure ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS';
+  const BUILD = 'fix142-readme-implementation-audit-actions';
+  const d = document;
+  function clean(v){ return String(v == null ? '' : v).trim(); }
+  function parseJsonSafe(t){ try { return t ? JSON.parse(t) : {}; } catch(_e) { return {}; } }
+  async function api(url, opt={}){
+    const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
+    const res = await fetch(url, {credentials:'same-origin', ...opt, headers});
+    const txt = await res.text();
+    const data = parseJsonSafe(txt);
+    if (!res.ok || data.success === false) throw new Error(data.error || data.message || txt || '請求失敗');
+    return data;
+  }
+  function clearAll(reason){
+    try { window.YX?.store?.clear?.(reason || 'fix142-product-action'); } catch(_e) {}
+    try { window.YX?.guard?.clearCaches?.(reason || 'fix142-product-action'); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx142:action-cleared-cache', {detail:{reason:reason || ''}})); } catch(_e) {}
+  }
+  function activeCustomer(){
+    const p = d.getElementById('selected-customer-items');
+    return clean(p?.dataset?.customer || p?.querySelector?.('[data-customer]')?.dataset?.customer || window.__YX134_ACTIVE_CUSTOMER__?.name || '');
+  }
+  function normalizeItem(input){
+    if (!input) return null;
+    if (input instanceof Element) {
+      const row = input.closest('.yx134-product-row,.yx134-summary-row,.yx134-item-card,[data-source][data-id]') || input;
+      input = row.dataset || {};
+    }
+    const source = clean(input.source || input.yxSource || input.itemSource || input.sourceLabel);
+    const id = Number(input.id || input.itemId || input.rowId || 0);
+    if (!source || !id) return null;
+    return {
+      source,
+      id,
+      product_text: clean(input.productText || input.product_text || input.product || input.size || ''),
+      qty: Number(input.qty || input.quantity || 0) || 0,
+      material: clean(input.material || ''),
+      customer: clean(input.customer || activeCustomer())
+    };
+  }
+  async function refreshProducts(){
+    try { await window.YX?.actions?.refreshProducts?.(); } catch(_e) {}
+    try {
+      const c = window.YX_CUSTOMER_CARD_CONTROLLER;
+      const name = activeCustomer();
+      if (name && c && typeof c.openProducts === 'function') await c.openProducts(name, {force:true});
+    } catch(_e) {}
+  }
+  async function editItem(item, patch={}){
+    item = normalizeItem(item);
+    if (!item) throw new Error('缺少商品資料');
+    const product_text = clean(patch.product_text ?? item.product_text ?? prompt('商品資料', item.product_text || '') ?? '');
+    if (!product_text) return {success:false, cancelled:true};
+    const qtyRaw = patch.qty ?? item.qty ?? prompt('件數', String(item.qty || 0));
+    const material = patch.material ?? item.material;
+    const payload = {source:item.source, id:item.id, product_text, qty:Number(qtyRaw || 0) || 0};
+    if (material != null) payload.material = clean(material);
+    const out = await api('/api/customer-item', {method:'POST', body:JSON.stringify(payload)});
+    clearAll('editItem');
+    await refreshProducts();
+    return out;
+  }
+  async function deleteItem(item){
+    item = normalizeItem(item);
+    if (!item) throw new Error('缺少商品資料');
+    if (!confirm('確定刪除此商品？')) return {success:false, cancelled:true};
+    const out = await api('/api/customer-item', {method:'DELETE', body:JSON.stringify({source:item.source, id:item.id})});
+    clearAll('deleteItem');
+    await refreshProducts();
+    return out;
+  }
+  async function shipItem(item){
+    item = normalizeItem(item);
+    if (!item) throw new Error('缺少商品資料');
+    const customer_name = item.customer || activeCustomer();
+    const payload = {customer_name, items:[{source:item.source, id:item.id, product_text:item.product_text, qty:item.qty, material:item.material}]};
+    const preview = await api('/api/ship-preview', {method:'POST', body:JSON.stringify(payload)});
+    if (typeof window.showShipPreview === 'function') window.showShipPreview(preview, payload);
+    else {
+      const panel = d.getElementById('ship-preview-panel') || d.getElementById('module-result');
+      if (panel) {
+        panel.classList.remove('hidden');
+        panel.innerHTML = '<div class="success-card"><div class="section-title">出貨預覽</div><pre style="white-space:pre-wrap">' + JSON.stringify(preview, null, 2).replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s])) + '</pre></div>';
+      }
+    }
+    clearAll('shipItem-preview');
+    return preview;
+  }
+  async function batchAddMaterial(items, material){
+    const rows = (items || []).map(normalizeItem).filter(Boolean).map(it => ({source:it.source, id:it.id}));
+    material = clean(material || prompt('輸入材質', '') || '').toUpperCase();
+    if (!material) return {success:false, cancelled:true};
+    if (!rows.length) throw new Error('請先勾選要套用材質的商品');
+    const out = await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({items:rows, material})});
+    clearAll('batchAddMaterial');
+    await refreshProducts();
+    return out;
+  }
+  async function batchDeleteItems(items){
+    const rows = (items || []).map(normalizeItem).filter(Boolean).map(it => ({source:it.source, id:it.id}));
+    if (!rows.length) throw new Error('請先勾選要刪除的商品');
+    if (!confirm(`確定刪除 ${rows.length} 筆商品？`)) return {success:false, cancelled:true};
+    const out = await api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items:rows})});
+    clearAll('batchDeleteItems');
+    await refreshProducts();
+    return out;
+  }
+  function install(){
+    const YX = window.YX = window.YX || {};
+    YX.actions = YX.actions || {};
+    Object.assign(YX.actions, {editItem, deleteItem, shipItem, batchAddMaterial, batchDeleteItems, normalizeItem});
+    window.__YX_FIX142_MARKER__ = VERSION;
+    window.__YX_BUILD_VERSION__ = BUILD;
+    try { d.documentElement.dataset.yxFix142 = VERSION; } catch(_e) {}
+  }
+  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  window.addEventListener('yx140:booted', install, true);
+})();
+/* ==== FIX142 end ==== */

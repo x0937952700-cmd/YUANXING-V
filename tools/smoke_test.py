@@ -15,20 +15,43 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
 
 required = {
     "static/app.js": [
-        "FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER",
+        "FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS",
         "window.YX_MASTER",
+        "YX.modules",
+        "YX.actions",
+        "customerCards",
+        "productTable",
+        "productCards",
+        "todayChanges",
+        "warehouseGrid",
+        "actionSheet",
+        "dragRegion",
+        "batchOps",
+        "searchFilter",
+        "homeBadge",
+        "YX.guard",
+        "DOM write lock",
         "confirmSubmit",
         "saveWarehouseCell",
         "loadCustomerBlocks",
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
+        "FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS",
+        "editItem",
+        "deleteItem",
+        "shipItem",
+        "batchAddMaterial",
+        "batchDeleteItems",
     ],
-    "static/style.css": ["yx88-hidden-legacy", "yx88-hidden-legacy", "yx85-month-badge"],
-    "templates/base.html": ["FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER", "app.js", "pwa.js", "fix93-mobile-batch-today-unplaced-stable"],
-    "static/service-worker.js": ["FIX93_MOBILE_BATCH_TODAY_UNPLACED_MASTER", "fix93-mobile-batch-today-unplaced-stable"],
-    "static/pwa.js": ["fix93-mobile-batch-today-unplaced-stable"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix93-mobile-batch-today-unplaced-stable"'],
+    "static/style.css": ["yx88-hidden-legacy", "yx85-month-badge", "FIX139: module boundaries", "FIX140: DOM ownership"],
+    "templates/base.html": ["FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS", "app.js", "pwa.js", "fix142-readme-implementation-audit-actions"],
+    "templates/module.html": ["data-yx-module=\"customerCards\"", "data-yx-module=\"productTable\"", "data-yx-module=\"warehouseGrid\"", "data-yx-module=\"searchFilter\""],
+    "templates/index.html": ["data-yx-module=\"homeBadge\"", "data-yx-action=\"logout\""],
+    "templates/today_changes.html": ["data-yx-module=\"todayChanges\"", "data-yx-action=\"todayClearUnread\""],
+    "static/service-worker.js": ["FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS", "fix142-readme-implementation-audit-actions"],
+    "static/pwa.js": ["fix142-readme-implementation-audit-actions"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix142-readme-implementation-audit-actions"'],
 }
 
 for rel, tokens in required.items():
@@ -58,4 +81,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX93 smoke test OK")
+print("FIX142 smoke test OK")
