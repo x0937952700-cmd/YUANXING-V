@@ -1,12 +1,12 @@
-/* 沅興木業 PWA Service Worker - fix111-fast-nav-cache - FIX110_PERFORMANCE_CACHE */
-const YX_PWA_VERSION='fix111-fast-nav-cache';
+/* 沅興木業 PWA Service Worker - fix116-new-master-overwrite - FIX116_MASTER_OVERWRITE_CACHE */
+const YX_PWA_VERSION='fix116-new-master-overwrite';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest',
   '/static/favicon.png',
-  '/static/style.css?v=fix111-fast-nav-cache',
-  '/static/app.js?v=fix111-fast-nav-cache',
-  '/static/pwa.js?v=fix111-fast-nav-cache',
+  '/static/style.css?v=fix116-new-master-overwrite',
+  '/static/app.js?v=fix116-new-master-overwrite',
+  '/static/pwa.js?v=fix116-new-master-overwrite',
   '/static/icons/icon-192x192.png',
   '/static/icons/icon-512x512.png',
   '/static/icons/icon-maskable-192x192.png',
@@ -33,6 +33,14 @@ self.addEventListener('fetch',event=>{
     return;
   }
   if(url.pathname.startsWith('/static/')){
+    // FIX116：JS/CSS 版本更新時走 network-first，避免舊 SW / 舊 cache 擋掉新功能。
+    if(url.pathname.endsWith('/app.js') || url.pathname.endsWith('/style.css') || url.pathname.endsWith('/pwa.js')){
+      event.respondWith(fetch(req, {cache:'no-store'}).then(res=>{
+        if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
+        return res;
+      }).catch(()=>caches.match(req)));
+      return;
+    }
     event.respondWith(caches.match(req).then(cached=>{
       if(cached) return cached;
       return fetch(req).then(res=>{

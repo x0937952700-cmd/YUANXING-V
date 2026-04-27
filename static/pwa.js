@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix111-fast-nav-cache';
+  const PWA_VERSION = 'fix116-new-master-overwrite';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -35,5 +35,15 @@
       }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
     });
   }
+  // FIX116_CLEAR_OLD_CACHES：清掉舊快取，避免 FIX112~115 被舊版 app.js / style.css 擋住。
+  window.addEventListener('load', async () => {
+    try {
+      if (window.caches && !sessionStorage.getItem('YX_FIX116_CACHE_CLEARED')) {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter(k => k.startsWith('yuanxing-pwa-') && !k.includes(PWA_VERSION)).map(k => caches.delete(k)));
+        sessionStorage.setItem('YX_FIX116_CACHE_CLEARED', '1');
+      }
+    } catch (_) {}
+  });
   window.addEventListener('load',()=>{ if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()){ const btn=ensureInstallButton(); btn.textContent='加入主畫面'; btn.classList.remove('hidden'); } });
 })();
