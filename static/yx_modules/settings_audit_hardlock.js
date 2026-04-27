@@ -1,4 +1,4 @@
-/* FIX113 設定頁硬鎖：差異紀錄只顯示當天指定模組，管理員名單 500 相容 */
+/* FIX114 設定頁硬鎖：差異紀錄只顯示當天指定模組，管理員名單 500 相容 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;

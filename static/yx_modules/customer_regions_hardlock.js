@@ -1,10 +1,10 @@
-/* FIX113 北中南客戶母版硬鎖：FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
+/* FIX114 北中南客戶母版硬鎖：FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
   const $ = id => document.getElementById(id);
-  const state = {items:[], bound:false, oldSelect:null};
+  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null};
   const REGIONS = ['北區','中區','南區'];
   const moduleKey = () => YX.moduleKey();
   const isRegionPage = () => ['orders','master_order','ship','customers'].includes(moduleKey()) || !!$('region-north') || !!$('customers-north');
@@ -39,14 +39,14 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left">${YX.esc(info.base)}</span><span class="yx113-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count">${ct.qty}件 / ${ct.rows}筆</span><span class="yx113-customer-arrow">→</span></button>`;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left">${YX.esc(info.base)}</span><span class="yx113-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
   async function selectCustomer(name){
     name = YX.clean(name || ''); if (!name) return;
     window.__YX_SELECTED_CUSTOMER__ = name;
     const input = $('customer-name');
     if (input) { input.value = name; input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); }
-    document.querySelectorAll('.yx113-customer-card').forEach(card => card.classList.toggle('is-active', YX.clean(card.dataset.customerName) === name));
+    document.querySelectorAll('.yx113-customer-card,.yx114-customer-card').forEach(card => card.classList.toggle('is-active', YX.clean(card.dataset.customerName) === name));
     const m = moduleKey();
     if (m === 'customers' && typeof window.fillCustomerForm === 'function') {
       try { await window.fillCustomerForm(name); } catch(_e) {}
@@ -59,11 +59,12 @@
   }
   function renderBoards(items){
     if (!isRegionPage()) return;
+    state.rendering = true;
     const q = YX.clean($('customer-search')?.value || '').toLowerCase();
     containerMaps().forEach(map => {
       const containers = Object.fromEntries(REGIONS.map(r => [r, $(map.ids[r])]).filter(([,el]) => !!el));
       if (!Object.keys(containers).length) return;
-      Object.values(containers).forEach(el => { el.innerHTML = ''; el.classList.add('yx113-customer-list'); });
+      Object.values(containers).forEach(el => { el.innerHTML = ''; el.classList.add('yx113-customer-list','yx114-customer-list'); });
       let rows = (items || []).filter(c => shouldShow(c, map.mode));
       if (q) rows = rows.filter(c => String(c.name || '').toLowerCase().includes(q));
       rows.forEach(c => {
@@ -74,11 +75,36 @@
       });
       Object.values(containers).forEach(el => { if (!el.children.length) el.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>'; });
     });
+    state.rendering = false;
+  }
+  function scheduleRepair(){
+    if (state.rendering) return;
+    if (state.repairTimer) return;
+    state.repairTimer = setTimeout(() => {
+      state.repairTimer = null;
+      renderBoards(state.items);
+    }, 80);
+  }
+  function observeCustomerBoards(){
+    if (state.observer || !isRegionPage()) return;
+    const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
+    if (!targets.length || typeof MutationObserver === 'undefined') return;
+    state.observer = new MutationObserver(muts => {
+      if (state.rendering) return;
+      for (const m of muts){
+        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
+        if (added.some(n => (n.matches?.('.customer-region-card:not(.yx114-customer-card),.customer-card-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx114-customer-card),.customer-card-arrow,.yx113-customer-arrow')))) {
+          scheduleRepair();
+          break;
+        }
+      }
+    });
+    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
   }
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
-      const d = await YX.api('/api/customers?yx113=1&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/customers?yx114=1&ts=' + Date.now(), {method:'GET'});
       state.items = Array.isArray(d.items) ? d.items : [];
       renderBoards(state.items);
       return state.items;
@@ -133,7 +159,7 @@
     let press = null, blockClickUntil = 0;
     const clear = () => { if (press?.timer) clearTimeout(press.timer); press = null; };
     document.addEventListener('pointerdown', ev => {
-      const card = ev.target?.closest?.('.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
+      const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card || ev.target.closest('button,input,select,textarea,a')) return;
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       const x = ev.clientX, y = ev.clientY;
@@ -143,7 +169,7 @@
     document.addEventListener('pointermove', ev => { if (press && (Math.abs(ev.clientX - press.x) > 8 || Math.abs(ev.clientY - press.y) > 8)) clear(); }, true);
     ['pointerup','pointercancel','pointerleave','dragstart'].forEach(t => document.addEventListener(t, clear, true));
     document.addEventListener('contextmenu', ev => {
-      const card = ev.target?.closest?.('.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
+      const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card) return;
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       ev.preventDefault(); showActions(name);
@@ -163,7 +189,7 @@
         } catch(e) { YX.toast(e.message || '客戶操作失敗', 'error'); }
         return;
       }
-      const card = ev.target?.closest?.('.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
+      const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card || Date.now() < blockClickUntil) { if (card) { ev.preventDefault(); ev.stopPropagation(); } return; }
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
@@ -174,15 +200,18 @@
     if (!state.oldSelect && typeof window.selectCustomerForModule === 'function') state.oldSelect = window.selectCustomerForModule;
     const selectFn = YX.mark(selectCustomer, 'customer_select');
     window.selectCustomerForModule = selectFn;
-    window.loadCustomerBlocks = YX.mark(loadCustomerBlocks, 'customer_blocks');
-    window.renderCustomers = YX.mark(loadCustomerBlocks, 'customer_blocks');
+    const loadFn = YX.mark(loadCustomerBlocks, 'customer_blocks');
+    try { YX.hardAssign('loadCustomerBlocks', loadFn, {configurable:false}); } catch(_e) { window.loadCustomerBlocks = loadFn; }
+    try { YX.hardAssign('renderCustomers', loadFn, {configurable:false}); } catch(_e) { window.renderCustomers = loadFn; }
     window.YX113CustomerRegions = {loadCustomerBlocks, renderBoards, selectCustomer};
+    window.YX114CustomerRegions = window.YX113CustomerRegions;
   }
   function install(){
     if (!isRegionPage()) return;
     document.documentElement.dataset.yx113Customers = 'locked';
-    bindEvents(); lockGlobals(); loadCustomerBlocks(true);
-    [250, 900, 1800].forEach(ms => setTimeout(() => { lockGlobals(); renderBoards(state.items); }, ms));
+    document.documentElement.dataset.yx114Customers = 'locked';
+    bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
+    [120, 250, 900, 1800, 3200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();

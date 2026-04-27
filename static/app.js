@@ -2612,7 +2612,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 (function(){
   'use strict';
   const VERSION = 'fix70-final-conflict-convergence';
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
   const $ = id => document.getElementById(id);
   const clean = v => String(v ?? '').trim();
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -9320,7 +9320,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.yxApi = api;
   const sourceApi = source => source === 'master_order' ? 'master_orders' : source;
   const titleOf = source => source === 'inventory' ? '庫存' : source === 'orders' ? '訂單' : '總單';
-  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'];
+  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
 
   function syncSelectedRowClasses(){
     document.querySelectorAll('.yx63-summary-row').forEach(row => {

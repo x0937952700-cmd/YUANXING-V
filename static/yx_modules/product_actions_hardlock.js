@@ -1,10 +1,10 @@
-/* FIX113 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX114 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
   const state = { rows:{inventory:[], orders:[], master_order:[]}, loading:null, bound:false };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
@@ -83,8 +83,8 @@
     if (!bar) {
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
-      bar.className = 'yx113-toolbar';
-      bar.innerHTML = `<button class="ghost-btn small-btn" type="button" data-yx113-selectall="${source}">全選目前清單</button><input id="yx113-${source}-search" class="text-input small" placeholder="搜尋商品 / 客戶 / 材質"><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button>`;
+      bar.className = 'yx113-toolbar yx114-toolbar';
+      bar.innerHTML = `<div class="yx114-toolbar-main"><button class="ghost-btn small-btn" type="button" data-yx113-selectall="${source}">全選目前清單</button><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質"></div><div class="yx114-batch-actions"><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
       $(`yx113-${source}-search`)?.addEventListener('input', () => { renderSummary(source); renderCards(source); });
@@ -163,7 +163,7 @@
   }
   async function loadSource(source, opts={}){
     if (!source) return [];
-    const d = await YX.api(endpoint(source) + '?yx113=1&ts=' + Date.now(), {method:'GET'});
+    const d = await YX.api(endpoint(source) + '?yx114=1&ts=' + Date.now(), {method:'GET'});
     rowsStore(source, Array.isArray(d.items) ? d.items : []);
     renderSummary(source); renderCards(source);
     return rowsStore(source);
@@ -277,11 +277,13 @@
   }
   function lockGlobals(){
     window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards};
+    window.YX114ProductActions = window.YX113ProductActions;
     YX.hardAssign('refreshSource', YX.mark((source, _silent) => loadSource(source), 'product_refresh'), {configurable:true});
   }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
+    document.documentElement.dataset.yx114Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
     ensureBatchToolbar(source); ensureSummary(source);
     loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));

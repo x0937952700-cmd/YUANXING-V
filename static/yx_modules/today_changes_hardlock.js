@@ -1,10 +1,10 @@
-/* FIX113 今日異動硬鎖：固定標籤 + 固定小卡 + 單一渲染流程 */
+/* FIX114 今日異動硬鎖：固定標籤 + 固定小卡 + 單一渲染流程 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const state = {filter:'all', data:null, loading:null, installed:false};
+  const state = {filter:'all', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
   const panels = [
     {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
     {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
@@ -80,7 +80,7 @@
     const cards = panels.map(p => {
       const unit = p.key === 'unplaced' ? '件' : '';
       const sub = p.key === 'unplaced' ? `<div class="small-note">${Number(summary?.unplaced_row_count || 0)}筆商品</div>` : '<div class="small-note">今日紀錄</div>';
-      return `<button class="yx112-summary-card" type="button" data-today-filter="${YX.esc(p.key)}"><span>${YX.esc(p.label)}</span><strong>${summaryCount(summary, p.key)}${unit}</strong>${sub}</button>`;
+      return `<button class="yx112-summary-card ${p.key === 'unplaced' ? 'yx114-unplaced-refresh-trigger' : ''}" type="button" data-today-filter="${YX.esc(p.key)}" ${p.key === 'unplaced' ? 'title="長按刷新未錄入倉庫圖"' : ''}><span>${YX.esc(p.label)}</span><strong>${summaryCount(summary, p.key)}${unit}</strong>${sub}</button>`;
     }).join('');
     box.innerHTML = cards;
   }
@@ -151,8 +151,28 @@
   function bindEvents(){
     if (state.eventsBound) return;
     state.eventsBound = true;
+    const clearLongPress = () => { if (state.longPress?.timer) clearTimeout(state.longPress.timer); state.longPress = null; };
+    document.addEventListener('pointerdown', ev => {
+      if (!isToday()) return;
+      const trigger = ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger');
+      if (!trigger) return;
+      const x = ev.clientX, y = ev.clientY;
+      clearLongPress();
+      state.longPress = {x, y, timer:setTimeout(async () => {
+        state.blockClickUntil = Date.now() + 900;
+        clearLongPress();
+        try { await loadTodayChanges112({force:true}); YX.toast('未錄入倉庫圖已刷新', 'ok'); }
+        catch(e) { YX.toast(e.message || '未錄入倉庫圖刷新失敗', 'error'); }
+      }, 700)};
+    }, true);
+    document.addEventListener('pointermove', ev => {
+      if (state.longPress && (Math.abs(ev.clientX - state.longPress.x) > 8 || Math.abs(ev.clientY - state.longPress.y) > 8)) clearLongPress();
+    }, true);
+    ['pointerup','pointercancel','pointerleave','dragstart'].forEach(t => document.addEventListener(t, clearLongPress, true));
+
     document.addEventListener('click', async ev => {
       if (!isToday()) return;
+      if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
       if (ev.target && ev.target.id === 'yx112-refresh-today') {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         await loadTodayChanges112({force:true});
@@ -202,7 +222,7 @@
     YX.hardAssign('loadTodayChanges', fn, {configurable:false});
     ['loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96','loadTodayChanges99','__yx96RemovedToday80','__yx96RemovedToday93','__yx96RemovedToday95'].forEach(name => YX.hardAssign(name, fn, {configurable:true}));
     if (window.YX_MASTER) {
-      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix113-master-hardlock', loadTodayChanges:fn}); } catch(_e) {}
+      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix114-master-hardlock', loadTodayChanges:fn}); } catch(_e) {}
     }
   }
   function install(){
@@ -212,6 +232,7 @@
     if (!['all','inbound','outbound','orders','unplaced'].includes(state.filter)) state.filter = 'all';
     YX.cancelLegacyTimers('today_changes');
     document.documentElement.dataset.yx112Today = 'locked';
+    document.documentElement.dataset.yx114Today = 'locked';
     bindEvents();
     lockGlobals();
     cleanLegacyTodayDom();
