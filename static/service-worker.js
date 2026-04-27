@@ -1,5 +1,5 @@
-/* 沅興木業 PWA Service Worker - fix118-hard-no-old-ui-cache-reset - network only cache reset */
-const YX_PWA_VERSION = 'fix118-hard-no-old-ui-cache-reset';
+/* 沅興木業 PWA Service Worker - fix119-final-customer-board-no-old-jump - network only cache reset */
+const YX_PWA_VERSION = 'fix119-final-customer-board-no-old-jump';
 self.addEventListener('install', event => {
   event.waitUntil((async()=>{
     try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch(_) {}

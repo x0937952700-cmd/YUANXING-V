@@ -1449,7 +1449,7 @@ def api_customer_items():
             if uid and name:
                 cur.execute(sql(f"""
                     SELECT * FROM {table}
-                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    WHERE customer_uid = ? OR customer_name = ?
                     ORDER BY id DESC
                 """), (uid, name))
             elif uid:

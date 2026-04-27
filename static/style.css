@@ -3439,3 +3439,17 @@ html[data-yx-fix118] #customer-action-sheet{
   }
 }
 /* ==== FIX118 end ==== */
+
+/* ==== FIX119 customer board final styles ==== */
+.yx119-customer-card{position:relative;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:pan-y;}
+.yx119-customer-card .customer-card-main{min-width:0;}
+.yx119-card-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.yx119-card-menu{border:1px solid rgba(15,23,42,.12);background:#fff;border-radius:999px;padding:5px 10px;font-size:12px;color:#0f172a;box-shadow:0 3px 10px rgba(15,23,42,.06);}
+.yx119-card-menu:active{transform:scale(.96);}
+.yx119-drop-zone.yx119-drop-over,.category-box.yx119-drop-over{outline:2px dashed rgba(15,23,42,.35);outline-offset:4px;background:rgba(15,23,42,.025);}
+.yx119-touch-dragging,.yx119-dragging-card{opacity:.72;transform:scale(.985);box-shadow:0 10px 26px rgba(15,23,42,.16)!important;}
+.yx119-action-list{flex-direction:column;align-items:stretch;gap:10px;margin-top:12px;}
+.yx119-region-buttons{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.yx119-customer-detail table th,.yx119-customer-detail table td{white-space:nowrap;}
+body.yx119-dragging-customer .yx119-customer-action-modal{display:none!important;}
+/* ==== FIX119 end ==== */

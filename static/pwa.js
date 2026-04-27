@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix118-hard-no-old-ui-cache-reset';
+  const PWA_VERSION = 'fix119-final-customer-board-no-old-jump';
   let deferredInstallPrompt = null;
   async function clearAllCaches() {
     try {
@@ -35,8 +35,8 @@
         await reg.update().catch(()=>{});
       } catch(err) { console.warn('PWA service worker 更新失敗', err); }
       navigator.serviceWorker.addEventListener('controllerchange',()=>{
-        if(!sessionStorage.getItem('YX_FIX118_RELOADED')){
-          sessionStorage.setItem('YX_FIX118_RELOADED','1');
+        if(!sessionStorage.getItem('YX_FIX119_RELOADED')){
+          sessionStorage.setItem('YX_FIX119_RELOADED','1');
           location.reload();
         }
       });
