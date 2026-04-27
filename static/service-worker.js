@@ -1,5 +1,5 @@
-/* 沅興木業 PWA Service Worker - fix142-readme-implementation-audit-actions - FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS */
-const YX_PWA_VERSION = 'fix142-readme-implementation-audit-actions';
+/* 沅興木業 PWA Service Worker - fix146-hard-lock-fix143-fix144-combo - FIX146_HARD_LOCK_FIX143_FIX144_COMBO */
+const YX_PWA_VERSION = 'fix146-hard-lock-fix143-fix144-combo';
 const YX_STATIC_CACHE = `yx-static-${YX_PWA_VERSION}`;
 
 self.addEventListener('install', event => {

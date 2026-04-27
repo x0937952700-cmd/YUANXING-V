@@ -490,6 +490,23 @@ def resolve_customer_identity(customer_name='', customer_uid='', include_archive
         row = get_customer_by_uid(uid, include_archived=include_archived)
     if not row and name:
         row = get_customer(name, include_archived=include_archived)
+    # FIX143：CNF / FOB / FOB代 顯示成小標籤後，舊資料可能有併名或去尾碼名；這裡一起查。
+    if not row and name:
+        variants = []
+        def add_variant(v):
+            v = (v or '').strip()
+            if v and v not in variants:
+                variants.append(v)
+        add_variant(name)
+        add_variant(re.sub(r'\s*(?:FOB代付|FOB代|FOB|CNF)\s*$', '', name, flags=re.I))
+        compact = name.replace(' ', '').replace('　', '')
+        add_variant(re.sub(r'(?:FOB代付|FOB代|FOB|CNF)$', '', compact, flags=re.I))
+        if name.split():
+            add_variant(name.split()[0])
+        for nm in variants:
+            row = get_customer(nm, include_archived=include_archived)
+            if row:
+                break
     resolved_name = (row.get('name') if row else name) or ''
     resolved_uid = (row.get('customer_uid') if row else uid) or ''
     return row, resolved_name, resolved_uid

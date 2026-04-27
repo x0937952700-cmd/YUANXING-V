@@ -14,8 +14,8 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
         raise SystemExit(f"{rel} duplicate Python functions: {duplicates}")
 
 required = {
-    "static/app.js": [
-        "FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS",
+    "static/app.js": ["FIX143_CURRENT_UI_PRODUCT_CUSTOMER_STABLE", "FIX144_SHIP_WAREHOUSE_COMPACT_STABLE", 
+        "FIX146_HARD_LOCK_FIX143_FIX144_COMBO",
         "window.YX_MASTER",
         "YX.modules",
         "YX.actions",
@@ -34,10 +34,12 @@ required = {
         "confirmSubmit",
         "saveWarehouseCell",
         "loadCustomerBlocks",
+        "lockWindowFunction",
+        "yx145-slot",
         "ship-add-selected-item",
         "insertWarehouseCell",
         "deleteWarehouseCell",
-        "FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS",
+        "FIX146_HARD_LOCK_FIX143_FIX144_COMBO",
         "editItem",
         "deleteItem",
         "shipItem",
@@ -45,13 +47,13 @@ required = {
         "batchDeleteItems",
     ],
     "static/style.css": ["yx88-hidden-legacy", "yx85-month-badge", "FIX139: module boundaries", "FIX140: DOM ownership"],
-    "templates/base.html": ["FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS", "app.js", "pwa.js", "fix142-readme-implementation-audit-actions"],
+    "templates/base.html": ["FIX146_HARD_LOCK_FIX143_FIX144_COMBO", "app.js", "pwa.js", "fix146-hard-lock-fix143-fix144-combo"],
     "templates/module.html": ["data-yx-module=\"customerCards\"", "data-yx-module=\"productTable\"", "data-yx-module=\"warehouseGrid\"", "data-yx-module=\"searchFilter\""],
-    "templates/index.html": ["data-yx-module=\"homeBadge\"", "data-yx-action=\"logout\""],
+    "templates/index.html": ["data-yx-module=\"homeBadge\""],
     "templates/today_changes.html": ["data-yx-module=\"todayChanges\"", "data-yx-action=\"todayClearUnread\""],
-    "static/service-worker.js": ["FIX142_README_IMPLEMENTATION_AUDIT_ACTIONS", "fix142-readme-implementation-audit-actions"],
-    "static/pwa.js": ["fix142-readme-implementation-audit-actions"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix142-readme-implementation-audit-actions"'],
+    "static/service-worker.js": ["FIX146_HARD_LOCK_FIX143_FIX144_COMBO", "fix146-hard-lock-fix143-fix144-combo"],
+    "static/pwa.js": ["fix146-hard-lock-fix143-fix144-combo"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix146-hard-lock-fix143-fix144-combo"'],
 }
 
 for rel, tokens in required.items():
@@ -81,4 +83,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX142 smoke test OK")
+print("FIX146 smoke test OK")

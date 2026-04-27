@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix142-readme-implementation-audit-actions';
+  const PWA_VERSION = 'fix146-hard-lock-fix143-fix144-combo';
   const VERSION_KEY = 'YX_PWA_VERSION';
   const RELOAD_KEY = 'YX_FIX137_RELOADED';
   let deferredInstallPrompt = null;
