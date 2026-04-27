@@ -29,7 +29,7 @@
   if (window.__YX140_EARLY_GATE__) return;
   window.__YX140_EARLY_GATE__ = true;
   const VERSION = 'FIX148_FINAL_HARD_LOCK_NEW_OVER_OLD';
-  const BUILD = 'fix148-hard-lock-new-over-old-20260427';
+  const BUILD = 'fix149-hard-lock-cards-customer-actions-20260427';
   const nativeAdd = EventTarget.prototype.addEventListener;
   const moduleBlockList = new Set(['customerCards','productTable','productCards','todayChanges','batchOps','homeBadge','actionSheet']);
   const allowedNeedles = [
@@ -37,7 +37,7 @@
     'FIX137_PRODUCT_ACTION_FINAL_SYNC','FIX136_PRODUCT_ACTION_CAPTURE_FIX','FIX135_PRODUCT_ACTION_SOURCE_SYNC',
     'FIX134_PRODUCT_RENDER_MASTER','FIX133_CURRENT_ISSUES_FINAL_POLISH','FIX132_CURRENT_ISSUES_UNREAD_STABLE',
     'FIX131_CURRENT_ISSUES_TODAY_HOME_STABLE','FIX130_CURRENT_PROBLEMS_TOTAL_CONVERGE',
-    'FIX129_CURRENT_PROBLEMS_EVENT_GATE','YX_CUSTOMER_CARD_CONTROLLER','selectCustomer134','yx140AllowLegacy','FIX147_HARD_LOCK_ALL_REQUESTS','FIX148_FINAL_HARD_LOCK_NEW_OVER_OLD','confirmSubmit147','renderShipPreview147','yx147','yx148'
+    'FIX129_CURRENT_PROBLEMS_EVENT_GATE','YX_CUSTOMER_CARD_CONTROLLER','selectCustomer134','yx140AllowLegacy','FIX147_HARD_LOCK_ALL_REQUESTS','FIX148_FINAL_HARD_LOCK_NEW_OVER_OLD','FIX149_CUSTOMER_INVENTORY_ACTION_HARD_LOCK','confirmSubmit147','renderShipPreview147','yx147','yx148','yx149'
   ];
   const legacyNeedles = [
     'loadCustomerBlocks119','loadCustomerBlocks120','loadCustomerBlocks121','loadCustomerBlocks122','loadCustomerBlocks123','loadCustomerBlocks124',
@@ -18499,7 +18499,7 @@ try { document.documentElement.dataset.yxFix124 = 'FIX124_CUSTOMER_REGION_OLD_HA
   function putLineMeta(line, it){ window.__YX147_SHIP_LINE_META__ = window.__YX147_SHIP_LINE_META__ || {}; const meta = {source: it.source || it.source_preference || '', source_preference: it.source_preference || it.source || '', source_customer_name: it.customer_name || clean($('customer-name')?.value || ''), material: materialOf(it)}; [sizeKey(line), normalizeX(line).replace(/\s+/g,'').toLowerCase()].forEach(k=>{ if(k) window.__YX147_SHIP_LINE_META__[k]=meta; }); }
   async function addShipFromSelect(all=false){ let items = window.__YX_SHIP_CUSTOMER_ITEMS__ || window.__YX83_SHIP_ITEMS__ || []; if (!items.length) items = await loadShipItemsFallback(); if (!all) { const idx = Number($('ship-customer-item-select')?.value); items = Number.isFinite(idx) && idx >= 0 && items[idx] ? [items[idx]] : []; } if (!items.length) throw new Error('請先選擇商品'); const ta = $('ocr-text'); if(!ta) return; const existing = new Set(String(ta.value||'').split(/\n+/).map(sizeKey).filter(Boolean)); let added=0, skipped=0; items.forEach(it=>{ const line=clean(it.product_text||it.product||it.size||''); if(!line) return; const plainKey=sizeKey(line); if(existing.has(plainKey)){ skipped++; return; } putLineMeta(line,it); ta.value=(ta.value?ta.value.replace(/\s*$/,'')+'\n':'')+line; existing.add(plainKey); added++; }); ta.dispatchEvent(new Event('input',{bubbles:true})); if(added) toast(`已加入 ${added} 筆商品`,'ok'); if(skipped) toast(`已阻止 ${skipped} 筆同尺寸重複商品`,'warn'); }
   function hardLockFunctions(){ [['confirmSubmit', window.confirmSubmit], ['showShipPreview', window.showShipPreview], ['renderShipPreview', window.renderShipPreview]].forEach(([name, fn])=>{ if (typeof fn !== 'function') return; let current = fn; try { Object.defineProperty(window, name, {configurable:false, get(){ return current; }, set(next){ const body = (()=>{ try { return typeof next==='function' ? Function.prototype.toString.call(next) : String(next || ''); } catch(_e){ return String(next || ''); }})(); if (typeof next === 'function' && (/FIX147|FIX148|confirmSubmit147|renderShipPreview147/.test(body) || next === current)) current = next; else { (window.__YX148_BLOCKED_FUNCTION_OVERWRITES__ = window.__YX148_BLOCKED_FUNCTION_OVERWRITES__ || []).push({name, at:Date.now(), src:body.slice(0,120)}); } }}); } catch(_e) {} }); }
-  function boot(){ try { d.documentElement.dataset.yxFix148 = 'final-hard-lock'; window.__YX_BUILD_VERSION__='fix148-hard-lock-new-over-old-20260427'; } catch(_e) {} installToday(); installMutationRefresh(); installShipButtons(); hardLockFunctions(); if (moduleKey()==='inventory') { scheduleInventory(false); setTimeout(()=>scheduleInventory(true), 500); } if (moduleKey()==='orders') setTimeout(refreshCustomersNow, 80); if (moduleKey()==='master_order') setTimeout(()=>{ refreshCustomersNow(); }, 80); }
+  function boot(){ try { d.documentElement.dataset.yxFix148 = 'final-hard-lock'; window.__YX_BUILD_VERSION__='fix149-hard-lock-cards-customer-actions-20260427'; } catch(_e) {} installToday(); installMutationRefresh(); installShipButtons(); hardLockFunctions(); if (moduleKey()==='inventory') { scheduleInventory(false); setTimeout(()=>scheduleInventory(true), 500); } if (moduleKey()==='orders') setTimeout(refreshCustomersNow, 80); if (moduleKey()==='master_order') setTimeout(()=>{ refreshCustomersNow(); }, 80); }
   if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
   window.addEventListener('pageshow', boot, true);
   window.addEventListener('yx147:cache-cleared', ()=>{ scheduleInventory(true); refreshCustomersNow(); }, true);
