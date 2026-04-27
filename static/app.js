@@ -2612,7 +2612,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 (function(){
   'use strict';
   const VERSION = 'fix70-final-conflict-convergence';
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'];
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'];
   const $ = id => document.getElementById(id);
   const clean = v => String(v ?? '').trim();
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -2781,7 +2781,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     // 避免舊客戶商品表干擾左側客戶資料。
     document.querySelectorAll('#selected-customer-items,.customer-detail-modal,.customer-modal,#customer-modal').forEach(el=>{ el.classList.add('hidden'); el.style.display='none'; });
   }
-  function materialOptions(){ return `<option value="">材質下拉選單</option>` + MATERIALS.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(''); }
+  function materialOptions(){ return `<option value="">批量加材質</option>` + MATERIALS.map(m=>`<option value="${m}">${m}</option>`).join(''); }
 
   function setRowSelected(row, selected){
     if(!row) return;
@@ -2813,19 +2813,21 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(!bar){
       bar=document.createElement('div');
       bar.id=`yx63-${source}-toolbar`;
-      bar.className='yx63-toolbar yx115-batch-toolbar yx117-single-toolbar';
+      bar.className='yx63-toolbar';
       bar.innerHTML=`
         <button id="yx63-${source}-selectall" class="ghost-btn small-btn yx63-select-all" type="button">全選目前清單</button>
         <input id="yx63-${source}-search" class="text-input yx63-search" placeholder="搜尋商品 / 客戶 / 材質">
         <select id="yx63-${source}-material" class="text-input yx63-material">${materialOptions()}</select>
-        <button id="yx63-${source}-apply" class="ghost-btn small-btn" type="button">批量加材質</button>
-        <button id="yx63-${source}-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button>`;
+        <button id="yx63-${source}-apply" class="ghost-btn small-btn" type="button">套用材質</button>
+        <button id="yx63-${source}-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button>
+        <button id="yx63-${source}-refresh" class="ghost-btn small-btn" type="button">重新整理</button>`;
       const head=sec.querySelector('.section-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
       $(`yx63-${source}-search`)?.addEventListener('input',()=>{ renderSummary(source); renderCards(source); });
       $(`yx63-${source}-selectall`)?.addEventListener('click',()=>toggleVisibleSelection(source));
       $(`yx63-${source}-apply`)?.addEventListener('click',()=>bulkMaterial(source));
       $(`yx63-${source}-delete`)?.addEventListener('click',()=>bulkDelete(source));
+      $(`yx63-${source}-refresh`)?.addEventListener('click',()=>refreshSource(source,false));
     }
     return bar;
   }
@@ -3021,10 +3023,15 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   document.addEventListener('click',e=>{ if(e.target?.id==='ship-refresh-customer-items') loadShipCustomerItems({name:$('customer-name')?.value||''}); if(e.target?.id==='ship-add-selected-item'){ const it=(window.__YX_SHIP_CUSTOMER_ITEMS__||[])[Number($('ship-customer-item-select')?.value)]; if(it) addShipItem(it); } if(e.target?.id==='ship-add-all-items') (window.__YX_SHIP_CUSTOMER_ITEMS__||[]).forEach(addShipItem); },true);
 
   function installCustomerLongPress(){
-    // FIX113：舊版逐卡長按會和新版拖拉/右鍵操作衝突，這裡停用舊綁定；新版委派式操作在檔案底部統一處理。
-    return;
+    let timer=null;
+    document.querySelectorAll('.customer-region-card,.yx-customer-card,[data-customer-name]').forEach(card=>{
+      if(card.dataset.yx63LongPress==='1') return; card.dataset.yx63LongPress='1';
+      const name=card.dataset.customerName || card.querySelector('.customer-name,.yx-customer-left,.fix52-customer-name')?.textContent || card.textContent.split(/\s{2,}|CNF|FOB|\d+件/)[0];
+      const start=()=>{ clearTimeout(timer); timer=setTimeout(async()=>{ const n=clean(name); if(!n || !confirm(`確定刪除 / 封存客戶「${n}」？`)) return; try{ await api(`/api/customers/${encodeURIComponent(n)}`,{method:'DELETE'}); notify('已刪除 / 封存客戶','ok'); if(typeof window.loadCustomerBlocks==='function') window.loadCustomerBlocks(); }catch(e){ notify(e.message||'刪除客戶失敗','error'); } },700); };
+      const cancel=()=>clearTimeout(timer);
+      card.addEventListener('touchstart',start,{passive:true}); card.addEventListener('mousedown',start); ['touchend','touchmove','mouseup','mouseleave','click'].forEach(ev=>card.addEventListener(ev,cancel,{passive:true}));
+    });
   }
-
 
   function boot(){
     document.documentElement.dataset.yxFix63=VERSION;
@@ -9434,15 +9441,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }, true);
 
   function cleanToolbar93(){
-    // FIX115：訂單 / 庫存 / 總單的批量操作必須直接顯示。
-    // 保留之前「不主動刷新」要求，只隱藏重新整理；材質下拉、批量加材質、批量刪除不再被舊版 FIX93 隱藏。
     document.querySelectorAll('.yx63-toolbar').forEach(bar => {
-      bar.querySelectorAll('[id$="-material"],[id$="-apply"],[id$="-delete"]').forEach(el => {
-        el.style.removeProperty('display');
-        el.hidden = false;
-        el.classList.add('yx115-batch-visible');
-      });
-      bar.querySelectorAll('[id$="-refresh"]').forEach(el => { el.style.display = 'none'; });
+      bar.querySelectorAll('[id$="-material"],[id$="-apply"],[id$="-delete"],[id$="-refresh"]').forEach(el => el.style.display = 'none');
     });
   }
   function renameWarehouseButtons(){
@@ -11866,487 +11866,3 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   setTimeout(install, 400);
 })();
 /* ==== FIX111 route throttles end ==== */
-
-
-// FIX119 removed legacy block: FIX112: customer click/long-press + warehouse slot customer display convergence
-
-
-
-
-// FIX119 removed legacy block: FIX113: customer region drag/drop + hard delete archived/customer action convergence
-
-
-
-
-// FIX119 removed legacy block: FIX114: final customer region drag + archive/delete master renderer
-
-
-
-/* ==== FIX115: inventory/orders/master batch material + delete visible ==== */
-(function(){
-  if (window.__YX115_BATCH_MATERIAL_DELETE__) return;
-  window.__YX115_BATCH_MATERIAL_DELETE__ = true;
-  const $ = id => document.getElementById(id);
-  const clean = v => String(v ?? '').trim();
-  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'];
-  const api = window.yxApi || window.requestJSON || (async function(url,opt={}){
-    const res = await fetch(url,{credentials:'same-origin',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});
-    const text = await res.text(); let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false,error:text || '伺服器回應格式錯誤'}; }
-    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload = data; throw e; }
-    return data;
-  });
-  window.yxApi = api;
-  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || alert)(msg, kind); } catch(_e) { console.log(msg); } };
-  const sourceApi = s => s === 'master_order' ? 'master_orders' : s;
-  const titleOf = s => s === 'inventory' ? '庫存' : s === 'orders' ? '訂單' : '總單';
-  function selectedItems(source){
-    return Array.from(document.querySelectorAll(`.yx63-row-check[data-source="${source}"]:checked`))
-      .map(ch => ({source: sourceApi(ch.dataset.source || source), id: Number(ch.dataset.id || 0)}))
-      .filter(x => x.id > 0);
-  }
-  function allVisibleItems(source){
-    return Array.from(document.querySelectorAll(`.yx63-summary-row[data-source="${source}"]`))
-      .map(row => ({source: sourceApi(source), id: Number(row.dataset.id || row.querySelector('.yx63-row-check')?.dataset.id || 0)}))
-      .filter(x => x.id > 0);
-  }
-  async function refreshSource(source){
-    try {
-      if (source === 'inventory' && typeof window.loadInventory === 'function') return await window.loadInventory();
-      if (source === 'orders' && typeof window.loadOrdersList === 'function') return await window.loadOrdersList();
-      if (source === 'master_order' && typeof window.loadMasterList === 'function') return await window.loadMasterList();
-    } catch(_e) {}
-  }
-  function ensureOptions(sel){
-    if (!sel || sel.dataset.yx115Options === '1') return;
-    const current = sel.value || '';
-    sel.innerHTML = '<option value="">材質下拉選單</option>' + materialList.map(m => `<option value="${m}">${m}</option>`).join('');
-    sel.value = current;
-    sel.dataset.yx115Options = '1';
-  }
-  function revealBatchBar(){
-    document.querySelectorAll('.yx63-toolbar').forEach(bar => {
-      const id = bar.id || '';
-      const source = id.includes('inventory') ? 'inventory' : id.includes('orders') ? 'orders' : id.includes('master_order') ? 'master_order' : '';
-      if (!source) return;
-      bar.classList.add('yx115-batch-toolbar');
-      const material = $(`yx63-${source}-material`);
-      const apply = $(`yx63-${source}-apply`);
-      const del = $(`yx63-${source}-delete`);
-      const refresh = $(`yx63-${source}-refresh`);
-      ensureOptions(material);
-      if (apply) apply.textContent = '批量加材質';
-      if (del) del.textContent = '批量刪除';
-      [material, apply, del].forEach(el => {
-        if (!el) return;
-        el.style.removeProperty('display');
-        el.hidden = false;
-        el.classList.add('yx115-batch-visible');
-      });
-      if (refresh) refresh.style.display = 'none';
-    });
-  }
-  async function applyMaterial(source){
-    const material = clean($(`yx63-${source}-material`)?.value || '').toUpperCase();
-    if (!material) return toast('請先從下拉選單選擇材質', 'warn');
-    let items = selectedItems(source);
-    if (!items.length) {
-      if (!confirm(`沒有勾選商品，是否套用到目前畫面全部${titleOf(source)}商品？`)) return;
-      items = allVisibleItems(source);
-    }
-    if (!items.length) return toast('目前沒有可套用材質的商品', 'warn');
-    try {
-      const data = await api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
-      toast(`已批量套用材質 ${material}：${data.count || items.length} 筆`, 'ok');
-      await refreshSource(source);
-      setTimeout(revealBatchBar, 80);
-    } catch(e) { toast(e.message || '批量加材質失敗', 'error'); }
-  }
-  async function deleteItems(source){
-    let items = selectedItems(source);
-    if (!items.length) {
-      if (!confirm(`沒有勾選商品，是否刪除目前畫面全部${titleOf(source)}商品？`)) return;
-      items = allVisibleItems(source);
-    }
-    if (!items.length) return toast('目前沒有可刪除的商品', 'warn');
-    if (!confirm(`確定批量刪除 ${items.length} 筆${titleOf(source)}商品？`)) return;
-    try {
-      const data = await api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})});
-      toast(`已批量刪除 ${data.count || items.length} 筆`, 'ok');
-      await refreshSource(source);
-      setTimeout(revealBatchBar, 80);
-    } catch(e) { toast(e.message || '批量刪除失敗', 'error'); }
-  }
-  document.addEventListener('click', e => {
-    const btn = e.target?.closest?.('#yx63-inventory-apply,#yx63-orders-apply,#yx63-master_order-apply,#yx63-inventory-delete,#yx63-orders-delete,#yx63-master_order-delete');
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-    const source = btn.id.includes('inventory') ? 'inventory' : btn.id.includes('orders') ? 'orders' : 'master_order';
-    if (btn.id.endsWith('-apply')) applyMaterial(source);
-    else deleteItems(source);
-  }, true);
-  function boot(){ revealBatchBar(); [120,420,1000,2200,4200].forEach(ms => setTimeout(revealBatchBar, ms)); }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
-  window.addEventListener('pageshow', boot);
-  window.yx115RevealBatchBar = revealBatchBar;
-})();
-/* ==== FIX115 end ==== */
-
-
-
-
-
-
-
-// FIX119 removed legacy block: FIX117: clean duplicate batch toolbar + disable drag long-press popup
-
-
-
-
-// FIX119 removed legacy block: FIX118: hard no-old-ui cache reset + final master cleanup
-
-
-/* ==== FIX119: final no-old-customer-board master ==== */
-(function(){
-  'use strict';
-  if (window.__YX119_FINAL_CUSTOMER_BOARD__) return;
-  window.__YX119_FINAL_CUSTOMER_BOARD__ = true;
-  const VERSION = 'FIX119_FINAL_CUSTOMER_BOARD_NO_OLD_JUMP';
-  try { document.documentElement.dataset.yxFix119 = VERSION; } catch(_e) {}
-
-  const $ = id => document.getElementById(id);
-  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
-  const validRegions = ['北區','中區','南區'];
-  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
-  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
-  async function api(url, opt={}){
-    const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
-    const txt = await res.text();
-    let data = {};
-    try { data = txt ? JSON.parse(txt) : {}; } catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
-    if (!res.ok || data.success === false) {
-      const e = new Error(data.error || data.message || `請求失敗：${res.status}`);
-      e.payload = data;
-      throw e;
-    }
-    return data;
-  }
-  window.yxApi = api;
-  function normRegion(v, fallback='北區'){ v = clean(v); return validRegions.includes(v) ? v : fallback; }
-  function relation(c){ return c?.relation_counts || {}; }
-  function rowCount(c, mode){
-    const r = relation(c);
-    if (mode === 'orders') return Number(r.order_rows || 0);
-    if (mode === 'master_order') return Number(r.master_rows || 0);
-    if (mode === 'ship') return Number(r.master_rows || 0) + Number(r.order_rows || 0) + Number(r.inventory_rows || 0);
-    return Number(c?.row_count || 0);
-  }
-  function qtyCount(c, mode){
-    const r = relation(c);
-    if (mode === 'orders') return Number(r.order_qty || 0);
-    if (mode === 'master_order') return Number(r.master_qty || 0);
-    if (mode === 'ship') return Number(r.master_qty || 0) + Number(r.order_qty || 0) + Number(r.inventory_qty || 0);
-    return Number(c?.item_count || 0);
-  }
-  function shouldShowInModule(c, mode){
-    const selected = clean($('customer-name')?.value || '');
-    if (selected && clean(c?.name) === selected) return true;
-    if (mode === 'orders') return rowCount(c, 'orders') > 0 || qtyCount(c, 'orders') > 0;
-    if (mode === 'master_order') return rowCount(c, 'master_order') > 0 || qtyCount(c, 'master_order') > 0;
-    if (mode === 'ship') return rowCount(c, 'ship') > 0 || qtyCount(c, 'ship') > 0;
-    return true;
-  }
-  const boardDefs = [
-    {mode:'module', ids:{'北區':'region-north','中區':'region-center','南區':'region-south'}},
-    {mode:'customers', ids:{'北區':'customers-north','中區':'customers-center','南區':'customers-south'}}
-  ];
-  function containersFor(def){ const out={}; validRegions.forEach(r => out[r] = $(def.ids[r])); return out; }
-  function hasBoard(){ return boardDefs.some(def => Object.values(containersFor(def)).some(Boolean)); }
-  function activeBoards(){
-    const page = moduleKey();
-    return boardDefs.filter(def => {
-      if (def.mode === 'module') return ['orders','master_order','ship'].includes(page) && Object.values(containersFor(def)).some(Boolean);
-      if (def.mode === 'customers') return page === 'customers' && Object.values(containersFor(def)).some(Boolean);
-      return false;
-    });
-  }
-  function cardHTML(c, mode){
-    const name = clean(c?.name || '');
-    const qty = qtyCount(c, mode);
-    const rows = rowCount(c, mode);
-    return `<div class="customer-card-main"><div class="customer-card-name">${esc(name)}</div><div class="customer-card-meta">${qty}件 / ${rows}筆</div></div><div class="yx119-card-actions"><button type="button" class="yx119-card-menu" aria-label="客戶操作">操作</button><span class="customer-card-arrow">→</span></div>`;
-  }
-  function makeCard(c, mode){
-    const name = clean(c?.name || '');
-    const div = document.createElement('div');
-    div.className = 'customer-region-card yx119-customer-card';
-    div.setAttribute('role','button');
-    div.tabIndex = 0;
-    div.draggable = true;
-    div.dataset.customerName = name;
-    div.dataset.customer = name;
-    div.dataset.customerUid = c?.customer_uid || '';
-    div.dataset.region = normRegion(c?.region, '北區');
-    div.innerHTML = cardHTML(c, mode);
-    return div;
-  }
-  function sameHTML(el, html){ return (el?.dataset?.yx119Html || '') === html; }
-  function setStableHTML(el, html){ if (!el) return; if (!sameHTML(el, html)) { el.innerHTML = html; el.dataset.yx119Html = html; } }
-  function itemQty(it){ const n = Number(it?.qty ?? it?.total_qty ?? it?.unplaced_qty ?? 0); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
-  function splitProductText(text){ text = String(text || ''); const parts = text.split('='); return {size:(parts[0] || text).trim(), qty:(parts.slice(1).join('=') || '').trim()}; }
-  function sourceText(it){ return clean(it?.source || it?.source_label || ''); }
-  function materialText(it){ return clean(it?.material || it?.product_code || ''); }
-
-  let latestCustomers = [];
-  let loadInFlight = null;
-  let selectedName = '';
-  let selectedUid = '';
-
-  async function fetchCustomers(){
-    const data = await api('/api/customers?yx119=1&ts=' + Date.now(), {method:'GET'});
-    latestCustomers = Array.isArray(data.items) ? data.items : [];
-    window.state = window.state || {};
-    window.state.customerDirectory = latestCustomers;
-    return latestCustomers;
-  }
-
-  async function loadCustomerBlocks119(force=false){
-    if (!hasBoard()) return latestCustomers;
-    if (loadInFlight && !force) return loadInFlight;
-    loadInFlight = (async()=>{
-      let items = await fetchCustomers();
-      const q = clean($('customer-search')?.value || '').toLowerCase();
-      if (q) items = items.filter(c => String(c.name || '').toLowerCase().includes(q));
-      const page = moduleKey();
-      activeBoards().forEach(def => {
-        const cons = containersFor(def);
-        const mode = def.mode === 'module' ? page : 'customers';
-        let list = items.slice();
-        if (def.mode === 'module') list = list.filter(c => shouldShowInModule(c, page));
-        const buckets = {'北區':[], '中區':[], '南區':[]};
-        list.forEach(c => buckets[normRegion(c.region, '北區')].push(c));
-        validRegions.forEach(region => {
-          const el = cons[region];
-          if (!el) return;
-          el.dataset.region = region;
-          el.classList.add('yx119-drop-zone');
-          const html = buckets[region].length
-            ? buckets[region].map(c => makeCard(c, mode).outerHTML).join('')
-            : '<div class="empty-state-card compact-empty yx119-empty-zone">目前沒有客戶</div>';
-          setStableHTML(el, html);
-        });
-      });
-      return items;
-    })().finally(()=>{ loadInFlight = null; });
-    return loadInFlight;
-  }
-
-  async function selectCustomer119(name, uid=''){
-    name = clean(name); uid = clean(uid);
-    if (!name) return;
-    selectedName = name; selectedUid = uid;
-    const input = $('customer-name');
-    if (input) { input.value = name; input.dataset.customerUid = uid || ''; input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); }
-    if (moduleKey() === 'customers' && typeof window.fillCustomerForm === 'function') return window.fillCustomerForm(name);
-    const panel = $('selected-customer-items');
-    if (!panel) return;
-    panel.classList.remove('hidden');
-    panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
-    try {
-      const data = await api('/api/customer-items?name=' + encodeURIComponent(name) + '&yx119=1&ts=' + Date.now(), {method:'GET'});
-      const items = Array.isArray(data.items) ? data.items : [];
-      const total = items.reduce((s,it) => s + itemQty(it), 0);
-      if (!items.length) {
-        panel.innerHTML = `<div class="customer-detail-card yx119-customer-detail"><div class="section-title">${esc(name)}</div><div class="empty-state-card compact-empty">此客戶目前沒有商品</div></div>`;
-        return;
-      }
-      const rows = items.map(it => {
-        const p = splitProductText(it.product_text || it.product_size || '');
-        const qty = p.qty || String(itemQty(it) || '');
-        return `<tr><td>${esc(materialText(it))}</td><td>${esc(p.size)}</td><td>${esc(qty)}</td><td>${esc(sourceText(it))}</td><td>${itemQty(it)}</td></tr>`;
-      }).join('');
-      panel.innerHTML = `<div class="customer-detail-card yx119-customer-detail"><div class="customer-detail-header"><div><div class="section-title">${esc(name)}</div><div class="muted">${total}件 / ${items.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>來源</th><th>數量</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
-    } catch(err) {
-      panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
-    }
-  }
-
-  async function moveCustomer119(name, region, uid=''){
-    name = clean(name); uid = clean(uid); region = normRegion(region, '');
-    if (!name || !region) return;
-    await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, customer_uid:uid, region})});
-    latestCustomers.forEach(c => { if (clean(c.name) === name || (uid && clean(c.customer_uid) === uid)) c.region = region; });
-    toast(`${name} 已移到${region}`, 'ok');
-    await loadCustomerBlocks119(true);
-    if (selectedName === name) await selectCustomer119(name, uid || selectedUid);
-  }
-
-  async function deleteOrArchive119(name, uid='', force=false){
-    name = clean(name); uid = clean(uid);
-    if (!name) return;
-    const msg = force
-      ? `確定刪除客戶「${name}」？\n\n只刪除客戶資料卡，商品 / 訂單 / 總單 / 出貨歷史保留。`
-      : `確定封存客戶「${name}」？\n\n有商品或歷史資料時會封存，沒有資料時會直接刪除。`;
-    if (!window.confirm(msg)) return;
-    const qs = new URLSearchParams();
-    if (uid) qs.set('customer_uid', uid);
-    if (force) qs.set('force', '1');
-    await api('/api/customers/' + encodeURIComponent(name) + (qs.toString() ? '?' + qs.toString() : ''), {method:'DELETE', body:JSON.stringify(force ? {force:true, customer_uid:uid} : {customer_uid:uid})});
-    toast(force ? '客戶已刪除' : '客戶已封存', 'ok');
-    if (selectedName === name) { selectedName = ''; selectedUid = ''; const p=$('selected-customer-items'); if (p) p.innerHTML = ''; }
-    await loadCustomerBlocks119(true);
-  }
-
-  function ensureActionModal(){
-    let modal = $('yx119-customer-action-modal');
-    if (modal) return modal;
-    modal = document.createElement('div');
-    modal.id = 'yx119-customer-action-modal';
-    modal.className = 'modal hidden yx119-customer-action-modal';
-    modal.innerHTML = `<div class="modal-card glass" style="max-width:410px;"><div class="modal-head"><div class="section-title" id="yx119-customer-action-title">客戶操作</div><button type="button" class="icon-btn" data-yx119-close>✕</button></div><div class="small-note">拖拉客戶可直接移動北 / 中 / 南區；不再使用長按彈窗。</div><div class="btn-row yx119-action-list"><button class="primary-btn" type="button" data-yx119-open>打開客戶商品</button><div class="yx119-region-buttons"><button class="ghost-btn small-btn" type="button" data-yx119-move="北區">移到北區</button><button class="ghost-btn small-btn" type="button" data-yx119-move="中區">移到中區</button><button class="ghost-btn small-btn" type="button" data-yx119-move="南區">移到南區</button></div><button class="ghost-btn danger-btn" type="button" data-yx119-archive>封存客戶</button><button class="ghost-btn danger-btn" type="button" data-yx119-delete>刪除客戶</button><button class="ghost-btn" type="button" data-yx119-close>取消</button></div></div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', async e => {
-      if (e.target === modal || e.target.closest('[data-yx119-close]')) { modal.classList.add('hidden'); return; }
-      const name = modal.dataset.customer || ''; const uid = modal.dataset.customerUid || '';
-      const moveBtn = e.target.closest('[data-yx119-move]');
-      try {
-        if (e.target.closest('[data-yx119-open]')) { modal.classList.add('hidden'); await selectCustomer119(name, uid); }
-        else if (moveBtn) { modal.classList.add('hidden'); await moveCustomer119(name, moveBtn.getAttribute('data-yx119-move'), uid); }
-        else if (e.target.closest('[data-yx119-archive]')) { modal.classList.add('hidden'); await deleteOrArchive119(name, uid, false); }
-        else if (e.target.closest('[data-yx119-delete]')) { modal.classList.add('hidden'); await deleteOrArchive119(name, uid, true); }
-      } catch(err) { toast(err.message || '客戶操作失敗', 'error'); }
-    });
-    return modal;
-  }
-  function openActionModal119(name, uid=''){
-    ['customer-action-sheet','yx112-customer-actions','yx113-customer-action-modal','yx114-customer-action-modal','yx116-customer-action-modal'].forEach(id => { const el=$(id); if (el) el.remove(); });
-    const modal = ensureActionModal();
-    modal.dataset.customer = clean(name); modal.dataset.customerUid = clean(uid);
-    const title = $('yx119-customer-action-title'); if (title) title.textContent = '客戶操作：' + (clean(name) || '');
-    modal.classList.remove('hidden');
-  }
-  function cardFromEvent(e){ return e.target?.closest?.('.yx119-customer-card'); }
-  function nameFromCard(card){ return clean(card?.dataset?.customerName || card?.dataset?.customer || card?.querySelector?.('.customer-card-name')?.textContent || ''); }
-  function uidFromCard(card){ return clean(card?.dataset?.customerUid || ''); }
-  function regionFromElement(el){
-    const box = el?.closest?.('.category-box[data-region]'); if (box) return normRegion(box.dataset.region, '');
-    const list = el?.closest?.('.customer-list'); const id = list?.id || el?.id || '';
-    return {'region-north':'北區','region-center':'中區','region-south':'南區','customers-north':'北區','customers-center':'中區','customers-south':'南區'}[id] || '';
-  }
-
-  let pointer = null;
-  let suppressClickUntil = 0;
-  function closeOldModals(){ ['customer-action-sheet','yx112-customer-actions','yx113-customer-action-modal','yx114-customer-action-modal','yx116-customer-action-modal'].forEach(id => { const el=$(id); if (el) el.remove(); }); }
-  function installEvents(){
-    if (document.documentElement.dataset.yx119Events === '1') return;
-    document.documentElement.dataset.yx119Events = '1';
-    document.addEventListener('click', async e => {
-      const menu = e.target?.closest?.('.yx119-card-menu');
-      if (menu) {
-        const card = menu.closest('.yx119-customer-card'); if (!card) return;
-        e.preventDefault(); e.stopPropagation();
-        openActionModal119(nameFromCard(card), uidFromCard(card));
-        return;
-      }
-      const card = cardFromEvent(e); if (!card) return;
-      if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
-      e.preventDefault(); e.stopPropagation();
-      await selectCustomer119(nameFromCard(card), uidFromCard(card));
-    }, true);
-    document.addEventListener('contextmenu', e => {
-      const card = cardFromEvent(e); if (!card) return;
-      e.preventDefault(); e.stopPropagation();
-      if (Date.now() < suppressClickUntil || document.body.classList.contains('yx119-dragging-customer')) return;
-      openActionModal119(nameFromCard(card), uidFromCard(card));
-    }, true);
-    document.addEventListener('keydown', e => {
-      if (e.key !== 'Enter' && e.key !== ' ') return;
-      const card = e.target?.closest?.('.yx119-customer-card'); if (!card) return;
-      e.preventDefault(); selectCustomer119(nameFromCard(card), uidFromCard(card));
-    }, true);
-    document.addEventListener('pointerdown', e => {
-      const card = cardFromEvent(e);
-      if (!card || e.button > 0 || e.target?.closest?.('button,a,input,textarea,select')) return;
-      pointer = {id:e.pointerId, card, name:nameFromCard(card), uid:uidFromCard(card), x:e.clientX, y:e.clientY, moved:false};
-      closeOldModals();
-    }, true);
-    document.addEventListener('pointermove', e => {
-      if (!pointer || pointer.id !== e.pointerId) return;
-      const dist = Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y);
-      if (dist > 18) { pointer.moved = true; document.body.classList.add('yx119-dragging-customer'); pointer.card.classList.add('yx119-touch-dragging'); suppressClickUntil = Date.now() + 900; closeOldModals(); }
-    }, true);
-    document.addEventListener('pointerup', async e => {
-      const p = pointer; pointer = null;
-      document.body.classList.remove('yx119-dragging-customer');
-      if (p?.card) p.card.classList.remove('yx119-touch-dragging');
-      if (!p) return;
-      if (p.moved) {
-        suppressClickUntil = Date.now() + 900;
-        const region = regionFromElement(document.elementFromPoint(e.clientX, e.clientY));
-        if (region) { e.preventDefault(); e.stopPropagation(); try { await moveCustomer119(p.name, region, p.uid); } catch(err) { toast(err.message || '移動失敗', 'error'); } }
-      }
-    }, true);
-    ['pointercancel','scroll'].forEach(evt => document.addEventListener(evt, () => { pointer = null; document.body.classList.remove('yx119-dragging-customer'); document.querySelectorAll('.yx119-touch-dragging').forEach(x => x.classList.remove('yx119-touch-dragging')); }, true));
-    document.addEventListener('dragstart', e => {
-      const card = cardFromEvent(e); if (!card) return;
-      closeOldModals();
-      suppressClickUntil = Date.now() + 900;
-      document.body.classList.add('yx119-dragging-customer');
-      card.classList.add('yx119-dragging-card');
-      e.dataTransfer?.setData('application/x-yx-customer-name', nameFromCard(card));
-      e.dataTransfer?.setData('application/x-yx-customer-uid', uidFromCard(card));
-      e.dataTransfer?.setData('text/plain', nameFromCard(card));
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-    }, true);
-    document.addEventListener('dragend', e => { cardFromEvent(e)?.classList.remove('yx119-dragging-card'); document.body.classList.remove('yx119-dragging-customer'); document.querySelectorAll('.yx119-drop-over').forEach(el => el.classList.remove('yx119-drop-over')); setTimeout(()=>{ suppressClickUntil = 0; }, 350); }, true);
-    document.addEventListener('dragover', e => { const region = regionFromElement(e.target); if (!region) return; e.preventDefault(); e.target.closest?.('.customer-list,.category-box')?.classList.add('yx119-drop-over'); if (e.dataTransfer) e.dataTransfer.dropEffect='move'; }, true);
-    document.addEventListener('dragleave', e => { e.target.closest?.('.customer-list,.category-box')?.classList.remove('yx119-drop-over'); }, true);
-    document.addEventListener('drop', async e => {
-      const region = regionFromElement(e.target); if (!region) return;
-      const name = clean(e.dataTransfer?.getData('application/x-yx-customer-name') || e.dataTransfer?.getData('text/plain') || ''); if (!name) return;
-      const uid = clean(e.dataTransfer?.getData('application/x-yx-customer-uid') || '');
-      e.preventDefault(); e.stopPropagation(); closeOldModals(); document.body.classList.remove('yx119-dragging-customer'); document.querySelectorAll('.yx119-drop-over').forEach(el => el.classList.remove('yx119-drop-over'));
-      try { await moveCustomer119(name, region, uid); } catch(err) { toast(err.message || '移動失敗', 'error'); }
-    }, true);
-  }
-
-  function cleanupOldUI(){
-    closeOldModals();
-    document.querySelectorAll('#yx116-orders-toolbar,#yx116-master_order-toolbar,#yx116-inventory-toolbar,#yx116-orders-summary,#yx116-master_order-summary,#yx116-inventory-summary').forEach(el => el.remove());
-    document.querySelectorAll('.yx113-touch-dragging,.yx114-touch-dragging,.yx116-drop-over').forEach(el => el.classList.remove('yx113-touch-dragging','yx114-touch-dragging','yx116-drop-over'));
-  }
-  function clearOldTimersOnce(){
-    if (window.__YX119_TIMERS_CLEARED__) return;
-    window.__YX119_TIMERS_CLEARED__ = true;
-    try {
-      const clearNative = window.__YX96_NATIVE_CLEAR_TIMEOUT__ || window.clearTimeout;
-      (window.__YX96_TIMEOUTS__ || new Set()).forEach(id => { try { clearNative(id); } catch(_e){} });
-      if (window.__YX96_TIMEOUTS__?.clear) window.__YX96_TIMEOUTS__.clear();
-      (window.__YX96_INTERVALS__ || new Set()).forEach(id => { try { window.clearInterval(id); } catch(_e){} });
-      if (window.__YX96_INTERVALS__?.clear) window.__YX96_INTERVALS__.clear();
-    } catch(_e) {}
-  }
-  function install(){
-    document.documentElement.dataset.yxFix119 = VERSION;
-    clearOldTimersOnce();
-    cleanupOldUI();
-    window.loadCustomerBlocks = loadCustomerBlocks119;
-    window.renderCustomers = loadCustomerBlocks119;
-    window.selectCustomerForModule = selectCustomer119;
-    window.yx119OpenCustomerAction = openActionModal119;
-    window.yx119MoveCustomerRegion = moveCustomer119;
-    window.yx119DeleteOrArchiveCustomer = deleteOrArchive119;
-    window.yx114OpenCustomerAction = openActionModal119;
-    window.yx114MoveCustomerRegion = moveCustomer119;
-    window.yx114DeleteOrArchiveCustomer = deleteOrArchive119;
-    installEvents();
-    if (['orders','master_order','ship','customers'].includes(moduleKey())) loadCustomerBlocks119(true).catch(err => toast(err.message || '客戶區載入失敗', 'error'));
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
-  window.addEventListener('pageshow', install);
-})();
-/* ==== FIX119 end ==== */
