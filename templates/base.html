@@ -10,16 +10,16 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix116-new-master-overwrite">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix116-new-master-overwrite">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix116-new-master-overwrite">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix116-new-master-overwrite">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix116-new-master-overwrite">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix117-clean-single-toolbar-drag">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix117-clean-single-toolbar-drag">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix117-clean-single-toolbar-drag">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix117-clean-single-toolbar-drag">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix117-clean-single-toolbar-drag">
   <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};</script>
   {% if (request.endpoint or '') not in ['home','login_page'] %}
-  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix116-new-master-overwrite"></script>
+  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix117-clean-single-toolbar-drag"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix116-new-master-overwrite"></script>
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix117-clean-single-toolbar-drag"></script>
   <!-- FIX111_FAST_NAV_AND_RETURN_HOME_OPTIMIZE -->
 </head>
 <body>

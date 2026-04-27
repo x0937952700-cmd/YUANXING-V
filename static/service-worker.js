@@ -1,12 +1,12 @@
-/* 沅興木業 PWA Service Worker - fix116-new-master-overwrite - FIX116_MASTER_OVERWRITE_CACHE */
-const YX_PWA_VERSION='fix116-new-master-overwrite';
+/* 沅興木業 PWA Service Worker - fix117-clean-single-toolbar-drag - FIX117_CLEAN_CACHE */
+const YX_PWA_VERSION='fix117-clean-single-toolbar-drag';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest',
   '/static/favicon.png',
-  '/static/style.css?v=fix116-new-master-overwrite',
-  '/static/app.js?v=fix116-new-master-overwrite',
-  '/static/pwa.js?v=fix116-new-master-overwrite',
+  '/static/style.css?v=fix117-clean-single-toolbar-drag',
+  '/static/app.js?v=fix117-clean-single-toolbar-drag',
+  '/static/pwa.js?v=fix117-clean-single-toolbar-drag',
   '/static/icons/icon-192x192.png',
   '/static/icons/icon-512x512.png',
   '/static/icons/icon-maskable-192x192.png',

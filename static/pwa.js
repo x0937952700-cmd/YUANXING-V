@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix116-new-master-overwrite';
+  const PWA_VERSION = 'fix117-clean-single-toolbar-drag';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -35,13 +35,13 @@
       }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
     });
   }
-  // FIX116_CLEAR_OLD_CACHES：清掉舊快取，避免 FIX112~115 被舊版 app.js / style.css 擋住。
+  // FIX117_CLEAR_OLD_CACHES：清掉舊快取，避免 FIX112~115 被舊版 app.js / style.css 擋住。
   window.addEventListener('load', async () => {
     try {
-      if (window.caches && !sessionStorage.getItem('YX_FIX116_CACHE_CLEARED')) {
+      if (window.caches && !sessionStorage.getItem('YX_FIX117_CACHE_CLEARED')) {
         const keys = await caches.keys();
         await Promise.all(keys.filter(k => k.startsWith('yuanxing-pwa-') && !k.includes(PWA_VERSION)).map(k => caches.delete(k)));
-        sessionStorage.setItem('YX_FIX116_CACHE_CLEARED', '1');
+        sessionStorage.setItem('YX_FIX117_CACHE_CLEARED', '1');
       }
     } catch (_) {}
   });

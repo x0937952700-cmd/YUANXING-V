@@ -2781,7 +2781,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     // 避免舊客戶商品表干擾左側客戶資料。
     document.querySelectorAll('#selected-customer-items,.customer-detail-modal,.customer-modal,#customer-modal').forEach(el=>{ el.classList.add('hidden'); el.style.display='none'; });
   }
-  function materialOptions(){ return `<option value="">選擇材質</option>` + MATERIALS.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(''); }
+  function materialOptions(){ return `<option value="">材質下拉選單</option>` + MATERIALS.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(''); }
 
   function setRowSelected(row, selected){
     if(!row) return;
@@ -2813,21 +2813,19 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(!bar){
       bar=document.createElement('div');
       bar.id=`yx63-${source}-toolbar`;
-      bar.className='yx63-toolbar';
+      bar.className='yx63-toolbar yx115-batch-toolbar yx117-single-toolbar';
       bar.innerHTML=`
         <button id="yx63-${source}-selectall" class="ghost-btn small-btn yx63-select-all" type="button">全選目前清單</button>
         <input id="yx63-${source}-search" class="text-input yx63-search" placeholder="搜尋商品 / 客戶 / 材質">
         <select id="yx63-${source}-material" class="text-input yx63-material">${materialOptions()}</select>
         <button id="yx63-${source}-apply" class="ghost-btn small-btn" type="button">批量加材質</button>
-        <button id="yx63-${source}-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button>
-        <button id="yx63-${source}-refresh" class="ghost-btn small-btn" type="button">重新整理</button>`;
+        <button id="yx63-${source}-delete" class="ghost-btn small-btn danger-btn" type="button">批量刪除</button>`;
       const head=sec.querySelector('.section-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
       $(`yx63-${source}-search`)?.addEventListener('input',()=>{ renderSummary(source); renderCards(source); });
       $(`yx63-${source}-selectall`)?.addEventListener('click',()=>toggleVisibleSelection(source));
       $(`yx63-${source}-apply`)?.addEventListener('click',()=>bulkMaterial(source));
       $(`yx63-${source}-delete`)?.addEventListener('click',()=>bulkDelete(source));
-      $(`yx63-${source}-refresh`)?.addEventListener('click',()=>refreshSource(source,false));
     }
     return bar;
   }
@@ -12652,7 +12650,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     document.addEventListener('click', async e => { const menu = e.target.closest?.('.yx114-card-menu'); if (menu) { const card = menu.closest('.yx114-customer-card'); if (!card) return; e.preventDefault(); e.stopPropagation(); openActionModal114(customerNameFromCard(card), customerUidFromCard(card)); return; } const card = cardFromEvent(e); if (!card) return; if (Date.now() < Number(card.dataset.yx114BlockClickUntil || 0)) { e.preventDefault(); e.stopPropagation(); return; } const name = customerNameFromCard(card); if (!name) return; e.preventDefault(); await selectCustomer114(name, customerUidFromCard(card)); }, true);
     document.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const card = e.target?.closest?.('.yx114-customer-card'); if (!card) return; e.preventDefault(); selectCustomer114(customerNameFromCard(card), customerUidFromCard(card)); }, true);
     document.addEventListener('contextmenu', e => { const card = cardFromEvent(e); if (!card) return; e.preventDefault(); if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation(); openActionModal114(customerNameFromCard(card), customerUidFromCard(card)); }, true);
-    document.addEventListener('pointerdown', e => { const card = cardFromEvent(e); if (!card || e.button > 0) return; const name = customerNameFromCard(card); if (!name) return; pointer = {id:e.pointerId, card, name, uid:customerUidFromCard(card), x:e.clientX, y:e.clientY, moved:false}; clearHold(); holdTimer = setTimeout(() => { if (!pointer || pointer.moved) return; card.dataset.yx114BlockClickUntil = String(Date.now() + 900); try { navigator.vibrate && navigator.vibrate(18); } catch(_e){} openActionModal114(pointer.name, pointer.uid); }, 620); }, true);
+    document.addEventListener('pointerdown', e => { const card = cardFromEvent(e); if (!card || e.button > 0) return; const name = customerNameFromCard(card); if (!name) return; pointer = {id:e.pointerId, card, name, uid:customerUidFromCard(card), x:e.clientX, y:e.clientY, moved:false}; clearHold(); /* FIX117：停用長按自動跳出客戶操作表，避免拖拉客戶時誤彈。 */ }, true);
     document.addEventListener('pointermove', e => { if (!pointer || pointer.id !== e.pointerId) return; const dist = Math.abs(e.clientX - pointer.x) + Math.abs(e.clientY - pointer.y); if (dist > 18) { pointer.moved = true; clearHold(); pointer.card.classList.add('yx114-touch-dragging'); document.body.classList.add('yx114-dragging-customer'); } }, true);
     document.addEventListener('pointerup', async e => { const p = pointer; clearHold(); pointer = null; document.body.classList.remove('yx114-dragging-customer'); if (p?.card) p.card.classList.remove('yx114-touch-dragging'); if (!p) return; if (p.moved) { const target = document.elementFromPoint(e.clientX, e.clientY); const region = regionFromElement(target); p.card.dataset.yx114BlockClickUntil = String(Date.now() + 900); if (region) { e.preventDefault(); if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation(); try { await moveCustomer114(p.name, region, p.uid); } catch(err) { toast(err.message || '移動失敗', 'error'); } } } }, true);
     ['pointercancel','scroll'].forEach(evt => document.addEventListener(evt, () => { clearHold(); if (pointer?.card) pointer.card.classList.remove('yx114-touch-dragging'); pointer = null; document.body.classList.remove('yx114-dragging-customer'); }, true));
@@ -12722,7 +12720,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function ensureOptions(sel){
     if (!sel || sel.dataset.yx115Options === '1') return;
     const current = sel.value || '';
-    sel.innerHTML = '<option value="">選擇材質</option>' + materialList.map(m => `<option value="${m}">${m}</option>`).join('');
+    sel.innerHTML = '<option value="">材質下拉選單</option>' + materialList.map(m => `<option value="${m}">${m}</option>`).join('');
     sel.value = current;
     sel.dataset.yx115Options = '1';
   }
@@ -12797,229 +12795,51 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 /* ==== FIX115 end ==== */
 
 
-/* ==== FIX116: cache-bust + final UI overwrite master ==== */
+
+
+
+
+/* ==== FIX117: clean duplicate batch toolbar + disable drag long-press popup ==== */
 (function(){
   'use strict';
-  if (window.__YX116_FINAL_MASTER_OVERWRITE__) return;
-  window.__YX116_FINAL_MASTER_OVERWRITE__ = true;
-  const VERSION = 'FIX116_FINAL_MASTER_OVERWRITE';
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'];
+  if (window.__YX117_CLEAN_MASTER__) return;
+  window.__YX117_CLEAN_MASTER__ = true;
+  const VERSION = 'FIX117_CLEAN_SINGLE_TOOLBAR_NO_DRAG_LONGPRESS';
   const $ = id => document.getElementById(id);
-  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
-  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
-  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
-  const api = window.yxApi || window.requestJSON || (async function(url, opt={}){
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})}});
-    const text = await res.text(); let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch(_e) { data = {success:false, error:text || '伺服器回應格式錯誤'}; }
-    if(!res.ok || data.success === false){ const err = new Error(data.error || data.message || `請求失敗：${res.status}`); err.payload=data; throw err; }
-    return data;
-  });
-  window.yxApi = api;
-
-  const sourceMap = {
-    inventory:{section:'inventory-inline-panel', list:'inventory-inline-list', endpoint:'/api/inventory', apiSource:'inventory', title:'庫存'},
-    orders:{section:'orders-list-section', list:'orders-list', endpoint:'/api/orders', apiSource:'orders', title:'訂單'},
-    master_order:{section:'master-list-section', list:'master-list', endpoint:'/api/master_orders', apiSource:'master_orders', title:'總單'}
-  };
-  const regions = ['北區','中區','南區'];
-  const regionIds = {'北區':['region-north','customers-north'], '中區':['region-center','customers-center'], '南區':['region-south','customers-south']};
-  function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
-  function splitProduct(text){ const raw=normalizeX(text); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
-  function qtyFromText(text, fallback=0){
-    const raw=normalizeX(text); const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;
-    if(!right) return Number(fallback||0)||0;
-    const parts=right.split('+').map(clean).filter(Boolean);
-    const canonical='504x5+588+587+502+420+382+378+280+254+237+174';
-    if(right.toLowerCase()===canonical || raw.toLowerCase().endsWith('=' + canonical)) return 10;
-    const xParts=parts.filter(p=>/x\s*\d+\s*$/i.test(p));
-    const bareParts=parts.filter(p=>!/x\s*\d+\s*$/i.test(p) && /\d/.test(p));
-    if(parts.length>=10 && xParts.length===1 && parts[0]===xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length>=8) return bareParts.length;
-    let total=0, hit=false;
-    parts.forEach(seg=>{ const explicit=seg.match(/(\d+)\s*[件片]/); if(explicit){ total+=Number(explicit[1]||0); hit=true; return; } const mx=seg.match(/x\s*(\d+)\s*$/i); if(mx){ total+=Number(mx[1]||0); hit=true; return; } if(/\d/.test(seg)){ total+=1; hit=true; } });
-    return hit ? total : (Number(fallback||0)||0);
-  }
-  function rowMaterial(r){ const v=clean(r?.material || r?.product_code || ''); const p=normalizeX(r?.product_text||''); const vv=normalizeX(v); if(!vv || vv===p || vv.includes('=') || /^\d+(?:\.\d+)?x\d+/i.test(vv)) return ''; return v; }
-  function rowSize(r){ return splitProduct(r?.product_text || r?.size || '').size; }
-  function rowSupport(r){ const p=splitProduct(r?.product_text || ''); return p.support || clean(r?.support || r?.support_text || r?.qty || ''); }
-  function rowQty(r){ return qtyFromText(r?.product_text || r?.support || '', r?.qty || 0); }
-  function ensureStore(){ window.__YX116_ROWS__ = window.__YX116_ROWS__ || {inventory:[],orders:[],master_order:[]}; return window.__YX116_ROWS__; }
-  function setRows(source, rows){ ensureStore()[source] = Array.isArray(rows) ? rows : []; }
-  function getRows(source){ return ensureStore()[source] || window.__yx63Rows?.[source] || []; }
-  function selectedCustomer(){ return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || window.state?.currentCustomer || ''); }
-  function materialOptions(){ return '<option value="">材質下拉選單</option>' + MATERIALS.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join(''); }
-  function sectionFor(source){ const def=sourceMap[source]; return def ? $(def.section) : null; }
-  function listFor(source){ const def=sourceMap[source]; return def ? $(def.list) : null; }
-  function itemPayload(source, id){ return {source: sourceMap[source].apiSource, id:Number(id||0)}; }
-
-  function hideOldToolbar(source){
-    const old = $(`yx63-${source}-toolbar`);
-    if(old && old.id !== `yx116-${source}-toolbar`) old.style.display = 'none';
-  }
-  function buildToolbar(source){
-    const sec=sectionFor(source); if(!sec) return null;
-    hideOldToolbar(source);
-    let bar=$(`yx116-${source}-toolbar`);
-    if(!bar){
-      bar=document.createElement('div'); bar.id=`yx116-${source}-toolbar`; bar.className='yx63-toolbar yx116-toolbar yx115-batch-toolbar';
-      const head=sec.querySelector('.section-head') || sec.firstElementChild || sec;
-      head.insertAdjacentElement('afterend', bar);
-    }
-    bar.classList.add('yx116-toolbar','yx115-batch-toolbar');
-    if(bar.dataset.yx116Ready !== '1'){
-      bar.innerHTML = `
-        <button id="yx116-${source}-selectall" class="ghost-btn small-btn yx63-select-all" type="button">全選目前清單</button>
-        <input id="yx116-${source}-search" class="text-input yx63-search" placeholder="搜尋商品 / 客戶 / 材質">
-        <select id="yx116-${source}-material" class="text-input yx63-material yx115-batch-visible">${materialOptions()}</select>
-        <button id="yx116-${source}-apply" class="ghost-btn small-btn yx115-batch-visible" type="button">批量加材質</button>
-        <button id="yx116-${source}-delete" class="ghost-btn small-btn danger-btn yx115-batch-visible" type="button">批量刪除</button>`;
-      bar.querySelector(`#yx116-${source}-search`)?.addEventListener('input',()=>renderSource(source));
-      bar.querySelector(`#yx116-${source}-selectall`)?.addEventListener('click',()=>toggleAll(source));
-      bar.querySelector(`#yx116-${source}-apply`)?.addEventListener('click',()=>bulkMaterial(source));
-      bar.querySelector(`#yx116-${source}-delete`)?.addEventListener('click',()=>bulkDelete(source));
-      bar.dataset.yx116Ready = '1';
-    }
-    return bar;
-  }
-  function filteredRows(source){
-    let rows=[...getRows(source)]; const q=clean($(`yx116-${source}-search`)?.value || $(`yx63-${source}-search`)?.value || '').toLowerCase();
-    const cust=selectedCustomer();
-    if(source==='master_order' && cust) rows=rows.filter(r=>clean(r.customer_name)===cust);
-    if(source==='orders' && cust) rows=rows.filter(r=>clean(r.customer_name)===cust);
-    if(q) rows=rows.filter(r=>`${rowMaterial(r)} ${rowSize(r)} ${rowSupport(r)} ${r.customer_name||''}`.toLowerCase().includes(q));
-    return rows;
-  }
-  function rowHtml(r, source){
-    const id=Number(r.id||0), mat=rowMaterial(r), size=rowSize(r), support=rowSupport(r), qty=rowQty(r);
-    return `<tr class="yx116-row yx63-summary-row" data-source="${source}" data-id="${id}">
-      <td class="yx116-check-cell"><input class="yx116-row-check yx63-row-check" type="checkbox" data-source="${source}" data-id="${id}"></td>
-      <td class="yx63-material-cell yx116-material-cell">${esc(mat)}</td>
-      <td class="yx63-size-cell yx116-size-cell">${esc(String(size).replace(/x/g,' × '))}</td>
-      <td class="yx63-support-cell yx116-support-cell">${esc(support)}</td>
-      <td class="yx63-qty-cell yx116-qty-cell">${qty}</td>${source==='inventory'?`<td class="yx116-customer-cell">${esc(r.customer_name||'')}</td>`:''}
-    </tr>`;
-  }
-  function renderSource(source){
-    const def=sourceMap[source]; if(!def) return;
-    const sec=sectionFor(source), list=listFor(source); if(!sec) return;
-    buildToolbar(source);
-    let host=$(`yx116-${source}-summary`); if(!host){ host=document.createElement('div'); host.id=`yx116-${source}-summary`; host.className='yx63-summary table-card yx116-summary'; if(list) list.insertAdjacentElement('beforebegin',host); else sec.appendChild(host); }
-    document.querySelectorAll(`#yx63-${source}-summary:not(#yx116-${source}-summary), #fix52-${source}-summary, #fix55-${source}-summary, #fix56-${source}-summary, #fix57-${source}-summary`).forEach(el=>el.remove());
-    const rows=filteredRows(source); const total=rows.reduce((s,r)=>s+rowQty(r),0); const cols=source==='inventory'?6:5;
-    if(source==='master_order' && !selectedCustomer()){
-      host.innerHTML = `<div class="yx63-summary-head"><strong>${def.title}統整</strong><span>請先點選客戶，這裡只顯示該客戶總單。</span></div>`;
-      if(list) list.innerHTML='<div class="empty-state-card compact-empty">請先點選客戶。</div>';
-      return;
-    }
-    host.innerHTML = `<div class="yx63-summary-head"><strong>${total}件 / ${rows.length}筆商品</strong><span>${def.title}統整</span></div>
-      <div class="yx63-table-wrap"><table class="yx63-summary-table yx116-table"><thead><tr><th>選取</th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${source==='inventory'?'<th>客戶</th>':''}</tr></thead><tbody>${rows.length?rows.map(r=>rowHtml(r,source)).join(''):`<tr><td colspan="${cols}">目前沒有資料</td></tr>`}</tbody></table></div>`;
-    if(list){ list.classList.add('yx63-card-grid'); list.innerHTML = rows.length ? rows.map(r=>`<div class="card inventory-action-card yx63-item-card yx116-item-card" data-source="${source}" data-id="${Number(r.id||0)}"><div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">${esc(rowMaterial(r)||'未填材質')}</span><span class="yx94-qty">${rowQty(r)}件</span></div><div class="yx94-card-row yx94-card-product">${esc(rowSize(r))} = ${esc(rowSupport(r))}</div>${r.customer_name?`<div class="yx63-item-customer">${esc(r.customer_name)}</div>`:''}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有資料</div>'; }
-    syncSelectText(source);
-  }
-  function syncSelectText(source){
-    const checks=Array.from(document.querySelectorAll(`.yx116-row-check[data-source="${source}"]`)); const selected=checks.filter(c=>c.checked).length; const btn=$(`yx116-${source}-selectall`); if(btn) btn.textContent = selected ? `已選 ${selected} 筆｜清除/全選` : '全選目前清單';
-  }
-  function toggleAll(source){ const checks=Array.from(document.querySelectorAll(`.yx116-row-check[data-source="${source}"]`)); if(!checks.length) return toast('目前沒有可選取商品','warn'); const all=checks.every(c=>c.checked); checks.forEach(c=>{c.checked=!all; c.closest('tr')?.classList.toggle('yx63-row-selected', !all);}); syncSelectText(source); }
-  function selectedItems(source){ return Array.from(document.querySelectorAll(`.yx116-row-check[data-source="${source}"]:checked, .yx63-row-check[data-source="${source}"]:checked`)).map(ch=>itemPayload(source,ch.dataset.id)).filter(x=>x.id>0); }
-  function allVisibleItems(source){ return filteredRows(source).map(r=>itemPayload(source,r.id)).filter(x=>x.id>0); }
-  async function loadSource(source){
-    const def=sourceMap[source]; if(!def) return [];
-    buildToolbar(source);
-    try{ const d=await api(def.endpoint + '?ts=' + Date.now(), {method:'GET'}); const rows=d.items||[]; setRows(source, rows); renderSource(source); return rows; }
-    catch(e){ renderSource(source); toast(e.message || `${def.title}讀取失敗`, 'error'); return getRows(source); }
-  }
-  async function bulkMaterial(source){
-    const material=clean($(`yx116-${source}-material`)?.value || $(`yx63-${source}-material`)?.value || '').toUpperCase();
-    if(!material) return toast('請先從下拉選單選擇材質','warn');
-    let items=selectedItems(source); if(!items.length){ if(!confirm(`沒有勾選商品，是否套用到目前畫面全部${sourceMap[source].title}商品？`)) return; items=allVisibleItems(source); }
-    if(!items.length) return toast('目前沒有可套用材質的商品','warn');
-    try{ const d=await api('/api/customer-items/batch-material',{method:'POST',body:JSON.stringify({material,items})}); toast(`已批量套用材質 ${material}：${d.count||items.length} 筆`,'ok'); await loadSource(source); }
-    catch(e){ toast(e.message || '批量加材質失敗','error'); }
-  }
-  async function bulkDelete(source){
-    let items=selectedItems(source); if(!items.length){ if(!confirm(`沒有勾選商品，是否刪除目前畫面全部${sourceMap[source].title}商品？`)) return; items=allVisibleItems(source); }
-    if(!items.length) return toast('目前沒有可刪除的商品','warn');
-    if(!confirm(`確定批量刪除 ${items.length} 筆${sourceMap[source].title}商品？`)) return;
-    try{ const d=await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items})}); toast(`已批量刪除 ${d.count||items.length} 筆`,'ok'); await loadSource(source); }
-    catch(e){ toast(e.message || '批量刪除失敗','error'); }
-  }
-
-  function cardName(card){ return clean(card?.dataset?.customerName || card?.dataset?.customer || card?.querySelector?.('.customer-card-name,.customer-name')?.textContent || '').replace(/\s*(\d+件\s*\/\s*\d+筆|→|操作).*$/,''); }
-  function cardUid(card){ return clean(card?.dataset?.customerUid || card?.dataset?.customer_uid || ''); }
-  function regionFrom(el){ const box=el?.closest?.('.category-box[data-region]'); if(box) return box.dataset.region; const id=el?.closest?.('.customer-list')?.id || el?.id || ''; for(const r of regions){ if(regionIds[r].includes(id)) return r; } return ''; }
-  function enhanceCustomerCards(){
-    document.querySelectorAll('#region-north .customer-region-card,#region-center .customer-region-card,#region-south .customer-region-card,#customers-north .customer-region-card,#customers-center .customer-region-card,#customers-south .customer-region-card,.yx114-customer-card,[data-customer-name]').forEach(card=>{
-      const name=cardName(card); if(!name) return;
-      card.classList.add('yx116-customer-card','yx114-customer-card'); card.dataset.customerName=name; card.dataset.customer=name; card.draggable=true; card.style.touchAction='none';
-      if(!card.querySelector('.yx116-card-menu,.yx114-card-menu')){ const btn=document.createElement('button'); btn.type='button'; btn.className='yx116-card-menu yx114-card-menu'; btn.textContent='操作'; card.appendChild(btn); }
+  const sourceList = ['inventory','orders','master_order'];
+  function firstOptionText(sel){ if(sel && sel.options && sel.options.length) sel.options[0].textContent = '材質下拉選單'; }
+  function cleanupOne(source){
+    document.querySelectorAll(`#yx116-${source}-toolbar,#yx116-${source}-summary`).forEach(el => el.remove());
+    const bars = Array.from(document.querySelectorAll(`#yx63-${source}-toolbar`));
+    bars.forEach((bar, idx) => {
+      if (idx > 0) { bar.remove(); return; }
+      bar.classList.add('yx115-batch-toolbar','yx117-single-toolbar');
+      bar.style.removeProperty('display');
+      bar.hidden = false;
+      const refresh = $(`yx63-${source}-refresh`); if(refresh) refresh.remove();
+      firstOptionText($(`yx63-${source}-material`));
     });
-    Object.values(regionIds).flat().forEach(id=>$(id)?.classList.add('yx116-drop-zone','yx114-drop-zone'));
+    const summaries = Array.from(document.querySelectorAll(`#yx63-${source}-summary`));
+    summaries.forEach((el, idx) => { if (idx > 0) el.remove(); });
   }
-  async function moveCustomer(name, region, uid=''){
-    if(!name || !regions.includes(region)) return;
-    await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, customer_uid:uid, region})}); toast(`已移到${region}`,'ok');
-    if(typeof window.loadCustomerBlocks === 'function') { try{ await window.loadCustomerBlocks(true); }catch(_e){} }
-    if(typeof window.renderCustomers === 'function') { try{ await window.renderCustomers(true); }catch(_e){} }
-    setTimeout(enhanceCustomerCards,60);
+  function cleanup(){
+    document.documentElement.dataset.yxFix117 = VERSION;
+    sourceList.forEach(cleanupOne);
+    ['yx116-customer-action-modal','yx113-customer-action-modal','yx112-customer-actions','customer-action-sheet'].forEach(id => { const el=$(id); if(el) el.remove(); });
+    document.querySelectorAll('.yx116-drop-over,.yx113-dragging-card,.yx113-touch-dragging').forEach(el => el.classList.remove('yx116-drop-over','yx113-dragging-card','yx113-touch-dragging'));
   }
-  function openActions(name, uid=''){
-    name=clean(name); if(!name) return;
-    let modal=$('yx116-customer-action-modal');
-    if(!modal){ modal=document.createElement('div'); modal.id='yx116-customer-action-modal'; modal.className='modal hidden yx116-action-modal'; document.body.appendChild(modal); modal.addEventListener('click', async e=>{
-      if(e.target===modal || e.target.closest('[data-yx116-close]')){ modal.classList.add('hidden'); return; }
-      const name=modal.dataset.name, uid=modal.dataset.uid||'';
-      const mv=e.target.closest('[data-yx116-move]'); if(mv){ e.preventDefault(); await moveCustomer(name, mv.dataset.yx116Move, uid); modal.classList.add('hidden'); return; }
-      if(e.target.closest('[data-yx116-open]')){ modal.classList.add('hidden'); try{ (window.selectCustomerForModule||window.fillCustomerForm||(()=>{}))(name, uid); }catch(_e){} const inp=$('customer-name'); if(inp){ inp.value=name; inp.dispatchEvent(new Event('change',{bubbles:true})); } return; }
-      if(e.target.closest('[data-yx116-archive]')){ if(!confirm(`確定封存客戶「${name}」？`)) return; await api('/api/customers/' + encodeURIComponent(name), {method:'DELETE', body:JSON.stringify({customer_uid:uid, force:false})}); toast('客戶已封存','ok'); modal.classList.add('hidden'); if(typeof window.loadCustomerBlocks==='function') window.loadCustomerBlocks(true); return; }
-      if(e.target.closest('[data-yx116-delete]')){ if(!confirm(`確定刪除客戶「${name}」？\n\n只刪除客戶資料卡，商品與出貨歷史保留。`)) return; await api('/api/customers/' + encodeURIComponent(name) + '?force=1', {method:'DELETE', body:JSON.stringify({customer_uid:uid, force:true})}); toast('客戶已刪除','ok'); modal.classList.add('hidden'); if(typeof window.loadCustomerBlocks==='function') window.loadCustomerBlocks(true); return; }
-    }); }
-    modal.dataset.name=name; modal.dataset.uid=uid;
-    modal.innerHTML=`<div class="modal-card glass yx116-action-card"><div class="modal-head"><div class="section-title">客戶操作：${esc(name)}</div><button type="button" class="icon-btn" data-yx116-close>✕</button></div><div class="btn-row yx116-action-list"><button type="button" class="ghost-btn" data-yx116-open>打開客戶商品</button><button type="button" class="ghost-btn" data-yx116-move="北區">移到北區</button><button type="button" class="ghost-btn" data-yx116-move="中區">移到中區</button><button type="button" class="ghost-btn" data-yx116-move="南區">移到南區</button><button type="button" class="ghost-btn" data-yx116-archive>封存客戶</button><button type="button" class="ghost-btn danger-btn" data-yx116-delete>刪除客戶</button></div></div>`;
-    modal.classList.remove('hidden');
+  function closeLegacyPopupsDuringDrag(){
+    ['yx116-customer-action-modal','yx113-customer-action-modal','yx112-customer-actions','customer-action-sheet'].forEach(id => { const el=$(id); if(el) el.remove(); });
   }
-  let hold=null;
-  function installCustomerDelegates(){
-    if(document.documentElement.dataset.yx116CustomerDelegates==='1') return; document.documentElement.dataset.yx116CustomerDelegates='1';
-    document.addEventListener('click', e=>{ const btn=e.target.closest?.('.yx116-card-menu,.yx114-card-menu'); if(!btn) return; const card=btn.closest('.yx116-customer-card,.yx114-customer-card,.customer-region-card,[data-customer-name]'); if(!card) return; e.preventDefault(); e.stopPropagation(); if(e.stopImmediatePropagation) e.stopImmediatePropagation(); openActions(cardName(card), cardUid(card)); }, true);
-    document.addEventListener('contextmenu', e=>{ const card=e.target.closest?.('.yx116-customer-card,.yx114-customer-card,.customer-region-card,[data-customer-name]'); if(!card) return; e.preventDefault(); if(e.stopImmediatePropagation) e.stopImmediatePropagation(); openActions(cardName(card), cardUid(card)); }, true);
-    document.addEventListener('pointerdown', e=>{ const card=e.target.closest?.('.yx116-customer-card,.yx114-customer-card,.customer-region-card,[data-customer-name]'); if(!card || e.button>0) return; const name=cardName(card); if(!name) return; clearTimeout(hold?.timer); hold={card,name,uid:cardUid(card),x:e.clientX,y:e.clientY,moved:false,timer:setTimeout(()=>{ if(hold && !hold.moved){ card.dataset.yx116BlockClickUntil=String(Date.now()+900); openActions(name, hold.uid); } },650)}; }, true);
-    document.addEventListener('pointermove', e=>{ if(!hold) return; if(Math.abs(e.clientX-hold.x)+Math.abs(e.clientY-hold.y)>18){ hold.moved=true; clearTimeout(hold.timer); } }, true);
-    document.addEventListener('pointerup', async e=>{ const h=hold; if(!h) return; clearTimeout(h.timer); hold=null; if(h.moved){ const target=document.elementFromPoint(e.clientX,e.clientY); const region=regionFrom(target); if(region){ e.preventDefault(); if(e.stopImmediatePropagation) e.stopImmediatePropagation(); await moveCustomer(h.name,region,h.uid); } } }, true);
-    document.addEventListener('dragstart', e=>{ const card=e.target.closest?.('.yx116-customer-card,.yx114-customer-card,.customer-region-card,[data-customer-name]'); if(!card) return; const name=cardName(card); if(!name) return; e.dataTransfer?.setData('application/x-yx-customer-name', name); e.dataTransfer?.setData('application/x-yx-customer-uid', cardUid(card)); e.dataTransfer?.setData('text/plain', name); if(e.dataTransfer) e.dataTransfer.effectAllowed='move'; }, true);
-    document.addEventListener('dragover', e=>{ const region=regionFrom(e.target); if(!region) return; e.preventDefault(); e.target.closest?.('.category-box[data-region],.customer-list')?.classList.add('yx116-drop-over'); }, true);
-    document.addEventListener('dragleave', e=> e.target.closest?.('.category-box[data-region],.customer-list')?.classList.remove('yx116-drop-over'), true);
-    document.addEventListener('drop', async e=>{ const region=regionFrom(e.target); if(!region) return; const name=clean(e.dataTransfer?.getData('application/x-yx-customer-name') || e.dataTransfer?.getData('text/plain') || ''); if(!name) return; const uid=clean(e.dataTransfer?.getData('application/x-yx-customer-uid') || ''); e.preventDefault(); if(e.stopImmediatePropagation) e.stopImmediatePropagation(); document.querySelectorAll('.yx116-drop-over').forEach(x=>x.classList.remove('yx116-drop-over')); await moveCustomer(name,region,uid); }, true);
-  }
-  function patchArchivedModal(){
-    const old=window.openArchivedCustomersModal;
-    window.openArchivedCustomersModal = async function(){
-      let modal=$('yx116-archived-customers-modal');
-      if(!modal){ modal=document.createElement('div'); modal.id='yx116-archived-customers-modal'; modal.className='modal hidden yx116-archived-modal'; document.body.appendChild(modal); modal.addEventListener('click', async e=>{ if(e.target===modal || e.target.closest('[data-yx116-close-archived]')){ modal.classList.add('hidden'); return; } const restore=e.target.closest('[data-yx116-restore]'); const del=e.target.closest('[data-yx116-delete-archived]'); if(!restore && !del) return; const name=(restore||del).dataset.name || ''; if(restore){ await api('/api/customers/' + encodeURIComponent(name) + '/restore', {method:'POST', body:JSON.stringify({})}); toast('已還原','ok'); } if(del){ if(!confirm(`確定刪除封存客戶「${name}」？`)) return; await api('/api/customers/' + encodeURIComponent(name) + '?force=1', {method:'DELETE', body:JSON.stringify({force:true})}); toast('已刪除','ok'); } await window.openArchivedCustomersModal(); }); }
-      modal.innerHTML='<div class="modal-card glass yx116-archived-card"><div class="modal-head"><div class="section-title">封存客戶</div><button type="button" class="icon-btn" data-yx116-close-archived>✕</button></div><div id="yx116-archived-body" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>'; modal.classList.remove('hidden');
-      try{ const d=await api('/api/customers/archived?ts=' + Date.now(), {method:'GET'}); const items=d.items||[]; const body=$('yx116-archived-body'); body.innerHTML=items.length?items.map(c=>`<div class="deduct-card yx116-archived-customer"><strong>${esc(c.name||'')}</strong><div class="small-note">${esc(c.region||'')}</div><div class="btn-row compact-row"><button type="button" class="ghost-btn small-btn" data-yx116-restore data-name="${esc(c.name||'')}">還原</button><button type="button" class="ghost-btn small-btn danger-btn" data-yx116-delete-archived data-name="${esc(c.name||'')}">刪除客戶</button></div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有封存客戶</div>'; }
-      catch(e){ $('yx116-archived-body').innerHTML=`<div class="error-card">${esc(e.message||'封存客戶讀取失敗')}</div>`; if(typeof old==='function') try{ old(); }catch(_e){} }
-    };
-  }
-
-  function install(){
-    document.documentElement.dataset.yxFix116 = VERSION;
-    Object.keys(sourceMap).forEach(src=>buildToolbar(src));
-    installCustomerDelegates(); patchArchivedModal(); enhanceCustomerCards();
-    const mod=moduleKey();
-    if(mod==='inventory') loadSource('inventory');
-    if(mod==='orders') { loadSource('orders'); if(typeof window.loadCustomerBlocks==='function') setTimeout(()=>window.loadCustomerBlocks(true),60); }
-    if(mod==='master_order') { loadSource('master_order'); if(typeof window.loadCustomerBlocks==='function') setTimeout(()=>window.loadCustomerBlocks(true),60); }
-    if(['orders','master_order','ship','customers'].includes(mod) && typeof window.loadCustomerBlocks==='function') setTimeout(()=>{ try{ window.loadCustomerBlocks(true); }catch(_e){} enhanceCustomerCards(); },180);
-  }
-  document.addEventListener('change', e=>{ const chk=e.target.closest?.('.yx116-row-check'); if(!chk) return; chk.closest('tr')?.classList.toggle('yx63-row-selected', chk.checked); syncSelectText(chk.dataset.source); }, true);
-  const mo=new MutationObserver(()=>{ enhanceCustomerCards(); Object.keys(sourceMap).forEach(src=>hideOldToolbar(src)); });
-  if(document.body) mo.observe(document.body,{childList:true,subtree:true});
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
-  window.addEventListener('pageshow', install);
-  [150,500,1000,1800,3000,5000,8000].forEach(ms=>setTimeout(install,ms));
-  window.yx116LoadSource = loadSource;
-  window.yx116RenderSource = renderSource;
-  window.yx116EnhanceCustomerCards = enhanceCustomerCards;
+  document.addEventListener('dragstart', closeLegacyPopupsDuringDrag, true);
+  document.addEventListener('pointermove', e => { if (Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) > 0) closeLegacyPopupsDuringDrag(); }, true);
+  document.addEventListener('contextmenu', e => { if (document.body.classList.contains('yx114-dragging-customer')) { e.preventDefault(); closeLegacyPopupsDuringDrag(); } }, true);
+  let scheduled = false;
+  const scheduleCleanup = () => { if (scheduled) return; scheduled = true; requestAnimationFrame(() => { scheduled = false; cleanup(); }); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', cleanup, {once:true}); else cleanup();
+  window.addEventListener('pageshow', cleanup);
+  [120,420,1000,2200,4200].forEach(ms => setTimeout(cleanup, ms));
+  if (document.body) new MutationObserver(scheduleCleanup).observe(document.body, {childList:true, subtree:true});
+  window.yx117Cleanup = cleanup;
 })();
-/* ==== FIX116 end ==== */
+/* ==== FIX117 end ==== */
