@@ -195,16 +195,9 @@ def add_cache_headers(response):
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        # FIX128：靜態檔已全部用版本號 ?v=... 載入，瀏覽器可長快取，避免每次返回主頁 / 開功能頁都重新下載大型 app.js、style.css。
-        # 沒帶版本號的開發請求仍維持 no-store，避免測試時吃舊檔。
-        if request.args.get('v'):
-            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-            response.headers.pop('Pragma', None)
-            response.headers.pop('Expires', None)
-        else:
-            response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
@@ -282,33 +275,6 @@ def normalize_item_for_save(item):
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
 
-def normalize_customer_item_rows(items):
-    """Return exact, one-row-per-record customer items for UI actions.
-
-    FIX134：客戶商品顯示 / 批量刪除 / 批量加材質必須使用原始 id，不能使用
-    aggregate 後的第一筆 id，否則畫面看起來是多件商品，但實際只改到第一筆。
-    """
-    rows = []
-    for row in items or []:
-        r = dict(row)
-        product_text = format_product_text_height2((r.get('product_text') or r.get('product') or '').strip())
-        if not product_text:
-            continue
-        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
-        qty = normalize_item_quantity(product_text, r.get('qty') or 0)
-        support = product_support_text(product_text)
-        r['product_text'] = product_text
-        r['product_size'] = product_text
-        r['size_text'] = product_display_size(product_text)
-        r['support_text'] = support
-        r['material'] = material
-        r['product_code'] = material
-        r['qty'] = qty
-        rows.append(r)
-    rows.sort(key=lambda r: (product_sort_tuple(r.get('product_text') or ''), r.get('source') or '', -(int(r.get('id') or 0))))
-    return rows
-
-
 def aggregate_customer_items(items):
     """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
     buckets = {}
@@ -327,7 +293,6 @@ def aggregate_customer_items(items):
         elif not support:
             support = str(qty)
         key = (source, size, material)
-        row_id = row.get('id')
         if key not in buckets:
             out = dict(row)
             out['qty'] = qty
@@ -336,15 +301,9 @@ def aggregate_customer_items(items):
             out['product_code'] = material
             out['size_text'] = size
             out['support_text'] = support
-            out['item_ids'] = [row_id] if row_id else []
-            out['is_aggregated'] = False
             buckets[key] = out
         else:
             buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
-            if row_id and row_id not in (buckets[key].get('item_ids') or []):
-                buckets[key].setdefault('item_ids', []).append(row_id)
-            if len(buckets[key].get('item_ids') or []) > 1:
-                buckets[key]['is_aggregated'] = True
             old_support = (buckets[key].get('support_text') or '').strip()
             if support:
                 supports = [x for x in old_support.split('+') if x] if old_support else []
@@ -490,45 +449,9 @@ def resolve_customer_identity(customer_name='', customer_uid='', include_archive
         row = get_customer_by_uid(uid, include_archived=include_archived)
     if not row and name:
         row = get_customer(name, include_archived=include_archived)
-    # FIX143：CNF / FOB / FOB代 顯示成小標籤後，舊資料可能有併名或去尾碼名；這裡一起查。
-    if not row and name:
-        variants = []
-        def add_variant(v):
-            v = (v or '').strip()
-            if v and v not in variants:
-                variants.append(v)
-        add_variant(name)
-        add_variant(re.sub(r'\s*(?:FOB代付|FOB代|FOB|CNF)\s*$', '', name, flags=re.I))
-        compact = name.replace(' ', '').replace('　', '')
-        add_variant(re.sub(r'(?:FOB代付|FOB代|FOB|CNF)$', '', compact, flags=re.I))
-        if name.split():
-            add_variant(name.split()[0])
-        for nm in variants:
-            row = get_customer(nm, include_archived=include_archived)
-            if row:
-                break
     resolved_name = (row.get('name') if row else name) or ''
     resolved_uid = (row.get('customer_uid') if row else uid) or ''
     return row, resolved_name, resolved_uid
-
-
-
-def customer_name_variants_for_lookup(name):
-    """FIX121：客戶名可能有 CNF/FOB/FOB代 等尾碼；查商品時同時比對原名、去尾碼名、去空白名。"""
-    raw = (name or '').strip()
-    variants = []
-    def add(v):
-        v = (v or '').strip()
-        if v and v not in variants:
-            variants.append(v)
-    add(raw)
-    stripped = re.sub(r'\s*(?:FOB代付|FOB代|FOB|CNF)\s*$', '', raw, flags=re.I).strip()
-    add(stripped)
-    stripped2 = re.sub(r'(?:FOB代付|FOB代|FOB|CNF)$', '', raw.replace(' ', '').replace('　', ''), flags=re.I).strip()
-    add(stripped2)
-    if raw:
-        add(raw.split()[0])
-    return variants
 
 
 def customer_groups():
@@ -1336,18 +1259,13 @@ def api_customer_detail(name):
             data = request.get_json(silent=True) or {}
             _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
             name = resolved_name or name
-            force_delete = bool(data.get('force') or str(request.args.get('force') or '').lower() in ('1', 'true', 'yes', 'y'))
-            result = delete_customer(name, force=force_delete)
+            result = delete_customer(name)
             mode = result.get('mode') or 'deleted'
             counts = result.get('counts') or {}
-            action_label = '刪除' if (force_delete or mode == 'deleted') else '封存'
-            log_action(current_username(), f"{action_label}客戶 {name}")
-            add_audit_trail(current_username(), 'delete' if (force_delete or mode == 'deleted') else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts, 'force': force_delete})
-            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{action_label}：{name}", extra={'customer_name': name, 'mode': mode, 'force': force_delete})
-            if force_delete:
-                message = '客戶資料卡已刪除，原商品與出貨歷史保留'
-            else:
-                message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
+            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
+            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
             return jsonify(success=True, mode=mode, counts=counts, message=message)
         except Exception as e:
             log_error("delete_customer", str(e))
@@ -1507,71 +1425,39 @@ def api_warehouse_available_items():
 @app.route("/api/customer-items", methods=["GET"])
 @login_required_json
 def api_customer_items():
-    """FIX121：訂單 / 總單點北中南客戶後，直接用 UID、原名、去 CNF/FOB 尾碼名查商品，避免舊資料名稱不同導致 0 筆。"""
+    """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
     name = (request.args.get("name") or "").strip()
     uid = (request.args.get("customer_uid") or "").strip()
-    source_filter = (request.args.get("source") or "").strip().lower()
-    source_alias = {
-        'orders': 'orders', 'order': 'orders', '訂單': 'orders',
-        'master': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders', '總單': 'master_orders',
-        'inventory': 'inventory', '庫存': 'inventory',
-        'ship': '', 'shipping': '',
-    }
     row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
-    display_name = resolved_name or name
+    name = resolved_name or name
     uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
-    lookup_names = customer_name_variants_for_lookup(display_name) + customer_name_variants_for_lookup(name)
-    seen = set()
-    lookup_names = [x for x in lookup_names if not (x in seen or seen.add(x))]
-    if not display_name and not uid and not lookup_names:
+    items = []
+    if not name and not uid:
         return jsonify(success=True, items=[])
-
-    tables = [("orders", "訂單"), ("master_orders", "總單"), ("inventory", "庫存")]
-    wanted_table = source_alias.get(source_filter, None)
-    if wanted_table:
-        tables = [t for t in tables if t[0] == wanted_table]
 
     conn = get_db()
     cur = conn.cursor()
-    items = []
     try:
         def pull(table, source_label):
-            clauses = []
-            params = []
-            if uid:
-                clauses.append("COALESCE(customer_uid, '') = ?")
-                params.append(uid)
-            for nm in lookup_names:
-                clauses.append("customer_name = ?")
-                params.append(nm)
-            compact_names = []
-            for nm in lookup_names:
-                compact = re.sub(r'\s+', '', nm or '')
-                if compact and compact not in compact_names:
-                    compact_names.append(compact)
-            for nm in compact_names:
-                clauses.append("REPLACE(REPLACE(COALESCE(customer_name, ''), ' ', ''), '　', '') = ?")
-                params.append(nm)
-            if not clauses:
-                return
-            q = f"SELECT * FROM {table} WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC"
-            cur.execute(sql(q), tuple(params))
+            if uid and name:
+                cur.execute(sql(f"""
+                    SELECT * FROM {table}
+                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    ORDER BY id DESC
+                """), (uid, name))
+            elif uid:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (uid,))
+            else:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
             for r in rows_to_dict(cur):
                 r['source'] = source_label
-                if display_name:
-                    r['customer_name'] = display_name
-                if uid:
-                    r['customer_uid'] = uid
                 items.append(r)
-        for table, label in tables:
-            pull(table, label)
+        pull('orders', '訂單')
+        pull('master_orders', '總單')
+        pull('inventory', '庫存')
     finally:
         conn.close()
-    if (request.args.get("raw") or request.args.get("exact") or request.args.get("no_aggregate")):
-        out = normalize_customer_item_rows(items)
-    else:
-        out = aggregate_customer_items(items)
-    return jsonify(success=True, items=out, lookup_names=lookup_names, customer_name=display_name, customer_uid=uid)
+    return jsonify(success=True, items=aggregate_customer_items(items))
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
@@ -1940,7 +1826,7 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload(summary_only=False):
+def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
@@ -1962,35 +1848,22 @@ def _today_changes_payload(summary_only=False):
         elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
+    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
-    summary = {
-        'inbound_count': len(inbound),
-        'outbound_count': len(outbound),
-        'new_order_count': len(new_orders),
-        'unplaced_count': 0,
-        'unplaced_row_count': 0,
-        'anomaly_count': 0,
-        'unread_count': unread_count,
-    }
-    # FIX129：首頁徽章只需要未讀數，不再順便重算未入倉，避免返回主頁也卡住。
-    if summary_only:
-        return {
-            'summary': summary,
-            'feed': {'inbound': [], 'outbound': [], 'new_orders': [], 'others': []},
-            'unplaced_items': [],
-            'anomalies': [],
-            'anomaly_groups': {'unplaced': []},
-            'read_at': read_at,
-        }
-
-    unplaced = _today_unplaced_all_sources()
-    summary['unplaced_count'] = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
-    summary['unplaced_row_count'] = len(unplaced)
+    unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
-        'summary': summary,
+        'summary': {
+            'inbound_count': len(inbound),
+            'outbound_count': len(outbound),
+            'new_order_count': len(new_orders),
+            'unplaced_count': unplaced_total_qty,
+            'unplaced_row_count': len(unplaced),
+            'anomaly_count': 0,
+            'unread_count': unread_count,
+        },
         'feed': {
             'inbound': inbound[:60],
             'outbound': outbound[:60],
@@ -2006,8 +1879,7 @@ def _today_changes_payload(summary_only=False):
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    summary_only = str(request.args.get('summary_only') or request.args.get('summary') or '').lower() in ('1', 'true', 'yes')
-    return jsonify(success=True, **_today_changes_payload(summary_only=summary_only))
+    return jsonify(success=True, **_today_changes_payload())
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -2654,180 +2526,6 @@ def api_fix28_items_transfer():
     except Exception as e:
         log_error('fix28_items_transfer', str(e))
         return error_response('互通操作失敗')
-
-
-
-# ==== FIX147: customer product rows hard-locked sort/aggregation ====
-# 商品排列固定：材質 → 高 → 寬 → 長；同尺寸時件數多的排前面。
-def _fix147_app_material(row, product_text=''):
-    try:
-        return clean_material_value(row.get('material') or row.get('product_code') or '', product_text or row.get('product_text') or row.get('product') or '')
-    except Exception:
-        return str((row or {}).get('material') or (row or {}).get('product_code') or '').strip()
-
-
-def _fix147_app_qty(row, product_text=''):
-    try:
-        return int(row.get('qty') or normalize_item_quantity(product_text or row.get('product_text') or row.get('product') or '', 0) or 0)
-    except Exception:
-        return 0
-
-
-def _fix147_app_row_sort_key(row):
-    product_text = (row or {}).get('product_text') or (row or {}).get('product') or ''
-    material = _fix147_app_material(row, product_text).upper()
-    return (
-        material,
-        product_sort_tuple(product_text),
-        -_fix147_app_qty(row, product_text),
-        str((row or {}).get('source') or ''),
-        int((row or {}).get('id') or 0),
-    )
-
-
-def normalize_customer_item_rows(items):
-    rows = []
-    for row in items or []:
-        r = dict(row)
-        product_text = format_product_text_height2((r.get('product_text') or r.get('product') or '').strip())
-        if not product_text:
-            continue
-        material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
-        qty = normalize_item_quantity(product_text, r.get('qty') or 0)
-        support = product_support_text(product_text)
-        r['product_text'] = product_text
-        r['product_size'] = product_text
-        r['size_text'] = product_display_size(product_text)
-        r['support_text'] = support
-        r['material'] = material
-        r['product_code'] = material
-        r['qty'] = qty
-        rows.append(r)
-    rows.sort(key=_fix147_app_row_sort_key)
-    return rows
-
-
-def aggregate_customer_items(items):
-    buckets = {}
-    for row in items or []:
-        product_text = format_product_text_height2((row.get('product_text') or '').strip())
-        if not product_text:
-            continue
-        source = row.get('source') or ''
-        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
-        material = clean_material_value(material, product_text)
-        size = product_display_size(product_text)
-        qty = normalize_item_quantity(product_text, row.get('qty') or 0)
-        support = product_support_text(product_text)
-        if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
-            support = f"{support}x{qty}"
-        elif not support:
-            support = str(qty)
-        key = (source, size, material)
-        row_id = row.get('id')
-        if key not in buckets:
-            out = dict(row)
-            out['qty'] = qty
-            out['product_text'] = f"{size}={support}" if support else size
-            out['material'] = material
-            out['product_code'] = material
-            out['size_text'] = size
-            out['support_text'] = support
-            out['item_ids'] = [row_id] if row_id else []
-            out['is_aggregated'] = False
-            buckets[key] = out
-        else:
-            buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
-            if row_id and row_id not in (buckets[key].get('item_ids') or []):
-                buckets[key].setdefault('item_ids', []).append(row_id)
-            if len(buckets[key].get('item_ids') or []) > 1:
-                buckets[key]['is_aggregated'] = True
-            old_support = (buckets[key].get('support_text') or '').strip()
-            if support:
-                supports = [x for x in old_support.split('+') if x] if old_support else []
-                if support not in supports:
-                    supports.append(support)
-                buckets[key]['support_text'] = '+'.join(supports)
-                buckets[key]['product_text'] = f"{size}={buckets[key]['support_text']}"
-    rows = list(buckets.values())
-    rows.sort(key=_fix147_app_row_sort_key)
-    return rows
-
-# ==== FIX147 app sort end ====
-
-
-# ==== FIX148: robust manual text parser preserving whole RHS and ___ width/height carry ====
-def _fix148_parse_manual_lines_to_items(text, payload_material=''):
-    out = []
-    prev = ['', '', '']
-    for raw in str(text or '').replace('\r', '\n').split('\n'):
-        line = re.sub(r'\s+', '', str(raw or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '='))
-        if not line or '=' not in line:
-            continue
-        left, right = line.split('=', 1)
-        if not right:
-            continue
-        month = ''
-        m = re.match(r'^(\d{1,2})(?:月|月份)(.+)$', left)
-        if m:
-            month, left = m.group(1), m.group(2)
-        parts = [p for p in re.split(r'x', left, flags=re.I) if p != ''][:3]
-        if len(parts) == 2 and re.fullmatch(r'[_-]+', parts[1] or '') and prev[1] and prev[2]:
-            parts = [parts[0], prev[1], prev[2]]
-        elif len(parts) == 1 and prev[1] and prev[2]:
-            parts = [parts[0], prev[1], prev[2]]
-        elif len(parts) >= 3:
-            parts = [(prev[i] if re.fullmatch(r'[_-]+', parts[i] or '') and prev[i] else parts[i]) for i in range(3)]
-        if len(parts) < 3 or not all(parts[:3]):
-            continue
-        def fmt(tok, is_h=False):
-            tok = str(tok or '').strip()
-            if re.fullmatch(r'\d*\.\d+', tok):
-                if tok.startswith('.'):
-                    tok = '0' + tok
-                return tok.replace('.', '')
-            if is_h and re.fullmatch(r'\d', tok):
-                return tok.zfill(2)
-            return tok
-        parts = [fmt(parts[0]), fmt(parts[1]), fmt(parts[2], True)]
-        prev = parts[:]
-        product_text = f"{month + '月' if month else ''}{parts[0]}x{parts[1]}x{parts[2]}={right}"
-        product_text = format_product_text_height2(product_text)
-        material = clean_material_value(payload_material or '', product_text)
-        out.append({'product_text': product_text, 'product_code': material, 'material': material, 'qty': effective_product_qty(product_text, 0)})
-    return [x for x in out if x.get('product_text') and int(x.get('qty') or 0) > 0]
-
-
-def _parse_items_from_request(data):
-    items = data.get('items') or []
-    payload_material = (data.get('material') or '').strip().upper()
-    if items:
-        cleaned = []
-        for it in items:
-            if payload_material and not (it.get('material') or '').strip():
-                it = {**it, 'material': payload_material, 'product_code': payload_material}
-            fixed = normalize_item_for_save(it)
-            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
-                if isinstance(it, dict) and it.get(_k) not in (None, ''):
-                    fixed[_k] = it.get(_k)
-            if int(fixed.get('qty') or 0) <= 0 or not fixed.get('product_text'):
-                continue
-            cleaned.append(fixed)
-        return cleaned
-    text = data.get('ocr_text') or data.get('text') or ''
-    manual = _fix148_parse_manual_lines_to_items(text, payload_material=payload_material)
-    if manual:
-        return manual
-    parsed_items, _ = parse_lines_to_items(text)
-    cleaned = []
-    for it in parsed_items:
-        if payload_material:
-            it = {**it, 'material': payload_material, 'product_code': payload_material}
-        fixed = normalize_item_for_save(it)
-        if fixed.get('product_text') and int(fixed.get('qty') or 0) > 0:
-            cleaned.append(fixed)
-    return cleaned
-# ==== FIX148 end ====
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

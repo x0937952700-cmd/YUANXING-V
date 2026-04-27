@@ -1364,7 +1364,7 @@ def get_customers(active_only=True):
         conn.close()
 
 
-def delete_customer(name, force=False):
+def delete_customer(name):
     name = (name or '').strip()
     if not name:
         raise ValueError('客戶名稱不可空白')
@@ -1374,11 +1374,7 @@ def delete_customer(name, force=False):
     counts = get_customer_relation_counts(name)
     conn = get_db()
     cur = conn.cursor()
-    if force:
-        # 強制刪除只移除客戶資料卡；原訂單/總單/庫存/出貨歷史不動，避免誤刪商品紀錄。
-        cur.execute(sql("DELETE FROM customer_profiles WHERE name = ?"), (name,))
-        mode = 'deleted'
-    elif int(counts.get('total_rows') or 0) > 0:
+    if int(counts.get('total_rows') or 0) > 0:
         cur.execute(sql("UPDATE customer_profiles SET is_archived = 1, archived_at = ?, updated_at = ? WHERE name = ?"), (now(), now(), name))
         mode = 'archived'
     else:
@@ -2794,7 +2790,7 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
 def update_items_material(items, material, operator=''):
     table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     material = (material or '').strip().upper()
-    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'}:
+    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'}:
         raise ValueError('材質不在下拉選單內')
     conn = get_db()
     cur = conn.cursor()
@@ -2968,115 +2964,3 @@ def restore_customer(name):
     conn.commit()
     conn.close()
     return get_customer(name, include_archived=True)
-
-# ==== FIX147: hard-lock user requested sort + quantity/merge rules (2026-04-27) ====
-# 目的：所有商品清單統一排序：材質 → 高 → 寬 → 長；同尺寸時件數多的排前面。
-# 其餘數量解析、前導 0、高度 073/06/006、尺寸+材質合併沿用既有新版函式，不退回舊版。
-
-def _fix147_row_material(row):
-    try:
-        return clean_material_value(row.get('material') or row.get('product_code') or '', row.get('product_text') or row.get('product') or '')
-    except Exception:
-        return str((row or {}).get('material') or (row or {}).get('product_code') or '').strip()
-
-
-def _fix147_row_qty(row):
-    try:
-        return int(row.get('qty') or effective_product_qty(row.get('product_text') or row.get('product') or '', 0) or 0)
-    except Exception:
-        return 0
-
-
-def _fix147_row_sort_key(row):
-    product_text = (row or {}).get('product_text') or (row or {}).get('product') or ''
-    material = _fix147_row_material(row).upper()
-    return (
-        material,
-        product_sort_tuple(product_text),
-        -_fix147_row_qty(row),
-        str((row or {}).get('customer_name') or ''),
-        str((row or {}).get('source') or ''),
-        int((row or {}).get('id') or 0),
-    )
-
-
-# 覆寫查詢輸出排序，不改 DB schema、不刪原功能。
-def list_inventory():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM inventory ORDER BY id DESC"))
-    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
-    rows.sort(key=_fix147_row_sort_key)
-    conn.close()
-    return rows
-
-
-def get_orders():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM orders ORDER BY id DESC"))
-    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
-    rows.sort(key=_fix147_row_sort_key)
-    conn.close()
-    return rows
-
-
-def get_master_orders():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(sql("SELECT * FROM master_orders ORDER BY id DESC"))
-    rows = apply_effective_qty_to_rows(rows_to_dict(cur))
-    rows.sort(key=_fix147_row_sort_key)
-    conn.close()
-    return rows
-
-# ==== FIX147 end ====
-
-
-# ==== FIX148: final shipping master guard wrapper ====
-# 若本次出貨數量超過該客戶/借貨來源的總單同尺寸+材質數量，預覽與確認都禁止，避免舊自動 fallback 到訂單/庫存。
-try:
-    _fix148_original_preview_ship_order = preview_ship_order
-    _fix148_original_ship_order = ship_order
-except NameError:
-    _fix148_original_preview_ship_order = None
-    _fix148_original_ship_order = None
-
-
-def preview_ship_order(customer_name, items):
-    res = _fix148_original_preview_ship_order(customer_name, items) if _fix148_original_preview_ship_order else {'success': True, 'items': []}
-    try:
-        errors = []
-        for it in res.get('items') or []:
-            q = int(it.get('qty') or it.get('need_qty') or 0)
-            master_available = int(it.get('master_available') or 0)
-            if master_available > 0 and q > master_available:
-                msg = f"{it.get('product_text') or ''} 超過總單 {q}/{master_available}"
-                it['master_exceeded'] = True
-                it['strict_ok'] = False
-                it['shortage_qty'] = q - master_available
-                it['recommendation'] = '超過總單，禁止出貨'
-                reasons = list(it.get('shortage_reasons') or [])
-                if msg not in reasons:
-                    reasons.append(msg)
-                it['shortage_reasons'] = reasons
-                errors.append(msg)
-        if errors:
-            res['master_exceeded'] = True
-            res['master_errors'] = errors
-            res['message'] = '；'.join(errors)
-        return res
-    except Exception as e:
-        log_error('fix148_preview_ship_order_guard', str(e))
-        return res
-
-
-def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
-    try:
-        preview = preview_ship_order(customer_name, items)
-        if preview.get('master_exceeded'):
-            return {'success': False, 'error': preview.get('message') or '超過總單，禁止出貨'}
-    except Exception as e:
-        log_error('fix148_ship_order_guard_preview', str(e))
-    return _fix148_original_ship_order(customer_name, items, operator, allow_inventory_fallback=allow_inventory_fallback)
-# ==== FIX148 end ====
