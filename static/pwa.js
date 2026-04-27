@@ -1,6 +1,13 @@
 (() => {
-  const PWA_VERSION = 'fix111-fast-nav-cache';
+  const PWA_VERSION = 'fix120-customer-click-items-connected';
   let deferredInstallPrompt = null;
+  async function clearAllCaches() {
+    try {
+      if (!window.caches) return;
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    } catch (_) {}
+  }
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
     if(btn) return btn;
@@ -16,24 +23,24 @@
   function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
   window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredInstallPrompt=e; if(!isStandalone()) ensureInstallButton().classList.remove('hidden'); });
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
-  if('serviceWorker' in navigator){
-    window.addEventListener('load',()=>{
-      navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}`,{scope:'/'}).then(reg=>{
-        const key = `YX_SW_LAST_UPDATE_${PWA_VERSION}`;
-        const now = Date.now();
-        const last = Number(localStorage.getItem(key) || 0);
-        // FIX110：不要每次開頁都 reg.update()，避免手機/Render 每頁都多一次網路檢查。
-        if(!last || now - last > 6 * 60 * 60 * 1000){
-          localStorage.setItem(key, String(now));
-          reg.update().catch(()=>{});
-        }
+  window.addEventListener('load', async()=>{
+    await clearAllCaches();
+    if('serviceWorker' in navigator){
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.update().catch(()=>{})));
+        const reg = await navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}&t=${Date.now()}`,{scope:'/'});
         if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-        reg.addEventListener('updatefound',()=>{
-          const worker=reg.installing; if(!worker) return;
-          worker.addEventListener('statechange',()=>{ if(worker.state==='installed'&&navigator.serviceWorker.controller) worker.postMessage({type:'SKIP_WAITING'}); });
-        });
-      }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
-    });
-  }
-  window.addEventListener('load',()=>{ if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()){ const btn=ensureInstallButton(); btn.textContent='加入主畫面'; btn.classList.remove('hidden'); } });
+        if(reg.active) reg.active.postMessage({type:'CLEAR_CACHES'});
+        await reg.update().catch(()=>{});
+      } catch(err) { console.warn('PWA service worker 更新失敗', err); }
+      navigator.serviceWorker.addEventListener('controllerchange',()=>{
+        if(!sessionStorage.getItem('YX_FIX120_RELOADED')){
+          sessionStorage.setItem('YX_FIX120_RELOADED','1');
+          location.reload();
+        }
+      });
+    }
+    if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()){ const btn=ensureInstallButton(); btn.textContent='加入主畫面'; btn.classList.remove('hidden'); }
+  });
 })();

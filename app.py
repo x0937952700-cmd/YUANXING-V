@@ -195,9 +195,11 @@ def add_cache_headers(response):
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
+        # FIX118：這版要徹底避免手機 / PWA / 瀏覽器吃到舊版 app.js、style.css。
+        # 先全部 no-store，等介面穩定後再恢復圖片長快取。
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
@@ -1259,13 +1261,18 @@ def api_customer_detail(name):
             data = request.get_json(silent=True) or {}
             _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
             name = resolved_name or name
-            result = delete_customer(name)
+            force_delete = bool(data.get('force') or str(request.args.get('force') or '').lower() in ('1', 'true', 'yes', 'y'))
+            result = delete_customer(name, force=force_delete)
             mode = result.get('mode') or 'deleted'
             counts = result.get('counts') or {}
-            log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
-            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
-            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
-            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            action_label = '刪除' if (force_delete or mode == 'deleted') else '封存'
+            log_action(current_username(), f"{action_label}客戶 {name}")
+            add_audit_trail(current_username(), 'delete' if (force_delete or mode == 'deleted') else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts, 'force': force_delete})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{action_label}：{name}", extra={'customer_name': name, 'mode': mode, 'force': force_delete})
+            if force_delete:
+                message = '客戶資料卡已刪除，原商品與出貨歷史保留'
+            else:
+                message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
             return jsonify(success=True, mode=mode, counts=counts, message=message)
         except Exception as e:
             log_error("delete_customer", str(e))
@@ -1425,9 +1432,16 @@ def api_warehouse_available_items():
 @app.route("/api/customer-items", methods=["GET"])
 @login_required_json
 def api_customer_items():
-    """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
+    """FIX120：客戶商品用 customer_uid + customer_name 雙保險查詢，支援訂單/總單點客戶後直接顯示。"""
     name = (request.args.get("name") or "").strip()
     uid = (request.args.get("customer_uid") or "").strip()
+    source_filter = (request.args.get("source") or "").strip().lower()
+    source_alias = {
+        'orders': 'orders', 'order': 'orders', '訂單': 'orders',
+        'master': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders', '總單': 'master_orders',
+        'inventory': 'inventory', '庫存': 'inventory',
+        'ship': '', 'shipping': '',
+    }
     row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
     name = resolved_name or name
     uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
@@ -1435,26 +1449,36 @@ def api_customer_items():
     if not name and not uid:
         return jsonify(success=True, items=[])
 
+    tables = [("orders", "訂單"), ("master_orders", "總單"), ("inventory", "庫存")]
+    wanted_table = source_alias.get(source_filter, None)
+    if wanted_table:
+        tables = [t for t in tables if t[0] == wanted_table]
+
     conn = get_db()
     cur = conn.cursor()
     try:
         def pull(table, source_label):
+            # 新資料靠 customer_uid；舊資料靠 customer_name。兩個都帶入時，用 OR，避免客戶改名或舊資料 UID 不一致造成點開空白。
             if uid and name:
                 cur.execute(sql(f"""
                     SELECT * FROM {table}
-                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    WHERE COALESCE(customer_uid, '') = ? OR customer_name = ?
                     ORDER BY id DESC
                 """), (uid, name))
             elif uid:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (uid,))
+                cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(customer_uid, '') = ? ORDER BY id DESC"), (uid,))
             else:
                 cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
             for r in rows_to_dict(cur):
                 r['source'] = source_label
+                # 前端清單依目前選取客戶過濾，這裡補回顯示用名稱，避免舊 customer_name 和新 customer_profiles.name 不一致時被濾掉。
+                if name:
+                    r['customer_name'] = name
+                if uid:
+                    r['customer_uid'] = uid
                 items.append(r)
-        pull('orders', '訂單')
-        pull('master_orders', '總單')
-        pull('inventory', '庫存')
+        for table, label in tables:
+            pull(table, label)
     finally:
         conn.close()
     return jsonify(success=True, items=aggregate_customer_items(items))
