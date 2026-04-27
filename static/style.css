@@ -3273,3 +3273,18 @@ html[data-yx-fix112] .yx112-customer-actions .danger-btn{
   color:#b91c1c!important;
 }
 /* ==== FIX112 end ==== */
+
+
+/* ==== FIX113 customer region drag/delete polish ==== */
+.yx113-draggable-customer{cursor:grab;user-select:none;touch-action:manipulation}
+.yx113-draggable-customer:active,.yx113-dragging-card,.yx113-touch-dragging{cursor:grabbing;opacity:.72;transform:scale(.985)}
+.yx113-customer-drop-zone{transition:background .16s ease, box-shadow .16s ease, transform .16s ease}
+.yx113-drop-over{background:rgba(220,38,38,.06)!important;box-shadow:0 0 0 2px rgba(220,38,38,.25) inset!important;transform:translateY(-1px)}
+.yx113-region-buttons{display:grid!important;grid-template-columns:repeat(3,1fr);gap:8px}
+.yx113-hard-delete-btn{border-color:rgba(220,38,38,.35)!important}
+.yx113-archived-customer-card{display:flex;align-items:center;justify-content:space-between;gap:12px}
+@media (max-width:640px){
+  .yx113-archived-customer-card{align-items:stretch;flex-direction:column}
+  .yx113-region-buttons{grid-template-columns:1fr!important}
+}
+

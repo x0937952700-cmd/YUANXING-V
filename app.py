@@ -1259,13 +1259,18 @@ def api_customer_detail(name):
             data = request.get_json(silent=True) or {}
             _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
             name = resolved_name or name
-            result = delete_customer(name)
+            force_delete = bool(data.get('force') or str(request.args.get('force') or '').lower() in ('1', 'true', 'yes', 'y'))
+            result = delete_customer(name, force=force_delete)
             mode = result.get('mode') or 'deleted'
             counts = result.get('counts') or {}
-            log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
-            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
-            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
-            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            action_label = '刪除' if (force_delete or mode == 'deleted') else '封存'
+            log_action(current_username(), f"{action_label}客戶 {name}")
+            add_audit_trail(current_username(), 'delete' if (force_delete or mode == 'deleted') else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts, 'force': force_delete})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{action_label}：{name}", extra={'customer_name': name, 'mode': mode, 'force': force_delete})
+            if force_delete:
+                message = '客戶資料卡已刪除，原商品與出貨歷史保留'
+            else:
+                message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
             return jsonify(success=True, mode=mode, counts=counts, message=message)
         except Exception as e:
             log_error("delete_customer", str(e))

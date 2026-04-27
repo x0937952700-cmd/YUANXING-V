@@ -3023,15 +3023,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   document.addEventListener('click',e=>{ if(e.target?.id==='ship-refresh-customer-items') loadShipCustomerItems({name:$('customer-name')?.value||''}); if(e.target?.id==='ship-add-selected-item'){ const it=(window.__YX_SHIP_CUSTOMER_ITEMS__||[])[Number($('ship-customer-item-select')?.value)]; if(it) addShipItem(it); } if(e.target?.id==='ship-add-all-items') (window.__YX_SHIP_CUSTOMER_ITEMS__||[]).forEach(addShipItem); },true);
 
   function installCustomerLongPress(){
-    let timer=null;
-    document.querySelectorAll('.customer-region-card,.yx-customer-card,[data-customer-name]').forEach(card=>{
-      if(card.dataset.yx63LongPress==='1') return; card.dataset.yx63LongPress='1';
-      const name=card.dataset.customerName || card.querySelector('.customer-name,.yx-customer-left,.fix52-customer-name')?.textContent || card.textContent.split(/\s{2,}|CNF|FOB|\d+件/)[0];
-      const start=()=>{ clearTimeout(timer); timer=setTimeout(async()=>{ const n=clean(name); if(!n || !confirm(`確定刪除 / 封存客戶「${n}」？`)) return; try{ await api(`/api/customers/${encodeURIComponent(n)}`,{method:'DELETE'}); notify('已刪除 / 封存客戶','ok'); if(typeof window.loadCustomerBlocks==='function') window.loadCustomerBlocks(); }catch(e){ notify(e.message||'刪除客戶失敗','error'); } },700); };
-      const cancel=()=>clearTimeout(timer);
-      card.addEventListener('touchstart',start,{passive:true}); card.addEventListener('mousedown',start); ['touchend','touchmove','mouseup','mouseleave','click'].forEach(ev=>card.addEventListener(ev,cancel,{passive:true}));
-    });
+    // FIX113：舊版逐卡長按會和新版拖拉/右鍵操作衝突，這裡停用舊綁定；新版委派式操作在檔案底部統一處理。
+    return;
   }
+
 
   function boot(){
     document.documentElement.dataset.yxFix63=VERSION;
@@ -12054,33 +12049,10 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     }
   }
   function installCustomerLongPressDelegation(){
-    if (document.documentElement.dataset.yx112CustomerDelegated === '1') return;
-    document.documentElement.dataset.yx112CustomerDelegated = '1';
-    let timer = null, targetCard = null;
-    const clear = () => { if (timer) clearTimeout(timer); timer = null; targetCard = null; };
-    document.addEventListener('pointerdown', ev => {
-      const card = ev.target?.closest?.('.customer-region-card');
-      if (!card) return;
-      targetCard = card;
-      timer = setTimeout(() => {
-        const name = clean(card.dataset.customer || card.querySelector('.customer-card-name')?.textContent || '');
-        const uid = clean(card.dataset.customerUid || '');
-        if (!name) return;
-        card.dataset.yx112BlockClickUntil = String(Date.now() + 800);
-        try { navigator.vibrate && navigator.vibrate(18); } catch(_e) {}
-        openCustomerActions112(name, uid);
-      }, 620);
-    }, true);
-    ['pointerup','pointercancel','pointerleave','scroll','dragstart'].forEach(evt => document.addEventListener(evt, clear, true));
-    document.addEventListener('contextmenu', ev => {
-      const card = ev.target?.closest?.('.customer-region-card');
-      if (!card) return;
-      ev.preventDefault();
-      const name = clean(card.dataset.customer || card.querySelector('.customer-card-name')?.textContent || '');
-      const uid = clean(card.dataset.customerUid || '');
-      if (name) openCustomerActions112(name, uid);
-    }, true);
+    // FIX113：由底部統一的客戶拖拉/長按/右鍵委派處理，避免舊版重複彈窗。
+    return;
   }
+
 
   // ---------- warehouse grid display: first row slot number + customer names; second row qty expression + red total ----------
   function wh(){
@@ -12225,3 +12197,369 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   [500, 800, 2000, 3900].forEach(ms => setTimeout(install, ms));
 })();
 /* ==== FIX112 end ==== */
+
+
+/* ==== FIX113: customer region drag/drop + hard delete archived/customer action convergence ==== */
+(function(){
+  'use strict';
+  if (window.__YX113_CUSTOMER_REGION_DELETE_FIX__) return;
+  window.__YX113_CUSTOMER_REGION_DELETE_FIX__ = true;
+  const VERSION = 'FIX113_CUSTOMER_DRAG_DELETE_ARCHIVED_DELETE';
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean = v => String(v ?? '').replace(/\s+/g,' ').trim();
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
+  const api = window.yxApi || window.requestJSON || (async function(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const txt = await res.text(); let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload = data; throw e; }
+    return data;
+  });
+  const modKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const cardSelector = '#region-picker-section .customer-region-card,#region-picker-section .yx-customer-card,#region-picker-section [data-customer-name],#customers-section .customer-region-card,#customers-section .yx-customer-card,#customers-section [data-customer-name]';
+
+  function cardFromEvent(ev){ return ev.target?.closest?.(cardSelector) || null; }
+  function nameFromCard(card){
+    return clean(card?.dataset?.customer || card?.dataset?.customerName || card?.getAttribute?.('data-customer-name') || card?.querySelector?.('.customer-card-name,.customer-name,.yx-customer-left')?.textContent || '');
+  }
+  function uidFromCard(card){ return clean(card?.dataset?.customerUid || card?.dataset?.customer_uid || card?.getAttribute?.('data-customer-uid') || ''); }
+  function regionFromElement(el){
+    const box = el?.closest?.('.category-box[data-region]');
+    if (box) return clean(box.dataset.region);
+    const id = el?.id || el?.closest?.('.customer-list')?.id || '';
+    const map = {
+      'region-north':'北區','region-center':'中區','region-south':'南區',
+      'customers-north':'北區','customers-center':'中區','customers-south':'南區'
+    };
+    return map[id] || '';
+  }
+  function regionContainers(){
+    const ids = [
+      ['北區','region-north'],['中區','region-center'],['南區','region-south'],
+      ['北區','customers-north'],['中區','customers-center'],['南區','customers-south']
+    ];
+    const out = [];
+    ids.forEach(([region,id]) => {
+      const list = $(id);
+      if (list) out.push({region, el:list});
+      const box = list?.closest?.('.category-box[data-region]');
+      if (box) out.push({region, el:box});
+    });
+    return out;
+  }
+  async function refreshCustomerBoards(){
+    try { if (typeof window.loadCustomerBlocks === 'function') await window.loadCustomerBlocks(true); }
+    catch(_e){}
+    try { if (typeof window.renderCustomers === 'function') await window.renderCustomers(true); }
+    catch(_e){}
+  }
+  async function moveCustomer113(name, region){
+    name = clean(name); region = clean(region);
+    if (!name || !['北區','中區','南區'].includes(region)) return false;
+    await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, region})});
+    toast(`${name} 已移到${region}`, 'ok');
+    await refreshCustomerBoards();
+    return true;
+  }
+  async function deleteCustomer113(name, force=false){
+    name = clean(name);
+    if (!name) return;
+    const msg = force
+      ? `確定要刪除客戶「${name}」？\n\n會移除客戶資料卡；原本的庫存 / 訂單 / 總單 / 出貨歷史不會一起刪除。`
+      : `確定要封存客戶「${name}」？\n\n若沒有任何關聯資料，系統會直接刪除；若仍有資料會改為封存。`;
+    if (!window.confirm(msg)) return;
+    const res = await api('/api/customers/' + encodeURIComponent(name) + (force ? '?force=1' : ''), {
+      method:'DELETE',
+      body:JSON.stringify(force ? {force:true} : {})
+    });
+    toast(res.message || (force ? '客戶已刪除' : '客戶已封存'), 'ok');
+    const panel = $('selected-customer-items');
+    if (panel) panel.innerHTML = '';
+    await refreshCustomerBoards();
+  }
+  async function openCustomer113(name, uid=''){
+    name = clean(name); uid = clean(uid);
+    if (!name) return;
+    if ($('customer-name')) {
+      $('customer-name').value = name;
+      $('customer-name').dataset.customerUid = uid || '';
+      $('customer-name').dispatchEvent(new Event('input', {bubbles:true}));
+      $('customer-name').dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    if (modKey() === 'customers' && typeof window.fillCustomerForm === 'function') return window.fillCustomerForm(name);
+    if (typeof window.selectCustomerForModule === 'function') return window.selectCustomerForModule(name, uid);
+  }
+  function hideOldCustomerModals(){
+    ['yx112-customer-actions','customer-action-sheet'].forEach(id => {
+      const m = $(id);
+      if (m) m.classList.add('hidden');
+    });
+  }
+  function ensureActionModal113(){
+    let modal = $('yx113-customer-action-modal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'yx113-customer-action-modal';
+    modal.className = 'modal hidden yx113-customer-action-modal';
+    modal.innerHTML = `
+      <div class="modal-card glass" style="max-width:390px;">
+        <div class="modal-head">
+          <div class="section-title" id="yx113-customer-action-title">客戶操作</div>
+          <button class="icon-btn" type="button" data-yx113-close>✕</button>
+        </div>
+        <div class="small-note">可拖拉客戶到北區 / 中區 / 南區，也可在這裡直接移動、封存或刪除。</div>
+        <div class="btn-row yx113-action-grid" style="flex-direction:column;align-items:stretch;gap:10px;margin-top:12px;">
+          <button class="primary-btn" type="button" data-yx113-open>打開客戶商品</button>
+          <div class="btn-row compact-row yx113-region-buttons">
+            <button class="ghost-btn small-btn" type="button" data-yx113-move="北區">移到北區</button>
+            <button class="ghost-btn small-btn" type="button" data-yx113-move="中區">移到中區</button>
+            <button class="ghost-btn small-btn" type="button" data-yx113-move="南區">移到南區</button>
+          </div>
+          <button class="ghost-btn danger-btn" type="button" data-yx113-archive>封存客戶</button>
+          <button class="ghost-btn danger-btn yx113-hard-delete-btn" type="button" data-yx113-delete>刪除客戶</button>
+          <button class="ghost-btn" type="button" data-yx113-close>取消</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', async e => {
+      if (e.target === modal || e.target.closest('[data-yx113-close]')) { modal.classList.add('hidden'); return; }
+      const name = modal.dataset.customer || '';
+      const uid = modal.dataset.customerUid || '';
+      const move = e.target.closest('[data-yx113-move]');
+      try {
+        if (e.target.closest('[data-yx113-open]')) { modal.classList.add('hidden'); await openCustomer113(name, uid); }
+        else if (move) { modal.classList.add('hidden'); await moveCustomer113(name, move.getAttribute('data-yx113-move')); }
+        else if (e.target.closest('[data-yx113-archive]')) { modal.classList.add('hidden'); await deleteCustomer113(name, false); }
+        else if (e.target.closest('[data-yx113-delete]')) { modal.classList.add('hidden'); await deleteCustomer113(name, true); }
+      } catch(err) { toast(err.message || '客戶操作失敗', 'error'); }
+    });
+    return modal;
+  }
+  function openActionModal113(name, uid=''){
+    hideOldCustomerModals();
+    const modal = ensureActionModal113();
+    modal.dataset.customer = clean(name);
+    modal.dataset.customerUid = clean(uid);
+    const title = $('yx113-customer-action-title');
+    if (title) title.textContent = clean(name) || '客戶操作';
+    modal.classList.remove('hidden');
+  }
+
+  function installContextAndLongPress(){
+    if (document.documentElement.dataset.yx113ContextLongPress === '1') return;
+    document.documentElement.dataset.yx113ContextLongPress = '1';
+    let holdTimer = null;
+    let pointer = null;
+    const clearHold = () => { if (holdTimer) clearTimeout(holdTimer); holdTimer = null; };
+    document.addEventListener('contextmenu', e => {
+      const card = cardFromEvent(e);
+      if (!card) return;
+      e.preventDefault();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (name) openActionModal113(name, uid);
+    }, true);
+    document.addEventListener('pointerdown', e => {
+      const card = cardFromEvent(e);
+      if (!card || e.button > 0) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      pointer = {id:e.pointerId, card, name, uid, x:e.clientX, y:e.clientY, moved:false};
+      clearHold();
+      holdTimer = setTimeout(() => {
+        if (!pointer || pointer.moved) return;
+        card.dataset.yx113BlockClickUntil = String(Date.now() + 900);
+        try { navigator.vibrate && navigator.vibrate(18); } catch(_e){}
+        openActionModal113(name, uid);
+      }, 680);
+    }, true);
+    document.addEventListener('pointermove', e => {
+      if (!pointer || pointer.id !== e.pointerId) return;
+      const dx = Math.abs(e.clientX - pointer.x), dy = Math.abs(e.clientY - pointer.y);
+      if (dx + dy > 16) {
+        pointer.moved = true;
+        clearHold();
+        pointer.card.classList.add('yx113-touch-dragging');
+        document.body.classList.add('yx113-dragging-customer');
+      }
+    }, true);
+    document.addEventListener('pointerup', async e => {
+      const p = pointer;
+      clearHold();
+      pointer = null;
+      document.body.classList.remove('yx113-dragging-customer');
+      if (p?.card) p.card.classList.remove('yx113-touch-dragging');
+      if (!p) return;
+      if (p.moved) {
+        const target = document.elementFromPoint(e.clientX, e.clientY);
+        const region = regionFromElement(target);
+        if (region) {
+          e.preventDefault();
+          if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+          try { await moveCustomer113(p.name, region); }
+          catch(err) { toast(err.message || '移動失敗', 'error'); }
+          p.card.dataset.yx113BlockClickUntil = String(Date.now() + 900);
+        }
+      }
+    }, true);
+    ['pointercancel','scroll'].forEach(evt => document.addEventListener(evt, () => {
+      clearHold();
+      if (pointer?.card) pointer.card.classList.remove('yx113-touch-dragging');
+      pointer = null;
+      document.body.classList.remove('yx113-dragging-customer');
+    }, true));
+    document.addEventListener('click', e => {
+      const card = cardFromEvent(e);
+      if (!card) return;
+      if (Date.now() < Number(card.dataset.yx113BlockClickUntil || card.dataset.yx112BlockClickUntil || 0)) {
+        e.preventDefault();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      }
+    }, true);
+  }
+
+  function installDragDrop(){
+    if (document.documentElement.dataset.yx113DragDrop === '1') return;
+    document.documentElement.dataset.yx113DragDrop = '1';
+    document.addEventListener('dragstart', e => {
+      const card = cardFromEvent(e);
+      if (!card) return;
+      const name = nameFromCard(card);
+      if (!name) return;
+      card.classList.add('yx113-dragging-card');
+      e.dataTransfer?.setData('application/x-yx-customer-name', name);
+      e.dataTransfer?.setData('text/plain', name);
+      e.dataTransfer?.setData('application/x-yx-customer-uid', uidFromCard(card));
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    }, true);
+    document.addEventListener('dragend', e => {
+      cardFromEvent(e)?.classList.remove('yx113-dragging-card');
+      document.querySelectorAll('.yx113-drop-over').forEach(el => el.classList.remove('yx113-drop-over'));
+    }, true);
+    document.addEventListener('dragover', e => {
+      const region = regionFromElement(e.target);
+      if (!region) return;
+      e.preventDefault();
+      const box = e.target.closest?.('.category-box[data-region]') || e.target.closest?.('.customer-list');
+      box?.classList.add('yx113-drop-over');
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    }, true);
+    document.addEventListener('dragleave', e => {
+      const box = e.target.closest?.('.category-box[data-region],.customer-list');
+      box?.classList.remove('yx113-drop-over');
+    }, true);
+    document.addEventListener('drop', async e => {
+      const region = regionFromElement(e.target);
+      if (!region) return;
+      const name = clean(e.dataTransfer?.getData('application/x-yx-customer-name') || e.dataTransfer?.getData('text/plain') || '');
+      if (!name) return;
+      e.preventDefault();
+      if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+      document.querySelectorAll('.yx113-drop-over').forEach(el => el.classList.remove('yx113-drop-over'));
+      try { await moveCustomer113(name, region); }
+      catch(err) { toast(err.message || '移動失敗', 'error'); }
+    }, true);
+  }
+
+  function enhanceCurrentCards(){
+    document.querySelectorAll(cardSelector).forEach(card => {
+      const name = nameFromCard(card);
+      if (!name) return;
+      card.dataset.customer = card.dataset.customer || name;
+      card.setAttribute('draggable','true');
+      card.classList.add('yx113-draggable-customer');
+      card.title = '可拖拉移動區域；長按或右鍵可封存 / 刪除';
+    });
+    regionContainers().forEach(({el}) => el.classList.add('yx113-customer-drop-zone'));
+  }
+
+  window.openArchivedCustomersModal = async function(){
+    let modal = $('yx113-archived-customers-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'yx113-archived-customers-modal';
+      modal.className = 'modal hidden yx113-archived-customers-modal';
+      modal.innerHTML = `
+        <div class="modal-card glass yx113-archived-card">
+          <div class="modal-head">
+            <div class="section-title">封存客戶</div>
+            <button type="button" class="icon-btn" data-yx113-close-archived>✕</button>
+          </div>
+          <div id="yx113-archived-customers-body" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div>
+        </div>`;
+      document.body.appendChild(modal);
+      modal.addEventListener('click', async e => {
+        if (e.target === modal || e.target.closest('[data-yx113-close-archived]')) { modal.classList.add('hidden'); return; }
+        const restore = e.target.closest('[data-yx113-restore-customer]');
+        const del = e.target.closest('[data-yx113-delete-customer]');
+        if (!restore && !del) return;
+        const name = (restore || del).getAttribute(restore ? 'data-yx113-restore-customer' : 'data-yx113-delete-customer') || '';
+        try {
+          if (restore) {
+            restore.disabled = true; restore.textContent = '還原中…';
+            await api('/api/customers/' + encodeURIComponent(name) + '/restore', {method:'POST', body:JSON.stringify({})});
+            toast('客戶已還原', 'ok');
+          } else if (del) {
+            if (!window.confirm(`確定刪除封存客戶「${name}」？\n\n只刪除客戶資料卡，商品與出貨歷史保留。`)) return;
+            del.disabled = true; del.textContent = '刪除中…';
+            await api('/api/customers/' + encodeURIComponent(name) + '?force=1', {method:'DELETE', body:JSON.stringify({force:true})});
+            toast('客戶已刪除', 'ok');
+          }
+          await window.openArchivedCustomersModal();
+          await refreshCustomerBoards();
+        } catch(err) {
+          toast(err.message || '封存客戶操作失敗', 'error');
+        }
+      });
+    }
+    const old = $('yx68-archived-customers-modal');
+    if (old) old.classList.add('hidden');
+    const body = $('yx113-archived-customers-body');
+    if (body) body.innerHTML = '<div class="empty-state-card compact-empty">封存客戶載入中…</div>';
+    modal.classList.remove('hidden');
+    try {
+      const d = await api('/api/customers/archived?ts=' + Date.now(), {method:'GET'});
+      const items = Array.isArray(d.items) ? d.items : [];
+      body.innerHTML = items.length ? items.map(c => `
+        <div class="deduct-card yx113-archived-customer-card">
+          <div>
+            <strong>${esc(c.name || '')}</strong>
+            <div class="small-note">${esc(c.region || '')}${c.phone ? '｜' + esc(c.phone) : ''}</div>
+          </div>
+          <div class="btn-row compact-row">
+            <button type="button" class="ghost-btn small-btn" data-yx113-restore-customer="${esc(c.name || '')}">還原</button>
+            <button type="button" class="ghost-btn small-btn danger-btn" data-yx113-delete-customer="${esc(c.name || '')}">刪除客戶</button>
+          </div>
+        </div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有封存客戶</div>';
+    } catch(err) {
+      if (body) body.innerHTML = `<div class="error-card">${esc(err.message || '封存客戶讀取失敗')}</div>`;
+    }
+  };
+
+  function wrapRenderEnhance(name){
+    const fn = window[name];
+    if (typeof fn !== 'function' || fn.__yx113Enhanced) return;
+    const wrapped = async function(){
+      const res = await fn.apply(this, arguments);
+      setTimeout(enhanceCurrentCards, 30);
+      return res;
+    };
+    wrapped.__yx113Enhanced = true;
+    wrapped.__yx113Original = fn;
+    window[name] = wrapped;
+  }
+  function install(){
+    try { document.documentElement.dataset.yxFix113 = VERSION; } catch(_e){}
+    installContextAndLongPress();
+    installDragDrop();
+    wrapRenderEnhance('loadCustomerBlocks');
+    wrapRenderEnhance('renderCustomers');
+    enhanceCurrentCards();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  window.addEventListener('pageshow', install);
+  [120, 500, 900, 1600, 3000].forEach(ms => setTimeout(install, ms));
+})();
+/* ==== FIX113 end ==== */
+

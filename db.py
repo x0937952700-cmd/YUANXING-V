@@ -1364,7 +1364,7 @@ def get_customers(active_only=True):
         conn.close()
 
 
-def delete_customer(name):
+def delete_customer(name, force=False):
     name = (name or '').strip()
     if not name:
         raise ValueError('客戶名稱不可空白')
@@ -1374,7 +1374,11 @@ def delete_customer(name):
     counts = get_customer_relation_counts(name)
     conn = get_db()
     cur = conn.cursor()
-    if int(counts.get('total_rows') or 0) > 0:
+    if force:
+        # 強制刪除只移除客戶資料卡；原訂單/總單/庫存/出貨歷史不動，避免誤刪商品紀錄。
+        cur.execute(sql("DELETE FROM customer_profiles WHERE name = ?"), (name,))
+        mode = 'deleted'
+    elif int(counts.get('total_rows') or 0) > 0:
         cur.execute(sql("UPDATE customer_profiles SET is_archived = 1, archived_at = ?, updated_at = ? WHERE name = ?"), (now(), now(), name))
         mode = 'archived'
     else:
