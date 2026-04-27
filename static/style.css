@@ -3466,7 +3466,7 @@ html[data-yx-fix120="FIX120_CUSTOMER_CLICK_ITEMS_CONNECTED"] .yx120-customer-det
 /* ==== FIX120 end ==== */
 
 /* ==== FIX122 customer region action + pointer drag ==== */
-.yx122-customer-card{cursor:pointer;touch-action:pan-y;user-select:none;position:relative;}
+.yx122-customer-card{cursor:pointer;touch-action:none;user-select:none;position:relative;}
 .yx122-customer-card:active{transform:scale(.992);}
 .yx122-card-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
 .yx122-card-menu{border:1px solid rgba(15,23,42,.16);background:#fff;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;box-shadow:0 4px 14px rgba(15,23,42,.06);}
@@ -3481,3 +3481,7 @@ html[data-yx-fix120="FIX120_CUSTOMER_CLICK_ITEMS_CONNECTED"] .yx120-customer-det
 .yx122-customer-edit-modal .text-area.small{min-height:88px;}
 @media(max-width:640px){.yx122-region-buttons{grid-template-columns:1fr}.yx122-card-menu{padding:5px 9px;font-size:12px}.yx122-action-card{max-width:calc(100vw - 28px)}}
 /* ==== FIX122 end ==== */
+
+/* FIX123_CUSTOMER_REGION_SAFE_MASTER */
+.yx122-customer-card{touch-action:none;-webkit-user-select:none;user-select:none;}
+body.yx122-dragging-customer{cursor:grabbing;}

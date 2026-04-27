@@ -12812,13 +12812,13 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 })();
 /* ==== FIX121 end ==== */
 
-/* ==== FIX122: final customer region long-press edit/delete + pointer drag master override ==== */
+/* ==== FIX123: safe customer region long-press edit/delete + pointer drag master override ==== */
 (function(){
   'use strict';
-  const VERSION = 'FIX122_CUSTOMER_REGION_ACTION_DRAG_MASTER';
-  if (window.__YX122_CUSTOMER_REGION_MASTER__) return;
-  window.__YX122_CUSTOMER_REGION_MASTER__ = true;
-  try { document.documentElement.dataset.yxFix122 = VERSION; } catch(_e) {}
+  const VERSION = 'FIX123_CUSTOMER_REGION_SAFE_MASTER';
+  if (window.__YX123_CUSTOMER_REGION_MASTER__) return;
+  window.__YX123_CUSTOMER_REGION_MASTER__ = true;
+  try { document.documentElement.dataset.yxFix123 = VERSION; } catch(_e) {}
 
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -13245,30 +13245,48 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].forEach(id => { const el=$(id); if (el) mo.observe(el, {childList:true, subtree:true}); });
     window.__YX122_CUSTOMER_GUARD__ = mo;
   }
+  function safeSetGlobal(name, value){
+    try { Object.defineProperty(window, name, {value, configurable:true, writable:true}); return true; }
+    catch(_e) { try { window[name] = value; return true; } catch(__e) { return false; } }
+  }
   function patchGlobals(){
-    window.loadCustomerBlocks = loadCustomerBlocks122;
-    window.renderCustomers = loadCustomerBlocks122;
-    window.selectCustomerForModule = selectCustomer122;
-    window.yx119OpenCustomerAction = openActionModal122;
-    window.yx119MoveCustomerRegion = moveCustomer122;
-    window.yx119DeleteOrArchiveCustomer = archiveOrDeleteCustomer122;
-    window.yx120SelectCustomerForModule = selectCustomer122;
-    window.yx121SelectCustomerForModule = selectCustomer122;
-    window.yx122SelectCustomerForModule = selectCustomer122;
-    window.yx122OpenCustomerAction = openActionModal122;
-    window.yx122MoveCustomerRegion = moveCustomer122;
-    window.yx122DeleteOrArchiveCustomer = archiveOrDeleteCustomer122;
-    window.yx122EditCustomer = openEditModal122;
-    window.YX_MASTER = window.YX_MASTER || {};
-    window.YX_MASTER.loadCustomerBlocks = loadCustomerBlocks122;
-    window.YX_MASTER.renderCustomers = loadCustomerBlocks122;
+    // FIX123：舊版 YX_MASTER 會被 Object.freeze() 凍結，不能直接改子屬性；
+    // 這裡一律用新的物件整個覆蓋，避免 Cannot assign to read only property 讓整頁功能中斷。
+    safeSetGlobal('loadCustomerBlocks', loadCustomerBlocks122);
+    safeSetGlobal('renderCustomers', loadCustomerBlocks122);
+    safeSetGlobal('selectCustomerForModule', selectCustomer122);
+    safeSetGlobal('yx119OpenCustomerAction', openActionModal122);
+    safeSetGlobal('yx119MoveCustomerRegion', moveCustomer122);
+    safeSetGlobal('yx119DeleteOrArchiveCustomer', archiveOrDeleteCustomer122);
+    safeSetGlobal('yx120SelectCustomerForModule', selectCustomer122);
+    safeSetGlobal('yx121SelectCustomerForModule', selectCustomer122);
+    safeSetGlobal('yx122SelectCustomerForModule', selectCustomer122);
+    safeSetGlobal('yx122OpenCustomerAction', openActionModal122);
+    safeSetGlobal('yx122MoveCustomerRegion', moveCustomer122);
+    safeSetGlobal('yx122DeleteOrArchiveCustomer', archiveOrDeleteCustomer122);
+    safeSetGlobal('yx122EditCustomer', openEditModal122);
+
+    const oldMaster = (window.YX_MASTER && typeof window.YX_MASTER === 'object') ? window.YX_MASTER : {};
+    const nextMaster = {
+      ...oldMaster,
+      version: VERSION + '_SAFE_OVERRIDE',
+      loadCustomerBlocks: loadCustomerBlocks122,
+      renderCustomers: loadCustomerBlocks122,
+      selectCustomerForModule: selectCustomer122,
+      yx122OpenCustomerAction: openActionModal122,
+      yx122MoveCustomerRegion: moveCustomer122,
+      yx122DeleteOrArchiveCustomer: archiveOrDeleteCustomer122,
+      yx122EditCustomer: openEditModal122
+    };
+    try { Object.defineProperty(window, 'YX_MASTER', {value: nextMaster, configurable:true, writable:true}); }
+    catch(_e) { try { window.YX_MASTER = nextMaster; } catch(__e) {} }
   }
   function cleanup(){
     ['customer-action-sheet','yx112-customer-actions','yx113-customer-action-modal','yx114-customer-action-modal','yx116-customer-action-modal','yx119-customer-action-modal'].forEach(id => { const el=$(id); if (el) el.remove(); });
     document.querySelectorAll('.yx119-touch-dragging,.yx119-dragging-card,.yx119-drop-over,.yx116-drop-over').forEach(el => el.classList.remove('yx119-touch-dragging','yx119-dragging-card','yx119-drop-over','yx116-drop-over'));
   }
   function install(){
-    try { document.documentElement.dataset.yxFix122 = VERSION; } catch(_e) {}
+    try { document.documentElement.dataset.yxFix123 = VERSION; } catch(_e) {}
     patchGlobals();
     cleanup();
     installPointerEvents();
@@ -13280,4 +13298,4 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
   window.addEventListener('pageshow', install);
 })();
-/* ==== FIX122 end ==== */
+/* ==== FIX123 end ==== */

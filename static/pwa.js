@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix122-customer-region-longpress-edit-drag-master';
+  const PWA_VERSION = 'fix123-customer-region-safe-master';
   let deferredInstallPrompt = null;
   async function clearAllCaches() {
     try {
@@ -35,8 +35,8 @@
         await reg.update().catch(()=>{});
       } catch(err) { console.warn('PWA service worker 更新失敗', err); }
       navigator.serviceWorker.addEventListener('controllerchange',()=>{
-        if(!sessionStorage.getItem('YX_FIX122_RELOADED')){
-          sessionStorage.setItem('YX_FIX122_RELOADED','1');
+        if(!sessionStorage.getItem('YX_FIX123_RELOADED')){
+          sessionStorage.setItem('YX_FIX123_RELOADED','1');
           location.reload();
         }
       });
