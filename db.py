@@ -2794,7 +2794,7 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
 def update_items_material(items, material, operator=''):
     table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     material = (material or '').strip().upper()
-    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'}:
+    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利'}:
         raise ValueError('材質不在下拉選單內')
     conn = get_db()
     cur = conn.cursor()
