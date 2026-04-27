@@ -1,8 +1,8 @@
-# 沅興木業｜最終商用整合版 FIX114
+# 沅興木業｜最終商用整合版 FIX116
 
-本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX114 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
+本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX116 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
 
-版本號統一為：`fix114-master-hardlock`。
+版本號統一為：`fix116-master-hardlock`。
 
 ---
 
@@ -70,7 +70,7 @@
 - 套用材質
 - 批量刪除
 
-批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX114 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
+批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX116 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
 
 ### 6. 北 / 中 / 南客戶列表固定新版
 
@@ -83,8 +83,10 @@
 - `件 / 筆` 靠右
 - 不顯示右側箭頭
 - 各區客戶改成兩個兩個排列
+- 客戶卡片加大，避免只剩一個字或被舊版寬度截斷
+- 舊版客戶卡片、箭頭、舊 DOM 一出現就由母版重畫回新版
 
-訂單頁只顯示有訂單的客戶；總單頁只顯示有總單的客戶。點選客戶後會立即刷新下方商品清單。若舊版客戶卡片再次渲染，母版會用新版客戶卡片覆蓋回來。
+訂單頁只顯示有訂單的客戶；總單頁只顯示有總單的客戶。點選客戶後會立即刷新下方商品清單。若舊版客戶卡片再次渲染，母版會用新版客戶卡片覆蓋回來，不允許舊介面直接接管畫面。
 
 ### 7. 北 / 中 / 南客戶長按操作
 
@@ -117,7 +119,7 @@
 - 未指定客戶：顯示 `庫存`
 - 格號只顯示數字，不顯示「第 X 格」
 
-舊版倉庫顯示函式若再次觸發，也會被 `warehouse_hardlock.js` 清理成新版格式；格號與客戶名稱固定同一行，客戶名稱只與格號空一格。
+舊版倉庫顯示函式若再次觸發，會被 `warehouse_hardlock.js` 轉接到新版渲染入口；舊版倉庫 DOM 會被清理成新版格式。格號與客戶名稱固定同一行，客戶名稱只與格號空一格。
 
 ### 9. 母版模組化硬鎖
 
@@ -130,6 +132,8 @@ static/yx_modules/warehouse_hardlock.js
 static/yx_modules/settings_audit_hardlock.js
 static/yx_modules/customer_regions_hardlock.js
 static/yx_modules/product_actions_hardlock.js
+static/yx_modules/ship_picker_hardlock.js
+static/yx_modules/legacy_isolation_hardlock.js
 static/yx_modules/master_integrator.js
 ```
 
@@ -138,8 +142,12 @@ static/yx_modules/master_integrator.js
 - 今日異動 → 今日異動硬鎖
 - 倉庫圖 → 倉庫硬鎖
 - 訂單 / 總單 / 出貨 / 客戶 → 北中南客戶硬鎖
+- 出貨 → 客戶商品下拉立即刷新硬鎖
 - 庫存 / 訂單 / 總單 → 商品清單硬鎖
 - 設定 → 差異紀錄與管理員功能硬鎖
+- 全頁 → 舊版渲染隔離硬鎖
+
+`legacy_isolation_hardlock.js` 只處理舊畫面殘留：舊箭頭、舊倉庫卡、舊批量工具列、舊今日異動雜訊。它不刪除舊功能，也不改資料 API，只讓畫面固定使用新版母版。
 
 這樣日後要改單一功能時，可以只改對應模組，再由母版統一整合，避免互相覆蓋。
 
@@ -150,6 +158,20 @@ static/yx_modules/master_integrator.js
 - 點一下仍然是篩選未錄入倉庫圖
 - 長按會重新抓取未錄入倉庫圖資料
 - 不再主動重複刷新造成跳版或卡頓
+
+### 11. 出貨客戶商品下拉立即刷新
+
+新增 `static/yx_modules/ship_picker_hardlock.js`。
+
+出貨頁輸入或點選客戶名稱後，`客戶商品清單` 下拉選單會立刻重新抓取該客戶所有商品。
+
+固定規則：
+
+- 監聽 `customer-name` 的輸入與變更
+- 120ms 內自動刷新下拉選單
+- 重新載入、加入選取商品、整個加入下方商品資料由母版接管
+- 舊版 `loadShipCustomerItems66 / 82 / 83` 入口全部轉接到新版函式
+- 不改後端 API，不影響原本出貨扣除、反查、預覽功能
 
 ---
 
@@ -170,6 +192,8 @@ static/yx_modules/warehouse_hardlock.js
 static/yx_modules/settings_audit_hardlock.js
 static/yx_modules/customer_regions_hardlock.js
 static/yx_modules/product_actions_hardlock.js
+static/yx_modules/ship_picker_hardlock.js
+static/yx_modules/legacy_isolation_hardlock.js
 static/yx_modules/master_integrator.js
 ```
 
@@ -191,7 +215,7 @@ DATABASE_URL=Render PostgreSQL 連線字串
 PYTHON_VERSION=3.11.10
 ```
 
-如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix114-master-hardlock`。
+如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix116-master-hardlock`。
 
 ---
 
@@ -216,4 +240,5 @@ PYTHON_VERSION=3.11.10
 - FIX111：開功能 / 返回主頁速度優化。
 - FIX112：README 統一、功能模組拆分、母版最後整合、今日異動標籤與小卡硬鎖。
 - FIX113：差異紀錄範圍硬鎖、設定頁 OCR 區塊移除、管理員 500 相容、商品清單批量材質 / 批量刪除、表格選取後小卡篩選、北中南客戶標籤與長按操作、A/B 倉格子顯示硬鎖。
-- FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、倉庫舊版渲染監控修復、今日異動未錄入倉庫圖長按刷新。
+- FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、今日異動未錄入倉庫圖長按刷新。
+- FIX116：舊版渲染隔離、原生 MutationObserver 只開給母版監控、商品批量選取狀態保留、倉庫 / 客戶 / 今日異動 / 設定頁新增最後一道畫面硬鎖，不改資料功能。

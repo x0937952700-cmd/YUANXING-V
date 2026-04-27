@@ -2170,7 +2170,7 @@ def _delete_rows_by_ids(table, ids):
     return count
 
 AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells'}
-AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert', 'undo'}
+AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert'}
 
 @app.route('/api/audit-trails', methods=['GET'])
 @login_required_json
@@ -2212,7 +2212,7 @@ def api_audit_trails():
         filtered.append(item)
         if len(filtered) >= limit:
             break
-    return jsonify(success=True, items=filtered, scope='today_orders_inventory_inbound_outbound_warehouse_fix113', start_date=start_date, end_date=end_date)
+    return jsonify(success=True, items=filtered, scope='today_orders_master_inventory_inbound_outbound_warehouse_fix115', start_date=start_date, end_date=end_date)
 
 @app.route('/api/audit-trails/bulk-delete', methods=['POST'])
 @login_required_json

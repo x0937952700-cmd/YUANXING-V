@@ -1,11 +1,11 @@
-/* FIX114 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX116 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
   const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, loading:null, bound:false };
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, loading:null, bound:false, observer:null, repairTimer:null };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -67,11 +67,20 @@
     return rows.sort((a,b) => `${materialOf(a)} ${splitProduct(a.product_text).size}`.localeCompare(`${materialOf(b)} ${splitProduct(b.product_text).size}`, 'zh-Hant', {numeric:true}));
   }
   function selectedIds(source){
-    const ids = new Set();
+    const ids = new Set(state.selected[source] ? Array.from(state.selected[source]) : []);
     document.querySelectorAll(`.yx113-summary-row[data-source="${source}"] .yx113-row-check:checked,.yx63-summary-row[data-source="${source}"] .yx63-row-check:checked`).forEach(cb => ids.add(String(cb.dataset.id || cb.closest('tr')?.dataset.id || '')));
     document.querySelectorAll(`.yx113-summary-row.yx113-row-selected[data-source="${source}"],.yx63-summary-row.yx63-row-selected[data-source="${source}"]`).forEach(row => ids.add(String(row.dataset.id || row.querySelector('input')?.dataset.id || '')));
     ids.delete('');
+    state.selected[source] = ids;
     return ids;
+  }
+  function clearSelected(source){
+    state.selected[source] = new Set();
+    document.querySelectorAll(`.yx113-summary-row[data-source="${source}"],.yx63-summary-row[data-source="${source}"]`).forEach(r => setRowSelected(r, false));
+  }
+  function pruneSelected(source){
+    const valid = new Set(rowsStore(source).map(r => String(r.id || '')).filter(Boolean));
+    state.selected[source] = new Set(Array.from(selectedIds(source)).filter(id => valid.has(id)));
   }
   function selectedItems(source){
     const ids = selectedIds(source);
@@ -106,6 +115,10 @@
   }
   function setRowSelected(row, checked){
     if (!row) return;
+    const source = row.dataset.source || sourceFromModule();
+    const id = String(row.dataset.id || row.querySelector('input')?.dataset.id || '');
+    if (!state.selected[source]) state.selected[source] = new Set();
+    if (id) { if (checked) state.selected[source].add(id); else state.selected[source].delete(id); }
     const cb = row.querySelector('input[type="checkbox"]');
     if (cb) cb.checked = !!checked;
     row.classList.toggle('yx113-row-selected', !!checked);
@@ -118,6 +131,7 @@
   }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
+    const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
     if (source === 'master_order' && !selectedCustomer()) {
       box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻顯示該客戶商品。</span></div>';
@@ -126,7 +140,7 @@
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const showCustomer = source === 'inventory';
     box.innerHTML = `<div class="yx113-summary-head"><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}</span></div><div class="yx113-table-wrap"><table class="yx113-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}</tr></thead><tbody>${rows.length ? rows.map(r => { const p = splitProduct(r.product_text || ''); return `<tr class="yx113-summary-row" data-source="${source}" data-id="${Number(r.id || 0)}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${Number(r.id || 0)}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}</tr>`; }).join('') : `<tr><td colspan="${showCustomer ? 5 : 4}">目前沒有資料</td></tr>`}</tbody></table></div>`;
-    const ids = selectedIds(source);
+    const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => setRowSelected(row, ids.has(String(row.dataset.id || ''))));
     syncSelectButton(source);
   }
@@ -165,6 +179,7 @@
     if (!source) return [];
     const d = await YX.api(endpoint(source) + '?yx114=1&ts=' + Date.now(), {method:'GET'});
     rowsStore(source, Array.isArray(d.items) ? d.items : []);
+    pruneSelected(source);
     renderSummary(source); renderCards(source);
     return rowsStore(source);
   }
@@ -237,7 +252,7 @@
       if (clear) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         const s = clear.dataset.yx113ClearFilter;
-        document.querySelectorAll(`.yx113-summary-row[data-source="${s}"]`).forEach(r => setRowSelected(r, false)); syncSelectButton(s); renderCards(s); return;
+        clearSelected(s); syncSelectButton(s); renderCards(s); return;
       }
       const bm = ev.target?.closest?.('[data-yx113-batch-material]');
       if (bm) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await bulkMaterial(bm.dataset.yx113BatchMaterial); }catch(e){ YX.toast(e.message || '批量材質失敗','error'); } return; }
@@ -278,16 +293,48 @@
   function lockGlobals(){
     window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards};
     window.YX114ProductActions = window.YX113ProductActions;
+    window.YX115ProductActions = window.YX113ProductActions;
     YX.hardAssign('refreshSource', YX.mark((source, _silent) => loadSource(source), 'product_refresh'), {configurable:true});
+  }
+  function cleanupLegacyProductDom(source){
+    document.documentElement.dataset.yx115Products = 'locked';
+    document.querySelectorAll('.yx63-toolbar,.yx62-toolbar,.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,[id^="yx60-"][id$="-toolbar"],.yx63-summary,.yx62-summary,.fix57-summary-panel').forEach(el => {
+      if (!el.classList.contains('yx114-toolbar') && !el.classList.contains('yx113-summary')) {
+        el.classList.add('yx115-hidden-legacy-product');
+        el.style.display = 'none';
+      }
+    });
+    ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source);
+  }
+  function scheduleRepair(source){
+    if (state.repairTimer) return;
+    state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
+  }
+  function observeProductPage(source){
+    if (state.observer || !source) return;
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (typeof NativeMO === 'undefined') return;
+    const targets = [sectionEl(source), listEl(source)].filter(Boolean);
+    if (!targets.length) return;
+    state.observer = new NativeMO(muts => {
+      for (const m of muts){
+        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
+        if (added.some(n => n.matches?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel') || n.querySelector?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel'))) {
+          scheduleRepair(source);
+          break;
+        }
+      }
+    });
+    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
   }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
     document.documentElement.dataset.yx114Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
-    ensureBatchToolbar(source); ensureSummary(source);
+    ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
     loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
-    [200, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); renderSummary(source); renderCards(source); }, ms));
+    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
 })();

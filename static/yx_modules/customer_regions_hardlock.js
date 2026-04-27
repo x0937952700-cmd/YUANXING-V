@@ -1,10 +1,10 @@
-/* FIX114 北中南客戶母版硬鎖：FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
+/* FIX116 北中南客戶母版硬鎖：FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
   const $ = id => document.getElementById(id);
-  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null};
+  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0};
   const REGIONS = ['北區','中區','南區'];
   const moduleKey = () => YX.moduleKey();
   const isRegionPage = () => ['orders','master_order','ship','customers'].includes(moduleKey()) || !!$('region-north') || !!$('customers-north');
@@ -39,7 +39,7 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left">${YX.esc(info.base)}</span><span class="yx113-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
   async function selectCustomer(name){
     name = YX.clean(name || ''); if (!name) return;
@@ -75,7 +75,17 @@
       });
       Object.values(containers).forEach(el => { if (!el.children.length) el.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>'; });
     });
+    state.lastRenderAt = Date.now();
     state.rendering = false;
+  }
+  function hasLegacyCustomerDom(){
+    if (!isRegionPage()) return false;
+    const boards = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
+    return boards.some(el => {
+      if (!el || el.querySelector('.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow')) return true;
+      const cards = Array.from(el.querySelectorAll('.customer-region-card,[data-customer-name]')).filter(c => !c.classList.contains('empty-state-card'));
+      return cards.some(c => !c.classList.contains('yx116-customer-card') && !c.closest('.yx113-customer-actions'));
+    });
   }
   function scheduleRepair(){
     if (state.rendering) return;
@@ -83,17 +93,18 @@
     state.repairTimer = setTimeout(() => {
       state.repairTimer = null;
       renderBoards(state.items);
-    }, 80);
+    }, 50);
   }
   function observeCustomerBoards(){
     if (state.observer || !isRegionPage()) return;
     const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
-    if (!targets.length || typeof MutationObserver === 'undefined') return;
-    state.observer = new MutationObserver(muts => {
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (!targets.length || typeof NativeMO === 'undefined') return;
+    state.observer = new NativeMO(muts => {
       if (state.rendering) return;
       for (const m of muts){
         const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
-        if (added.some(n => (n.matches?.('.customer-region-card:not(.yx114-customer-card),.customer-card-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx114-customer-card),.customer-card-arrow,.yx113-customer-arrow')))) {
+        if (added.length && (added.some(n => (n.matches?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow'))) || hasLegacyCustomerDom())) {
           scheduleRepair();
           break;
         }
@@ -205,13 +216,17 @@
     try { YX.hardAssign('renderCustomers', loadFn, {configurable:false}); } catch(_e) { window.renderCustomers = loadFn; }
     window.YX113CustomerRegions = {loadCustomerBlocks, renderBoards, selectCustomer};
     window.YX114CustomerRegions = window.YX113CustomerRegions;
+    window.YX115CustomerRegions = window.YX113CustomerRegions;
+    window.YX116CustomerRegions = window.YX113CustomerRegions;
   }
   function install(){
     if (!isRegionPage()) return;
     document.documentElement.dataset.yx113Customers = 'locked';
     document.documentElement.dataset.yx114Customers = 'locked';
+    document.documentElement.dataset.yx115Customers = 'locked';
+    document.documentElement.dataset.yx116Customers = 'locked';
     bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
-    [120, 250, 900, 1800, 3200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); renderBoards(state.items); }, ms));
+    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();

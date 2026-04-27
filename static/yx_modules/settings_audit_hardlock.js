@@ -1,4 +1,4 @@
-/* FIX114 設定頁硬鎖：差異紀錄只顯示當天指定模組，管理員名單 500 相容 */
+/* FIX115 設定頁硬鎖：差異紀錄只顯示當天指定模組，管理員名單 500 相容 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -62,6 +62,7 @@
   function install(){
     if (!isSettings()) return;
     document.documentElement.dataset.yx113Settings = 'locked';
+    document.documentElement.dataset.yx115Settings = 'locked';
     window.loadAuditTrails = YX.mark(loadAuditTrails, 'audit_trails');
     window.loadAdminUsers = YX.mark(loadAdminUsers, 'admin_users');
     bind();
