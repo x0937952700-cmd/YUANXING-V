@@ -3464,3 +3464,20 @@ html[data-yx-fix120="FIX120_CUSTOMER_CLICK_ITEMS_CONNECTED"] .yx120-customer-det
   margin-top:10px;
 }
 /* ==== FIX120 end ==== */
+
+/* ==== FIX122 customer region action + pointer drag ==== */
+.yx122-customer-card{cursor:pointer;touch-action:pan-y;user-select:none;position:relative;}
+.yx122-customer-card:active{transform:scale(.992);}
+.yx122-card-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.yx122-card-menu{border:1px solid rgba(15,23,42,.16);background:#fff;border-radius:999px;padding:6px 10px;font-size:12px;color:#0f172a;box-shadow:0 4px 14px rgba(15,23,42,.06);}
+.yx122-card-menu:active{transform:scale(.96);}
+.yx122-touch-dragging{opacity:.78;outline:2px solid #111827;box-shadow:0 14px 36px rgba(15,23,42,.18);transform:scale(.985);}
+.yx122-drop-zone.yx122-drop-over,.customer-list.yx122-drop-over{outline:2px dashed rgba(17,24,39,.35);outline-offset:5px;background:rgba(255,255,255,.72);border-radius:18px;}
+.yx122-action-card{max-width:420px;}
+.yx122-action-list{display:flex;flex-direction:column;align-items:stretch;gap:10px;}
+.yx122-action-list > button,.yx122-region-buttons button{width:100%;justify-content:center;}
+.yx122-region-buttons{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;width:100%;}
+.yx122-customer-edit-modal .modal-card{max-width:460px;}
+.yx122-customer-edit-modal .text-area.small{min-height:88px;}
+@media(max-width:640px){.yx122-region-buttons{grid-template-columns:1fr}.yx122-card-menu{padding:5px 9px;font-size:12px}.yx122-action-card{max-width:calc(100vw - 28px)}}
+/* ==== FIX122 end ==== */

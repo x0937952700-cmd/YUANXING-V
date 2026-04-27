@@ -1,5 +1,5 @@
-/* 沅興木業 PWA Service Worker - fix121-order-master-customer-items-hard-connect - network only cache reset */
-const YX_PWA_VERSION = 'fix121-order-master-customer-items-hard-connect';
+/* 沅興木業 PWA Service Worker - fix122-customer-region-longpress-edit-drag-master - network only cache reset */
+const YX_PWA_VERSION = 'fix122-customer-region-longpress-edit-drag-master';
 self.addEventListener('install', event => {
   event.waitUntil((async()=>{
     try { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } catch(_) {}

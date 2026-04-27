@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix121-order-master-customer-items-hard-connect';
+  const PWA_VERSION = 'fix122-customer-region-longpress-edit-drag-master';
   let deferredInstallPrompt = null;
   async function clearAllCaches() {
     try {
@@ -35,8 +35,8 @@
         await reg.update().catch(()=>{});
       } catch(err) { console.warn('PWA service worker 更新失敗', err); }
       navigator.serviceWorker.addEventListener('controllerchange',()=>{
-        if(!sessionStorage.getItem('YX_FIX121_RELOADED')){
-          sessionStorage.setItem('YX_FIX121_RELOADED','1');
+        if(!sessionStorage.getItem('YX_FIX122_RELOADED')){
+          sessionStorage.setItem('YX_FIX122_RELOADED','1');
           location.reload();
         }
       });
