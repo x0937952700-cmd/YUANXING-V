@@ -12560,3 +12560,254 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.addEventListener('pageshow', install);
 })();
 /* ==== FIX120 end ==== */
+
+/* ==== FIX121: orders/master customer click hard-connect, no old renderer blank overwrite ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX121_ORDER_MASTER_CUSTOMER_ITEMS_HARD_CONNECT';
+  if (window.__YX121_ORDER_MASTER_CUSTOMER_ITEMS_HARD_CONNECT__) return;
+  window.__YX121_ORDER_MASTER_CUSTOMER_ITEMS_HARD_CONNECT__ = true;
+  try { document.documentElement.dataset.yxFix121 = VERSION; } catch(_e) {}
+
+  const $ = id => document.getElementById(id);
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const moduleKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
+  async function api(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers||{})}});
+    const txt = await res.text();
+    let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) {
+      const e = new Error(data.error || data.message || `請求失敗：${res.status}`);
+      e.payload = data;
+      throw e;
+    }
+    return data;
+  }
+  window.yxApi = api;
+
+  function baseCustomerName(name){
+    const raw = clean(name);
+    const stripped = raw.replace(/\s*(?:FOB代付|FOB代|FOB|CNF)\s*$/i, '').trim();
+    return stripped || raw;
+  }
+  function qtyFromExpression(text, fallback=0){
+    text = String(text || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＋，,；;]/g,'+');
+    const right = text.includes('=') ? text.split('=').slice(1).join('=') : text;
+    let total = 0, hit = false;
+    right.split('+').map(s => s.trim()).filter(Boolean).forEach(seg => {
+      const m = seg.match(/x\s*(\d+)\s*$/i);
+      if (m) { total += Number(m[1] || 0); hit = true; return; }
+      if (/\d/.test(seg)) { total += 1; hit = true; }
+    });
+    return hit ? total : (Number(fallback || 0) || 0);
+  }
+  function itemQty(it){ return qtyFromExpression(it?.product_text || it?.support_text || '', it?.qty || it?.total_qty || 0); }
+  function splitProduct(text){
+    text = String(text || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    const parts = text.split('=');
+    return {size:clean(parts[0] || text), support:clean(parts.slice(1).join('=') || '')};
+  }
+  function materialText(it){
+    const mat = clean(it?.material || it?.product_code || '');
+    const prod = clean(it?.product_text || '');
+    if (!mat || mat === prod || /[=x×]/i.test(mat)) return '';
+    return mat;
+  }
+  function sourceKey(src){
+    const s = clean(src).toLowerCase();
+    if (['總單','master','master_order','master_orders'].includes(s)) return 'master_order';
+    if (['訂單','order','orders'].includes(s)) return 'orders';
+    if (['庫存','inventory'].includes(s)) return 'inventory';
+    return s;
+  }
+  function sourceLabel(src){ const k=sourceKey(src); return k==='master_order'?'總單':k==='orders'?'訂單':k==='inventory'?'庫存':clean(src||''); }
+  function apiSource(source){ return source === 'master_order' ? 'master_orders' : source; }
+  function titleOf(source){ return source === 'orders' ? '訂單' : source === 'master_order' ? '總單' : '庫存'; }
+  function listEl(source){ return source === 'orders' ? $('orders-list') : source === 'master_order' ? $('master-list') : $('inventory-inline-list'); }
+  function summaryEl(source){ return $(`yx63-${source}-summary`); }
+  function searchEl(source){ return $(`yx63-${source}-search`); }
+  function ensureSummary(source){
+    let host = summaryEl(source);
+    if (host) return host;
+    host = document.createElement('div');
+    host.id = `yx63-${source}-summary`;
+    host.className = 'yx63-summary table-card yx121-summary';
+    const list = listEl(source);
+    const section = source === 'orders' ? $('orders-list-section') : source === 'master_order' ? $('master-list-section') : $('inventory-inline-panel');
+    if (list) list.insertAdjacentElement('beforebegin', host);
+    else if (section) section.appendChild(host);
+    return host;
+  }
+  function rowObjectForBatch(it, source){ return {source: apiSource(source), id: Number(it.id || 0)}; }
+  function renderDirectList(source, name, items){
+    const host = ensureSummary(source);
+    const list = listEl(source);
+    const rows = (items || []).filter(it => sourceKey(it.source) === source || !it.source);
+    const total = rows.reduce((s,it)=>s+itemQty(it),0);
+    const signature = `${source}|${name}|${rows.length}|${total}|${rows.map(r=>r.id||'').join(',')}`;
+    if (host) {
+      const body = rows.length ? rows.map(it => {
+        const p = splitProduct(it.product_text || it.product_size || '');
+        const support = p.support || clean(it.support_text || it.qty || '');
+        const id = Number(it.id || 0);
+        return `<tr class="yx63-summary-row yx121-summary-row" data-source="${source}" data-id="${id}">
+          <td class="yx63-material-cell">${esc(materialText(it))}</td>
+          <td class="yx63-size-cell" title="點尺寸選取"><input class="yx63-row-check" type="checkbox" data-source="${source}" data-id="${id}" hidden><span>${esc(p.size)}</span></td>
+          <td class="yx63-support-cell">${esc(support)}</td>
+          <td class="yx63-qty-cell">${itemQty(it)}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="4">此客戶目前沒有${titleOf(source)}商品</td></tr>`;
+      host.dataset.yx121Signature = signature;
+      host.innerHTML = `<div class="yx63-summary-head yx121-summary-head"><strong>${total}件 / ${rows.length}筆商品</strong><span>${esc(name)}｜${titleOf(source)}統整</span></div>
+        <div class="yx63-table-wrap"><table class="yx63-summary-table"><thead><tr><th class="yx63-material-col">材質</th><th class="yx63-size-col">尺寸</th><th class="yx63-support-col">支數 x 件數</th><th class="yx63-qty-col">數量</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+    if (list) {
+      list.classList.add('yx63-card-grid');
+      list.dataset.yx121Signature = signature;
+      list.innerHTML = rows.length ? rows.map(it => {
+        const p = splitProduct(it.product_text || it.product_size || '');
+        const support = p.support || clean(it.support_text || it.qty || '');
+        const id = Number(it.id || 0);
+        const line = `${p.size}${support ? ' = ' + support : ''}`;
+        return `<div class="card inventory-action-card yx63-item-card yx94-fixed-item-card yx121-item-card" data-source="${source}" data-id="${id}" data-customer="${esc(name)}">
+          <div class="yx94-card-main"><div class="yx94-card-row yx94-card-top"><span class="yx94-mat">材質 ${esc(materialText(it) || '')}</span><span class="yx94-qty">數量 ${itemQty(it)}</span></div><div class="yx94-card-row yx94-card-product">${esc(line)}</div></div>
+          <div class="yx63-card-actions"><button class="ghost-btn tiny-btn" type="button" data-yx63-action="edit">編輯</button><button class="ghost-btn tiny-btn" type="button" data-yx63-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx63-action="delete">刪除</button></div>
+        </div>`;
+      }).join('') : `<div class="empty-state-card compact-empty">此客戶目前沒有${titleOf(source)}商品</div>`;
+    }
+  }
+  function renderDetailPanel(name, items, source){
+    const panel = $('selected-customer-items');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    panel.hidden = false;
+    panel.style.removeProperty('display');
+    const rows = (items || []).filter(it => sourceKey(it.source) === source || !it.source);
+    const total = rows.reduce((s,it)=>s+itemQty(it),0);
+    if (!rows.length) {
+      panel.innerHTML = `<div class="customer-detail-card yx121-customer-detail"><div class="section-title">${esc(name)}</div><div class="empty-state-card compact-empty">此客戶目前沒有${titleOf(source)}商品</div></div>`;
+      return;
+    }
+    const body = rows.map(it => { const p=splitProduct(it.product_text||it.product_size||''); const support=p.support||clean(it.support_text||it.qty||''); return `<tr><td>${esc(materialText(it))}</td><td>${esc(p.size)}</td><td>${esc(support)}</td><td>${esc(sourceLabel(it.source || source))}</td><td>${itemQty(it)}</td></tr>`; }).join('');
+    panel.innerHTML = `<div class="customer-detail-card yx121-customer-detail"><div class="customer-detail-header"><div><div class="section-title">${esc(name)}</div><div class="muted">${total}件 / ${rows.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>來源</th><th>數量</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+  }
+  let active = {name:'', uid:'', source:'', items:[], stamp:0};
+  async function fetchItems(name, uid, source){
+    const qs = new URLSearchParams({name, customer_uid: uid || '', source, yx121:'1', ts:String(Date.now())});
+    let data = await api('/api/customer-items?' + qs.toString(), {method:'GET'});
+    let items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      const base = baseCustomerName(name);
+      if (base && base !== name) {
+        const qs2 = new URLSearchParams({name:base, customer_uid: uid || '', source, yx121:'1', ts:String(Date.now())});
+        data = await api('/api/customer-items?' + qs2.toString(), {method:'GET'});
+        items = Array.isArray(data.items) ? data.items : [];
+      }
+    }
+    return items.map(it => ({...it, customer_name:name, customer_uid:uid || it.customer_uid || '', source:sourceLabel(it.source || source)}));
+  }
+  function setCustomerInput(name, uid){
+    window.__YX_SELECTED_CUSTOMER__ = name;
+    window.state = window.state || {};
+    window.state.currentCustomer = name;
+    window.state.currentCustomerUid = uid || '';
+    const input = $('customer-name');
+    if (input) {
+      input.value = name;
+      input.dataset.customerUid = uid || '';
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+      input.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    const source = moduleKey();
+    const search = searchEl(source);
+    if (search && (source === 'orders' || source === 'master_order')) search.value = name;
+  }
+  function restoreActive(){
+    if (!active.name || !active.source || !active.items) return;
+    renderDirectList(active.source, active.name, active.items);
+    renderDetailPanel(active.name, active.items, active.source);
+  }
+  let restoreTimer = null;
+  function scheduleRestore(){
+    if (!active.name || !active.items?.length) return;
+    clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(() => {
+      const hostText = clean(summaryEl(active.source)?.innerText || '');
+      const listText = clean(listEl(active.source)?.innerText || '');
+      if (/0件\s*\/\s*0筆|目前沒有資料|請先點選客戶/.test(hostText + ' ' + listText)) restoreActive();
+    }, 80);
+  }
+  async function selectCustomer121(name, uid='', opts={}){
+    name = clean(name); uid = clean(uid);
+    const source = moduleKey();
+    if (!name) return [];
+    if (!['orders','master_order','ship'].includes(source)) {
+      if (source === 'customers' && typeof window.fillCustomerForm === 'function') return window.fillCustomerForm(name);
+      return [];
+    }
+    const stamp = Date.now();
+    active = {name, uid, source, items:[], stamp};
+    setCustomerInput(name, uid);
+    const panel = $('selected-customer-items');
+    if (panel && !opts.silent) { panel.classList.remove('hidden'); panel.style.removeProperty('display'); panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>'; }
+    try {
+      const items = await fetchItems(name, uid, source);
+      if (active.stamp !== stamp && !opts.force) return items;
+      active.items = items;
+      renderDirectList(source, name, items);
+      renderDetailPanel(name, items, source);
+      [120, 360, 900, 1600].forEach(ms => setTimeout(() => { if (active.stamp === stamp) restoreActive(); }, ms));
+      return items;
+    } catch(err) {
+      if (panel) panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(err.message || '載入客戶商品失敗')}</div>`;
+      toast(err.message || '載入客戶商品失敗', 'error');
+      return [];
+    }
+  }
+  function cardFromEvent(e){ return e.target?.closest?.('.yx119-customer-card,.yx120-customer-card,.customer-region-card,.yx81-customer-card,[data-customer-name]'); }
+  function nameFromCard(card){ return clean(card?.dataset?.customerName || card?.dataset?.customer || card?.getAttribute?.('data-customer-name') || card?.querySelector?.('.customer-card-name,.customer-name,.yx-customer-left')?.textContent || ''); }
+  function uidFromCard(card){ return clean(card?.dataset?.customerUid || card?.dataset?.uid || ''); }
+  function installClicks(){
+    if (document.documentElement.dataset.yx121Clicks === '1') return;
+    document.documentElement.dataset.yx121Clicks = '1';
+    document.addEventListener('click', e => {
+      const source = moduleKey();
+      if (!['orders','master_order','ship'].includes(source)) return;
+      if (e.target?.closest?.('.yx119-card-menu,button,a,input,textarea,select')) return;
+      const card = cardFromEvent(e);
+      if (!card) return;
+      const name = nameFromCard(card), uid = uidFromCard(card);
+      if (!name) return;
+      setTimeout(() => selectCustomer121(name, uid, {force:true}).catch(()=>{}), 0);
+      setTimeout(() => selectCustomer121(name, uid, {silent:true, force:true}).catch(()=>{}), 420);
+    }, true);
+  }
+  function installMutationGuard(){
+    if (document.documentElement.dataset.yx121Guard === '1') return;
+    document.documentElement.dataset.yx121Guard = '1';
+    const mo = new MutationObserver(scheduleRestore);
+    ['yx63-orders-summary','yx63-master_order-summary','orders-list','master-list','selected-customer-items'].forEach(id => { const el=$(id); if (el) mo.observe(el, {childList:true, subtree:true, characterData:true}); });
+    window.__YX121_OBSERVER__ = mo;
+  }
+  function patchGlobals(){
+    window.selectCustomerForModule = selectCustomer121;
+    window.yx120SelectCustomerForModule = selectCustomer121;
+    window.yx121SelectCustomerForModule = selectCustomer121;
+    window.yx121RestoreCustomerList = restoreActive;
+  }
+  function install(){
+    try { document.documentElement.dataset.yxFix121 = VERSION; } catch(_e) {}
+    patchGlobals();
+    installClicks();
+    installMutationGuard();
+    const existing = clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || '');
+    const uid = clean($('customer-name')?.dataset?.customerUid || window.state?.currentCustomerUid || '');
+    if (existing && ['orders','master_order','ship'].includes(moduleKey())) setTimeout(() => selectCustomer121(existing, uid, {silent:true, force:true}).catch(()=>{}), 220);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  window.addEventListener('pageshow', install);
+})();
+/* ==== FIX121 end ==== */

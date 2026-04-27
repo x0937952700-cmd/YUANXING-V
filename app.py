@@ -456,6 +456,25 @@ def resolve_customer_identity(customer_name='', customer_uid='', include_archive
     return row, resolved_name, resolved_uid
 
 
+
+def customer_name_variants_for_lookup(name):
+    """FIX121：客戶名可能有 CNF/FOB/FOB代 等尾碼；查商品時同時比對原名、去尾碼名、去空白名。"""
+    raw = (name or '').strip()
+    variants = []
+    def add(v):
+        v = (v or '').strip()
+        if v and v not in variants:
+            variants.append(v)
+    add(raw)
+    stripped = re.sub(r'\s*(?:FOB代付|FOB代|FOB|CNF)\s*$', '', raw, flags=re.I).strip()
+    add(stripped)
+    stripped2 = re.sub(r'(?:FOB代付|FOB代|FOB|CNF)$', '', raw.replace(' ', '').replace('　', ''), flags=re.I).strip()
+    add(stripped2)
+    if raw:
+        add(raw.split()[0])
+    return variants
+
+
 def customer_groups():
     customers = get_customers()
     groups = {"北區": [], "中區": [], "南區": [], "未分區": []}
@@ -1432,7 +1451,7 @@ def api_warehouse_available_items():
 @app.route("/api/customer-items", methods=["GET"])
 @login_required_json
 def api_customer_items():
-    """FIX120：客戶商品用 customer_uid + customer_name 雙保險查詢，支援訂單/總單點客戶後直接顯示。"""
+    """FIX121：訂單 / 總單點北中南客戶後，直接用 UID、原名、去 CNF/FOB 尾碼名查商品，避免舊資料名稱不同導致 0 筆。"""
     name = (request.args.get("name") or "").strip()
     uid = (request.args.get("customer_uid") or "").strip()
     source_filter = (request.args.get("source") or "").strip().lower()
@@ -1443,10 +1462,12 @@ def api_customer_items():
         'ship': '', 'shipping': '',
     }
     row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
-    name = resolved_name or name
+    display_name = resolved_name or name
     uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
-    items = []
-    if not name and not uid:
+    lookup_names = customer_name_variants_for_lookup(display_name) + customer_name_variants_for_lookup(name)
+    seen = set()
+    lookup_names = [x for x in lookup_names if not (x in seen or seen.add(x))]
+    if not display_name and not uid and not lookup_names:
         return jsonify(success=True, items=[])
 
     tables = [("orders", "訂單"), ("master_orders", "總單"), ("inventory", "庫存")]
@@ -1456,24 +1477,33 @@ def api_customer_items():
 
     conn = get_db()
     cur = conn.cursor()
+    items = []
     try:
         def pull(table, source_label):
-            # 新資料靠 customer_uid；舊資料靠 customer_name。兩個都帶入時，用 OR，避免客戶改名或舊資料 UID 不一致造成點開空白。
-            if uid and name:
-                cur.execute(sql(f"""
-                    SELECT * FROM {table}
-                    WHERE COALESCE(customer_uid, '') = ? OR customer_name = ?
-                    ORDER BY id DESC
-                """), (uid, name))
-            elif uid:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(customer_uid, '') = ? ORDER BY id DESC"), (uid,))
-            else:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
+            clauses = []
+            params = []
+            if uid:
+                clauses.append("COALESCE(customer_uid, '') = ?")
+                params.append(uid)
+            for nm in lookup_names:
+                clauses.append("customer_name = ?")
+                params.append(nm)
+            compact_names = []
+            for nm in lookup_names:
+                compact = re.sub(r'\s+', '', nm or '')
+                if compact and compact not in compact_names:
+                    compact_names.append(compact)
+            for nm in compact_names:
+                clauses.append("REPLACE(REPLACE(COALESCE(customer_name, ''), ' ', ''), '　', '') = ?")
+                params.append(nm)
+            if not clauses:
+                return
+            q = f"SELECT * FROM {table} WHERE (" + " OR ".join(clauses) + ") ORDER BY id DESC"
+            cur.execute(sql(q), tuple(params))
             for r in rows_to_dict(cur):
                 r['source'] = source_label
-                # 前端清單依目前選取客戶過濾，這裡補回顯示用名稱，避免舊 customer_name 和新 customer_profiles.name 不一致時被濾掉。
-                if name:
-                    r['customer_name'] = name
+                if display_name:
+                    r['customer_name'] = display_name
                 if uid:
                     r['customer_uid'] = uid
                 items.append(r)
@@ -1481,7 +1511,8 @@ def api_customer_items():
             pull(table, label)
     finally:
         conn.close()
-    return jsonify(success=True, items=aggregate_customer_items(items))
+    out = aggregate_customer_items(items)
+    return jsonify(success=True, items=out, lookup_names=lookup_names, customer_name=display_name, customer_uid=uid)
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
