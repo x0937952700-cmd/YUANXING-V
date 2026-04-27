@@ -189,12 +189,24 @@ def login_required_json(f):
     return wrapper
 
 @app.after_request
-def add_no_cache_headers(response):
-    # FIX87：所有頁面 / 靜態檔 / API 都不快取，避免手機、PWA 或 Render 部署後吃到舊 JS。
+def add_cache_headers(response):
+    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
+    # HTML / API 仍維持 no-store，資料不會吃舊。
+    path = request.path or ''
+    response.headers['Vary'] = 'Cookie'
+    if path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+        return response
+    if path == '/sw.js':
+        response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+        return response
     response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
-    response.headers['Vary'] = 'Cookie'
     return response
 
 @app.before_request
@@ -405,7 +417,7 @@ def normalize_warehouse_payload_items(items):
     return list(merged.values())
 
 def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    """防止從尚未入倉清單拖入超過來源數量。手動新增、來源不存在的商品保留可用。"""
+    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
     source_totals, _details = warehouse_source_totals()
     exclude_key = (str(zone), int(column_index), int(slot_number))
     placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
@@ -414,12 +426,15 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
         customer = (it.get('customer_name') or '').strip()
         key = (size, customer)
         source_total = int(source_totals.get(key, 0) or 0)
+        if source_total <= 0:
+            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
+            source_total = max(size_matches) if size_matches else 0
         placed_total = int(placed.get(key, 0) or 0)
-        from_unplaced = bool(it.get('source_summary') or it.get('source') == 'unplaced')
+        if placed_total <= 0 and size:
+            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
         if source_total > 0 and placed_total > source_total:
             return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
-        if from_unplaced and source_total <= 0:
-            return False, f"{it.get('product_text') or size} 找不到可入倉來源，請重新整理後再試"
+        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
     return True, ''
 
 def grouped_inventory():

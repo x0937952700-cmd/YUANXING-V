@@ -1,20 +1,46 @@
-/* 沅興木業 PWA Service Worker - fix107-slot-display-clean-total-red - FIX107_SLOT_DISPLAY_CLEAN_TOTAL_RED_MASTER */
-const YX_PWA_VERSION='fix107-slot-display-clean-total-red';
-const STATIC_CACHE=`yuanxing-pwa-icons-${YX_PWA_VERSION}`;
-const ICON_ASSETS=['/static/manifest.webmanifest','/static/favicon.png','/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'];
-self.addEventListener('install',event=>{event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(ICON_ASSETS)).then(()=>self.skipWaiting()))});
-self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()))});
+/* 沅興木業 PWA Service Worker - fix111-fast-nav-cache - FIX110_PERFORMANCE_CACHE */
+const YX_PWA_VERSION='fix111-fast-nav-cache';
+const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
+const PRECACHE_ASSETS=[
+  '/static/manifest.webmanifest',
+  '/static/favicon.png',
+  '/static/style.css?v=fix111-fast-nav-cache',
+  '/static/app.js?v=fix111-fast-nav-cache',
+  '/static/pwa.js?v=fix111-fast-nav-cache',
+  '/static/icons/icon-192x192.png',
+  '/static/icons/icon-512x512.png',
+  '/static/icons/icon-maskable-192x192.png',
+  '/static/icons/icon-maskable-512x512.png'
+];
+self.addEventListener('install',event=>{
+  event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
+});
+self.addEventListener('activate',event=>{
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
+});
 self.addEventListener('message',event=>{if(event.data&&event.data.type==='SKIP_WAITING')self.skipWaiting()});
 self.addEventListener('fetch',event=>{
   const req=event.request;
-  if(req.method!=='GET')return;
+  if(req.method!=='GET') return;
   const url=new URL(req.url);
-  if(url.origin!==self.location.origin)return;
-  if(url.pathname.startsWith('/api/')){event.respondWith(fetch(req,{cache:'no-store'}));return;}
-  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')){event.respondWith(fetch(req,{cache:'no-store'}));return;}
-  if(url.pathname.startsWith('/static/icons/')||url.pathname==='/static/favicon.png'||url.pathname.endsWith('manifest.webmanifest')){
-    event.respondWith(caches.match(req).then(cached=>cached||fetch(req,{cache:'reload'}).then(res=>{const copy=res.clone();caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy));return res;})));
+  if(url.origin!==self.location.origin) return;
+  if(url.pathname.startsWith('/api/') || url.pathname==='/api/sync/stream'){
+    event.respondWith(fetch(req,{cache:'no-store'}));
     return;
   }
-  event.respondWith(fetch(req,{cache:'no-store'}).catch(()=>caches.match(req)));
+  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
+    event.respondWith(fetch(req,{cache:'no-store'}));
+    return;
+  }
+  if(url.pathname.startsWith('/static/')){
+    event.respondWith(caches.match(req).then(cached=>{
+      if(cached) return cached;
+      return fetch(req).then(res=>{
+        if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
+        return res;
+      });
+    }).catch(()=>caches.match(req)));
+    return;
+  }
+  event.respondWith(fetch(req).catch(()=>caches.match(req)));
 });

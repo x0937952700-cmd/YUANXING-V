@@ -3222,3 +3222,33 @@ html[data-yx-fix106="FIX107_SLOT_DISPLAY_CLEAN_TOTAL_RED_MASTER"] .yx106-slot *,
 .yx106-slot-empty{color:#94a3b8!important;font-weight:950!important;}
 .yx106-slot .slot-line,.yx106-slot .slot-count,.yx106-slot .slot-sep,.yx106-slot-product,.yx106-slot-material{display:none!important;}
 /* ==== FIX107 end ==== */
+
+
+/* ==== FIX108: AB倉格子唯一顯示格式：1｜公司名 / 數量式｜紅字總件數 ==== */
+html[data-yx-fix106="FIX108_UNPLACED_SOURCE_AND_SLOT_DISPLAY_MASTER"] .yx108-slot,
+.yx108-slot{font-size:16px!important;font-weight:950!important;line-height:1.22!important;color:#0f172a!important;}
+html[data-yx-fix106="FIX108_UNPLACED_SOURCE_AND_SLOT_DISPLAY_MASTER"] .yx108-slot *,
+.yx108-slot *{font-size:inherit!important;font-weight:inherit!important;line-height:inherit!important;}
+.yx108-slot-row{width:100%!important;display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;white-space:nowrap!important;overflow:hidden!important;}
+.yx108-slot-row1{margin-bottom:4px!important;}
+.yx108-slot-no{color:#0f172a!important;min-width:18px!important;text-align:left!important;}
+.yx108-slot-customers{color:#0f172a!important;text-align:right!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+.yx108-slot-sum{color:#0f172a!important;text-align:left!important;overflow:hidden!important;text-overflow:ellipsis!important;}
+.yx108-slot-total{color:#dc2626!important;text-align:right!important;white-space:nowrap!important;}
+.yx108-slot-empty{color:#94a3b8!important;text-align:right!important;}
+.yx108-slot .yx106-slot-group,.yx108-slot .yx106-slot-head,.yx108-slot .yx106-slot-qty,.yx108-slot .yx106-slot-customer,.yx108-slot .yx106-slot-title{display:none!important;}
+@media(max-width:720px){.yx108-slot{font-size:16px!important;}}
+/* ==== FIX108 end ==== */
+
+
+/* FIX111：進功能 / 返回主頁時關閉重動畫，避免舊補丁在離頁前重畫造成卡頓 */
+.yx111-fast-navigating *,
+.yx111-fast-navigating *::before,
+.yx111-fast-navigating *::after{
+  transition:none !important;
+  animation:none !important;
+  scroll-behavior:auto !important;
+}
+.yx111-fast-navigating .page-shell{
+  pointer-events:none;
+}
