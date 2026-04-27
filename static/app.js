@@ -11866,3 +11866,362 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   setTimeout(install, 400);
 })();
 /* ==== FIX111 route throttles end ==== */
+
+/* ==== FIX112: customer click/long-press + warehouse slot customer display convergence ==== */
+(function(){
+  'use strict';
+  const VERSION = 'FIX112_CUSTOMER_ITEMS_LONGPRESS_WAREHOUSE_NAMES';
+  if (window.__YX112_CUSTOMER_WAREHOUSE_FIX__) return;
+  window.__YX112_CUSTOMER_WAREHOUSE_FIX__ = true;
+
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const clean = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const toast = (msg, kind='ok') => { try { (window.toast || window.showToast || window.notify || console.log)(msg, kind); } catch(_e){} };
+  const modKey = () => document.querySelector('.module-screen')?.dataset.module || document.body?.dataset?.module || '';
+  const api = window.yxApi || window.requestJSON || (async function(url, opt={}){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Content-Type':'application/json', ...(opt.headers || {})}});
+    const txt = await res.text(); let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; } catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) { const e = new Error(data.error || data.message || `請求失敗：${res.status}`); e.payload = data; throw e; }
+    return data;
+  });
+  function normalizeRegion(v, fallback='北區'){
+    v = clean(v);
+    return ['北區','中區','南區'].includes(v) ? v : fallback;
+  }
+  function rowCountForModule(cust, module){
+    const rc = cust?.relation_counts || {};
+    if (module === 'orders') return Number(rc.order_rows || 0);
+    if (module === 'master_order') return Number(rc.master_rows || 0);
+    if (module === 'ship') return Number(rc.master_rows || 0) + Number(rc.order_rows || 0) + Number(rc.inventory_rows || 0);
+    return Number(cust?.row_count || 0);
+  }
+  function itemCountForModule(cust, module){
+    const rc = cust?.relation_counts || {};
+    if (module === 'orders') return Number(rc.order_qty || 0);
+    if (module === 'master_order') return Number(rc.master_qty || 0);
+    if (module === 'ship') return Number(rc.master_qty || 0) + Number(rc.order_qty || 0) + Number(rc.inventory_qty || 0);
+    return Number(cust?.item_count || 0);
+  }
+  function customerCardHTML(cust, module){
+    const qty = itemCountForModule(cust, module);
+    const rows = rowCountForModule(cust, module);
+    return `<div class="customer-card-main"><div><div class="customer-card-name">${esc(cust.name || '')}</div><div class="customer-card-meta">${qty}件 / ${rows}筆</div></div></div><div class="customer-card-arrow">→</div>`;
+  }
+  function customerContainers(){
+    return [
+      {mode:'module', ids:{'北區':'region-north','中區':'region-center','南區':'region-south'}},
+      {mode:'customers', ids:{'北區':'customers-north','中區':'customers-center','南區':'customers-south'}}
+    ];
+  }
+  function ensureCustomerActionSheet112(){
+    let modal = $('yx112-customer-actions');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'yx112-customer-actions';
+    modal.className = 'modal hidden yx112-customer-actions';
+    modal.innerHTML = `<div class="modal-card glass" style="max-width:360px;"><div class="modal-head"><div class="section-title" id="yx112-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx112-customer-action-close">✕</button></div><div class="small-note">長按客戶可刪除 / 封存；有商品或歷史資料時會保留資料並封存。</div><div class="btn-row" style="flex-direction:column;align-items:stretch;gap:10px;margin-top:12px;"><button class="primary-btn" type="button" id="yx112-customer-action-open">打開客戶商品</button><button class="ghost-btn danger-btn" type="button" id="yx112-customer-action-delete">刪除 / 封存客戶</button><button class="ghost-btn" type="button" id="yx112-customer-action-cancel">取消</button></div></div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.classList.add('hidden');
+    $('yx112-customer-action-close').onclick = close;
+    $('yx112-customer-action-cancel').onclick = close;
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    return modal;
+  }
+  async function deleteCustomer112(name){
+    name = clean(name);
+    if (!name) return;
+    let message = `確定刪除 / 封存「${name}」？`;
+    try {
+      const detail = await api(`/api/customers/${encodeURIComponent(name)}?ts=${Date.now()}`, {method:'GET'});
+      const c = detail.counts || detail.item?.relation_counts || {};
+      const total = Number(c.total_rows || 0);
+      message = total > 0
+        ? `客戶「${name}」底下仍有資料：庫存 ${c.inventory_rows || 0} 筆、訂單 ${c.order_rows || 0} 筆、總單 ${c.master_rows || 0} 筆、出貨 ${c.shipping_rows || 0} 筆。\n\n按確定會改成封存，保留歷史資料。`
+        : `確定刪除客戶「${name}」？`;
+    } catch(_e) {}
+    if (!confirm(message)) return;
+    const res = await api(`/api/customers/${encodeURIComponent(name)}`, {method:'DELETE'});
+    toast(res.message || '客戶已刪除 / 封存', 'ok');
+    const panel = $('selected-customer-items');
+    if (panel) panel.innerHTML = '';
+    await loadCustomerBlocks112(true);
+  }
+  function openCustomerActions112(name, uid){
+    const modal = ensureCustomerActionSheet112();
+    modal.dataset.customer = name || '';
+    modal.dataset.customerUid = uid || '';
+    $('yx112-customer-action-title').textContent = name || '客戶操作';
+    $('yx112-customer-action-open').onclick = async () => { modal.classList.add('hidden'); await selectCustomer112(name, uid); };
+    $('yx112-customer-action-delete').onclick = async () => { modal.classList.add('hidden'); try { await deleteCustomer112(name); } catch(e) { toast(e.message || '刪除失敗', 'error'); } };
+    modal.classList.remove('hidden');
+  }
+  function bindCustomerCard112(card, cust, mode){
+    if (!card || card.dataset.yx112Bound === '1') return;
+    card.dataset.yx112Bound = '1';
+    card.dataset.customer = cust.name || '';
+    card.dataset.customerUid = cust.customer_uid || '';
+    card.dataset.region = normalizeRegion(cust.region, '北區');
+    card.draggable = true;
+    card.addEventListener('dragstart', ev => {
+      ev.dataTransfer?.setData('text/plain', cust.name || '');
+      ev.dataTransfer?.setData('application/x-yx-customer-uid', cust.customer_uid || '');
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    card.addEventListener('click', async ev => {
+      if (Date.now() < Number(card.dataset.yx112BlockClickUntil || 0)) { ev.preventDefault(); ev.stopPropagation(); return; }
+      await selectCustomer112(cust.name || '', cust.customer_uid || '');
+    });
+  }
+  function bindDropZone112(el, region){
+    if (!el || el.dataset.yx112Drop === '1') return;
+    el.dataset.yx112Drop = '1';
+    el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', async ev => {
+      ev.preventDefault(); el.classList.remove('drag-over');
+      const name = ev.dataTransfer?.getData('text/plain') || '';
+      if (!name) return;
+      try { await api('/api/customers/move', {method:'POST', body:JSON.stringify({name, region})}); toast(`${name} 已移到${region}`, 'ok'); await loadCustomerBlocks112(true); }
+      catch(e) { toast(e.message || '移動失敗', 'error'); }
+    });
+  }
+  async function loadCustomerBlocks112(force=false){
+    const hasBoard = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].some(id => !!$(id));
+    if (!hasBoard) return window.state?.customerDirectory || [];
+    const data = await api(`/api/customers?ts=${Date.now()}`, {method:'GET'});
+    let items = Array.isArray(data.items) ? data.items : [];
+    window.state = window.state || {};
+    window.state.customerDirectory = items;
+    const q = clean($('customer-search')?.value || '').toLowerCase();
+    if (q) items = items.filter(c => String(c.name || '').toLowerCase().includes(q));
+    const module = modKey();
+    customerContainers().forEach(target => {
+      const containers = {'北區':$(target.ids['北區']),'中區':$(target.ids['中區']),'南區':$(target.ids['南區'])};
+      if (!Object.values(containers).some(Boolean)) return;
+      Object.values(containers).forEach(el => { if (el) el.innerHTML = ''; });
+      let list = items.slice();
+      // 訂單頁只顯示有訂單的客戶；總單頁只顯示有總單的客戶。出貨頁保留全部有商品客戶。
+      if (target.mode === 'module' && module === 'orders') list = list.filter(c => rowCountForModule(c, 'orders') > 0 || clean(c.name) === clean($('customer-name')?.value || ''));
+      if (target.mode === 'module' && module === 'master_order') list = list.filter(c => rowCountForModule(c, 'master_order') > 0 || clean(c.name) === clean($('customer-name')?.value || ''));
+      if (target.mode === 'module' && module === 'ship') list = list.filter(c => rowCountForModule(c, 'ship') > 0 || clean(c.name) === clean($('customer-name')?.value || ''));
+      list.forEach(cust => {
+        const region = normalizeRegion(cust.region, '北區');
+        const targetEl = containers[region] || containers['北區'];
+        if (!targetEl) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'customer-region-card yx112-customer-card';
+        btn.innerHTML = customerCardHTML(cust, target.mode === 'module' ? module : 'customers');
+        bindCustomerCard112(btn, cust, target.mode);
+        targetEl.appendChild(btn);
+      });
+      Object.entries(containers).forEach(([region, el]) => {
+        bindDropZone112(el, region);
+        if (el && !el.children.length) el.innerHTML = '<div class="empty-state-card compact-empty">目前沒有客戶</div>';
+      });
+    });
+    return items;
+  }
+  async function selectCustomer112(name, uid=''){
+    name = clean(name); uid = clean(uid);
+    if ($('customer-name')) $('customer-name').value = name;
+    const panel = $('selected-customer-items');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
+    try {
+      const url = `/api/customer-items?name=${encodeURIComponent(name)}${uid ? '&customer_uid=' + encodeURIComponent(uid) : ''}&ts=${Date.now()}`;
+      const data = await api(url, {method:'GET'});
+      const items = Array.isArray(data.items) ? data.items : [];
+      const qtyTotal = items.reduce((s,it) => s + (Number(it.qty || 0) || 0), 0);
+      if (!items.length) {
+        panel.innerHTML = `<div class="customer-detail-card"><div class="section-title">${esc(name)}</div><div class="empty-state-card compact-empty">此客戶目前沒有商品</div></div>`;
+        return;
+      }
+      const rows = items.map(it => {
+        const text = String(it.product_text || '');
+        const parts = text.split('=');
+        const size = parts[0] || text;
+        const qty = parts.slice(1).join('=') || String(it.qty || '');
+        return `<tr><td>${esc(size)}</td><td>${esc(qty)}</td><td>${esc(it.source || '')}</td></tr>`;
+      }).join('');
+      panel.innerHTML = `<div class="customer-detail-card"><div class="customer-detail-header"><div><div class="section-title">${esc(name)}</div><div class="muted">${qtyTotal}件 / ${items.length}筆商品</div></div></div><div class="table-card customer-table-wrap"><table><thead><tr><th>尺寸</th><th>支數 x 件數</th><th>來源</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    } catch(e) {
+      panel.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message || '載入客戶商品失敗')}</div>`;
+    }
+  }
+  function installCustomerLongPressDelegation(){
+    if (document.documentElement.dataset.yx112CustomerDelegated === '1') return;
+    document.documentElement.dataset.yx112CustomerDelegated = '1';
+    let timer = null, targetCard = null;
+    const clear = () => { if (timer) clearTimeout(timer); timer = null; targetCard = null; };
+    document.addEventListener('pointerdown', ev => {
+      const card = ev.target?.closest?.('.customer-region-card');
+      if (!card) return;
+      targetCard = card;
+      timer = setTimeout(() => {
+        const name = clean(card.dataset.customer || card.querySelector('.customer-card-name')?.textContent || '');
+        const uid = clean(card.dataset.customerUid || '');
+        if (!name) return;
+        card.dataset.yx112BlockClickUntil = String(Date.now() + 800);
+        try { navigator.vibrate && navigator.vibrate(18); } catch(_e) {}
+        openCustomerActions112(name, uid);
+      }, 620);
+    }, true);
+    ['pointerup','pointercancel','pointerleave','scroll','dragstart'].forEach(evt => document.addEventListener(evt, clear, true));
+    document.addEventListener('contextmenu', ev => {
+      const card = ev.target?.closest?.('.customer-region-card');
+      if (!card) return;
+      ev.preventDefault();
+      const name = clean(card.dataset.customer || card.querySelector('.customer-card-name')?.textContent || '');
+      const uid = clean(card.dataset.customerUid || '');
+      if (name) openCustomerActions112(name, uid);
+    }, true);
+  }
+
+  // ---------- warehouse grid display: first row slot number + customer names; second row qty expression + red total ----------
+  function wh(){
+    window.state = window.state || {};
+    window.state.warehouse = window.state.warehouse || {cells:[], zones:{A:{}, B:{}}, availableItems:[], activeZone:'A'};
+    if (!Array.isArray(window.state.warehouse.cells)) window.state.warehouse.cells = [];
+    return window.state.warehouse;
+  }
+  function parseCellItems(raw){
+    if (Array.isArray(raw)) return raw;
+    try { const v = JSON.parse(raw || '[]'); return Array.isArray(v) ? v : []; } catch(_e) { return []; }
+  }
+  function cellAt(zone, col, slot){
+    return (wh().cells || []).find(c => clean(c.zone).toUpperCase() === clean(zone).toUpperCase() && Number(c.column_index) === Number(col) && Number(c.slot_number) === Number(slot));
+  }
+  function cellItems(zone, col, slot){ return parseCellItems(cellAt(zone, col, slot)?.items_json ?? cellAt(zone, col, slot)?.items); }
+  function qtyOf(it){
+    const n = Number(it?.qty ?? it?.unplaced_qty ?? it?.total_qty ?? 0);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+  function normalizeCellCustomer(v){
+    let s = clean(v || '');
+    s = clean(s.replace(/\s*(FOB代付|FOB代|FOB|CNF)\s*/gi, ' '));
+    if (!s || s === '-' || s === '—' || s === '未指定' || s === '未指定客戶') return '庫存';
+    return s;
+  }
+  function maxSlot(zone, col){
+    const nums = (wh().cells || []).filter(c => clean(c.zone).toUpperCase() === zone && Number(c.column_index) === Number(col)).map(c => Number(c.slot_number) || 0).filter(Boolean);
+    return Math.max(10, ...nums);
+  }
+  function slotHTML112(zone, col, slot){
+    const items = cellItems(zone, col, slot).filter(it => qtyOf(it) > 0);
+    const slotNo = String(Number(slot) || slot);
+    const hiSet = window.state?.searchHighlightKeys || window.__YX_HIGHLIGHTED_KEYS__;
+    const hi = !!(hiSet && (hiSet.has?.([zone,col,'direct',slot].join('|')) || hiSet.has?.(`${zone}-${col}-${slot}`)));
+    if (!items.length) return `<div class="yx108-slot yx106-slot yx112-slot vertical-slot ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true"><div class="yx108-slot-row yx108-slot-row1"><span class="yx108-slot-no">${esc(slotNo)}</span><span class="yx108-slot-empty">空格</span></div></div>`;
+    const names = Array.from(new Set(items.map(it => normalizeCellCustomer(it.customer_name)).filter(Boolean)));
+    const mixed = names.length > 1;
+    const nameText = names.join('/');
+    const qtys = items.map(it => qtyOf(it)).filter(n => n > 0);
+    const qtyExpr = qtys.join('+');
+    const total = qtys.reduce((a,b) => a + b, 0);
+    return `<div class="yx108-slot yx106-slot yx112-slot vertical-slot filled ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}" draggable="true"><div class="yx108-slot-row yx108-slot-row1"><span class="yx108-slot-no">${esc(slotNo)}</span><span class="yx108-slot-customers ${mixed ? 'yx112-mixed-customers' : ''}">${esc(nameText)}</span></div><div class="yx108-slot-row yx108-slot-row2"><span class="yx108-slot-sum">${esc(qtyExpr)}</span><span class="yx108-slot-total">${total}件</span></div></div>`;
+  }
+  function bindWarehouseSlot112(el){
+    if (!el || el.dataset.yx112SlotBound === '1') return;
+    el.dataset.yx112SlotBound = '1';
+    el.setAttribute('role','button');
+    el.setAttribute('tabindex','0');
+    el.addEventListener('click', ev => {
+      const zone = el.dataset.zone, col = Number(el.dataset.column), slot = Number(el.dataset.slot);
+      if (typeof window.openWarehouseModal === 'function') window.openWarehouseModal(zone, col, slot);
+    });
+    el.addEventListener('dragover', ev => { ev.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', async ev => {
+      ev.preventDefault(); el.classList.remove('drag-over');
+      const zone = el.dataset.zone, col = Number(el.dataset.column), slot = Number(el.dataset.slot);
+      try {
+        const raw = ev.dataTransfer?.getData('text/plain') || '';
+        const data = JSON.parse(raw || '{}');
+        if (data.kind === 'warehouse-item' && typeof window.moveWarehouseItem === 'function') await window.moveWarehouseItem(data.fromKey, [zone, col, 'direct', slot], data.product_text, data.qty);
+        else if (data.product_text) {
+          const items = cellItems(zone, col, slot);
+          items.push({product_text:data.product_text || data.product_size || '', product_code:data.product_code || data.material || '', material:data.material || data.product_code || '', qty:qtyOf(data) || 1, customer_name:data.customer_name || '', source:'unplaced'});
+          await api('/api/warehouse/cell', {method:'POST', body:JSON.stringify({zone, column_index:col, slot_type:'direct', slot_number:slot, items})});
+        }
+        await renderWarehouse112(true);
+      } catch(e) { toast(e.message || '拖曳失敗', 'error'); }
+    });
+  }
+  function renderGrid112(){
+    ['A','B'].forEach(zone => {
+      const grid = $(zone === 'A' ? 'zone-A-grid' : 'zone-B-grid');
+      if (!grid) return;
+      grid.className = 'zone-grid six-grid vertical-card-grid yx112-warehouse-grid';
+      grid.innerHTML = '';
+      for (let col = 1; col <= 6; col++) {
+        const card = document.createElement('div');
+        card.className = 'yx106-warehouse-column yx112-warehouse-column vertical-column-card';
+        card.dataset.zone = zone;
+        card.dataset.column = String(col);
+        let rows = '';
+        for (let slot = 1; slot <= maxSlot(zone, col); slot++) rows += slotHTML112(zone, col, slot);
+        card.innerHTML = `<div class="yx106-warehouse-column-title"><span>${zone} 區第 ${col} 欄</span><span class="small-note">長按增刪</span></div><div class="yx106-slot-list vertical-slot-list">${rows}</div>`;
+        grid.appendChild(card);
+      }
+      const note = $(zone === 'A' ? 'zone-A-count-note' : 'zone-B-count-note');
+      if (note) note.textContent = '格位唯一新版';
+    });
+    document.querySelectorAll('.yx112-slot').forEach(bindWarehouseSlot112);
+    try { if (typeof window.setWarehouseZone === 'function') window.setWarehouseZone(localStorage.getItem('warehouseActiveZone') || wh().activeZone || 'A', false); } catch(_e) {}
+  }
+  let warehouseLoading112 = null;
+  async function renderWarehouse112(force=false){
+    if (warehouseLoading112) return warehouseLoading112;
+    warehouseLoading112 = (async () => {
+      try {
+        const d = await api(`/api/warehouse?yx112=1&ts=${Date.now()}`, {method:'GET'});
+        wh().cells = Array.isArray(d.cells) ? d.cells : [];
+        wh().zones = d.zones || {A:{}, B:{}};
+        renderGrid112();
+      } catch(e) { toast(e.message || '倉庫圖載入失敗', 'error'); }
+      finally { warehouseLoading112 = null; }
+    })();
+    return warehouseLoading112;
+  }
+
+  function wrapConfirmSubmit112(){
+    if (window.confirmSubmit?.__yx112Wrapped) return;
+    const old = window.confirmSubmit;
+    if (typeof old !== 'function') return;
+    async function wrappedConfirmSubmit112(...args){
+      const module = modKey();
+      const customer = clean($('customer-name')?.value || '');
+      const result = await old.apply(this, args);
+      if (['orders','master_order'].includes(module) && customer) {
+        setTimeout(async () => {
+          try { await loadCustomerBlocks112(true); await selectCustomer112(customer, (window.state?.customerDirectory || []).find(c => c.name === customer)?.customer_uid || ''); }
+          catch(_e) {}
+        }, 80);
+      }
+      return result;
+    }
+    wrappedConfirmSubmit112.__yx112Wrapped = true;
+    window.confirmSubmit = wrappedConfirmSubmit112;
+  }
+  function install(){
+    document.documentElement.dataset.yxFix112 = VERSION;
+    installCustomerLongPressDelegation();
+    window.loadCustomerBlocks = loadCustomerBlocks112;
+    window.renderCustomers = loadCustomerBlocks112;
+    window.selectCustomerForModule = selectCustomer112;
+    window.renderWarehouse = renderWarehouse112;
+    window.renderWarehouseZones = renderGrid112;
+    wrapConfirmSubmit112();
+    if (['orders','master_order','ship','customers'].includes(modKey())) setTimeout(() => loadCustomerBlocks112(true).catch(()=>{}), 60);
+    if (modKey() === 'warehouse') setTimeout(() => renderWarehouse112(true), 60);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  window.addEventListener('pageshow', install);
+  [500, 800, 2000, 3900].forEach(ms => setTimeout(install, ms));
+})();
+/* ==== FIX112 end ==== */

@@ -3252,3 +3252,24 @@ html[data-yx-fix106="FIX108_UNPLACED_SOURCE_AND_SLOT_DISPLAY_MASTER"] .yx108-slo
 .yx111-fast-navigating .page-shell{
   pointer-events:none;
 }
+
+/* ==== FIX112: warehouse/customer final requested display ==== */
+html[data-yx-fix112] .yx112-slot .yx108-slot-customers.yx112-mixed-customers{
+  color:#dc2626!important;
+}
+html[data-yx-fix112] .yx112-slot .yx108-slot-customers{
+  max-width:calc(100% - 26px)!important;
+}
+html[data-yx-fix112] .yx112-slot .yx108-slot-no{
+  font-variant-numeric:tabular-nums!important;
+}
+html[data-yx-fix112] .customer-region-card.yx112-customer-card{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+}
+html[data-yx-fix112] .yx112-customer-actions .danger-btn{
+  border-color:rgba(220,38,38,.25)!important;
+  color:#b91c1c!important;
+}
+/* ==== FIX112 end ==== */
