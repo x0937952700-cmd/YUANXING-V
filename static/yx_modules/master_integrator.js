@@ -42,11 +42,11 @@
     safeInstall('legacy_isolation');
     safeInstall('ornate_label');
 
-    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix129-product-master-loadsource-hardlock'}})); } catch(_e) {}
+    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix131-table-only-master-hardlock'}})); } catch(_e) {}
   }
 
   window.__YX_MASTER_REINSTALL__ = install;
-  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix129-product-master-loadsource-hardlock', install});
+  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix131-table-only-master-hardlock', install});
 
   // FIX124：圓型標籤也屬於母版；每次重裝都重新鎖一次，避免舊版黑標籤回彈。
   install();

@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix129-product-master-loadsource-hardlock';
+  const PWA_VERSION = 'fix131-table-only-master-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

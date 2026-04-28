@@ -375,3 +375,108 @@ html[data-yx124-ornate-label="locked"] .interactive-pill.yx124-ornate-label{
     font-size:clamp(1.5rem,7vw,1.9rem)!important;
   }
 }
+
+/* FIX131：外框改成更深淺灰，hover 內圈改銀色，不再用黃色光暈。 */
+html[data-yx124-ornate-label="locked"]{
+  --yx124-gold:#9aa3af!important;
+  --yx124-gold-2:#687384!important;
+  --yx124-gold-3:#f8fafc!important;
+  --yx124-gold-soft:rgba(148,163,184,.58)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .menu-btn,
+html[data-yx124-ornate-label="locked"] a.menu-btn,
+html[data-yx124-ornate-label="locked"] .home-mini-btn,
+html[data-yx124-ornate-label="locked"] a.home-mini-btn,
+html[data-yx124-ornate-label="locked"] .user-cell,
+html[data-yx124-ornate-label="locked"] .primary-btn,
+html[data-yx124-ornate-label="locked"] button.primary-btn,
+html[data-yx124-ornate-label="locked"] .ghost-btn,
+html[data-yx124-ornate-label="locked"] button.ghost-btn,
+html[data-yx124-ornate-label="locked"] .back-btn,
+html[data-yx124-ornate-label="locked"] a.back-btn,
+html[data-yx124-ornate-label="locked"] .danger-btn,
+html[data-yx124-ornate-label="locked"] button.danger-btn,
+html[data-yx124-ornate-label="locked"] .btn-danger,
+html[data-yx124-ornate-label="locked"] .chip,
+html[data-yx124-ornate-label="locked"] button.chip,
+html[data-yx124-ornate-label="locked"] .pill,
+html[data-yx124-ornate-label="locked"] .tiny-btn,
+html[data-yx124-ornate-label="locked"] .small-btn,
+html[data-yx124-ornate-label="locked"] .icon-btn,
+html[data-yx124-ornate-label="locked"] .interactive-pill,
+html[data-yx124-ornate-label="locked"] .category-title,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag,
+html[data-yx124-ornate-label="locked"] .customer-chip,
+html[data-yx124-ornate-label="locked"] .customer-region-card,
+html[data-yx124-ornate-label="locked"] .zone-switch,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn{
+  border-color:#8d98a6!important;
+  box-shadow:0 10px 24px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.94), inset 0 0 0 5px rgba(148,163,184,.50), inset 0 0 18px rgba(100,116,139,.10)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before,
+html[data-yx124-ornate-label="locked"] .menu-btn::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::before,
+html[data-yx124-ornate-label="locked"] .user-cell::before,
+html[data-yx124-ornate-label="locked"] .primary-btn::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn::before,
+html[data-yx124-ornate-label="locked"] .back-btn::before,
+html[data-yx124-ornate-label="locked"] .danger-btn::before,
+html[data-yx124-ornate-label="locked"] .btn-danger::before,
+html[data-yx124-ornate-label="locked"] .chip::before,
+html[data-yx124-ornate-label="locked"] .pill::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn::before,
+html[data-yx124-ornate-label="locked"] .small-btn::before,
+html[data-yx124-ornate-label="locked"] .icon-btn::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill::before,
+html[data-yx124-ornate-label="locked"] .category-title::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::before,
+html[data-yx124-ornate-label="locked"] .customer-chip::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card::before,
+html[data-yx124-ornate-label="locked"] .zone-switch::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::before{
+  border-color:rgba(117,128,143,.72)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.84), inset 0 0 10px rgba(148,163,184,.24)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover,
+html[data-yx124-ornate-label="locked"] .back-btn:hover,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover,
+html[data-yx124-ornate-label="locked"] .chip:hover,
+html[data-yx124-ornate-label="locked"] .pill:hover,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover,
+html[data-yx124-ornate-label="locked"] .small-btn:hover,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover{
+  border-color:#5f6978!important;
+  box-shadow:0 14px 30px rgba(15,23,42,.15), inset 0 0 0 5px rgba(192,197,204,.70), inset 0 0 18px rgba(148,163,184,.20)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover::before,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .back-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .chip:hover::before,
+html[data-yx124-ornate-label="locked"] .pill:hover::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .small-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover::before{
+  border-color:rgba(160,166,176,.96)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.92), inset 0 0 13px rgba(203,213,225,.42)!important;
+}

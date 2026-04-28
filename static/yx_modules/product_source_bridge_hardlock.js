@@ -1,4 +1,4 @@
-/* FIX129 商品來源母版橋接：所有庫存/訂單/總單刷新都導到 product_actions 母版，避免舊版呼叫 loadSource 失敗 */
+/* FIX131 商品來源母版橋接：所有庫存/訂單/總單刷新都導到 product_actions 母版，避免舊版呼叫 loadSource 失敗 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -16,11 +16,11 @@
     if (pa && typeof pa.loadSource === 'function') return pa.loadSource(source);
     const endpoint = source === 'inventory' ? '/api/inventory' : source === 'orders' ? '/api/orders' : source === 'master_order' ? '/api/master_orders' : '';
     if (!endpoint) return [];
-    const d = await YX.api(endpoint + '?yx129_bridge=1&ts=' + Date.now(), {method:'GET'});
+    const d = await YX.api(endpoint + '?yx131_bridge=1&ts=' + Date.now(), {method:'GET'});
     return Array.isArray(d.items) ? d.items : [];
   }
   function expose(){
-    const fn = YX.mark(bridgeLoadSource, 'product_source_bridge_129');
+    const fn = YX.mark(bridgeLoadSource, 'product_source_bridge_131');
     const bridges = {
       loadSource: fn,
       refreshSource: fn,
@@ -29,13 +29,15 @@
       loadMasterList: () => fn('master_order')
     };
     Object.entries(bridges).forEach(([name, raw]) => {
-      const wrapped = YX.mark(raw, name + '_129');
+      const current = window[name];
+      if (typeof current === 'function' && current.__yx113HardLock) return;
+      const wrapped = YX.mark(raw, name + '_131');
       try { YX.hardAssign(name, wrapped, {configurable:false}); }
-      catch(_e) { try { window[name] = wrapped; } catch(_e2){} }
+      catch(_e) { /* 不覆蓋唯讀硬鎖函式，避免紅色錯誤卡。 */ }
     });
   }
   function install(){
-    document.documentElement.dataset.yx129ProductSourceBridge='locked';
+    document.documentElement.dataset.yx131ProductSourceBridge='locked';
     expose();
     [80, 240, 700, 1500].forEach(ms => setTimeout(expose, ms));
   }

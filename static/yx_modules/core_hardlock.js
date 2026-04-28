@@ -2,7 +2,7 @@
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix129-product-master-loadsource-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'fix131-table-only-master-hardlock') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -61,7 +61,12 @@
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
-      try { Object.defineProperty(fn, '__yx113HardLock', {value:name || true}); } catch(_e) { fn.__yx113HardLock = name || true; }
+      try {
+        if (Object.prototype.hasOwnProperty.call(fn, '__yx113HardLock')) return fn;
+        Object.defineProperty(fn, '__yx113HardLock', {value:name || true, configurable:false, enumerable:false, writable:false});
+      } catch(_e) {
+        // 不直接指派唯讀屬性，避免 product_source_bridge 重複硬鎖時中斷。
+      }
     }
     return fn;
   }
@@ -91,7 +96,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix129-product-master-loadsource-hardlock',
+    version: 'fix131-table-only-master-hardlock',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };

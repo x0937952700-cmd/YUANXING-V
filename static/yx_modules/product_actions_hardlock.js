@@ -1,4 +1,4 @@
-/* FIX129 商品母版硬鎖：補回 loadSource/renderCards/refreshCurrent，完整清單直列顯示、上方編輯全部、小卡上方編輯、尤加利材質修復 */
+/* FIX131 商品母版硬鎖：清單直列全顯示、移除小卡、操作移到表格、修復唯讀硬鎖衝突 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -188,6 +188,38 @@
     const count = selectedIds(source).size;
     btn.textContent = count ? `已選 ${count} 筆｜清除/全選` : '全選目前清單';
   }
+  function rowActionsHTML(source, id){
+    const commonEdit = `<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="edit" data-source="${source}" data-id="${id}">編輯</button>`;
+    const del = `<button class="ghost-btn tiny-btn danger-btn" type="button" data-yx131-row-action="delete" data-source="${source}" data-id="${id}">刪除</button>`;
+    if (source === 'inventory') {
+      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-orders" data-source="${source}" data-id="${id}">加到訂單</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${source}" data-id="${id}">加到總單</button>${del}</div>`;
+    }
+    if (source === 'orders') {
+      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${source}" data-id="${id}">加到總單</button>${del}</div>`;
+    }
+    return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button>${del}</div>`;
+  }
+  function proxyCard(source, id){
+    return {dataset:{source:String(source || ''), id:String(id || '')}};
+  }
+  async function handleRowAction(source, id, action){
+    if (!source || !id) return;
+    const pseudo = proxyCard(source, id);
+    if (action === 'edit') { state.editAll[source] = true; clearSelected(source); renderSummary(source); return; }
+    if (action === 'delete') return deleteItem(pseudo);
+    if (action === 'ship') return shipItem(pseudo);
+    if (action === 'to-orders') return moveInventory(pseudo, 'orders');
+    if (action === 'to-master') {
+      if (source === 'orders') {
+        const row = rowsStore(source).find(r => String(r.id || '') === String(id));
+        await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:(customerOf(row) || selectedCustomer()), allow_inventory_fallback:true})});
+        YX.toast('已加到總單', 'ok');
+        await loadSource(source);
+        return;
+      }
+      return moveInventory(pseudo, 'master_order');
+    }
+  }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
@@ -206,17 +238,17 @@
       const p = splitProduct(r.product_text || '');
       const id = Number(r.id || 0);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}</tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}<td class="yx131-action-cell">${rowActionsHTML(source, id)}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><input class="text-input small yx128-field" data-yx128-field="material" value="${YX.esc(materialOf(r) === '未填材質' ? '' : materialOf(r))}" list="yx128-material-list-${source}" placeholder="材質"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="size" value="${YX.esc(p.size || r.product_text || '')}" placeholder="尺寸"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="數量"></td>
-        ${showCustomer ? `<td><input class="text-input small yx128-field" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}" placeholder="客戶名"></td>` : ''}
+        ${showCustomer ? `<td><input class="text-input small yx128-field" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}" placeholder="客戶名"></td>` : ''}<td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="${showCustomer ? 5 : 4}">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }).join('') : `<tr><td colspan="${showCustomer ? 6 : 5}">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}<th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
@@ -241,16 +273,13 @@
     return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
   function renderCards(source){
-    const list = listEl(source); if (!list) return;
-    let rows = filteredRows(source);
-    const ids = selectedIds(source);
-    if (ids.size) rows = rows.filter(r => ids.has(String(r.id || '')));
-    ensureFilterNote(source, ids.size);
-    list.classList.add('yx113-product-list','yx112-product-list','yx128-product-list');
-    if (source === 'master_order' && !selectedCustomer()) {
-      list.innerHTML = '<div class="empty-state-card compact-empty">請先點選客戶。</div>'; return;
-    }
-    list.innerHTML = rows.length ? rows.map(r => cardHTML(source, r)).join('') : `<div class="empty-state-card compact-empty">目前沒有${YX.esc(title(source))}</div>`;
+    // FIX131：庫存 / 訂單 / 總單不再產生下方小卡，所有操作統一移到上方完整清單。
+    ensureFilterNote(source, 0);
+    const list = listEl(source);
+    if (!list) return;
+    list.classList.add('yx131-hidden-card-list');
+    list.innerHTML = '';
+    list.style.display = 'none';
   }
   async function loadSource(source, opts={}){
     source = source || sourceFromModule();
@@ -374,6 +403,8 @@
       if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = cancelAll.dataset.yx128CancelAll; state.editAll[s] = false; renderSummary(s); renderCards(s); return; }
       const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
       if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
+      const rowAction = ev.target?.closest?.('[data-yx131-row-action]');
+      if (rowAction) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await handleRowAction(rowAction.dataset.source || source, rowAction.dataset.id, rowAction.dataset.yx131RowAction); }catch(e){ YX.toast(e.message || '清單操作失敗','error'); } return; }
       const cardSave = ev.target?.closest?.('[data-yx128-card-save]');
       if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
       const cardCancel = ev.target?.closest?.('[data-yx128-card-cancel]');
@@ -458,7 +489,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix129-product-master-loadsource-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix131-table-only-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
