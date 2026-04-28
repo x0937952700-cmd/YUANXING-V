@@ -10,62 +10,38 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix144-modular-master-hardlock">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix144-modular-master-hardlock">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix144-modular-master-hardlock">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix144-modular-master-hardlock">
-  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";</script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=fix144-modular-master-hardlock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix144_modular_master.css') }}?v=fix144-modular-master-hardlock">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix145-consolidated-master">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix145-consolidated-master">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix145-consolidated-master">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix145-consolidated-master">
+  <script>
+    window.__YX_MASTER_BRIDGE_VERSION__='fix145-consolidated-master';
+    window.__YX145_DEPRECATED_MASTERS_DISABLED__=true;
+    window.__YX_LEGACY_ASSIST_ONLY__=true;
+    window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
+    document.documentElement.dataset.yx145ConsolidatedMaster='locked';
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix145-consolidated-master">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix144_modular_master.css') }}?v=fix145-consolidated-master">
   <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};</script>
   {% if (request.endpoint or '') not in ['login_page'] %}
-  <!-- FIX124：圓型標籤獨立接母版。首頁也載入，不再依賴舊黑色標籤；功能頁 app.js 只當功能庫。 -->
-  <script>window.__YX_MASTER_BRIDGE_VERSION__='fix144-modular-master-hardlock';window.__YX124_MASTER_FIRST__=true;window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;</script>
-  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix145-consolidated-master"></script>
   {% endif %}
   {% if (request.endpoint or '') not in ['home','login_page'] %}
-  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_source_bridge_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_text_validate_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/inline_edit_full_list_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/apple_ui_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix145-consolidated-master"></script>
   {% endif %}
   {% if (request.endpoint or '') not in ['login_page'] %}
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_master_bootstrap.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_home_master.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_products_master.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_customers_master.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_shipping_master.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_warehouse_master.js') }}?v=fix144-modular-master-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix144_final_guard.js') }}?v=fix144-modular-master-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_master_bootstrap.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_home_master.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_products_master.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_customers_master.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_shipping_master.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_page_warehouse_master.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix145_consolidation_guard.js') }}?v=fix145-consolidated-master"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix144_final_guard.js') }}?v=fix145-consolidated-master"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix144-modular-master-hardlock"></script>
-  <!-- FIX128_INLINE_EDIT_FULL_LIST_HARDLOCK -->
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix145-consolidated-master"></script>
 </head>
 <body>
   <div class="page-shell">

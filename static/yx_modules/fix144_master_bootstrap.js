@@ -1,7 +1,7 @@
 /* FIX144 模組化母版總管：每頁/每按鈕/每邏輯分開註冊，舊版只當輔助功能庫 */
 (function(){
   'use strict';
-  const V='fix144-modular-master-hardlock';
+  const V='fix145-consolidated-master';
   const root=document.documentElement;
   root.dataset.yx144ModularMaster='locked';
   const YX=window.YXHardLock||{};
@@ -13,7 +13,7 @@
   const mods={};
   const state={version:V,installed:{},cache:{customers:null,inventory:null,orders:null,master_order:null},lastCustomer:''};
   function register(name, mod){mods[name]=mod||{}; return mod;}
-  function install(name, force=false){const m=mods[name]; if(!m||typeof m.install!=='function')return; if(state.installed[name]&&!force)return; try{state.installed[name]=m.install({V,api,clean,esc,moduleKey,toast,state})||true;}catch(e){toast(`${name}母版啟動失敗：${e.message||e}`,'error');}}
+  function install(name, force=false){const m=mods[name]; if(!m||typeof m.install!=='function')return; if(state.installed[name]){try{m.repair&&m.repair({V,api,clean,esc,moduleKey,toast,state});}catch(_e){} return;} try{state.installed[name]=m.install({V,api,clean,esc,moduleKey,toast,state})||true;}catch(e){toast(`${name}母版啟動失敗：${e.message||e}`,'error');}}
   function installAll(force=false){Object.keys(mods).forEach(n=>install(n,force)); document.dispatchEvent(new CustomEvent('yx144:installed',{detail:{version:V,module:moduleKey()}}));}
   function neutralizeLegacyVisuals(){
     window.__YX144_MASTER_READY__=true;
@@ -39,7 +39,7 @@
   }
   window.YX144={V,register,install,installAll,neutralizeLegacyVisuals,fixEmptyButtons,api,clean,esc,moduleKey,toast,state};
   if(window.YXHardLock&&YX.register)YX.register('fix144_master_bootstrap',{install(){neutralizeLegacyVisuals();fixEmptyButtons();installButtonGuard();}});
-  const boot=()=>{neutralizeLegacyVisuals();fixEmptyButtons();installButtonGuard();installAll(true);};
+  const boot=()=>{neutralizeLegacyVisuals();fixEmptyButtons();installButtonGuard();installAll(false);};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
-  window.addEventListener('load',()=>{neutralizeLegacyVisuals();fixEmptyButtons();installAll(true);},{once:true});
+  window.addEventListener('load',()=>{neutralizeLegacyVisuals();fixEmptyButtons();installAll(false);},{once:true});
 })();
