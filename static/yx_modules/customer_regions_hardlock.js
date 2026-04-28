@@ -4,7 +4,7 @@
   const YX = window.YXHardLock;
   if (!YX) return;
   const $ = id => document.getElementById(id);
-  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0};
+  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0, itemCache:new Map()};
   const REGIONS = ['北區','中區','南區'];
   const moduleKey = () => YX.moduleKey();
   const isRegionPage = () => ['orders','master_order','ship','customers'].includes(moduleKey()) || !!$('region-north') || !!$('customers-north');
@@ -58,6 +58,34 @@
     return out;
   }
 
+  function variantsForName(name){
+    name = YX.clean(name || '');
+    const fromGlobal = Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__) ? window.__YX_SELECTED_CUSTOMER_VARIANTS__.filter(Boolean) : [];
+    if (fromGlobal.length && fromGlobal.includes(name)) return Array.from(new Set(fromGlobal));
+    const row = (state.items || []).find(c => YX.clean(c.name || '') === name || (Array.isArray(c.merge_names) && c.merge_names.includes(name)));
+    const arr = row && Array.isArray(row.merge_names) ? row.merge_names.filter(Boolean) : [name];
+    return Array.from(new Set(arr.length ? arr : [name]));
+  }
+  function variantsQuery(name){
+    const v = variantsForName(name);
+    return '&variants=' + encodeURIComponent(JSON.stringify(v));
+  }
+  function renderCachedSelectedPanel(name){
+    const panel = $('selected-customer-items');
+    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return false;
+    const cache = state.itemCache.get(mergeKey(name) || name);
+    if (!cache || !Array.isArray(cache.items)) return false;
+    renderSelectedCustomerItems(name, cache.items);
+    return true;
+  }
+  function renderSelectedCustomerItems(name, items){
+    const panel = $('selected-customer-items');
+    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return;
+    panel.classList.remove('hidden');
+    const total = (items || []).reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
+    panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${(items||[]).length}筆商品</div></div></div><div class="card-list">${(items||[]).length ? items.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
+  }
+
   function shouldShow(c, mode){
     const ct = counts(c, mode);
     if (mode === 'orders') return ct.qty > 0 || ct.rows > 0;
@@ -74,7 +102,7 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-customer-variants="${YX.esc(JSON.stringify(c.merge_names || [name]))}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
 
   function qtyFromProduct(text, fallback){
@@ -92,12 +120,12 @@
     const panel = $('selected-customer-items');
     if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return;
     panel.classList.remove('hidden');
-    panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
+    if (!renderCachedSelectedPanel(name)) panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
     try {
-      const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&yx121_panel=1&ts=${Date.now()}`, {method:'GET'});
+      const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&fast=1${variantsQuery(name)}`, {method:'GET'});
       const items = Array.isArray(d.items) ? d.items : [];
-      const total = items.reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
-      panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${items.length}筆商品</div></div></div><div class="card-list">${items.length ? items.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
+      state.itemCache.set(mergeKey(name) || name, {items, at:Date.now()});
+      renderSelectedCustomerItems(name, items);
     } catch(e) { panel.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(e.message || '客戶商品載入失敗')}</div>`; }
   }
 
@@ -105,8 +133,15 @@
     name = YX.clean(name || ''); if (!name) return;
     window.__YX_SELECTED_CUSTOMER__ = name;
     const input = $('customer-name');
-    if (input) { input.value = name; input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); }
+    if (input) input.value = name;
     document.querySelectorAll('.yx113-customer-card,.yx114-customer-card').forEach(card => card.classList.toggle('is-active', YX.clean(card.dataset.customerName) === name));
+    try {
+      const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
+      if (source && window.YX113ProductActions) {
+        window.YX113ProductActions.renderSummary?.(source);
+        window.YX113ProductActions.renderCards?.(source);
+      }
+    } catch(_e) {}
     const m = moduleKey();
     if (m === 'customers' && typeof window.fillCustomerForm === 'function') {
       try { await window.fillCustomerForm(name); } catch(_e) {}
@@ -114,9 +149,12 @@
     }
     // FIX120/121：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
     // 商品清單統一交給 product_actions_hardlock 母版與 selected-customer panel 刷新。
-    await renderSelectedCustomerPanel(name);
-    try { if (window.YX113ProductActions) await window.YX113ProductActions.refreshCurrent(); } catch(_e) {}
-    try { if (moduleKey() === 'ship' && window.YX116ShipPicker) await window.YX116ShipPicker.load(name); } catch(_e) {}
+    renderSelectedCustomerPanel(name).catch(()=>{});
+    try {
+      const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
+      if (source && window.YX113ProductActions && !window.YX113ProductActions.rowsStore?.(source)?.length) window.YX113ProductActions.refreshCurrent?.().catch(()=>{});
+    } catch(_e) {}
+    try { if (moduleKey() === 'ship' && window.YX116ShipPicker) window.YX116ShipPicker.load(name).catch(()=>{}); } catch(_e) {}
   }
   function renderBoards(items){
     if (!isRegionPage()) return;
@@ -291,6 +329,7 @@
       const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card || Date.now() < blockClickUntil) { if (card) { ev.preventDefault(); ev.stopPropagation(); } return; }
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
+      try { window.__YX_SELECTED_CUSTOMER_VARIANTS__ = JSON.parse(card.dataset.customerVariants || '[]'); } catch(_e) { window.__YX_SELECTED_CUSTOMER_VARIANTS__ = [name]; }
       ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
       await selectCustomer(name);
     }, true);

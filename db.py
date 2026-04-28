@@ -9,10 +9,79 @@ from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
 
 DATABASE_URL = (os.getenv("DATABASE_URL", "sqlite:///warehouse.db") or "sqlite:///warehouse.db").strip()
+
+def _normalize_database_url(url: str) -> str:
+    """FIX141 Render PostgreSQL External URL safety."""
+    u = (url or '').strip().replace('\n', '').replace('\r', '')
+    if u.lower().startswith(('postgres://', 'postgresql://')) and '.render.com' in u and 'sslmode=' not in u.lower():
+        joiner = '&' if '?' in u else '?'
+        u = f"{u}{joiner}sslmode=require"
+    return u
+
+DATABASE_URL = _normalize_database_url(DATABASE_URL)
 USE_POSTGRES = DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
 
 if USE_POSTGRES:
     import psycopg2
+    from psycopg2 import pool as _pg_pool
+
+_PG_POOL = None
+
+class _PooledPGConnection:
+    """Return psycopg2 connections to a small pool when old code calls close()."""
+    def __init__(self, pool_obj, conn):
+        self._pool = pool_obj
+        self._conn = conn
+    def cursor(self, *args, **kwargs):
+        return self._conn.cursor(*args, **kwargs)
+    def commit(self):
+        return self._conn.commit()
+    def rollback(self):
+        return self._conn.rollback()
+    @property
+    def closed(self):
+        return getattr(self._conn, 'closed', 1)
+    def close(self):
+        if self._conn is None:
+            return
+        conn = self._conn
+        self._conn = None
+        try:
+            if not getattr(conn, 'closed', 1):
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                self._pool.putconn(conn)
+                return
+        except Exception:
+            pass
+        try:
+            self._pool.putconn(conn, close=True)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            try:
+                self.rollback()
+            except Exception:
+                pass
+        self.close()
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+def _get_pg_pool():
+    global _PG_POOL
+    if _PG_POOL is None:
+        minconn = int(os.getenv('PG_POOL_MIN', '1') or '1')
+        maxconn = int(os.getenv('PG_POOL_MAX', '4') or '4')
+        _PG_POOL = _pg_pool.SimpleConnectionPool(minconn, maxconn, dsn=DATABASE_URL, connect_timeout=10)
+    return _PG_POOL
 
 def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -25,9 +94,32 @@ def _sqlite_path():
 
 def get_db():
     if USE_POSTGRES:
-        conn = psycopg2.connect(DATABASE_URL)
-        conn.autocommit = False
-        return conn
+        last_error = None
+        for _i in range(2):
+            try:
+                pg_pool = _get_pg_pool()
+                conn = pg_pool.getconn()
+                if getattr(conn, 'closed', 1):
+                    try:
+                        pg_pool.putconn(conn, close=True)
+                    except Exception:
+                        pass
+                    continue
+                conn.autocommit = False
+                return _PooledPGConnection(pg_pool, conn)
+            except Exception as e:
+                last_error = e
+                try:
+                    import time
+                    time.sleep(0.35)
+                except Exception:
+                    pass
+        try:
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+            conn.autocommit = False
+            return conn
+        except Exception as e:
+            raise last_error or e
     conn = sqlite3.connect(_sqlite_path())
     conn.row_factory = sqlite3.Row
     return conn
@@ -767,6 +859,30 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute(sql("UPDATE customer_profiles SET customer_uid = ?, updated_at = COALESCE(updated_at, ?) WHERE id = ?"), (uid, now(), row.get('id')))
     except Exception:
         pass
+
+
+    # FIX142：加上常用查詢索引，降低點客戶、開出貨、開清單時的 PostgreSQL 延遲。
+    try:
+        for _idx in (
+            "CREATE INDEX IF NOT EXISTS ix_customer_profiles_name ON customer_profiles(name)",
+            "CREATE INDEX IF NOT EXISTS ix_customer_profiles_region ON customer_profiles(region)",
+            "CREATE INDEX IF NOT EXISTS ix_inventory_customer_name ON inventory(customer_name)",
+            "CREATE INDEX IF NOT EXISTS ix_inventory_customer_uid ON inventory(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_inventory_location ON inventory(location)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_customer_name ON orders(customer_name)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_customer_uid ON orders(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_location ON orders(location)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_customer_name ON master_orders(customer_name)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_customer_uid ON master_orders(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_location ON master_orders(location)",
+            "CREATE INDEX IF NOT EXISTS ix_shipping_records_customer_name ON shipping_records(customer_name)",
+            "CREATE INDEX IF NOT EXISTS ix_shipping_records_customer_uid ON shipping_records(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_shipping_records_shipped_at ON shipping_records(shipped_at)",
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_cells_zone_col_slot ON warehouse_cells(zone, column_index, slot_number)"
+        ):
+            cur.execute(_idx)
+    except Exception as e:
+        log_error('fix142_create_indexes', str(e))
 
     # default settings
     if USE_POSTGRES:
@@ -1511,21 +1627,27 @@ def get_customers(active_only=True):
     conn = get_db()
     cur = conn.cursor()
     try:
-        global _YX123_CUSTOMERS_AUTO_RECOVERED
-        if not globals().get('_YX123_CUSTOMERS_AUTO_RECOVERED'):
-            globals()['_YX123_CUSTOMERS_AUTO_RECOVERED'] = True
+        # FIX142：客戶清單要即時顯示，不能每次點訂單/總單/出貨都重掃四張資料表。
+        # 資料救援保留在 /api/recover/customers-from-relations；自動維護每個伺服器行程最多只跑一次。
+        if not globals().get('_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'):
+            globals()['_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'] = True
+            try:
+                _sync_customer_uid_columns(cur)
+            except Exception as e:
+                log_error('get_customers_sync_uid_once', str(e))
+            try:
+                _clean_product_like_materials(cur)
+            except Exception as e:
+                log_error('get_customers_clean_materials_once', str(e))
+        if os.environ.get('YX_AUTO_RECOVER_ON_BOOT') == '1' and not globals().get('_YX142_CUSTOMERS_AUTO_RECOVERED'):
+            globals()['_YX142_CUSTOMERS_AUTO_RECOVERED'] = True
             try:
                 conn.close()
                 recover_customer_profiles_from_relation_tables()
                 conn = get_db()
                 cur = conn.cursor()
             except Exception as e:
-                log_error('get_customers_auto_recover_once', str(e))
-        _sync_customer_uid_columns(cur)
-        try:
-            _clean_product_like_materials(cur)
-        except Exception as e:
-            log_error('get_customers_clean_materials', str(e))
+                log_error('get_customers_auto_recover_optional', str(e))
 
         query = "SELECT * FROM customer_profiles"
         if active_only:

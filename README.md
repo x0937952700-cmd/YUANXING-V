@@ -1,13 +1,53 @@
-# FIX139 README 統整母版硬鎖版
+# 沅興木業 FIX141 Render 部署確實修復 + README 母版統整版
+
+本版是 FIX139 的部署修正版，目標是解決 Render 無法部署與新版母版被舊版覆蓋的問題。
+
+## 部署修復
+
+1. 新增 `.python-version`，固定 Render Dashboard 直接部署時使用 Python 3.11.11。
+2. 更新 `runtime.txt` 為 `python-3.11.11`，保留兼容。
+3. 更新 `render.yaml`：
+   - Build Command：`pip install --upgrade pip && pip install -r requirements.txt`
+   - Start Command：`gunicorn app:app --config gunicorn.conf.py`
+   - `PYTHON_VERSION=3.11.11`
+   - `SECRET_KEY` 自動產生
+   - healthCheckPath：`/health`
+4. 確認根目錄必備檔案完整：`app.py / db.py / requirements.txt / Procfile / render.yaml / .python-version / static / templates`。
+
+## 母版統整
+
+1. 版本號升級：`fix142-speed-ship-master-hardlock`。
+2. README / 歷代 FIX 要求重新接到最後母版：
+   - `static/yx_modules/fix140_readme_master_hardlock.css`
+   - `static/yx_modules/fix140_readme_master_hardlock.js`
+3. 舊版 `app.js` 保留為功能輔助庫；新版視覺與主要入口最後接管，避免舊版畫面覆蓋。
+4. 保留：客戶合併、109 資料救援、自動件數判定、完整直列表格、A/B 區、出貨檢查、倉庫拖拉、還原功能、雲彩背景、按鈕標籤外觀。
+
+## GitHub 上傳方式
+
+不要只上傳 ZIP。請先解壓縮，然後把解壓縮後的所有檔案放到 GitHub repo 根目錄。
+GitHub 根目錄要直接看到 `app.py`，不能只看到一個 `.zip` 檔。
+
+## Render 設定
+
+Root Directory：留空
+Build Command：`pip install --upgrade pip && pip install -r requirements.txt`
+Start Command：`gunicorn app:app --config gunicorn.conf.py`
+Environment：如果 Render 後台已經有 `PYTHON_VERSION`，請改成 `3.11.11`。
+
+
+---
+
+# FIX141 README 統整母版硬鎖版
 
 本版目的：修復 Render/GitHub 部署常見問題，並把 README 與歷代 FIX 已確認需求統一接到最後母版。
 
 ## 主要修復
 
-1. 版本號統一升級為 `fix139-readme-unified-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
+1. 版本號統一升級為 `fix142-speed-ship-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
 2. 新增最後母版：
-   - `static/yx_modules/fix139_readme_master_hardlock.css`
-   - `static/yx_modules/fix139_readme_master_hardlock.js`
+   - `static/yx_modules/fix140_readme_master_hardlock.css`
+   - `static/yx_modules/fix140_readme_master_hardlock.js`
 3. 新母版最後載入，負責接管視覺與操作入口；舊版 `app.js` 保留作為輔助函式庫，不再讓舊版主動畫面覆蓋新版。
 4. 一般按鈕固定黑字，刪除 / 批量刪除 / 重要操作固定紅字；按下或滑過時銀色內圈更明顯。
 5. 修復空白按鈕：會依照 `data-*` 屬性自動補回「編輯 / 直接出貨 / 加到訂單 / 加到總單 / 刪除 / 還原上一步」等文字。
@@ -16,7 +56,7 @@
 8. 倉庫圖由新版母版接管；舊版倉庫面板隱藏，A 倉 / B 倉未入倉清單會依區域帶入 `zone=A/B`。
 9. 出貨頁補客戶快速選擇與客戶商品完整清單；客戶名稱輸入後會自動重新載入該客戶商品。
 10. 保留還原功能：還原上一步與設定頁差異紀錄單筆還原都保留。
-11. 加入 `runtime.txt`，協助 Render 固定 Python 3.11.10。
+11. 加入 `runtime.txt`，協助 Render 固定 Python 3.11.11。
 
 ## 部署注意
 
@@ -33,7 +73,7 @@
 
 Render 設定建議：
 
-- Build Command：`pip install -r requirements.txt`
+- Build Command：`pip install --upgrade pip && pip install -r requirements.txt`
 - Start Command：`gunicorn app:app --config gunicorn.conf.py`
 - Root Directory：留空
 
@@ -42,7 +82,7 @@ Render 設定建議：
 已執行：
 
 - Python compile OK
-- FIX139 smoke test OK
+- FIX141 smoke test OK
 - 新母版 JS 語法 OK
 - Service Worker JS 語法 OK
 
@@ -306,7 +346,7 @@ gunicorn app:app
 ```text
 SECRET_KEY=任意長字串
 DATABASE_URL=Render PostgreSQL 連線字串
-PYTHON_VERSION=3.11.10
+PYTHON_VERSION=3.11.11
 ```
 
 如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix120-apple-sort-hardlock`。

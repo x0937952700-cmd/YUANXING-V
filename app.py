@@ -68,7 +68,14 @@ def run_startup_self_check():
             pass
     return checks
 
-init_db()
+# FIX141: Render 防 502 啟動保護。資料庫暫時連線/初始化失敗時不讓 Gunicorn 直接退出。
+STARTUP_DB_ERROR = ''
+try:
+    init_db()
+except Exception as e:
+    STARTUP_DB_ERROR = str(e)
+    print('[FIX141] init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+
 STARTUP_CHECKS = run_startup_self_check()
 
 PUBLIC_PATHS = {
@@ -1478,9 +1485,23 @@ def api_customer_items():
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX125：相同顯示客戶已在清單合併；點進去時也要同時撈回所有舊名稱/空白差異名稱，
-        # 例如「山益 CNF」「山益CNF」不可只顯示其中一邊的商品。
-        variants = customer_merge_variants(cur, name) if name else []
+        # FIX142：點客戶必須即時顯示。前端若已從客戶母版拿到 merge_names，
+        # 直接帶 variants 避免每次點擊又掃四張資料表找同名變體。
+        raw_variants = (request.args.get('variants') or '').strip()
+        variants = []
+        if raw_variants:
+            try:
+                decoded = json.loads(raw_variants)
+                if isinstance(decoded, list):
+                    variants = [(x or '').strip() for x in decoded if (x or '').strip()]
+            except Exception:
+                variants = [(x or '').strip() for x in re.split(r'[|,\n]+', raw_variants) if (x or '').strip()]
+            if name and name not in variants:
+                variants.insert(0, name)
+        elif (request.args.get('fast') or '') == '1':
+            variants = [name] if name else []
+        else:
+            variants = customer_merge_variants(cur, name) if name else []
         def pull(table, source_label):
             where_parts = []
             params = []
@@ -2729,7 +2750,7 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
-    return jsonify(success=True, status="ok", service="yuanxing", mode="native_device_only")
+    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_error=STARTUP_DB_ERROR[:500])
 
 @app.route("/api/native-shell/config", methods=["GET"])
 def api_native_shell_config():
