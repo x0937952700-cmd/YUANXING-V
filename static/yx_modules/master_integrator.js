@@ -1,4 +1,4 @@
-/* FIX116 母版整合器：最後載入、最後接管
+/* FIX117 母版整合器：最後載入、最後接管
    功能拆模組後由此統一安裝，避免舊版函式蓋回新版。 */
 (function(){
   'use strict';
@@ -12,6 +12,7 @@
     document.documentElement.dataset.yx115Master = 'installed';
     document.documentElement.dataset.yx116Master = 'installed';
     const m = YX.moduleKey();
+    YX.install('apple_ui', {force:true});
     if (m === 'today_changes') YX.install('today_changes', {force:true});
     if (m === 'warehouse') YX.install('warehouse', {force:true});
     if (['orders','master_order','ship','customers'].includes(m)) YX.install('customer_regions', {force:true});

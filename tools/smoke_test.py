@@ -23,19 +23,20 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix116-master-hardlock", "YXHardLock", "register"],
-    "static/yx_modules/today_changes_hardlock.js": ["FIX116 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
-    "static/yx_modules/warehouse_hardlock.js": ["FIX116 倉庫硬鎖", "normalizeSlot"],
-    "static/yx_modules/product_actions_hardlock.js": ["FIX116 商品母版硬鎖", "yx112-product-card"],
-    "static/yx_modules/ship_picker_hardlock.js": ["FIX116 出貨客戶商品下拉母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker"],
-    "static/yx_modules/legacy_isolation_hardlock.js": ["FIX116 舊版渲染隔離", "legacy_isolation", "isolateAll"],
-    "static/yx_modules/master_integrator.js": ["FIX116 母版整合器", "install('today_changes'", "legacy_isolation", "ship_picker"],
+    "static/yx_modules/core_hardlock.js": ["fix117-master-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/today_changes_hardlock.js": ["FIX117 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
+    "static/yx_modules/warehouse_hardlock.js": ["FIX117 倉庫硬鎖", "normalizeSlot"],
+    "static/yx_modules/product_actions_hardlock.js": ["FIX117 商品母版硬鎖", "yx112-product-card"],
+    "static/yx_modules/ship_picker_hardlock.js": ["FIX117 出貨客戶商品下拉母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker"],
+    "static/yx_modules/legacy_isolation_hardlock.js": ["FIX117 舊版渲染隔離", "legacy_isolation", "isolateAll"],
+    "static/yx_modules/apple_ui_hardlock.js": ["FIX117 蘋果風按鈕介面母版硬鎖", "apple_ui", "yx117AppleUi"],
+    "static/yx_modules/master_integrator.js": ["FIX117 母版整合器", "install('today_changes'", "legacy_isolation", "ship_picker", "apple_ui"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix116-master-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "app.js", "pwa.js"],
+    "templates/base.html": ["fix117-master-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "apple_ui_hardlock.js", "app.js", "pwa.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix116-master-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js"],
-    "static/pwa.js": ["fix116-master-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix116-master-hardlock"'],
+    "static/service-worker.js": ["fix117-master-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "apple_ui_hardlock.js"],
+    "static/pwa.js": ["fix117-master-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix117-master-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -65,4 +66,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX116 smoke test OK")
+print("FIX117 smoke test OK")

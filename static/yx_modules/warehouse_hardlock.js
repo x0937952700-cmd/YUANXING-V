@@ -1,4 +1,4 @@
-/* FIX116 倉庫硬鎖：倉庫圖只允許新版渲染入口；舊版渲染函式一律轉接，不直接輸出舊介面 */
+/* FIX117 倉庫硬鎖：倉庫圖只允許新版渲染入口；舊版渲染函式一律轉接，不直接輸出舊介面 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -174,6 +174,7 @@
     document.documentElement.dataset.yx114Warehouse = 'locked';
     document.documentElement.dataset.yx115Warehouse = 'locked';
     document.documentElement.dataset.yx116Warehouse = 'locked';
+    document.documentElement.dataset.yx117Warehouse = 'locked';
     aliasWarehouseEntries();
     observeWarehouse();
     cleanupLegacyPanels();

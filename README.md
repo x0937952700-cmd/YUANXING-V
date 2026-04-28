@@ -1,8 +1,8 @@
-# 沅興木業｜最終商用整合版 FIX116
+# 沅興木業｜最終商用整合版 FIX117
 
-本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX116 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
+本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX117 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
 
-版本號統一為：`fix116-master-hardlock`。
+版本號統一為：`fix117-master-hardlock`。
 
 ---
 
@@ -70,7 +70,7 @@
 - 套用材質
 - 批量刪除
 
-批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX116 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
+批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX117 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
 
 ### 6. 北 / 中 / 南客戶列表固定新版
 
@@ -134,6 +134,7 @@ static/yx_modules/customer_regions_hardlock.js
 static/yx_modules/product_actions_hardlock.js
 static/yx_modules/ship_picker_hardlock.js
 static/yx_modules/legacy_isolation_hardlock.js
+static/yx_modules/apple_ui_hardlock.js
 static/yx_modules/master_integrator.js
 ```
 
@@ -173,6 +174,14 @@ static/yx_modules/master_integrator.js
 - 舊版 `loadShipCustomerItems66 / 82 / 83` 入口全部轉接到新版函式
 - 不改後端 API，不影響原本出貨扣除、反查、預覽功能
 
+
+### FIX117 本次追加硬鎖
+
+- 北區 / 中區 / 南區客戶卡片改回「一排一個客戶」，不再兩欄排列，保留長按 / 右鍵操作表、移區、編輯、刪除、點客戶載入商品等既有功能。
+- 舊版客戶卡片若再次輸出，會先被隱藏，再由母版重新渲染成新版一列式卡片，避免舊介面影響畫面。
+- 新增 `static/yx_modules/apple_ui_hardlock.js`，專門處理按鈕高級簡約蘋果風視覺；只改 CSS / dataset，不改任何資料 API、送出流程或按鈕事件。
+- `master_integrator.js` 最後統一安裝 `apple_ui`，讓蘋果風按鈕介面跟著母版硬鎖，不被舊 CSS 覆蓋。
+
 ---
 
 ## 主要檔案
@@ -194,6 +203,7 @@ static/yx_modules/customer_regions_hardlock.js
 static/yx_modules/product_actions_hardlock.js
 static/yx_modules/ship_picker_hardlock.js
 static/yx_modules/legacy_isolation_hardlock.js
+static/yx_modules/apple_ui_hardlock.js
 static/yx_modules/master_integrator.js
 ```
 
@@ -215,7 +225,7 @@ DATABASE_URL=Render PostgreSQL 連線字串
 PYTHON_VERSION=3.11.10
 ```
 
-如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix116-master-hardlock`。
+如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix117-master-hardlock`。
 
 ---
 
@@ -231,6 +241,8 @@ PYTHON_VERSION=3.11.10
 - 管理員名單相容讀取
 - 庫存 / 訂單 / 總單批量工具列與小卡篩選
 - 北中南客戶長按操作模組
+- 北中南客戶一排一個新版卡片
+- 蘋果風按鈕介面母版
 - A / B 倉格子新版顯示格式
 
 ---
@@ -242,3 +254,4 @@ PYTHON_VERSION=3.11.10
 - FIX113：差異紀錄範圍硬鎖、設定頁 OCR 區塊移除、管理員 500 相容、商品清單批量材質 / 批量刪除、表格選取後小卡篩選、北中南客戶標籤與長按操作、A/B 倉格子顯示硬鎖。
 - FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、今日異動未錄入倉庫圖長按刷新。
 - FIX116：舊版渲染隔離、原生 MutationObserver 只開給母版監控、商品批量選取狀態保留、倉庫 / 客戶 / 今日異動 / 設定頁新增最後一道畫面硬鎖，不改資料功能。
+- FIX117：北中南客戶改回一排一個客戶，新增蘋果風按鈕介面母版，舊版客戶卡片由母版隱藏並重畫，不改任何資料功能。

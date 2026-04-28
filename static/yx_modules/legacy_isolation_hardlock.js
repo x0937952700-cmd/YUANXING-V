@@ -1,4 +1,4 @@
-/* FIX116 舊版渲染隔離：只隔離舊畫面輸出，不刪功能、不改資料 API */
+/* FIX117 舊版渲染隔離：只隔離舊畫面輸出，不刪功能、不改資料 API */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -38,8 +38,9 @@
     if (!['orders','master_order','ship','customers'].includes(m) && !$('region-north') && !$('customers-north')) return;
     document.documentElement.dataset.yx115Customers = 'locked';
     document.documentElement.dataset.yx116Customers = 'locked';
+    document.documentElement.dataset.yx117Customers = 'locked';
     document.querySelectorAll('.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow').forEach(hide);
-    const bad = document.querySelector('.customer-region-card:not(.yx114-customer-card),.customer-card-arrow,.fix48-customer-arrow');
+    const bad = document.querySelector('.customer-region-card:not(.yx114-customer-card),.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow');
     if (bad && window.YX116CustomerRegions?.loadCustomerBlocks) {
       try { window.YX116CustomerRegions.loadCustomerBlocks(true); } catch(_e) {}
     } else if (bad && window.YX115CustomerRegions?.loadCustomerBlocks) {
@@ -60,6 +61,7 @@
     if (moduleKey() !== 'warehouse' && !$('zone-A-grid') && !$('zone-B-grid')) return;
     document.documentElement.dataset.yx115Warehouse = 'locked';
     document.documentElement.dataset.yx116Warehouse = 'locked';
+    document.documentElement.dataset.yx117Warehouse = 'locked';
     document.querySelectorAll('#warehouse-detail-panel,#yx71-warehouse-cell-menu,#yx91-warehouse-batch-panel,#yx97-warehouse-batch-panel,#yx99-warehouse-batch-panel,#yx102-warehouse-batch-panel,#yx103-warehouse-batch-panel,#yx105-warehouse-batch-panel').forEach(el => {
       if (el.id === 'warehouse-detail-panel') { el.innerHTML = ''; hide(el); }
       else hide(el);
