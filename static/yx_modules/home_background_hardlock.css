@@ -10,7 +10,7 @@ html[data-yx133-home-bg="locked"] body::before{
   inset:0;
   z-index:-2;
   pointer-events:none;
-  background-image:url('/static/yx_assets/home_cloud_background.jpg?v=fix135-master-final-hardlock');
+  background-image:url('/static/yx_assets/home_cloud_background.jpg?v=fix136-label-text-master-hardlock');
   background-size:cover;
   background-position:center center;
   background-repeat:no-repeat;
