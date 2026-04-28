@@ -23,7 +23,7 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix123-ornate-frame-fit-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/core_hardlock.js": ["fix124-minimal-grey-label-hardlock", "YXHardLock", "register"],
     "static/yx_modules/today_changes_hardlock.js": ["FIX121 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
     "static/yx_modules/warehouse_hardlock.js": ["FIX121 倉庫硬鎖", "normalizeSlot"],
     "static/yx_modules/product_actions_hardlock.js": ["FIX121 商品母版硬鎖", "yx112-product-card"],
@@ -33,15 +33,15 @@ required = {
     "static/yx_modules/apple_ui_hardlock.js": ["FIX121 蘋果風按鈕介面母版硬鎖", "apple_ui", "yx117AppleUi"],
     "static/yx_modules/luxury_label_ui_hardlock.js": ["FIX121 華麗標籤介面母版硬鎖", "luxury_label_ui", "yx121LuxuryUi"],
     "static/yx_modules/luxury_label_ui_v122_hardlock.js": ["FIX122 華麗圓框標籤母版硬鎖", "luxury_label_ui_v122", "yx122LabelUi"],
-    "static/yx_modules/luxury_label_ui_v123_hardlock.js": ["FIX123 華麗異形框母版硬鎖", "luxury_label_ui_v123", "yx123FrameUi"],
+    "static/yx_modules/minimal_grey_ui_v124_hardlock.js": ["FIX124 簡約淡灰標籤母版硬鎖", "minimal_grey_ui_v124", "yx124MinimalGreyUi"],
     "static/yx_modules/customer_data_guard_hardlock.js": ["FIX121 客戶資料安全母版", "customer_data_guard", "yx121CustomerGuard"],
-    "static/yx_modules/master_integrator.js": ["FIX123 母版整合器", "install(\'today_changes\'", "legacy_isolation", "ship_picker", "luxury_label_ui", "luxury_label_ui_v122", "luxury_label_ui_v123", "customer_data_guard"],
+    "static/yx_modules/master_integrator.js": ["FIX124 母版整合器", "install(\'today_changes\'", "legacy_isolation", "ship_picker", "luxury_label_ui", "luxury_label_ui_v122", "minimal_grey_ui_v124", "customer_data_guard"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix123-ornate-frame-fit-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "luxury_label_ui_hardlock.js", "luxury_label_ui_v122_hardlock.js", "luxury_label_ui_v123_hardlock.js", "customer_data_guard_hardlock.js", "app.js", "pwa.js"],
+    "templates/base.html": ["fix124-minimal-grey-label-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "luxury_label_ui_hardlock.js", "luxury_label_ui_v122_hardlock.js", "minimal_grey_ui_v124_hardlock.js", "customer_data_guard_hardlock.js", "app.js", "pwa.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix123-ornate-frame-fit-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "luxury_label_ui_hardlock.js", "luxury_label_ui_v122_hardlock.js", "luxury_label_ui_v123_hardlock.js", "customer_data_guard_hardlock.js"],
-    "static/pwa.js": ["fix123-ornate-frame-fit-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix123-ornate-frame-fit-hardlock"'],
+    "static/service-worker.js": ["fix124-minimal-grey-label-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "luxury_label_ui_hardlock.js", "luxury_label_ui_v122_hardlock.js", "minimal_grey_ui_v124_hardlock.js", "customer_data_guard_hardlock.js"],
+    "static/pwa.js": ["fix124-minimal-grey-label-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix124-minimal-grey-label-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -71,4 +71,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX123 smoke test OK")
+print("FIX124 smoke test OK")
