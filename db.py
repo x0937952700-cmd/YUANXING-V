@@ -652,6 +652,14 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             value {text},
             updated_at {text}
         )""",
+        f"""CREATE TABLE IF NOT EXISTS customer_safety_snapshots (
+            id {pk},
+            snapshot_type {text},
+            customer_name {text},
+            customer_uid {text},
+            payload {text},
+            created_at {text}
+        )""",
     ]
     for t in tables:
         cur.execute(t)
@@ -676,6 +684,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         'warehouse_recent_slots': [('username','TEXT'),('customer_name','TEXT'),('zone','TEXT'),('column_index','INTEGER'),('slot_number','INTEGER'),('used_at','TEXT')],
         'audit_trails': [('username','TEXT'),('action_type','TEXT'),('entity_type','TEXT'),('entity_key','TEXT'),('before_json','TEXT'),('after_json','TEXT'),('created_at','TEXT')],
         'todo_items': [('note','TEXT'),('due_date','TEXT'),('image_filename','TEXT'),('created_by','TEXT'),('created_at','TEXT'),('updated_at','TEXT'),('completed_at','TEXT'),('is_done','INTEGER DEFAULT 0'),('sort_order','INTEGER DEFAULT 0')],
+        'customer_safety_snapshots': [('snapshot_type','TEXT'),('customer_name','TEXT'),('customer_uid','TEXT'),('payload','TEXT'),('created_at','TEXT')],
     }
     for _table, _columns in _schema_columns.items():
         for _col, _def in _columns:
@@ -1310,49 +1319,13 @@ def get_customers(active_only=True):
             if name:
                 name_to_uid[name] = uid or name
 
-        # FIX119：補回只存在於庫存 / 訂單 / 總單 / 出貨紀錄、但尚未寫入 customer_profiles 的舊客戶。
-        # 只在讀取清單時做虛擬補齊，不改原資料表、不影響既有新增 / 編輯 / 刪除流程。
-        existing_names = set((row.get('name') or '').strip() for row in customers if (row.get('name') or '').strip())
-        existing_uids = set((row.get('customer_uid') or '').strip() for row in customers if (row.get('customer_uid') or '').strip())
-        try:
-            for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
-                cur.execute(sql(f"""
-                    SELECT DISTINCT customer_name, customer_uid
-                    FROM {table}
-                    WHERE COALESCE(customer_name, '') <> ''
-                """))
-                for r in rows_to_dict(cur):
-                    vname = (r.get('customer_name') or '').strip()
-                    vuid = (r.get('customer_uid') or '').strip()
-                    if not vname:
-                        continue
-                    if vname in existing_names or (vuid and vuid in existing_uids):
-                        continue
-                    virtual_uid = vuid or _new_customer_uid(vname, '')
-                    customers.append({
-                        'id': None,
-                        'name': vname,
-                        'phone': '',
-                        'address': '',
-                        'notes': '',
-                        'common_materials': '',
-                        'common_sizes': '',
-                        'region': '北區',
-                        'customer_uid': virtual_uid,
-                        'is_archived': 0,
-                        'archived_at': None,
-                        'created_at': '',
-                        'updated_at': '',
-                        'is_virtual': True,
-                    })
-                    existing_names.add(vname)
-                    if virtual_uid:
-                        existing_uids.add(virtual_uid)
-                    name_to_uid[vname] = virtual_uid or vname
-        except Exception as e:
-            log_error('get_customers_virtual_recover', str(e))
-
+        # FIX120：客戶清單不能只依 customer_profiles。
+        # 舊資料可能只存在於 inventory / orders / master_orders / shipping_records，
+        # 若沒有同步到 customer_profiles，前端點客戶後就會像「客戶裡面的商品不見」。
+        # 這裡保留原本客戶資料，同時把仍有關聯商品的舊客戶補成 virtual customer 顯示。
         count_map = {}
+        key_name_map = {}
+        key_uid_map = {}
         def add_grouped_counts(table, prefix):
             try:
                 cur.execute(sql(f"""
@@ -1371,6 +1344,10 @@ def get_customers(active_only=True):
                     key = uid or name_to_uid.get(cname) or cname
                     if not key:
                         continue
+                    if cname and key not in key_name_map:
+                        key_name_map[key] = cname
+                    if uid and key not in key_uid_map:
+                        key_uid_map[key] = uid
                     c = count_map.setdefault(key, empty_counts())
                     c[f'{prefix}_rows'] += int(r.get('row_count') or 0)
                     try:
@@ -1385,10 +1362,12 @@ def get_customers(active_only=True):
         add_grouped_counts('master_orders', 'master')
         add_grouped_counts('shipping_records', 'shipping')
 
+        seen_keys = set()
         for row in customers:
             name = (row.get('name') or '').strip()
             uid = (row.get('customer_uid') or '').strip()
             key = uid or name_to_uid.get(name) or name
+            seen_keys.add(key)
             counts = count_map.get(key, empty_counts())
             counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
             counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
@@ -1400,8 +1379,37 @@ def get_customers(active_only=True):
             row['history_count'] = counts['shipping_qty']
             row['customer_uid'] = uid or name_to_uid.get(name) or _new_customer_uid(name, row.get('created_at') or '')
             row['is_archived'] = int(row.get('is_archived') or 0)
-        order_map = {'北區': 1, '中區': 2, '南區': 3}
-        customers.sort(key=lambda r: (order_map.get((r.get('region') or '').strip(), 9), (r.get('name') or '')))
+
+        for key, counts in count_map.items():
+            if key in seen_keys:
+                continue
+            counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
+            counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
+            counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
+            counts['history_qty_total'] = counts['shipping_qty']
+            if int(counts.get('total_rows') or 0) <= 0:
+                continue
+            cname = (key_name_map.get(key) or '').strip()
+            if not cname:
+                continue
+            customers.append({
+                'id': 0,
+                'name': cname,
+                'phone': '',
+                'address': '',
+                'notes': 'FIX120 virtual customer from relation tables',
+                'common_materials': '',
+                'common_sizes': '',
+                'region': '北區',
+                'customer_uid': key_uid_map.get(key, '') if key_uid_map.get(key, '') else '',
+                'is_archived': 0,
+                'relation_counts': counts,
+                'row_count': counts['active_rows'],
+                'item_count': counts['active_qty_total'],
+                'history_count': counts['shipping_qty'],
+                'virtual_customer': True,
+            })
+        customers.sort(key=lambda r: ({'北區':1,'中區':2,'南區':3}.get((r.get('region') or '').strip(), 9), (r.get('name') or '')))
         conn.commit()
         return customers
     finally:
@@ -1412,6 +1420,10 @@ def delete_customer(name):
     name = (name or '').strip()
     if not name:
         raise ValueError('客戶名稱不可空白')
+    try:
+        save_customer_safety_snapshot(customer_name=name, snapshot_type='before_delete_customer')
+    except Exception:
+        pass
     row = get_customer(name, include_archived=True)
     if not row:
         raise ValueError('找不到客戶')
@@ -1462,6 +1474,72 @@ def get_customer(name, include_archived=False):
         row['customer_uid'] = row.get('customer_uid') or _new_customer_uid(name, row.get('created_at') or '')
         row['is_archived'] = int(row.get('is_archived') or 0)
     return row
+
+
+def save_customer_safety_snapshot(customer_name='', customer_uid='', snapshot_type='auto'):
+    """FIX121：客戶資料安全快照。只做保護備份，不改原有功能流程。"""
+    customer_name = (customer_name or '').strip()
+    customer_uid = (customer_uid or '').strip()
+    if not customer_name and not customer_uid:
+        return False
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        profile = None
+        if customer_uid:
+            cur.execute(sql("SELECT * FROM customer_profiles WHERE customer_uid = ?"), (customer_uid,))
+            profile = fetchone_dict(cur)
+        if not profile and customer_name:
+            cur.execute(sql("SELECT * FROM customer_profiles WHERE name = ?"), (customer_name,))
+            profile = fetchone_dict(cur)
+        resolved_name = (profile or {}).get('name') or customer_name
+        resolved_uid = (profile or {}).get('customer_uid') or customer_uid
+        related = {}
+        for table in ['inventory', 'orders', 'master_orders', 'shipping_records']:
+            try:
+                if resolved_uid and resolved_name:
+                    cur.execute(sql(f"""
+                        SELECT * FROM {table}
+                        WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                        ORDER BY id DESC
+                    """), (resolved_uid, resolved_name))
+                elif resolved_uid:
+                    cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (resolved_uid,))
+                else:
+                    cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (resolved_name,))
+                related[table] = rows_to_dict(cur)
+            except Exception as e:
+                related[table] = [{'snapshot_error': str(e)}]
+        payload = json.dumps({
+            'profile': profile or {},
+            'related': related,
+            'snapshot_type': snapshot_type,
+            'customer_name': resolved_name,
+            'customer_uid': resolved_uid,
+        }, ensure_ascii=False, default=str)
+        cur.execute(sql("""
+            INSERT INTO customer_safety_snapshots(snapshot_type, customer_name, customer_uid, payload, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """), (snapshot_type, resolved_name, resolved_uid, payload, now()))
+        conn.commit()
+        return True
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            log_error('customer_safety_snapshot', str(e))
+        except Exception:
+            pass
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 
 
 
@@ -2818,6 +2896,10 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
     if not row:
         conn.close()
         raise ValueError('找不到商品')
+    try:
+        save_customer_safety_snapshot(customer_name=row.get('customer_name') or '', customer_uid=row.get('customer_uid') or '', snapshot_type=f'before_update_{table}_item')
+    except Exception:
+        pass
     qty = int(qty or 0)
     if qty < 0:
         qty = 0
@@ -2834,7 +2916,7 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
 def update_items_material(items, material, operator=''):
     table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     material = (material or '').strip().upper()
-    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'}:
+    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'}:
         raise ValueError('材質不在下拉選單內')
     conn = get_db()
     cur = conn.cursor()
@@ -2844,6 +2926,13 @@ def update_items_material(items, material, operator=''):
         item_id = int(it.get('id') or 0)
         if not table or item_id <= 0:
             continue
+        try:
+            cur.execute(sql(f"SELECT customer_name, customer_uid FROM {table} WHERE id = ?"), (item_id,))
+            _snap_row = fetchone_dict(cur)
+            if _snap_row:
+                save_customer_safety_snapshot(customer_name=_snap_row.get('customer_name') or '', customer_uid=_snap_row.get('customer_uid') or '', snapshot_type=f'before_material_{table}_item')
+        except Exception:
+            pass
         cur.execute(sql(f"UPDATE {table} SET material = ?, product_code = ?, operator = ?, updated_at = ? WHERE id = ?"), (material, material, operator, now(), item_id))
         count += cur.rowcount or 0
     conn.commit()
@@ -2857,6 +2946,13 @@ def delete_customer_item(source, item_id):
         raise ValueError('不支援的來源')
     conn = get_db()
     cur = conn.cursor()
+    try:
+        cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+        _snap_row = fetchone_dict(cur)
+        if _snap_row:
+            save_customer_safety_snapshot(customer_name=_snap_row.get('customer_name') or '', customer_uid=_snap_row.get('customer_uid') or '', snapshot_type=f'before_delete_{table}_item')
+    except Exception:
+        pass
     cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (item_id,))
     conn.commit()
     conn.close()
@@ -2999,6 +3095,10 @@ def restore_customer(name):
     name = (name or '').strip()
     if not name:
         raise ValueError('客戶名稱不可空白')
+    try:
+        save_customer_safety_snapshot(customer_name=name, snapshot_type='before_restore_customer')
+    except Exception:
+        pass
     row = get_customer(name, include_archived=True)
     if not row:
         raise ValueError('找不到客戶')

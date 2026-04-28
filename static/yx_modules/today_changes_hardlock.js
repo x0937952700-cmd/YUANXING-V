@@ -1,4 +1,4 @@
-/* FIX118 今日異動硬鎖：固定標籤 + 固定小卡 + 單一渲染流程 */
+/* FIX121 今日異動硬鎖：固定標籤 + 固定小卡 + 單一渲染流程 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -222,7 +222,7 @@
     YX.hardAssign('loadTodayChanges', fn, {configurable:false});
     ['loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96','loadTodayChanges99','__yx96RemovedToday80','__yx96RemovedToday93','__yx96RemovedToday95'].forEach(name => YX.hardAssign(name, fn, {configurable:true}));
     if (window.YX_MASTER) {
-      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix118-apple-sort-hardlock', loadTodayChanges:fn}); } catch(_e) {}
+      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix121-luxury-customer-guard-hardlock', loadTodayChanges:fn}); } catch(_e) {}
     }
   }
   function install(){

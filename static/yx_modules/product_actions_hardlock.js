@@ -1,4 +1,4 @@
-/* FIX118 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX121 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -47,6 +47,16 @@
     return raw;
   }
   function customerOf(r){ return YX.clean(r?.customer_name || selectedCustomer() || ''); }
+  function customerBaseName(v){
+    return YX.clean(v || '').replace(/FOB代付|FOB代|FOB|CNF/gi, ' ').replace(/\s+/g, ' ');
+  }
+  function sameCustomerName(a, b){
+    const aa = YX.clean(a || '');
+    const bb = YX.clean(b || '');
+    if (!aa || !bb) return false;
+    if (aa === bb) return true;
+    return customerBaseName(aa) === customerBaseName(bb);
+  }
   function rowsStore(source, rows){
     window.__YX112_ROWS__ = window.__YX112_ROWS__ || {};
     window.__yx63Rows = window.__yx63Rows || {};
@@ -60,7 +70,7 @@
   function filteredRows(source){
     let rows = [...rowsStore(source)];
     const cust = selectedCustomer();
-    if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => YX.clean(r.customer_name || '') === cust);
+    if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => sameCustomerName(r.customer_name || '', cust));
     if (source === 'master_order' && !cust) rows = [];
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
     if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''}`.toLowerCase().includes(q));

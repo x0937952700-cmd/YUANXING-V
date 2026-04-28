@@ -1,4 +1,4 @@
-/* FIX119 北中南客戶母版硬鎖：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
+/* FIX120 北中南客戶母版硬鎖：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -24,9 +24,10 @@
     return {qty:Number(c.item_count || r.total_qty || 0), rows:Number(c.row_count || r.total_rows || 0)};
   }
   function shouldShow(c, mode){
-    // FIX119：北中南清單一律以 /api/customers 回傳為準顯示，避免舊版依件數過濾導致總單客戶消失。
-    // 各頁商品內容仍由點選客戶後載入，不改資料 API / 不改出貨、總單功能。
-    return !!c;
+    const ct = counts(c, mode);
+    if (mode === 'orders') return ct.qty > 0 || ct.rows > 0;
+    if (mode === 'master_order') return ct.qty > 0 || ct.rows > 0;
+    return true;
   }
   function containerMaps(){
     return [
@@ -38,7 +39,7 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card yx119-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-yx119-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
   async function selectCustomer(name){
     name = YX.clean(name || ''); if (!name) return;
@@ -51,9 +52,8 @@
       try { await window.fillCustomerForm(name); } catch(_e) {}
       return;
     }
-    if (state.oldSelect && state.oldSelect !== selectCustomer) {
-      try { await state.oldSelect.call(window, name); } catch(_e) {}
-    }
+    // FIX120：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
+    // 商品清單統一交給 product_actions_hardlock 母版刷新。
     try { if (window.YX113ProductActions) await window.YX113ProductActions.refreshCurrent(); } catch(_e) {}
   }
   function renderBoards(items){
@@ -76,8 +76,6 @@
     });
     state.lastRenderAt = Date.now();
     state.rendering = false;
-    document.documentElement.dataset.yx119Customers = 'locked';
-    document.documentElement.dataset.yx119CustomersReady = '1';
   }
   function hasLegacyCustomerDom(){
     if (!isRegionPage()) return false;
@@ -85,7 +83,7 @@
     return boards.some(el => {
       if (!el || el.querySelector('.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow')) return true;
       const cards = Array.from(el.querySelectorAll('.customer-region-card,[data-customer-name]')).filter(c => !c.classList.contains('empty-state-card'));
-      return cards.some(c => !c.classList.contains('yx119-customer-card') && !c.classList.contains('yx116-customer-card') && !c.closest('.yx113-customer-actions'));
+      return cards.some(c => !c.classList.contains('yx116-customer-card') && !c.closest('.yx113-customer-actions'));
     });
   }
   function scheduleRepair(){
@@ -105,7 +103,7 @@
       if (state.rendering) return;
       for (const m of muts){
         const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
-        if (added.length && (added.some(n => (n.matches?.('.customer-region-card:not(.yx116-customer-card):not(.yx119-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx116-customer-card):not(.yx119-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow'))) || hasLegacyCustomerDom())) {
+        if (added.length && (added.some(n => (n.matches?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow'))) || hasLegacyCustomerDom())) {
           scheduleRepair();
           break;
         }
@@ -220,7 +218,6 @@
     window.YX115CustomerRegions = window.YX113CustomerRegions;
     window.YX116CustomerRegions = window.YX113CustomerRegions;
     window.YX117CustomerRegions = window.YX113CustomerRegions;
-    window.YX119CustomerRegions = window.YX113CustomerRegions;
   }
   function install(){
     if (!isRegionPage()) return;
@@ -229,7 +226,6 @@
     document.documentElement.dataset.yx115Customers = 'locked';
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
-    document.documentElement.dataset.yx119Customers = 'locked';
     bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
     [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }

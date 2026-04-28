@@ -1,4 +1,4 @@
-/* FIX118 蘋果風按鈕介面母版硬鎖：只改視覺，不改 API / 資料 / 按鈕事件 */
+/* FIX121 蘋果風按鈕介面母版硬鎖：只改視覺，不改 API / 資料 / 按鈕事件 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;

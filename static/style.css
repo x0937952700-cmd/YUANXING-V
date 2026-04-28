@@ -3979,7 +3979,7 @@ html[data-yx117AppleUi="locked"] .yx113-customer-action-card .ghost-btn{
   font-size:15px!important;
 }
 
-/* ==== FIX118 Apple-style button hardlock + product sort marker ==== */
+/* ==== FIX121 Apple-style button hardlock + product sort marker ==== */
 html[data-yx118-apple-ui="locked"] button,
 html[data-yx118-apple-ui="locked"] a.menu-btn,
 html[data-yx118-apple-ui="locked"] a.home-mini-btn,
@@ -4067,77 +4067,3 @@ html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
 @media(max-width:640px){
   html[data-yx118-product-sort="locked"] .yx113-summary-head::after{display:none;}
 }
-
-/* ==== FIX119 customer master stable hardlock ==== */
-html[data-yx119-customer-silencer="armed"]:not([data-yx119-customers-ready="1"]) #region-picker-section .customer-list,
-html[data-yx119-customer-silencer="armed"]:not([data-yx119-customers-ready="1"]) #customers-section .customer-list{
-  visibility:hidden!important;
-  min-height:64px!important;
-}
-html[data-yx119-customers="locked"] .yx119-customer-list,
-html[data-yx119-customers="locked"] .yx114-customer-list,
-html[data-yx119-customers="locked"] .customer-list{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:12px!important;
-  align-items:stretch!important;
-}
-html[data-yx119-customers="locked"] .yx119-customer-card,
-html[data-yx119-customers="locked"] .yx117-customer-card,
-html[data-yx119-customers="locked"] .yx116-customer-card{
-  width:100%!important;
-  min-width:0!important;
-  min-height:60px!important;
-  padding:14px 18px!important;
-  margin:0!important;
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) auto minmax(120px,auto)!important;
-  gap:12px!important;
-  align-items:center!important;
-  overflow:hidden!important;
-  border-radius:18px!important;
-}
-html[data-yx119-customers="locked"] .yx116-customer-name,
-html[data-yx119-customers="locked"] .yx113-customer-left{
-  min-width:0!important;
-  width:auto!important;
-  max-width:none!important;
-  overflow:hidden!important;
-  text-overflow:ellipsis!important;
-  white-space:nowrap!important;
-  display:block!important;
-  font-size:16px!important;
-  font-weight:850!important;
-}
-html[data-yx119-customers="locked"] .yx116-customer-tag,
-html[data-yx119-customers="locked"] .yx113-customer-tag{
-  justify-self:center!important;
-  min-width:60px!important;
-  max-width:90px!important;
-  text-align:center!important;
-  white-space:nowrap!important;
-}
-html[data-yx119-customers="locked"] .yx116-customer-count,
-html[data-yx119-customers="locked"] .yx113-customer-count{
-  justify-self:end!important;
-  text-align:right!important;
-  white-space:nowrap!important;
-  min-width:112px!important;
-}
-html[data-yx119-customers="locked"] .customer-card-arrow,
-html[data-yx119-customers="locked"] .fix48-customer-arrow,
-html[data-yx119-customers="locked"] .yx113-customer-arrow{
-  display:none!important;
-  visibility:hidden!important;
-}
-@media(max-width:560px){
-  html[data-yx119-customers="locked"] .yx119-customer-card,
-  html[data-yx119-customers="locked"] .yx117-customer-card,
-  html[data-yx119-customers="locked"] .yx116-customer-card{
-    grid-template-columns:minmax(0,1fr) auto!important;
-    row-gap:6px!important;
-  }
-  html[data-yx119-customers="locked"] .yx116-customer-count,
-  html[data-yx119-customers="locked"] .yx113-customer-count{grid-column:1 / -1!important;justify-self:end!important;}
-}
-/* ==== FIX119 customer master stable hardlock end ==== */
