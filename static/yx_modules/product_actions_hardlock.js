@@ -1,4 +1,4 @@
-/* FIX121 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX118 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -304,10 +304,23 @@
     window.selectCustomerForModule = wrapped;
   }
   function lockGlobals(){
-    window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards};
+    window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards, rowsStore};
     window.YX114ProductActions = window.YX113ProductActions;
     window.YX115ProductActions = window.YX113ProductActions;
-    YX.hardAssign('refreshSource', YX.mark((source, _silent) => loadSource(source), 'product_refresh'), {configurable:true});
+    window.YX121ProductActions = window.YX113ProductActions;
+    const refreshFn = YX.mark((source, _silent) => loadSource(source), 'product_refresh_121');
+    const renderRows = source => rows => { rowsStore(source, rows || []); pruneSelected(source); renderSummary(source); renderCards(source); };
+    const bridges = {
+      refreshSource: refreshFn,
+      loadInventory: YX.mark(() => loadSource('inventory'), 'load_inventory_121'),
+      loadOrdersList: YX.mark(() => loadSource('orders'), 'load_orders_121'),
+      loadMasterList: YX.mark(() => loadSource('master_order'), 'load_master_121'),
+      renderInventoryRows: YX.mark(renderRows('inventory'), 'render_inventory_121'),
+      renderOrdersRows: YX.mark(renderRows('orders'), 'render_orders_121'),
+      renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
+    };
+    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix121-master-bridge-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';

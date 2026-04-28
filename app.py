@@ -24,7 +24,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -1164,6 +1164,18 @@ def api_customers():
         return error_response("客戶儲存失敗")
 
 
+@app.route("/api/recover/customers-from-relations", methods=["POST", "GET"])
+@login_required_json
+def api_recover_customers_from_relations():
+    """FIX122：手動救援入口。從目前資料庫的商品/出貨紀錄補回缺少的客戶檔與 UID。"""
+    result = recover_customer_profiles_from_relation_tables()
+    if not result.get('success'):
+        return error_response(result.get('error') or '客戶救援失敗')
+    log_action(current_username(), f"FIX122 客戶救援：補回 {result.get('recovered_count', 0)} 位客戶，對齊 {result.get('synced_rows', 0)} 筆")
+    notify_sync_event(kind='refresh', module='all', message='客戶資料已救援並重新整理', extra=result)
+    return jsonify(result)
+
+
 @app.route("/api/customers/archived", methods=["GET"])
 @login_required_json
 def api_customers_archived():
@@ -1441,9 +1453,11 @@ def api_customer_items():
     try:
         def pull(table, source_label):
             if uid and name:
+                # FIX122：109 舊資料可能 customer_name 正確但 customer_uid 空白/不同，
+                # 查客戶商品時用「UID 或同名」一起找回，避免商品看起來丟失。
                 cur.execute(sql(f"""
                     SELECT * FROM {table}
-                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    WHERE customer_uid = ? OR customer_name = ?
                     ORDER BY id DESC
                 """), (uid, name))
             elif uid:

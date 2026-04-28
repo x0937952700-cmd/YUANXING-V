@@ -12,18 +12,15 @@
   window.__YX96_INTERVALS__ = new Set();
   window.__YX96_NATIVE_MUTATION_OBSERVER__ = window.MutationObserver;
   const legacyNeedles = [
-    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96','loadTodayChanges99','loadTodayChanges({force:true})',
-    'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102','renderWarehouse(true)','renderWarehouse();',
-    'loadWarehouseDynamic','renderWarehouseLegacyA','renderWarehouseLegacyB',
-    'loadCustomerBlocks()','loadCustomerBlocks(true)','YX_MASTER.loadCustomerBlocks','YX_MASTER?.loadCustomerBlocks','renderCustomers()',
+    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges({force:true})',
+    'renderWarehouse82','renderWarehouse95','loadWarehouseDynamic','renderWarehouseLegacyA','renderWarehouseLegacyB',
     'toggleUnplaced93','refreshUnplaced95','refreshWarehouseBatchPanel82','periodicCleanup','__yx96Removed'
   ];
   function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
   function blockLegacy(fn){
     const s = srcOf(fn);
     if (!s) return false;
-    // FIX125：舊版 UI 自動重畫計時器不再放行；只放行新版母版 / 單一介面守門。
-    if (s.indexOf('YX125') >= 0 || s.indexOf('YXHardLock') >= 0 || s.indexOf('YXMinimalGreyUI124') >= 0) return false;
+    if (s.indexOf('YX96_') >= 0 || s.indexOf('renderWarehouse96') >= 0 || s.indexOf('loadTodayChanges96') >= 0) return false;
     return legacyNeedles.some(n => s.indexOf(n) >= 0);
   }
   window.setTimeout = function(fn, delay, ...args){
@@ -3052,7 +3049,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     installCustomerLongPress();
     setTimeout(()=>{ removeLegacyUI(); if(['inventory','orders','master_order'].includes(moduleKey())){ const s=moduleKey()==='master_order'?'master_order':moduleKey(); renderSummary(s); renderCards(s); } installCustomerLongPress(); },250);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else setTimeout(boot,0);
 })();
 /* ==== FIX63 end ==== */
 
@@ -3310,7 +3307,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }, true);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true });
-  else boot();
+  else setTimeout(boot,0);
 
   window.addEventListener('pageshow', function(){
     document.body && document.body.classList.remove('yx65-navigating');
@@ -3545,7 +3542,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(mod()==='ship') loadShipCustomerItems66($('customer-name')?.value||'');
     setTimeout(applyAllSelectedFilters,120);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else setTimeout(boot,0);
 })();
 /* ==== FIX66 end ==== */
 
@@ -3838,7 +3835,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     const mod = document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule==='function' ? window.currentModule() : '');
     if(mod === 'warehouse') setTimeout(()=>loadWarehouseDynamic(true), 20);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
 })();
 /* ==== FIX67 end ==== */
 
@@ -4138,7 +4135,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(m==='warehouse') setTimeout(convergeOldWarehouseButtons,200);
   }
   const mo=new window.__YX96_NOOP_OBSERVER(()=>{ try{ convergeOldWarehouseButtons(); }catch(_e){} });
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
   try{ mo.observe(document.body||document.documentElement,{childList:true,subtree:true}); }catch(_e){}
 
   document.addEventListener('click', function(e){
@@ -4632,7 +4629,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     }
     try{ mo.observe(doc.body || doc.documentElement, {childList:true, subtree:true}); }catch(_e){}
   }
-  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
 })();
 /* ==== FIX69 end ==== */
 
@@ -4990,7 +4987,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     moTimer = setTimeout(()=>{ try{ convergeDom(); }catch(_e){} }, 120);
   });
 
-  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if(doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
   try{ mo.observe(doc.body || doc.documentElement, {childList:true, subtree:true}); }catch(_e){}
   window.addEventListener('pageshow', ()=>{ try{ doc.body && doc.body.classList.remove('yx65-navigating','yx69-navigating'); convergeDom(); }catch(_e){} });
 })();
@@ -5213,7 +5210,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     bindWarehouseSlots();
     hideMasterDuplicateTables();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true }); else boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once:true }); else setTimeout(boot,0);
   try { new window.__YX96_NOOP_OBSERVER(() => { bindWarehouseSlots(); hideMasterDuplicateTables(); }).observe(document.body || document.documentElement, { childList:true, subtree:true }); } catch(_e) {}
 })();
 /* ==== FIX71 end ==== */
@@ -5868,7 +5865,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     ensureReturnButton();
     applyShipDraft();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
   window.addEventListener('pageshow', boot);
   try { new window.__YX96_NOOP_OBSERVER(() => { replaceLengthLabels(); bindWarehouseModalButtons(); ensureReturnButton(); }).observe(document.body || document.documentElement, {childList:true, subtree:true, characterData:true}); } catch(_e) {}
 })();
@@ -6021,7 +6018,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     try { document.documentElement.dataset.yxFix76 = VERSION; document.body && document.body.setAttribute('data-yx-fix76','1'); } catch(_e) {}
     hideShipSelectedCards();
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
   window.addEventListener('pageshow', boot);
 })();
 /* ==== FIX76 end ==== */
@@ -6727,7 +6724,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   document.addEventListener('pointerdown', e => { if(e.target?.closest?.('#ship-add-selected-item,#ship-add-all-items')) rememberShipAddStart(); }, true);
   document.addEventListener('input', e => { if(e.target?.id === 'warehouse-item-search') setTimeout(refreshWarehouseBatchPanel,50); }, true);
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow', install);
   setTimeout(install, 300);
 })();
@@ -6936,7 +6933,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(modKey()==='warehouse') setTimeout(window.YX_MASTER.refreshWarehouseBatchPanel,200);
     if(location.pathname.includes('/today-changes')) setTimeout(window.YX_MASTER.loadTodayChanges,80);
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow', install);
   setTimeout(install, 350);
 })();
@@ -8147,7 +8144,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     run();
     ['loadCustomerBlocks','renderCustomers','selectCustomerForModule','loadInlineList','renderSourceList','confirmSubmit'].forEach(wrapAfter);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow',safeRunSoon);
   [150,500,1200,2500].forEach(ms=>setTimeout(install,ms));
   window.yx86ApplyMonthTables=run;
@@ -8342,7 +8339,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     if(e.target?.closest?.('.customer-card,[data-customer],.yx66-customer-product-row,.yx63-size-cell')) scheduleTables(180);
   },true);
   function boot(){ installSubmitMaster(); scheduleTables(120); setTimeout(scheduleTables,700); }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else setTimeout(boot,0);
   window.addEventListener('pageshow',()=>{ installSubmitMaster(); scheduleTables(120); });
   [500,1300,2800].forEach(ms=>setTimeout(()=>{ installSubmitMaster(); scheduleTables(0); },ms));
 })();
@@ -8461,7 +8458,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       try{ (window.yx87ApplyMonthTables||window.yx86ApplyMonthTables||function(){})(); }catch(_e){}
     },40);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else setTimeout(boot,0);
   window.addEventListener('pageshow',boot);
   [300,900,1600,3200].forEach(ms=>setTimeout(boot,ms));
 })();
@@ -8715,7 +8712,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     try{ if(window.YX_MASTER) window.YX_MASTER=Object.freeze({...window.YX_MASTER,version:VERSION,confirmSubmit:confirmSubmit89,openWarehouseModal:window.openWarehouseModal,refreshWarehouseBatchPanel:refreshWarehouseBatch89,saveWarehouseCell:saveWarehouseCell89}); }catch(_e){}
     if(modKey()==='warehouse') setTimeout(()=>refreshWarehouseBatch89(),200);
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow',install);
   [650,1800,3600].forEach(ms=>setTimeout(install,ms));
 })();
@@ -9014,7 +9011,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function bootObserver(){ const modal = getModal(); if (modal) observer.observe(modal, {childList:true, subtree:true}); }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { install91(); bootObserver(); }, {once:true});
-  else { install91(); bootObserver(); }
+  else { setTimeout(()=>{ install91(); bootObserver(); },0); }
   window.addEventListener('pageshow', install91);
   [200, 700, 1500, 3200].forEach(ms => setTimeout(install91, ms));
 })();
@@ -9295,7 +9292,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     });
   }
   function boot(){ install92(); observe(); }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true}); else setTimeout(boot,0);
   window.addEventListener('pageshow', boot);
   [250, 800, 1600, 3400].forEach(ms => setTimeout(boot, ms));
 })();
@@ -9617,7 +9614,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     }
     try { if (window.YX_MASTER) window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:VERSION, loadTodayChanges:__yx96RemovedToday93, toggleWarehouseUnplacedHighlight:toggleUnplaced93}); } catch(_e){}
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow', install);
   [300,900,1800,3600].forEach(ms => setTimeout(periodicCleanup, ms));
 })();
@@ -9685,7 +9682,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     ensureTodayManualRefresh();
     document.querySelectorAll('.vertical-slot .slot-line.customer').forEach(el=>{el.style.fontWeight='900';});
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow',install);
   setTimeout(install,300); setTimeout(install,1000);
 })();
@@ -11727,7 +11724,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       [150, 450, 1000, 1800].forEach(ms => setTimeout(() => { neutralizeOld(); document.querySelectorAll('.yx108-slot,.yx106-slot').forEach(bindSlot); }, ms));
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow', install);
 })();
 /* ==== FIX108 end ==== */
@@ -11798,7 +11795,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       try { window.loadTodayChanges({force:true, silent:true}); } catch(_e){}
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else setTimeout(install,0);
   window.addEventListener('pageshow', install);
 })();
 /* ==== FIX109 end ==== */

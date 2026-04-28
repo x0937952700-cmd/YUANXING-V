@@ -23,26 +23,21 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix125-single-interface-hardlock", "YXHardLock", "register"],
-    "static/yx_modules/today_changes_hardlock.js": ["FIX121 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
-    "static/yx_modules/warehouse_hardlock.js": ["FIX121 倉庫硬鎖", "normalizeSlot"],
-    "static/yx_modules/product_actions_hardlock.js": ["FIX121 商品母版硬鎖", "yx112-product-card"],
-    "static/yx_modules/product_sort_hardlock.js": ["FIX121 商品排序母版硬鎖", "YX118ProductSort", "compareRows"],
-    "static/yx_modules/ship_picker_hardlock.js": ["FIX121 出貨客戶商品下拉母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker"],
-    "static/yx_modules/legacy_isolation_hardlock.js": ["FIX121 舊版渲染隔離", "legacy_isolation", "isolateAll"],
-    "static/yx_modules/apple_ui_hardlock.js": ["FIX121 蘋果風按鈕介面母版硬鎖", "apple_ui", "yx117AppleUi"],
-    "static/yx_modules/luxury_label_ui_hardlock.js": ["FIX121 華麗標籤介面母版硬鎖", "luxury_label_ui", "yx121LuxuryUi"],
-    "static/yx_modules/luxury_label_ui_v122_hardlock.js": ["FIX122 華麗圓框標籤母版硬鎖", "luxury_label_ui_v122", "yx122LabelUi"],
-    "static/yx_modules/minimal_grey_ui_v124_hardlock.js": ["FIX125 簡約淡灰標籤母版硬鎖", "minimal_grey_ui_v124", "yx124MinimalGreyUi"],
-    "static/yx_modules/interface_single_source_v125_hardlock.js": ["FIX125 單一新版介面來源", "interface_single_source_v125", "yx125SingleInterface"],
-    "static/yx_modules/customer_data_guard_hardlock.js": ["FIX121 客戶資料安全母版", "customer_data_guard", "yx121CustomerGuard"],
-    "static/yx_modules/master_integrator.js": ["FIX125 母版整合器", "today_changes", "legacy_isolation", "ship_picker", "interface_single_source_v125", "minimal_grey_ui_v124", "customer_data_guard"],
+    "static/yx_modules/core_hardlock.js": ["fix121-master-bridge-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/today_changes_hardlock.js": ["FIX118 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
+    "static/yx_modules/warehouse_hardlock.js": ["FIX118 倉庫硬鎖", "normalizeSlot"],
+    "static/yx_modules/product_actions_hardlock.js": ["FIX118 商品母版硬鎖", "yx112-product-card"],
+    "static/yx_modules/product_sort_hardlock.js": ["FIX118 商品排序母版硬鎖", "YX118ProductSort", "compareRows"],
+    "static/yx_modules/ship_picker_hardlock.js": ["FIX118 出貨客戶商品下拉母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker"],
+    "static/yx_modules/legacy_isolation_hardlock.js": ["FIX118 舊版渲染隔離", "legacy_isolation", "isolateAll"],
+    "static/yx_modules/apple_ui_hardlock.js": ["FIX118 蘋果風按鈕介面母版硬鎖", "apple_ui", "yx117AppleUi"],
+    "static/yx_modules/master_integrator.js": ["FIX121 母版整合器", "safeInstall('today_changes'", "legacy_isolation", "ship_picker", "apple_ui"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix125-single-interface-hardlock", "yx_modules/core_hardlock.js", "interface_single_source_v125_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "minimal_grey_ui_v124_hardlock.js", "customer_data_guard_hardlock.js", "app.js", "pwa.js"],
+    "templates/base.html": ["fix121-master-bridge-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "apple_ui_hardlock.js", "app.js", "pwa.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix125-single-interface-hardlock", "yx_modules/core_hardlock.js", "interface_single_source_v125_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "minimal_grey_ui_v124_hardlock.js", "customer_data_guard_hardlock.js"],
-    "static/pwa.js": ["fix125-single-interface-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix125-single-interface-hardlock"'],
+    "static/service-worker.js": ["fix121-master-bridge-hardlock", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "product_sort_hardlock.js", "apple_ui_hardlock.js"],
+    "static/pwa.js": ["fix121-master-bridge-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix121-master-bridge-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -72,4 +67,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX125 smoke test OK")
+print("FIX118 smoke test OK")

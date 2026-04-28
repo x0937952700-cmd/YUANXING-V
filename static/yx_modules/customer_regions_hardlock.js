@@ -41,6 +41,31 @@
     const ct = counts(c, mode);
     return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
+
+  function qtyFromProduct(text, fallback){
+    const raw = String(text || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
+    if (right) {
+      const parts = right.split('+').map(x => x.trim()).filter(Boolean);
+      let total = 0;
+      parts.forEach(seg => { const m = seg.match(/x\s*(\d+)$/i); total += m ? Number(m[1] || 0) : (/\d/.test(seg) ? 1 : 0); });
+      if (total) return total;
+    }
+    return Number(fallback || 0) || 0;
+  }
+  async function renderSelectedCustomerPanel(name){
+    const panel = $('selected-customer-items');
+    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return;
+    panel.classList.remove('hidden');
+    panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
+    try {
+      const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&yx121_panel=1&ts=${Date.now()}`, {method:'GET'});
+      const items = Array.isArray(d.items) ? d.items : [];
+      const total = items.reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
+      panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${items.length}筆商品</div></div></div><div class="card-list">${items.length ? items.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
+    } catch(e) { panel.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(e.message || '客戶商品載入失敗')}</div>`; }
+  }
+
   async function selectCustomer(name){
     name = YX.clean(name || ''); if (!name) return;
     window.__YX_SELECTED_CUSTOMER__ = name;
@@ -52,9 +77,11 @@
       try { await window.fillCustomerForm(name); } catch(_e) {}
       return;
     }
-    // FIX120：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
-    // 商品清單統一交給 product_actions_hardlock 母版刷新。
+    // FIX120/121：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
+    // 商品清單統一交給 product_actions_hardlock 母版與 selected-customer panel 刷新。
+    await renderSelectedCustomerPanel(name);
     try { if (window.YX113ProductActions) await window.YX113ProductActions.refreshCurrent(); } catch(_e) {}
+    try { if (moduleKey() === 'ship' && window.YX116ShipPicker) await window.YX116ShipPicker.load(name); } catch(_e) {}
   }
   function renderBoards(items){
     if (!isRegionPage()) return;
@@ -167,17 +194,44 @@
   function bindEvents(){
     if (state.bound) return; state.bound = true;
     let press = null, blockClickUntil = 0;
-    const clear = () => { if (press?.timer) clearTimeout(press.timer); press = null; };
+    const clear = () => { if (press?.timer) clearTimeout(press.timer); if (press?.card) press.card.classList.remove('yx121-dragging-customer'); press = null; };
+    const regionFromPoint = (x,y) => {
+      const el = document.elementFromPoint(x,y);
+      const box = el?.closest?.('.category-box[data-region]');
+      return box ? normRegion(box.dataset.region || box.querySelector('.category-title')?.textContent || '') : '';
+    };
     document.addEventListener('pointerdown', ev => {
       const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card || ev.target.closest('button,input,select,textarea,a')) return;
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       const x = ev.clientX, y = ev.clientY;
       clear();
-      press = {card, name, x, y, timer:setTimeout(() => { blockClickUntil = Date.now() + 900; showActions(name); clear(); }, 650)};
+      press = {card, name, x, y, dragging:false, timer:setTimeout(() => { blockClickUntil = Date.now() + 900; showActions(name); clear(); }, 650)};
     }, true);
-    document.addEventListener('pointermove', ev => { if (press && (Math.abs(ev.clientX - press.x) > 8 || Math.abs(ev.clientY - press.y) > 8)) clear(); }, true);
-    ['pointerup','pointercancel','pointerleave','dragstart'].forEach(t => document.addEventListener(t, clear, true));
+    document.addEventListener('pointermove', ev => {
+      if (!press) return;
+      const dx = Math.abs(ev.clientX - press.x), dy = Math.abs(ev.clientY - press.y);
+      if ((dx > 8 || dy > 8) && press.timer) { clearTimeout(press.timer); press.timer = null; }
+      if (dx > 14 || dy > 14) {
+        press.dragging = true;
+        press.card.classList.add('yx121-dragging-customer');
+        document.querySelectorAll('.category-box[data-region]').forEach(box => box.classList.toggle('yx121-drop-target', !!regionFromPoint(ev.clientX, ev.clientY) && box === document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.category-box[data-region]')));
+      }
+    }, true);
+    document.addEventListener('pointerup', ev => {
+      if (press?.dragging) {
+        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+        const target = regionFromPoint(ev.clientX, ev.clientY);
+        const name = press.name;
+        blockClickUntil = Date.now() + 900;
+        clear();
+        document.querySelectorAll('.category-box[data-region]').forEach(box => box.classList.remove('yx121-drop-target'));
+        if (target) moveCustomer(name, target).catch(e => YX.toast(e.message || '移動客戶失敗', 'error'));
+        return;
+      }
+      clear();
+    }, true);
+    ['pointercancel','pointerleave','dragstart'].forEach(t => document.addEventListener(t, clear, true));
     document.addEventListener('contextmenu', ev => {
       const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
       if (!card) return;

@@ -10,31 +10,31 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix125-single-interface-hardlock">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix125-single-interface-hardlock">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix125-single-interface-hardlock">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix125-single-interface-hardlock">
-  <script>document.documentElement.classList.add("yx125-single-ui-booting");document.documentElement.dataset.yx121LuxuryUi="disabled-by-fix125";document.documentElement.dataset.yx122LabelUi="disabled-by-fix125";document.documentElement.dataset.yx123LabelUi="disabled-by-fix125";document.documentElement.dataset.yx124MinimalGreyUi="locked";document.documentElement.dataset.yx125SingleInterface="booting";document.documentElement.dataset.yx121CustomerGuard="locked";</script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix125-single-interface-hardlock">
-  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/interface_single_source_v125_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/minimal_grey_ui_v124_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix121-master-bridge-hardlock">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix121-master-bridge-hardlock">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix121-master-bridge-hardlock">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix121-master-bridge-hardlock">
+  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix121-master-bridge-hardlock">
   <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};</script>
   {% if (request.endpoint or '') not in ['home','login_page'] %}
-  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/customer_data_guard_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=fix125-single-interface-hardlock"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix125-single-interface-hardlock"></script>
+  <!-- FIX121：app.js 保留相容功能庫，但舊版立即 boot 已延後；母版最後硬鎖，避免舊版畫面搶先輸出。 -->
+  <script>window.__YX_MASTER_BRIDGE_VERSION__='fix121-master-bridge-hardlock';</script>
+  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/apple_ui_hardlock.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix121-master-bridge-hardlock"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix125-single-interface-hardlock"></script>
-  <!-- FIX125_SINGLE_INTERFACE_HARDLOCK -->
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix121-master-bridge-hardlock"></script>
+  <!-- FIX118_MASTER_HARDLOCK_MODULAR_ISOLATION -->
 </head>
 <body>
   <div class="page-shell">

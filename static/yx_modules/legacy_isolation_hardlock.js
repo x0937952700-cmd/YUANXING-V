@@ -1,4 +1,4 @@
-/* FIX121 舊版渲染隔離：只隔離舊畫面輸出，不刪功能、不改資料 API */
+/* FIX118 舊版渲染隔離：只隔離舊畫面輸出，不刪功能、不改資料 API */
 (function(){
   'use strict';
   const YX = window.YXHardLock;

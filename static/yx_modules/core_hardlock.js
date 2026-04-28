@@ -1,8 +1,8 @@
-/* 沅興木業 FIX125 core hard-lock registry
+/* 沅興木業 FIX118 core hard-lock registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix125-single-interface-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'fix121-master-bridge-hardlock') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -91,7 +91,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix125-single-interface-hardlock',
+    version: 'fix121-master-bridge-hardlock',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };
