@@ -1,8 +1,8 @@
-/* 沅興木業 FIX121 core hard-lock registry
+/* 沅興木業 FIX122 core hard-lock registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix121-luxury-customer-guard-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'fix122-luxury-label-button-row-hardlock') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -91,7 +91,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix121-luxury-customer-guard-hardlock',
+    version: 'fix122-luxury-label-button-row-hardlock',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };
