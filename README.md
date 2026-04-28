@@ -2,7 +2,7 @@
 
 本版只處理本次指定的畫面硬鎖，不改資料庫主流程、不改 API 行為、不改送出、出貨、倉庫、批量、客戶操作等既有功能。舊版功能保留；舊版視覺若與新版衝突，改由母版最後接管，避免舊介面覆蓋新版。
 
-版本號：`fix122-luxury-label-button-row-hardlock`
+版本號：`fix123-ornate-frame-fit-hardlock`
 
 ---
 
@@ -32,11 +32,12 @@
 
 ```text
 static/yx_modules/luxury_label_ui_v122_hardlock.js
+static/yx_modules/luxury_label_ui_v123_hardlock.js
 ```
 
-此檔案由 `templates/base.html` 載入，並由 `master_integrator.js` 最後安裝。用途是：
+這些檔案由 `templates/base.html` 載入，並由 `master_integrator.js` 最後安裝。用途是：
 
-- 固定新版主頁標籤
+- 固定新版主頁金色異形框標籤
 - 固定新版深綠金邊按鈕
 - 固定商品小卡按鈕同排
 - 監控舊版重畫後再補回新版樣式
@@ -98,6 +99,7 @@ ship_picker_hardlock.js
 legacy_isolation_hardlock.js
 luxury_label_ui_hardlock.js
 luxury_label_ui_v122_hardlock.js
+luxury_label_ui_v123_hardlock.js
 master_integrator.js
 ```
 
@@ -122,7 +124,7 @@ PYTHON_VERSION=3.11.10
 如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為：
 
 ```text
-fix122-luxury-label-button-row-hardlock
+fix123-ornate-frame-fit-hardlock
 ```
 
 ---
@@ -132,7 +134,7 @@ fix122-luxury-label-button-row-hardlock
 - JavaScript 語法檢查
 - 母版模組載入順序檢查
 - PWA / Service Worker 版本號更新
-- 主頁標籤新版樣式最後硬鎖
+- 主頁金色異形框標籤新版樣式最後硬鎖
 - 商品小卡按鈕同排樣式最後硬鎖
 - 不修改既有資料 API 與功能流程
 
@@ -152,3 +154,10 @@ fix122-luxury-label-button-row-hardlock
 - FIX120：客戶商品回復母版，避免客戶商品被舊版清空。
 - FIX121：華麗標籤 + 客戶資料安全快照。
 - FIX122：主頁改白金圓框標籤，商品小卡四顆按鈕固定同排，蘋果風不再主動接管。
+- FIX123：主頁改金色異形框標籤，寬度只包住文字，不再是長條圓角框；功能、API、資料流程不變。
+
+
+## FIX123 補充
+- 主頁功能標籤改成金色異形框造型，不再使用長條圓角框。
+- 標籤寬度只包住文字，仍保持置中與母版最後載入硬鎖。
+- 新增 `static/yx_modules/luxury_label_ui_v123_hardlock.js`，只改視覺，不改任何功能、API、資料庫或事件。

@@ -1,9 +1,9 @@
-/* FIX122 母版整合器：最後載入、最後接管；華麗圓框標籤 + 商品按鈕同排硬鎖 */
+/* FIX123 母版整合器：最後載入、最後接管；華麗異形框標籤剛好包住文字 + 商品按鈕同排硬鎖 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
-  if (!YX || window.__YX122_MASTER_INTEGRATOR__) return;
-  window.__YX122_MASTER_INTEGRATOR__ = true;
+  if (!YX || window.__YX123_MASTER_INTEGRATOR__) return;
+  window.__YX123_MASTER_INTEGRATOR__ = true;
 
   function install(){
     document.documentElement.dataset.yx113Master = 'installed';
@@ -13,6 +13,7 @@
     document.documentElement.dataset.yx118Master = 'installed';
     document.documentElement.dataset.yx121Master = 'installed';
     document.documentElement.dataset.yx122Master = 'installed';
+    document.documentElement.dataset.yx123Master = 'installed';
     const m = YX.moduleKey();
     YX.install('customer_data_guard', {force:true});
     // FIX122：蘋果風視覺已被華麗標籤取代，不再主動安裝，避免舊樣式閃回。
@@ -26,8 +27,10 @@
     YX.install('legacy_isolation', {force:true});
     YX.install('luxury_label_ui', {force:true});
     YX.install('luxury_label_ui_v122', {force:true});
+    YX.install('luxury_label_ui_v123', {force:true});
     try { window.YXLuxuryLabelUI && window.YXLuxuryLabelUI.install && window.YXLuxuryLabelUI.install(); } catch(_e) {}
     try { window.YXLuxuryLabelUI122 && window.YXLuxuryLabelUI122.install && window.YXLuxuryLabelUI122.install(); } catch(_e) {}
+    try { window.YXLuxuryFrameUI123 && window.YXLuxuryFrameUI123.install && window.YXLuxuryFrameUI123.install(); } catch(_e) {}
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
