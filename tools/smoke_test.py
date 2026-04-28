@@ -24,7 +24,7 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix136-label-text-master-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/core_hardlock.js": ["fix138-final-master-warehouse-ship-hardlock", "YXHardLock", "register"],
     "static/yx_modules/today_changes_hardlock.js": ["FIX118 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
     "static/yx_modules/warehouse_hardlock.js": ["FIX118 倉庫硬鎖", "normalizeSlot"],
     "static/yx_modules/product_actions_hardlock.js": ["FIX135 商品母版最終硬鎖", "loadSource", "renderCards", "編輯全部", "data-yx128-card-save"],
@@ -41,12 +41,14 @@ required = {
     "static/yx_modules/product_source_bridge_hardlock.js": ["FIX135 商品來源橋接保險版", "product_source_bridge", "loadSource"],
     "static/yx_modules/fix136_label_text_repair.css": ["FIX136", "data-yx136-label-text", "yx136-label-text"],
     "static/yx_modules/fix136_label_text_repair.js": ["FIX136", "YX136LabelTextRepair", "label_text_repair"],
+    "static/yx_modules/fix138_final_master_hardlock.css": ["FIX138", "data-yx138-final-master", "yx138"],
+    "static/yx_modules/fix138_final_master_hardlock.js": ["FIX138", "YX138ShipRepair", "warehouse"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix136-label-text-master-hardlock", "yx_modules/core_hardlock.js", "home_background_hardlock.css", "fix135_master_final_hardlock.css", "quantity_rule_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "app.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "pwa.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js"],
+    "templates/base.html": ["fix138-final-master-warehouse-ship-hardlock", "yx_modules/core_hardlock.js", "home_background_hardlock.css", "fix135_master_final_hardlock.css", "quantity_rule_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "app.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "pwa.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js", "fix138_final_master_hardlock.css", "fix138_final_master_hardlock.js", "fix138_final_master_hardlock.css", "fix138_final_master_hardlock.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix136-label-text-master-hardlock", "home_cloud_background.jpg", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "fix135_master_final_hardlock.js", "apple_ui_hardlock.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "fix135_master_final_hardlock.css", "fix135_master_final_hardlock.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js"],
-    "static/pwa.js": ["fix136-label-text-master-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix136-label-text-master-hardlock"'],
+    "static/service-worker.js": ["fix138-final-master-warehouse-ship-hardlock", "home_cloud_background.jpg", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "fix135_master_final_hardlock.js", "apple_ui_hardlock.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "fix135_master_final_hardlock.css", "fix135_master_final_hardlock.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js"],
+    "static/pwa.js": ["fix138-final-master-warehouse-ship-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix138-final-master-warehouse-ship-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -67,4 +69,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX136 smoke test OK")
+print("FIX138 smoke test OK")

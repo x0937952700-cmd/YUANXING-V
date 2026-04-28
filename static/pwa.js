@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix137-undo-layout-warehouse-master-hardlock';
+  const PWA_VERSION = 'fix138-final-master-warehouse-ship-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

@@ -360,6 +360,7 @@ def warehouse_source_totals():
             'product_text': product,
             'qty': qty,
             'customer_name': customer,
+            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper(),
         })
     return totals, details
 
@@ -1397,22 +1398,47 @@ def api_warehouse_search():
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    """列出尚未放入倉庫圖的商品。
-
-    來源包含：庫存、訂單、總單。相同尺寸會合併；不同客戶分開，避免客戶貨物混在一起。
-    """
+    """列出尚未放入倉庫圖的商品；FIX138 支援 A/B 區未入倉篩選。"""
     try:
+        zone_filter = (request.args.get("zone") or "").strip().upper()
+        if zone_filter not in ("A", "B"):
+            zone_filter = ""
         source_totals, source_details = warehouse_source_totals()
-        placed = warehouse_placed_totals()
+        placed_all = warehouse_placed_totals()
+        placed_by_zone = {}
+        for cell in warehouse_get_cells():
+            cell_zone = str(cell.get('zone') or '').strip().upper()
+            try:
+                items_in_cell = json.loads(cell.get("items_json") or "[]")
+            except Exception:
+                items_in_cell = []
+            for it in items_in_cell:
+                size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+                customer = (it.get('customer_name') or '').strip()
+                try:
+                    q = int(it.get('qty') or 0)
+                except Exception:
+                    q = 0
+                if size and q > 0:
+                    placed_by_zone[(size, customer, cell_zone)] = placed_by_zone.get((size, customer, cell_zone), 0) + q
         items = []
-        for key, total_qty in source_totals.items():
+        for key, total_qty_all in source_totals.items():
             size, customer = key
-            placed_qty = int(placed.get(key, 0) or 0)
+            details_all = source_details.get(key, [])
+            if zone_filter:
+                zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
+                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
+                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
+                details_for_item = zone_details
+            else:
+                total_qty = int(total_qty_all or 0)
+                placed_qty = int(placed_all.get(key, 0) or 0)
+                details_for_item = details_all
             unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
             if unplaced_qty <= 0:
                 continue
             source_qty = {}
-            for detail in source_details.get(key, []):
+            for detail in details_for_item:
                 source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
             items.append({
                 'product_text': size,
@@ -1422,14 +1448,15 @@ def api_warehouse_available_items():
                 'placed_qty': placed_qty,
                 'unplaced_qty': unplaced_qty,
                 'qty': unplaced_qty,
+                'zone': zone_filter or '',
                 'source_qty': source_qty,
                 'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
-                'source_details': source_details.get(key, []),
+                'source_details': details_for_item,
                 'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
                 'needs_red': True,
             })
         items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
-        return jsonify(success=True, items=items)
+        return jsonify(success=True, items=items, zone=zone_filter)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
         return jsonify(success=True, items=[])
