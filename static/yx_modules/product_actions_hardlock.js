@@ -1,11 +1,11 @@
-/* FIX118 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX128 商品母版硬鎖：完整清單直列顯示、上方編輯全部、小卡上方編輯、尤加利材質修復 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, loading:null, bound:false, observer:null, repairTimer:null };
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, loading:null, bound:false, observer:null, repairTimer:null };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -25,20 +25,57 @@
     return {size:i >= 0 ? raw.slice(0,i) : raw, support:i >= 0 ? raw.slice(i+1) : ''};
   }
   function qtyFromText(text, fallback){
-    const right = norm(text || '').split('=').slice(1).join('=') || norm(text || '');
-    if (!right) return Number(fallback || 0) || 0;
-    if (right.toLowerCase() === '504x5+588+587+502+420+382+378+280+254+237+174') return 10;
+    const raw = norm(text || '');
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
+    if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (right.toLowerCase() === canonical) return 10;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
-    if (!parts.length) return Number(fallback || 0) || 0;
+    if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
+    const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
+    const xParts = parts.filter(isSingleQtyX);
+    const bareParts = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
     let total = 0;
+    let hit = false;
     for (const seg of parts){
-      const m = seg.match(/x\s*(\d+)$/i);
-      if (m) total += Number(m[1] || 0);
-      else if (/\d/.test(seg)) total += 1;
+      const explicit = seg.match(/(\d+)\s*[件片]/);
+      if (explicit) { total += Number(explicit[1] || 0); hit = true; continue; }
+      const m = isSingleQtyX(seg) ? seg.match(/x\s*(\d+)\s*$/i) : null;
+      if (m) { total += Number(m[1] || 0); hit = true; }
+      else if (/\d/.test(seg)) { total += 1; hit = true; }
     }
-    return total || Number(fallback || 0) || 0;
+    return hit ? total : (raw ? 1 : (Number(fallback || 0) || 0));
   }
   function qtyOf(r){ return qtyFromText(r?.product_text || r?.support || '', r?.qty ?? r?.effective_qty ?? 0); }
+  function productTextFromParts(size, support){
+    size = norm(size || ''); support = norm(support || '');
+    return size ? (support ? `${size}=${support}` : size) : '';
+  }
+  function supportWithQty(support, qty){
+    let s = norm(support || '');
+    const q = Math.max(1, Number.parseInt(qty || 1, 10) || 1);
+    if (!s) return q > 1 ? `1x${q}` : '';
+    if (s.includes('+')) return s;
+    if (/x\d+$/i.test(s)) return s.replace(/x\d+$/i, q > 1 ? `x${q}` : '');
+    return q > 1 ? `${s}x${q}` : s;
+  }
+  function urlFor(source, id){
+    return source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
+  }
+  function payloadFromParts(source, row, parts){
+    const support = supportWithQty(parts.support, parts.qty);
+    const product_text = productTextFromParts(parts.size, support);
+    const material = YX.clean(parts.material || '').toUpperCase();
+    const customer_name = YX.clean(parts.customer_name ?? customerOf(row));
+    return {product_text, material, product_code:material, qty:qtyFromText(product_text, parts.qty || 1) || 1, customer_name};
+  }
+  function materialOptions(value){
+    value = YX.clean(value || '');
+    const opts = new Set(MATERIALS);
+    if (value && value !== '未填材質') opts.add(value);
+    return Array.from(opts).map(m => `<option value="${YX.esc(m)}" ${m===value?'selected':''}>${YX.esc(m)}</option>`).join('');
+  }
   function materialOf(r){
     const p = norm(r?.product_text || '');
     const raw = YX.clean(r?.material || r?.product_code || '').toUpperCase();
@@ -156,14 +193,32 @@
     const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
     if (source === 'master_order' && !selectedCustomer()) {
-      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻顯示該客戶商品。</span></div>';
+      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻完整顯示該客戶商品。</span></div>';
       return;
     }
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
-    const showCustomer = source === 'inventory';
-    box.innerHTML = `<div class="yx113-summary-head"><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}</span></div><div class="yx113-table-wrap"><table class="yx113-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}</tr></thead><tbody>${rows.length ? rows.map(r => { const p = splitProduct(r.product_text || ''); return `<tr class="yx113-summary-row" data-source="${source}" data-id="${Number(r.id || 0)}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${Number(r.id || 0)}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}</tr>`; }).join('') : `<tr><td colspan="${showCustomer ? 5 : 4}">目前沒有資料</td></tr>`}</tbody></table></div>`;
+    const showCustomer = true;
+    const editing = !!state.editAll[source];
+    const controls = editing
+      ? `<div class="yx128-summary-controls"><button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}">儲存全部</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}">取消</button></div>`
+      : `<div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">編輯全部</button></div>`;
+    const body = rows.length ? rows.map(r => {
+      const p = splitProduct(r.product_text || '');
+      const id = Number(r.id || 0);
+      if (!editing) {
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}</tr>`;
+      }
+      return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
+        <td><input class="text-input small yx128-field" data-yx128-field="material" value="${YX.esc(materialOf(r) === '未填材質' ? '' : materialOf(r))}" list="yx128-material-list-${source}" placeholder="材質"></td>
+        <td><input class="text-input small yx128-field" data-yx128-field="size" value="${YX.esc(p.size || r.product_text || '')}" placeholder="尺寸"></td>
+        <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
+        <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="數量"></td>
+        ${showCustomer ? `<td><input class="text-input small yx128-field" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}" placeholder="客戶名"></td>` : ''}
+      </tr>`;
+    }).join('') : `<tr><td colspan="${showCustomer ? 5 : 4}">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}</tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
-    box.querySelectorAll('.yx113-summary-row').forEach(row => setRowSelected(row, ids.has(String(row.dataset.id || ''))));
+    box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
   }
   function ensureFilterNote(source, n){
@@ -181,40 +236,44 @@
     const p = splitProduct(r.product_text || '');
     const q = qtyOf(r);
     const actions = source === 'inventory'
-      ? `<button class="ghost-btn tiny-btn" data-yx113-action="edit">編輯</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master">加到總單</button>`
-      : `<button class="ghost-btn tiny-btn" data-yx113-action="edit">編輯</button><button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
-    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx113-product-head"><strong class="material-text">${YX.esc(materialOf(r))}</strong><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${source !== 'inventory' ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
+      ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master">加到總單</button>`
+      : `<button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
+    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
-  function renderCards(source){
-    const list = listEl(source); if (!list) return;
-    let rows = filteredRows(source);
-    const ids = selectedIds(source);
-    if (ids.size) rows = rows.filter(r => ids.has(String(r.id || '')));
-    ensureFilterNote(source, ids.size);
-    list.classList.add('yx113-product-list','yx112-product-list');
-    if (source === 'master_order' && !selectedCustomer()) {
-      list.innerHTML = '<div class="empty-state-card compact-empty">請先點選客戶。</div>'; return;
-    }
-    list.innerHTML = rows.length ? rows.map(r => cardHTML(source, r)).join('') : `<div class="empty-state-card compact-empty">目前沒有${YX.esc(title(source))}</div>`;
-  }
-  async function loadSource(source, opts={}){
-    if (!source) return [];
-    const d = await YX.api(endpoint(source) + '?yx114=1&ts=' + Date.now(), {method:'GET'});
-    rowsStore(source, Array.isArray(d.items) ? d.items : []);
-    pruneSelected(source);
-    renderSummary(source); renderCards(source);
-    return rowsStore(source);
-  }
-  async function refreshCurrent(){ return loadSource(sourceFromModule()); }
-  async function editItem(card){
+  function rowFromCard(card){
     const source = card.dataset.source, id = card.dataset.id;
-    const row = rowsStore(source).find(r => String(r.id || '') === String(id)); if (!row) return;
-    const product_text = prompt('商品資料', row.product_text || ''); if (product_text === null) return;
-    const material = prompt('材質', materialOf(row) === '未填材質' ? '' : materialOf(row)); if (material === null) return;
-    const qty = prompt('數量', String(row.qty ?? qtyOf(row))); if (qty === null) return;
-    const url = source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
-    await YX.api(url, {method:'PUT', body:JSON.stringify({product_text, material, product_code:material, qty:Number(qty || 0), customer_name:customerOf(row)})});
+    return rowsStore(source).find(r => String(r.id || '') === String(id));
+  }
+  function renderCardEditor(card){
+    const source = card.dataset.source, row = rowFromCard(card); if (!row) return;
+    const p = splitProduct(row.product_text || '');
+    card.classList.add('yx128-card-editing');
+    card.innerHTML = `<div class="yx128-card-edit-title"><strong>編輯商品</strong><span>${YX.esc(title(source))}</span></div>
+      <label>客戶名<input class="text-input small" data-yx128-card-field="customer_name" value="${YX.esc(customerOf(row) || '')}" placeholder="客戶名"></label>
+      <label>材質<input class="text-input small" data-yx128-card-field="material" value="${YX.esc(materialOf(row)==='未填材質'?'':materialOf(row))}" list="yx128-card-materials" placeholder="材質"></label>
+      <label>尺寸<input class="text-input small" data-yx128-card-field="size" value="${YX.esc(p.size || row.product_text || '')}" placeholder="尺寸"></label>
+      <label>支數 x 件數<input class="text-input small" data-yx128-card-field="support" value="${YX.esc(p.support || '')}" placeholder="例如 371x4；只有支數會判定 1 件"></label>
+      <label>數量<input class="text-input small" type="number" min="1" data-yx128-card-field="qty" value="${qtyOf(row)}" placeholder="數量"></label>
+      <datalist id="yx128-card-materials">${materialOptions('').replace(/ selected/g,'')}</datalist>
+      <div class="btn-row compact-row"><button class="primary-btn small-btn" type="button" data-yx128-card-save="1">儲存</button><button class="ghost-btn small-btn" type="button" data-yx128-card-cancel="1">取消</button></div>`;
+  }
+  function readCardPayload(card){
+    const row = rowFromCard(card); if (!row) return null;
+    const get = f => card.querySelector(`[data-yx128-card-field="${f}"]`)?.value || '';
+    return payloadFromParts(card.dataset.source, row, {customer_name:get('customer_name'), material:get('material'), size:get('size'), support:get('support'), qty:get('qty')});
+  }
+  async function saveCardEdit(card){
+    const row = rowFromCard(card); if (!row) return;
+    const source = card.dataset.source, id = card.dataset.id;
+    const payload = readCardPayload(card);
+    if (!payload?.product_text) return YX.toast('請輸入尺寸或商品資料', 'warn');
+    if ((source === 'orders' || source === 'master_order') && !payload.customer_name) return YX.toast('請輸入客戶名', 'warn');
+    await YX.api(urlFor(source, id), {method:'PUT', body:JSON.stringify(payload)});
     YX.toast('已更新商品', 'ok'); await loadSource(source);
+    try { if (window.YX116ShipPicker && selectedCustomer()) await window.YX116ShipPicker.load(selectedCustomer()); } catch(_e) {}
+  }
+  async function editItem(card){
+    renderCardEditor(card);
   }
   async function deleteItem(card){
     const source = card.dataset.source, id = card.dataset.id;
@@ -238,6 +297,26 @@
     await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:apiSource(source), id, target:'ship', customer_name:customerOf(row), qty:row.qty || qtyOf(row), allow_inventory_fallback:true})});
     YX.toast('已直接出貨', 'ok'); await loadSource(source);
   }
+  async function saveAllEdits(source){
+    const rows = [...document.querySelectorAll(`#yx113-${source}-summary .yx128-edit-row[data-source="${source}"]`)];
+    if (!rows.length) return;
+    let saved = 0;
+    for (const tr of rows){
+      const id = tr.dataset.id;
+      const row = rowsStore(source).find(r => String(r.id || '') === String(id));
+      if (!row) continue;
+      const val = f => tr.querySelector(`[data-yx128-field="${f}"]`)?.value || '';
+      const payload = payloadFromParts(source, row, {material:val('material'), size:val('size'), support:val('support'), qty:val('qty'), customer_name:val('customer_name')});
+      if (!payload.product_text) continue;
+      if ((source === 'orders' || source === 'master_order') && !payload.customer_name) continue;
+      await YX.api(urlFor(source, id), {method:'PUT', body:JSON.stringify(payload)});
+      saved += 1;
+    }
+    state.editAll[source] = false;
+    YX.toast(`已更新 ${saved} 筆商品`, 'ok');
+    await loadSource(source);
+    try { if (window.YX116ShipPicker && selectedCustomer()) await window.YX116ShipPicker.load(selectedCustomer()); } catch(_e) {}
+  }
   async function bulkMaterial(source){
     const material = YX.clean($(`yx113-${source}-material`)?.value || '').toUpperCase();
     if (!material) return YX.toast('請先選擇材質', 'warn');
@@ -257,6 +336,16 @@
     if (state.bound) return; state.bound = true;
     document.addEventListener('click', async ev => {
       const source = sourceFromModule();
+      const editAll = ev.target?.closest?.('[data-yx128-edit-all]');
+      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = editAll.dataset.yx128EditAll; state.editAll[s] = true; clearSelected(s); renderSummary(s); renderCards(s); return; }
+      const cancelAll = ev.target?.closest?.('[data-yx128-cancel-all]');
+      if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = cancelAll.dataset.yx128CancelAll; state.editAll[s] = false; renderSummary(s); renderCards(s); return; }
+      const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
+      if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
+      const cardSave = ev.target?.closest?.('[data-yx128-card-save]');
+      if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
+      const cardCancel = ev.target?.closest?.('[data-yx128-card-cancel]');
+      if (cardCancel) { const c = cardCancel.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); renderCards(c.dataset.source); return; } }
       const row = ev.target?.closest?.('.yx113-summary-row[data-source]');
       if (row && !ev.target.closest('button,a,input,select,textarea')) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
@@ -294,6 +383,12 @@
       } catch(e) { YX.toast(e.message || '操作失敗', 'error'); }
     }, true);
     document.addEventListener('change', ev => {
+      const qtyInput = ev.target?.closest?.('[data-yx128-field="qty"],[data-yx128-card-field="qty"]');
+      if (qtyInput) {
+        const root = qtyInput.closest('.yx128-edit-row,.yx128-card-editing');
+        const support = root?.querySelector?.('[data-yx128-field="support"],[data-yx128-card-field="support"]');
+        if (support) support.value = supportWithQty(support.value, qtyInput.value);
+      }
       const cb = ev.target?.closest?.('.yx113-row-check,.yx63-row-check');
       if (!cb) return; const s = cb.dataset.source || cb.closest('tr')?.dataset.source || sourceFromModule();
       cb.closest('tr')?.classList.toggle('yx113-row-selected', !!cb.checked); syncSelectButton(s); renderCards(s);
@@ -329,7 +424,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix125-customer-merge-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix128-inline-edit-full-list-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';

@@ -2612,7 +2612,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 (function(){
   'use strict';
   const VERSION = 'fix70-final-conflict-convergence';
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
+  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
   const $ = id => document.getElementById(id);
   const clean = v => String(v ?? '').trim();
   const esc = v => String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
@@ -2661,6 +2661,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     return info.hasMonth ? `<span class="yx85-month-size"><span class="yx85-month-badge">${info.month}月</span><span class="yx85-size-body">${body}</span></span>` : `<span class="yx85-size-body">${body}</span>`;
   }
   function qtyFromExpression(expr, fallback=0){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(expr, fallback);
     const raw = normalizeX(expr);
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if(!right) return Number(fallback || 0) || 0;
@@ -2678,7 +2679,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
     parts.forEach(seg => {
       const explicit = seg.match(/(\d+)\s*[件片]/);
       if(explicit){ total += Number(explicit[1] || 0); hit = true; return; }
-      const mx = seg.match(/x\s*(\d+)\s*$/i);
+      const mx = (String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2) ? seg.match(/x\s*(\d+)\s*$/i) : null;
       if(mx){ total += Number(mx[1] || 0); hit = true; return; }
       if(/\d/.test(seg)){ total += 1; hit = true; }
     });
@@ -2958,8 +2959,8 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       try{ await api('/api/customer-item',{method:'DELETE',body:JSON.stringify({source:apiSource(source), id})}); notify('已刪除','ok'); await refreshSource(source,true); }catch(e){ notify(e.message||'刪除失敗','error'); }
     }else if(act==='edit'){
       const next=prompt('修改商品資料', row.product_text || ''); if(next===null) return;
-      const q=prompt('修改數量', String(rowQty(row))); if(q===null) return;
-      try{ await api('/api/customer-item',{method:'POST',body:JSON.stringify({source:apiSource(source), id, product_text:next, qty:Number(q)||qtyFromExpression(next,1), material:rowMaterial(row)})}); notify('已更新','ok'); await refreshSource(source,true); }catch(e){ notify(e.message||'更新失敗','error'); }
+      const q=qtyFromExpression(next, 1) || 1;
+      try{ await api('/api/customer-item',{method:'POST',body:JSON.stringify({source:apiSource(source), id, product_text:next, qty:q, material:rowMaterial(row)})}); notify('已更新','ok'); await refreshSource(source,true); }catch(e){ notify(e.message||'更新失敗','error'); }
     }else if(act==='ship'){
       const draft={customer_name:row.customer_name||selectedCustomer()||'', product_text:row.product_text||'', at:Date.now()};
       localStorage.setItem('yxShipDraft',JSON.stringify(draft));
@@ -5263,6 +5264,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
 
   function qtyFromProduct(productText, fallback=1){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(productText, fallback);
     const right = supportExpression(productText);
     if (!right) return Number(fallback || 1) || 1;
     const segments = right.split('+').map(clean).filter(Boolean);
@@ -5586,6 +5588,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
 
   function splitProduct(text){ const raw = normalizeProductText(text); const i = raw.indexOf('='); return {size:i >= 0 ? raw.slice(0,i) : raw, support:i >= 0 ? raw.slice(i+1) : ''}; }
   function qtyFromProduct(productText, fallback=1){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(productText, fallback);
     const right = splitProduct(productText).support;
     if (!right) return Number(fallback || 1) || 1;
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
@@ -5672,9 +5675,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
       const nextTextRaw = prompt('修改商品資料', normalizeProductText(row.product_text || ''));
       if (nextTextRaw === null) return;
       const nextText = normalizeProductText(nextTextRaw);
-      const nextQtyRaw = prompt('修改數量', String(rowQty({...row, product_text:nextText}) || row.qty || 1));
-      if (nextQtyRaw === null) return;
-      const nextQty = Math.max(0, parseInt(nextQtyRaw || String(qtyFromProduct(nextText, row.qty || 1)), 10) || qtyFromProduct(nextText, row.qty || 1));
+      const nextQty = qtyFromProduct(nextText, 1) || 1;
       try {
         const payload = { product_text: nextText, qty: nextQty, material: rowMaterial(row), product_code: rowMaterial(row), customer_name: row.customer_name || selectedCustomer() };
         await api(endpoint, { method:'PUT', body:JSON.stringify(payload) });
@@ -5895,6 +5896,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function moduleKey(){ return document.querySelector('.module-screen')?.dataset.module || (typeof window.currentModule === 'function' ? window.currentModule() : ''); }
   function normalizeX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function qtyFromProduct(productText, fallback=1){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(productText, fallback);
     const raw = normalizeX(productText); const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
     if(!right) return Number(fallback || 1) || 1;
     const parts = right.split('+').map(clean).filter(Boolean);
@@ -6766,6 +6768,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function normX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/件|片/g,'').replace(/\s+/g,''); }
   function qtyFromProduct(text){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(text, 1);
     const raw = normX(text); const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if(!right) return 1;
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
@@ -6971,6 +6974,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function sourceLabel(src){ return {master_orders:'總單', orders:'訂單', inventory:'庫存'}[sourcePref(src)||src] || clean(src) || '未指定'; }
   function qtyFromProduct(text){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(text, 1);
     const raw=normX(text); const right=raw.includes('=')?raw.split('=').slice(1).join('='):'';
     if(!right) return 1;
     const parts=right.split('+').map(clean).filter(Boolean);
@@ -7496,6 +7500,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   function sourceLabel(src){ const p=sourcePref(src)||src; return {master_orders:'總單',orders:'訂單',inventory:'庫存'}[p] || clean(src) || '未指定'; }
   function reqKey(prefix){ return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; }
   function qtyFromProduct(text){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(text, 1);
     const raw=normX(text); const right=raw.includes('=')?raw.split('=').slice(1).join('='):'';
     if(!right) return 1;
     const parts=right.split('+').map(clean).filter(Boolean);
@@ -8496,6 +8501,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   }
   function sourceLabel(src){ const p=sourcePref(src)||src; return {master_orders:'總單',orders:'訂單',inventory:'庫存'}[p] || clean(src) || ''; }
   function qtyFromProduct(text){
+    if (typeof window.YX126Qty === 'function') return window.YX126Qty(text, 1);
     const raw=normX(text); const right=raw.includes('=')?raw.split('=').slice(1).join('='):'';
     if(!right) return 1;
     const parts=right.split('+').map(clean).filter(Boolean);
@@ -9320,7 +9326,7 @@ window.highlightWarehouseCell = highlightWarehouseCell;
   window.yxApi = api;
   const sourceApi = source => source === 'master_order' ? 'master_orders' : source;
   const titleOf = source => source === 'inventory' ? '庫存' : source === 'orders' ? '訂單' : '總單';
-  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤佳利'];
+  const materialList = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
 
   function syncSelectedRowClasses(){
     document.querySelectorAll('.yx63-summary-row').forEach(row => {

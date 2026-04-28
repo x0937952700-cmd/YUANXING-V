@@ -945,7 +945,7 @@ def api_inventory_item(item_id):
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
         product_code = material
-        qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
+        qty = normalize_item_quantity(product_text, 1)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
@@ -1495,7 +1495,7 @@ def api_customer_item_modify():
             notify_sync_event(kind='refresh', module='customers', message='客戶商品已刪除', extra={'source': source, 'id': item_id})
             return jsonify(success=True)
         product_text = format_product_text_height2((data.get("product_text") or "").strip())
-        qty = int(data.get("qty") or 0)
+        qty = normalize_item_quantity(product_text, 1)
         if not product_text:
             return error_response("請輸入商品資料")
         material = data.get("material") if "material" in data else None
@@ -2542,7 +2542,7 @@ def _fix28_update_item_api(table, item_id):
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
+        qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')
         if qty < 0:

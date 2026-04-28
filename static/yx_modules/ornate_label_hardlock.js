@@ -1,8 +1,8 @@
-/* FIX124 獨立圓型標籤母版硬鎖
+/* FIX127 淺灰外圈等寬標籤母版硬鎖
    只接外觀母版：不改功能、不覆蓋 onclick/href/API。 */
 (function(){
   'use strict';
-  const VERSION = 'fix125-customer-merge-master-hardlock';
+  const VERSION = 'fix128-inline-edit-full-list-hardlock';
   const SELECTOR = [
     '.menu-btn','a.menu-btn','.home-mini-btn','a.home-mini-btn','.user-cell',
     '.primary-btn','button.primary-btn','.ghost-btn','button.ghost-btn','.back-btn','a.back-btn',
@@ -33,6 +33,7 @@
     const scope = root && root.querySelectorAll ? root : document;
     document.documentElement.dataset.yx124OrnateLabel = 'locked';
     document.documentElement.dataset.yx124MasterLabel = 'locked';
+    document.documentElement.dataset.yx127GrayRingEqualHome = 'locked';
     document.documentElement.classList.add('yx124-ornate-scope');
     try{
       scope.querySelectorAll(SELECTOR).forEach(el => {

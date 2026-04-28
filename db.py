@@ -289,57 +289,61 @@ def product_support_text(text):
 
 def effective_product_qty(product_text, fallback_qty=0):
     """
-    件數規則（FIX62）：
-    - 等號右側用 + 分段。
-    - 一般情況：有 xN 算 N；沒有 xN 的數字段算 1；明確「N件 / N片」算 N。
-    - 特例：超長混合長度清單，例如
-      100x30x63=504x5+588+587+502+420+382+378+280+254+237+174
-      這類第一段是長度標記，後面每個長度才是一件，因此算後面 10 件。
+    FIX126 件數規則：
+    - 數量一律由商品文字判定，不再依賴手動輸入數量。
+    - 等號右側有「長度xN」才算 N 件；右側只有支數/長度數字就算 1 件。
+    - 例如：132x23x05=249x3 -> 3 件；132x23x05=249 -> 1 件；60+54+50 -> 3 件。
+    - 只有尺寸、沒有等號或沒有可判定件數時，預設 1 件，避免把尺寸 100x30x63 誤判成 63 件。
+    - 保留超長清單特例：504x5+後面多個長度，第一段不當成 5 件。
     """
     raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
-    total = 0
-    parsed = False
-    if '=' in raw:
-        right = raw.split('=', 1)[1]
-    else:
-        # 允許只傳右側支數，例如 60+54+50 或 220x4+223x2+44+35+221。
-        right = raw
-    if right:
-        segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
-
-        # FIX63 明確規則：這筆總單是 10 件，不可把 504x5 當 5 件後再相加成 15 件。
-        canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
-        if right.replace(' ', '').lower() == canonical:
-            return 10
-
-        # FIX62 特例：像 504x5+588+...+174 這種超長清單，第一段 504x5 不當成 5 件，
-        # 只計算後面每一個單獨長度，避免把總單誤算成 15 件。
-        x_segments = [seg for seg in segments if re.search(r'x\s*\d+\s*$', seg, flags=re.I)]
-        bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', seg)]
-        if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
-                and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
-                and len(bare_segments) >= 8):
-            return len(bare_segments)
-
-        for seg in segments:
-            if re.search(r'[件片]', seg):
-                nums = [int(x) for x in re.findall(r'\d+', seg)]
-                if nums:
-                    total += nums[-1]
-                    parsed = True
-                continue
-            m = re.search(r'x\s*(\d+)', seg, flags=re.I)
-            if m:
-                total += int(m.group(1))
-                parsed = True
-            elif re.search(r'\d+', seg):
-                total += 1
-                parsed = True
     try:
         fallback = int(fallback_qty or 0)
     except Exception:
         fallback = 0
-    return total if parsed else fallback
+    if not raw:
+        return fallback
+
+    right = raw.split('=', 1)[1].strip() if '=' in raw else raw.strip()
+    if not right:
+        return 1
+
+    canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
+    if right.replace(' ', '').lower() == canonical:
+        return 10
+
+    segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
+    if not segments:
+        return 1
+
+    def _is_single_qty_x(seg):
+        clean_seg = str(seg or '').replace(' ', '').lower()
+        return clean_seg.count('x') == 1 and re.search(r'x\s*\d+\s*$', seg, flags=re.I)
+
+    x_segments = [seg for seg in segments if _is_single_qty_x(seg)]
+    bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', seg)]
+    if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
+            and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
+            and len(bare_segments) >= 8):
+        return len(bare_segments)
+
+    total = 0
+    parsed = False
+    for seg in segments:
+        if re.search(r'[件片]', seg):
+            nums = [int(x) for x in re.findall(r'\d+', seg)]
+            if nums:
+                total += nums[-1]
+                parsed = True
+            continue
+        m = re.search(r'x\s*(\d+)\s*$', seg, flags=re.I) if _is_single_qty_x(seg) else None
+        if m:
+            total += int(m.group(1))
+            parsed = True
+        elif re.search(r'\d+', seg):
+            total += 1
+            parsed = True
+    return total if parsed else 1
 
 def product_note_text(text):
     """保留等號右側括號備註，例如 168x7(-1永松)。"""
@@ -3077,8 +3081,8 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
 def update_items_material(items, material, operator=''):
     table_map = {'庫存': 'inventory', 'inventory': 'inventory', '訂單': 'orders', 'orders': 'orders', '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}
     material = (material or '').strip().upper()
-    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL'}:
-        raise ValueError('材質不在下拉選單內')
+    if material not in {'SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'}:
+        raise ValueError('材質不在下拉選單內（已支援尤加利）')
     conn = get_db()
     cur = conn.cursor()
     count = 0

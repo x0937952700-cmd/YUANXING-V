@@ -7,15 +7,15 @@
   --yx124-label-bg-bottom:#dfe2e6;
   --yx124-label-text:#111827;
   --yx124-label-muted:#4b5563;
-  --yx124-gold:#d9ad56;
-  --yx124-gold-2:#b9822e;
-  --yx124-gold-3:#f1d99b;
-  --yx124-gold-soft:rgba(217,173,86,.32);
+  --yx124-gold:#d1d5db;
+  --yx124-gold-2:#9ca3af;
+  --yx124-gold-3:#f8fafc;
+  --yx124-gold-soft:rgba(209,213,219,.52);
   --yx124-shadow:0 10px 24px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.94);
 }
 html[data-yx124-ornate-label="locked"]{
-  --accent:#d9ad56;
-  --wood:#d9ad56;
+  --accent:#d1d5db;
+  --wood:#d1d5db;
 }
 html[data-yx124-ornate-label="locked"] .yx124-ornate-label,
 html[data-yx124-ornate-label="locked"] .menu-btn,
@@ -239,4 +239,139 @@ html[data-yx124-ornate-label="locked"] .yx124-ornate-label:disabled{
   html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{gap:8px!important;}
   html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
   html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{font-size:.88rem!important;padding:8px 8px!important;}
+}
+
+
+/* FIX127 淺灰外圈 + 主頁等寬母版硬鎖
+   只覆蓋視覺尺寸與外圈顏色，不改 href / onclick / API。 */
+html[data-yx124-ornate-label="locked"]{
+  --yx124-label-bg-top:#ffffff;
+  --yx124-label-bg-mid:#f6f7f9;
+  --yx124-label-bg-bottom:#eceff3;
+  --yx124-label-text:#111827;
+  --yx124-ring:#d1d5db;
+  --yx124-ring-strong:#b8bec6;
+  --yx124-ring-inner:#e5e7eb;
+  --yx124-ring-soft:rgba(209,213,219,.56);
+  --accent:#d1d5db;
+  --wood:#d1d5db;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label{
+  border-color:var(--yx124-ring)!important;
+  outline-color:rgba(255,255,255,.80)!important;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.98) 0 17%, transparent 44%),
+    linear-gradient(180deg,var(--yx124-label-bg-top) 0%,var(--yx124-label-bg-mid) 50%,var(--yx124-label-bg-bottom) 100%)!important;
+  color:var(--yx124-label-text)!important;
+  box-shadow:
+    0 10px 24px rgba(15,23,42,.10),
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 0 0 5px var(--yx124-ring-soft),
+    inset 0 0 18px rgba(156,163,175,.12)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before{
+  border-color:var(--yx124-ring-strong)!important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.86),
+    inset 0 0 10px rgba(156,163,175,.18)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::after{
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.98),transparent)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover{
+  border-color:var(--yx124-ring-strong)!important;
+  box-shadow:
+    0 14px 30px rgba(15,23,42,.12),
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 0 0 5px rgba(209,213,219,.66),
+    inset 0 0 18px rgba(156,163,175,.16)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:active{
+  box-shadow:
+    0 5px 15px rgba(15,23,42,.10),
+    inset 0 0 0 5px rgba(209,213,219,.62)!important;
+}
+
+/* 主頁上方姓名 / 設定 / 今日異動：保留小標籤，三顆同寬。 */
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+  display:grid!important;
+  grid-template-columns:repeat(3, minmax(0, 1fr))!important;
+  gap:12px!important;
+  width:min(560px,96vw)!important;
+  margin:10px auto 30px!important;
+  align-items:center!important;
+  justify-items:stretch!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+  width:100%!important;
+  min-width:0!important;
+  max-width:none!important;
+  min-height:44px!important;
+  height:44px!important;
+  padding:6px 12px!important;
+  font-size:clamp(.86rem,2.6vw,1rem)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+}
+
+/* 主頁功能標籤：庫存/訂單/總單/出貨/出貨查詢/倉庫圖/客戶資料/代辦事項 全部同寬同高。 */
+html[data-yx124-ornate-label="locked"] .home-menu.vertical{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:16px!important;
+  width:100%!important;
+  margin:0 auto!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn,
+html[data-yx124-ornate-label="locked"] .home-menu.vertical a.menu-btn{
+  width:min(260px,82vw)!important;
+  min-width:min(260px,82vw)!important;
+  max-width:min(260px,82vw)!important;
+  min-height:72px!important;
+  height:72px!important;
+  padding:0 20px!important;
+  box-sizing:border-box!important;
+  font-size:clamp(1.7rem,5.2vw,2.08rem)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn *{
+  pointer-events:none!important;
+}
+
+/* 功能頁列表客戶卡只改淺灰外圈，不強制主頁等寬規則，避免影響件數/筆數排版。 */
+html[data-yx124-ornate-label="locked"] .customer-region-card.yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .customer-chip.yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .interactive-pill.yx124-ornate-label{
+  border-color:var(--yx124-ring)!important;
+}
+
+@media(max-width:640px){
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+    gap:8px!important;
+    width:min(520px,96vw)!important;
+    margin-bottom:26px!important;
+  }
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+    min-height:42px!important;
+    height:42px!important;
+    padding:6px 8px!important;
+    font-size:.88rem!important;
+  }
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical{gap:14px!important;}
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn,
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical a.menu-btn{
+    width:min(238px,78vw)!important;
+    min-width:min(238px,78vw)!important;
+    max-width:min(238px,78vw)!important;
+    min-height:66px!important;
+    height:66px!important;
+    padding:0 16px!important;
+    font-size:clamp(1.5rem,7vw,1.9rem)!important;
+  }
 }
