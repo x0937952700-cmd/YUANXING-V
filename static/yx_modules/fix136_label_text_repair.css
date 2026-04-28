@@ -1,0 +1,105 @@
+/* FIX136：標籤文字顯示修復母版
+   修正 FIX135 內圈 ::before 背景蓋住按鈕文字的問題；只改外觀層，不改功能事件。 */
+html[data-yx136-label-text="locked"] .yx124-ornate-label,
+html[data-yx136-label-text="locked"] .menu-btn,
+html[data-yx136-label-text="locked"] a.menu-btn,
+html[data-yx136-label-text="locked"] .home-mini-btn,
+html[data-yx136-label-text="locked"] a.home-mini-btn,
+html[data-yx136-label-text="locked"] .user-cell,
+html[data-yx136-label-text="locked"] .primary-btn,
+html[data-yx136-label-text="locked"] button.primary-btn,
+html[data-yx136-label-text="locked"] .ghost-btn,
+html[data-yx136-label-text="locked"] button.ghost-btn,
+html[data-yx136-label-text="locked"] .back-btn,
+html[data-yx136-label-text="locked"] a.back-btn,
+html[data-yx136-label-text="locked"] .danger-btn,
+html[data-yx136-label-text="locked"] button.danger-btn,
+html[data-yx136-label-text="locked"] .btn-danger,
+html[data-yx136-label-text="locked"] .chip,
+html[data-yx136-label-text="locked"] button.chip,
+html[data-yx136-label-text="locked"] .pill,
+html[data-yx136-label-text="locked"] .tiny-btn,
+html[data-yx136-label-text="locked"] .small-btn,
+html[data-yx136-label-text="locked"] .icon-btn,
+html[data-yx136-label-text="locked"] .interactive-pill,
+html[data-yx136-label-text="locked"] .customer-mini-tag,
+html[data-yx136-label-text="locked"] .customer-chip,
+html[data-yx136-label-text="locked"] .customer-region-card,
+html[data-yx136-label-text="locked"] .zone-switch,
+html[data-yx136-label-text="locked"] .pwa-install-btn{
+  color:#111827!important;
+  -webkit-text-fill-color:currentColor!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.82)!important;
+}
+html[data-yx136-label-text="locked"] .danger-btn,
+html[data-yx136-label-text="locked"] button.danger-btn,
+html[data-yx136-label-text="locked"] .btn-danger{
+  color:#dc2626!important;
+}
+html[data-yx136-label-text="locked"] .yx136-label-text,
+html[data-yx136-label-text="locked"] .yx124-ornate-label > span,
+html[data-yx136-label-text="locked"] .menu-btn > span,
+html[data-yx136-label-text="locked"] .home-mini-btn > span,
+html[data-yx136-label-text="locked"] .primary-btn > span,
+html[data-yx136-label-text="locked"] .ghost-btn > span,
+html[data-yx136-label-text="locked"] .back-btn > span,
+html[data-yx136-label-text="locked"] .danger-btn > span,
+html[data-yx136-label-text="locked"] .chip > span,
+html[data-yx136-label-text="locked"] .pill > span,
+html[data-yx136-label-text="locked"] .tiny-btn > span,
+html[data-yx136-label-text="locked"] .small-btn > span,
+html[data-yx136-label-text="locked"] .customer-region-card > span,
+html[data-yx136-label-text="locked"] .zone-switch > span{
+  position:relative!important;
+  z-index:5!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  color:inherit!important;
+  opacity:1!important;
+  visibility:visible!important;
+  text-indent:0!important;
+  filter:none!important;
+  mix-blend-mode:normal!important;
+  pointer-events:none!important;
+}
+html[data-yx136-label-text="locked"] .yx124-ornate-label::before,
+html[data-yx136-label-text="locked"] .menu-btn::before,
+html[data-yx136-label-text="locked"] .home-mini-btn::before,
+html[data-yx136-label-text="locked"] .user-cell::before,
+html[data-yx136-label-text="locked"] .primary-btn::before,
+html[data-yx136-label-text="locked"] .ghost-btn::before,
+html[data-yx136-label-text="locked"] .back-btn::before,
+html[data-yx136-label-text="locked"] .danger-btn::before,
+html[data-yx136-label-text="locked"] .chip::before,
+html[data-yx136-label-text="locked"] .pill::before,
+html[data-yx136-label-text="locked"] .tiny-btn::before,
+html[data-yx136-label-text="locked"] .small-btn::before,
+html[data-yx136-label-text="locked"] .customer-region-card::before,
+html[data-yx136-label-text="locked"] .zone-switch::before{
+  z-index:1!important;
+  pointer-events:none!important;
+}
+html[data-yx136-label-text="locked"] .yx124-ornate-label::after,
+html[data-yx136-label-text="locked"] .menu-btn::after,
+html[data-yx136-label-text="locked"] .home-mini-btn::after,
+html[data-yx136-label-text="locked"] .user-cell::after,
+html[data-yx136-label-text="locked"] .primary-btn::after,
+html[data-yx136-label-text="locked"] .ghost-btn::after,
+html[data-yx136-label-text="locked"] .back-btn::after,
+html[data-yx136-label-text="locked"] .danger-btn::after,
+html[data-yx136-label-text="locked"] .chip::after,
+html[data-yx136-label-text="locked"] .pill::after,
+html[data-yx136-label-text="locked"] .tiny-btn::after,
+html[data-yx136-label-text="locked"] .small-btn::after,
+html[data-yx136-label-text="locked"] .customer-region-card::after,
+html[data-yx136-label-text="locked"] .zone-switch::after{
+  z-index:2!important;
+  pointer-events:none!important;
+}
+html[data-yx136-label-text="locked"] .home-menu.vertical .menu-btn,
+html[data-yx136-label-text="locked"] .home-top-actions.centered-actions .home-mini-btn,
+html[data-yx136-label-text="locked"] .home-top-actions.centered-actions .user-cell{
+  font-family:inherit!important;
+  -webkit-text-fill-color:currentColor!important;
+}

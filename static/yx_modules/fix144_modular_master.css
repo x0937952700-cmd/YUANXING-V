@@ -1,0 +1,58 @@
+/* FIX144 模組化母版：最後載入，只處理新版顯示層，不刪除舊功能 */
+:root{--yx144-silver:#cfd6df;--yx144-silver-strong:#e8eef5;--yx144-line:#7f8c9c;--yx144-red:#d52020;--yx144-text:#111827;}
+html[data-yx144-modular-master="locked"] .legacy-view,
+html[data-yx144-modular-master="locked"] .yx-legacy-visual,
+html[data-yx144-modular-master="locked"] [data-legacy-visual="1"]{display:none!important;pointer-events:none!important;}
+html[data-yx144-modular-master="locked"] button,
+html[data-yx144-modular-master="locked"] .button,
+html[data-yx144-modular-master="locked"] .ghost-btn,
+html[data-yx144-modular-master="locked"] .primary-btn,
+html[data-yx144-modular-master="locked"] .menu-btn,
+html[data-yx144-modular-master="locked"] .home-mini-btn,
+html[data-yx144-modular-master="locked"] .chip,
+html[data-yx144-modular-master="locked"] .pill{color:var(--yx144-text)!important;text-shadow:none!important;}
+html[data-yx144-modular-master="locked"] .danger-btn,
+html[data-yx144-modular-master="locked"] .delete-btn,
+html[data-yx144-modular-master="locked"] [data-action="delete"],
+html[data-yx144-modular-master="locked"] [data-yx113-action="delete"],
+html[data-yx144-modular-master="locked"] button.danger,
+html[data-yx144-modular-master="locked"] button[aria-label*="刪除"]{color:var(--yx144-red)!important;font-weight:800!important;}
+html[data-yx144-modular-master="locked"] button:active,
+html[data-yx144-modular-master="locked"] .ghost-btn:active,
+html[data-yx144-modular-master="locked"] .primary-btn:active,
+html[data-yx144-modular-master="locked"] .menu-btn:active,
+html[data-yx144-modular-master="locked"] .home-mini-btn:active,
+html[data-yx144-modular-master="locked"] .chip:active,
+html[data-yx144-modular-master="locked"] .pill:active,
+html[data-yx144-modular-master="locked"] .customer-region-card:active{background:linear-gradient(180deg,#f8fbff 0%,var(--yx144-silver-strong) 45%,#bfc9d5 100%)!important;box-shadow:inset 0 2px 8px rgba(255,255,255,.95), inset 0 -2px 9px rgba(75,90,110,.28),0 0 0 2px rgba(116,128,145,.55)!important;transform:translateY(1px) scale(.99);}
+html[data-yx144-modular-master="locked"] .btn-row,
+html[data-yx144-modular-master="locked"] .compact-row,
+html[data-yx144-modular-master="locked"] .yx144-action-row{display:flex!important;flex-direction:row!important;align-items:center!important;gap:10px!important;flex-wrap:wrap!important;justify-content:flex-start!important;}
+html[data-yx144-modular-master="locked"] .yx144-empty-button{min-width:72px!important;}
+html[data-yx144-modular-master="locked"] .customer-region-card,
+html[data-yx144-modular-master="locked"] .yx113-customer-card,
+html[data-yx144-modular-master="locked"] .yx116-customer-card{display:grid!important;grid-template-columns:1fr auto 1fr!important;align-items:center!important;gap:8px!important;text-align:initial!important;}
+html[data-yx144-modular-master="locked"] .customer-region-card .customer-name,
+html[data-yx144-modular-master="locked"] .yx113-customer-name,
+html[data-yx144-modular-master="locked"] .yx116-customer-name{justify-self:start!important;text-align:left!important;font-weight:800!important;min-width:0!important;}
+html[data-yx144-modular-master="locked"] .customer-region-card .trade-tag,
+html[data-yx144-modular-master="locked"] .customer-region-card .customer-tag,
+html[data-yx144-modular-master="locked"] .yx113-trade-tag,
+html[data-yx144-modular-master="locked"] .yx116-trade-tag{justify-self:center!important;text-align:center!important;}
+html[data-yx144-modular-master="locked"] .customer-region-card .qty-count,
+html[data-yx144-modular-master="locked"] .customer-region-card .count,
+html[data-yx144-modular-master="locked"] .yx113-customer-count,
+html[data-yx144-modular-master="locked"] .yx116-customer-count{justify-self:end!important;text-align:right!important;font-weight:800!important;}
+html[data-yx144-modular-master="locked"] .yx113-product-card,
+html[data-yx144-modular-master="locked"] .yx112-product-card{display:none!important;}
+html[data-yx144-modular-master="locked"] .yx113-summary-wrap,
+html[data-yx144-modular-master="locked"] .yx144-table-master{overflow:visible!important;max-height:none!important;height:auto!important;}
+html[data-yx144-modular-master="locked"] .yx113-summary-wrap table,
+html[data-yx144-modular-master="locked"] .yx144-table-master table{table-layout:auto!important;width:100%!important;}
+html[data-yx144-modular-master="locked"] th.yx144-customer-col,
+html[data-yx144-modular-master="locked"] td.yx144-customer-col{display:none!important;}
+html[data-yx144-modular-master="locked"] .yx144-customer-title-tag{display:inline-flex!important;align-items:center!important;gap:8px!important;font-size:1.14rem!important;font-weight:900!important;margin-right:10px!important;color:#111827!important;}
+html[data-yx144-modular-master="locked"] #ship-customer-picker{display:block!important;}
+html[data-yx144-modular-master="locked"] .yx144-ship-customer-bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px;}
+html[data-yx144-modular-master="locked"] .yx144-ship-customer-bar .chip{cursor:pointer;}
+html[data-yx144-modular-master="locked"] .warehouse-page-shell .zone-grid{touch-action:none;}

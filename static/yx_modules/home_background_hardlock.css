@@ -1,0 +1,41 @@
+/* FIX133 主頁背景母版硬鎖 */
+html[data-yx133-home-bg="locked"],
+html[data-yx133-home-bg="locked"] body{
+  min-height:100%;
+  background:#f6fbff!important;
+}
+html[data-yx133-home-bg="locked"] body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-2;
+  pointer-events:none;
+  background-image:url('/static/yx_assets/home_cloud_background.jpg?v=fix144-modular-master-hardlock');
+  background-size:cover;
+  background-position:center center;
+  background-repeat:no-repeat;
+  filter:saturate(1.03) brightness(1.02);
+}
+html[data-yx133-home-bg="locked"] body::after{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.28));
+}
+html[data-yx133-home-bg="locked"] .page-shell{
+  background:transparent!important;
+  min-height:100svh!important;
+}
+html[data-yx133-home-bg="locked"] .home-screen{
+  position:relative!important;
+  z-index:1!important;
+  min-height:calc(100svh - 36px)!important;
+}
+html[data-yx133-home-bg="locked"] .page-title{
+  text-shadow:0 2px 12px rgba(255,255,255,.92),0 1px 0 rgba(255,255,255,.82)!important;
+}
+@supports (-webkit-touch-callout:none){
+  html[data-yx133-home-bg="locked"] body::before{background-attachment:scroll;}
+}
