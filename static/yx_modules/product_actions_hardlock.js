@@ -1,11 +1,11 @@
-/* FIX134 商品母版硬鎖：清單直列全顯示、表格操作、客戶標籤、AB區批量、移除小卡 */
+/* FIX135 商品母版最終硬鎖：直列表格全顯示、操作上移、AB區、移除小卡、不讓舊版覆蓋 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
   const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null };
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -538,6 +538,8 @@
     window.YX121ProductActions = window.YX113ProductActions;
     window.YX128ProductActions = window.YX113ProductActions;
     window.YX129ProductActions = window.YX113ProductActions;
+    window.YX132ProductActions = window.YX113ProductActions;
+    window.YX135ProductActions = window.YX113ProductActions;
     const refreshFn = YX.mark((source, _silent) => loadSource(source), 'product_refresh_121');
     const renderRows = source => rows => { rowsStore(source, rows || []); pruneSelected(source); renderSummary(source); renderCards(source); };
     const bridges = {
@@ -553,8 +555,8 @@
       renderOrdersRows: YX.mark(renderRows('orders'), 'render_orders_121'),
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
-    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix134-stability-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix135-master-final-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
@@ -592,9 +594,15 @@
     document.documentElement.dataset.yx113Products = 'locked';
     document.documentElement.dataset.yx114Products = 'locked';
     document.documentElement.dataset.yx132Products = 'locked';
+    document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
     ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
-    loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
+    if (state.installedSource === source && rowsStore(source).length) {
+      renderSummary(source); renderCards(source);
+    } else {
+      state.installedSource = source;
+      loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
+    }
     [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});

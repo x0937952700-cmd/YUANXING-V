@@ -1,4 +1,4 @@
-/* FIX134 商品來源安全橋接：不重複寫唯讀 __yx113HardLock，避免紅色錯誤卡 */
+/* FIX135 商品來源橋接保險版：只當相容入口，不再搶 window 唯讀硬鎖，避免舊版覆蓋與紅色錯誤卡 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -10,40 +10,42 @@
     if (m === 'master_order') return 'master_order';
     return '';
   }
-  async function bridgeLoadSource(source){
+  function productMaster(){
+    return window.YX135ProductActions || window.YX132ProductActions || window.YX129ProductActions || window.YX128ProductActions || window.YX113ProductActions;
+  }
+  async function bridgeLoadSource(source, opts){
     source = source || moduleSource();
-    const pa = window.YX113ProductActions || window.YX128ProductActions || window.YX129ProductActions;
-    if (pa && typeof pa.loadSource === 'function' && pa.loadSource !== bridgeLoadSource) return pa.loadSource(source);
+    const pa = productMaster();
+    if (pa && typeof pa.loadSource === 'function' && pa.loadSource !== bridgeLoadSource) return pa.loadSource(source, opts || {});
     const endpoint = source === 'inventory' ? '/api/inventory' : source === 'orders' ? '/api/orders' : source === 'master_order' ? '/api/master_orders' : '';
     if (!endpoint) return [];
-    const d = await YX.api(endpoint + '?yx132_bridge=1&ts=' + Date.now(), {method:'GET'});
+    const d = await YX.api(endpoint + '?yx135_bridge=1&ts=' + Date.now(), {method:'GET'});
     return Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
   }
-  function safeExpose(name, fn){
-    // FIX134：只在安全時安裝橋接。若該名稱已被母版 hardAssign 鎖住，直接尊重母版，
-    // 不再做任何指派，避免 Cannot assign to read only property / __yx113HardLock 紅色錯誤卡。
+  function defineSoft(name, fn){
     try {
-      const current = Object.getOwnPropertyDescriptor(window, name);
-      const currentValue = current && ('value' in current ? current.value : undefined);
-      if (currentValue === fn) return;
-      if (currentValue && currentValue.__yx113HardLock) return;
-      if (current && current.configurable === false) return;
-      Object.defineProperty(window, name, {value:fn, configurable:true, enumerable:false, writable:true});
-    } catch(_e) {
-      // 不再 fallback 到 window[name] = fn，因為舊版 getter/setter 可能是唯讀。
-    }
+      const desc = Object.getOwnPropertyDescriptor(window, name);
+      if (desc && desc.configurable === false) return;
+      const current = desc && ('value' in desc ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined));
+      if (current && current.__yx113HardLock) return;
+      if (typeof current === 'function' && /loadSource|refreshSource|loadInventory|loadOrders|loadMaster/i.test(name)) return;
+      Object.defineProperty(window, name, {value:fn, writable:true, configurable:true, enumerable:false});
+    } catch(_e) {}
   }
-  function expose(){
-    safeExpose('loadSource', bridgeLoadSource);
-    safeExpose('refreshSource', bridgeLoadSource);
-    safeExpose('loadInventory', () => bridgeLoadSource('inventory'));
-    safeExpose('loadOrdersList', () => bridgeLoadSource('orders'));
-    safeExpose('loadMasterList', () => bridgeLoadSource('master_order'));
+  function exposeOnlyWhenMissing(){
+    const pa = productMaster();
+    if (pa && typeof pa.loadSource === 'function') return;
+    defineSoft('loadSource', bridgeLoadSource);
+    defineSoft('refreshSource', bridgeLoadSource);
+    defineSoft('loadInventory', () => bridgeLoadSource('inventory'));
+    defineSoft('loadOrdersList', () => bridgeLoadSource('orders'));
+    defineSoft('loadMasterList', () => bridgeLoadSource('master_order'));
   }
   function install(){
-    document.documentElement.dataset.yx132ProductSourceBridge='locked';
-    expose();
-    [80, 240, 700, 1500].forEach(ms => setTimeout(expose, ms));
+    document.documentElement.dataset.yx135ProductSourceBridge = 'locked';
+    window.YX135ProductSourceBridge = Object.freeze({loadSource:bridgeLoadSource, moduleSource});
+    exposeOnlyWhenMissing();
+    [120, 420, 1200].forEach(ms => setTimeout(exposeOnlyWhenMissing, ms));
   }
   YX.register('product_source_bridge', {install, loadSource:bridgeLoadSource});
 })();

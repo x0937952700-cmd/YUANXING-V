@@ -24,10 +24,10 @@ required = {
         "insertWarehouseCell",
         "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix134-stability-master-hardlock", "YXHardLock", "register"],
+    "static/yx_modules/core_hardlock.js": ["fix135-master-final-hardlock", "YXHardLock", "register"],
     "static/yx_modules/today_changes_hardlock.js": ["FIX118 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
     "static/yx_modules/warehouse_hardlock.js": ["FIX118 倉庫硬鎖", "normalizeSlot"],
-    "static/yx_modules/product_actions_hardlock.js": ["FIX134 商品母版硬鎖", "loadSource", "renderCards", "編輯全部", "data-yx128-card-save"],
+    "static/yx_modules/product_actions_hardlock.js": ["FIX135 商品母版最終硬鎖", "loadSource", "renderCards", "編輯全部", "data-yx128-card-save"],
     "static/yx_modules/product_sort_hardlock.js": ["FIX118 商品排序母版硬鎖", "YX118ProductSort", "compareRows"],
     "static/yx_modules/ship_picker_hardlock.js": ["FIX128 出貨客戶商品母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker", "yx128-ship-index"],
     "static/yx_modules/legacy_isolation_hardlock.js": ["FIX118 舊版渲染隔離", "legacy_isolation", "isolateAll"],
@@ -38,13 +38,13 @@ required = {
     "static/yx_modules/quantity_rule_hardlock.js": ["FIX126 數量規則硬鎖", "YX126Qty", "calcTotalQty"],
     "static/yx_modules/master_integrator.js": ["FIX124 母版整合器", "safeInstall('today_changes'", "legacy_isolation", "ship_picker", "product_source_bridge", "apple_ui", "ornate_label"],
     "static/yx_modules/inline_edit_full_list_hardlock.js": ["FIX128 母版接管器", "inline_edit_full_list", "yx128InlineEdit"],
-    "static/yx_modules/product_source_bridge_hardlock.js": ["FIX134 商品來源安全橋接", "product_source_bridge", "loadSource"],
+    "static/yx_modules/product_source_bridge_hardlock.js": ["FIX135 商品來源橋接保險版", "product_source_bridge", "loadSource"],
     "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix134-stability-master-hardlock", "yx_modules/core_hardlock.js", "home_background_hardlock.css", "quantity_rule_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "app.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "pwa.js"],
+    "templates/base.html": ["fix135-master-final-hardlock", "yx_modules/core_hardlock.js", "home_background_hardlock.css", "fix135_master_final_hardlock.css", "quantity_rule_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "app.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "pwa.js"],
     "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix134-stability-master-hardlock", "home_cloud_background.jpg", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js"],
-    "static/pwa.js": ["fix134-stability-master-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix134-stability-master-hardlock"'],
+    "static/service-worker.js": ["fix135-master-final-hardlock", "home_cloud_background.jpg", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "fix135_master_final_hardlock.js", "apple_ui_hardlock.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "fix135_master_final_hardlock.css", "fix135_master_final_hardlock.js"],
+    "static/pwa.js": ["fix135-master-final-hardlock"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix135-master-final-hardlock"'],
 }
 
 for rel, tokens in required.items():
@@ -65,4 +65,4 @@ old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|ware
 if old_template_controls:
     raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
 
-print("FIX134 smoke test OK")
+print("FIX135 smoke test OK")
