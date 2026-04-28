@@ -1,4 +1,4 @@
-/* FIX118 倉庫硬鎖 / FIX123 母版橋接：倉庫圖、格位編輯、長按插入刪除全部由新版入口接管 */
+/* FIX118 倉庫硬鎖 / FIX124 母版橋接：倉庫圖、格位編輯、長按插入刪除全部由新版入口接管 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;

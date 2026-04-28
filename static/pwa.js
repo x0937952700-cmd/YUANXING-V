@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix123-ornate-gray-master-hardlock';
+  const PWA_VERSION = 'fix125-customer-merge-master-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

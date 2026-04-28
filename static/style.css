@@ -4068,7 +4068,7 @@ html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
   html[data-yx118-product-sort="locked"] .yx113-summary-head::after{display:none;}
 }
 
-/* FIX123 master bridge stability: keep only hardlocked mother-template surfaces visible and responsive */
+/* FIX124 master bridge stability: keep only hardlocked mother-template surfaces visible and responsive */
 .yx121-warehouse-grid .vertical-slot{appearance:none;-webkit-appearance:none;width:100%;border:0;text-align:left;cursor:pointer;touch-action:manipulation;}
 .yx121-warehouse-grid .vertical-slot:active,.yx108-slot:active{transform:scale(.985);}
 .yx121-warehouse-menu .modal-card,.yx113-customer-actions .modal-card{max-width:420px;width:min(92vw,420px);}
@@ -4082,7 +4082,7 @@ html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
 .yx121-selected-customer-products .card-list{display:grid;gap:10px;}
 .yx115-hidden-legacy,.yx115-hidden-legacy-product,.yx88-hidden-legacy{display:none!important;}
 
-/* FIX123：主頁與全站按鈕改成淺灰金邊圓型標籤，覆蓋舊黑色標籤；只改外觀，不改 API / 功能事件。 */
+/* FIX124：主頁與全站按鈕改成淺灰金邊圓型標籤，覆蓋舊黑色標籤；只改外觀，不改 API / 功能事件。 */
 :root{
   --yx123-label-fill-top:#ffffff;
   --yx123-label-fill-mid:#f1f2f3;

@@ -1,0 +1,242 @@
+/* FIX124 獨立圓型標籤母版硬鎖
+   目的：主頁黑色標籤與全站按鈕全部由這支獨立母版 CSS 接管。
+   只改外觀，不改 onclick / href / API 行為。 */
+:root{
+  --yx124-label-bg-top:#ffffff;
+  --yx124-label-bg-mid:#f2f3f5;
+  --yx124-label-bg-bottom:#dfe2e6;
+  --yx124-label-text:#111827;
+  --yx124-label-muted:#4b5563;
+  --yx124-gold:#d9ad56;
+  --yx124-gold-2:#b9822e;
+  --yx124-gold-3:#f1d99b;
+  --yx124-gold-soft:rgba(217,173,86,.32);
+  --yx124-shadow:0 10px 24px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.94);
+}
+html[data-yx124-ornate-label="locked"]{
+  --accent:#d9ad56;
+  --wood:#d9ad56;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .menu-btn,
+html[data-yx124-ornate-label="locked"] a.menu-btn,
+html[data-yx124-ornate-label="locked"] .home-mini-btn,
+html[data-yx124-ornate-label="locked"] a.home-mini-btn,
+html[data-yx124-ornate-label="locked"] .user-cell,
+html[data-yx124-ornate-label="locked"] .primary-btn,
+html[data-yx124-ornate-label="locked"] button.primary-btn,
+html[data-yx124-ornate-label="locked"] .ghost-btn,
+html[data-yx124-ornate-label="locked"] button.ghost-btn,
+html[data-yx124-ornate-label="locked"] .back-btn,
+html[data-yx124-ornate-label="locked"] a.back-btn,
+html[data-yx124-ornate-label="locked"] .danger-btn,
+html[data-yx124-ornate-label="locked"] button.danger-btn,
+html[data-yx124-ornate-label="locked"] .btn-danger,
+html[data-yx124-ornate-label="locked"] .chip,
+html[data-yx124-ornate-label="locked"] button.chip,
+html[data-yx124-ornate-label="locked"] .pill,
+html[data-yx124-ornate-label="locked"] .tiny-btn,
+html[data-yx124-ornate-label="locked"] .small-btn,
+html[data-yx124-ornate-label="locked"] .icon-btn,
+html[data-yx124-ornate-label="locked"] .interactive-pill,
+html[data-yx124-ornate-label="locked"] .category-title,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag,
+html[data-yx124-ornate-label="locked"] .customer-chip,
+html[data-yx124-ornate-label="locked"] .customer-region-card,
+html[data-yx124-ornate-label="locked"] .zone-switch,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn{
+  position:relative!important;
+  isolation:isolate!important;
+  overflow:hidden!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:.35em!important;
+  min-height:42px!important;
+  padding:.62em 1.35em!important;
+  border-radius:999px!important;
+  border:2px solid var(--yx124-gold)!important;
+  outline:1px solid rgba(255,255,255,.72)!important;
+  outline-offset:-6px!important;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.96) 0 17%, transparent 44%),
+    linear-gradient(180deg,var(--yx124-label-bg-top) 0%,var(--yx124-label-bg-mid) 50%,var(--yx124-label-bg-bottom) 100%)!important;
+  color:var(--yx124-label-text)!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.78)!important;
+  box-shadow:var(--yx124-shadow), inset 0 0 0 5px var(--yx124-gold-soft), inset 0 0 18px rgba(185,130,46,.10)!important;
+  font-weight:900!important;
+  letter-spacing:.04em!important;
+  text-decoration:none!important;
+  -webkit-tap-highlight-color:transparent!important;
+  touch-action:manipulation!important;
+  cursor:pointer!important;
+  transition:transform .14s ease, box-shadow .14s ease, background .14s ease, border-color .14s ease!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before,
+html[data-yx124-ornate-label="locked"] .menu-btn::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::before,
+html[data-yx124-ornate-label="locked"] .user-cell::before,
+html[data-yx124-ornate-label="locked"] .primary-btn::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn::before,
+html[data-yx124-ornate-label="locked"] .back-btn::before,
+html[data-yx124-ornate-label="locked"] .danger-btn::before,
+html[data-yx124-ornate-label="locked"] .btn-danger::before,
+html[data-yx124-ornate-label="locked"] .chip::before,
+html[data-yx124-ornate-label="locked"] .pill::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn::before,
+html[data-yx124-ornate-label="locked"] .small-btn::before,
+html[data-yx124-ornate-label="locked"] .icon-btn::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill::before,
+html[data-yx124-ornate-label="locked"] .category-title::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::before,
+html[data-yx124-ornate-label="locked"] .customer-chip::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card::before,
+html[data-yx124-ornate-label="locked"] .zone-switch::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::before{
+  content:""!important;
+  position:absolute!important;
+  inset:5px!important;
+  border-radius:inherit!important;
+  border:1px solid rgba(185,130,46,.62)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.76), inset 0 0 10px rgba(217,173,86,.16)!important;
+  pointer-events:none!important;
+  z-index:0!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::after,
+html[data-yx124-ornate-label="locked"] .menu-btn::after,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::after,
+html[data-yx124-ornate-label="locked"] .user-cell::after,
+html[data-yx124-ornate-label="locked"] .primary-btn::after,
+html[data-yx124-ornate-label="locked"] .ghost-btn::after,
+html[data-yx124-ornate-label="locked"] .back-btn::after,
+html[data-yx124-ornate-label="locked"] .danger-btn::after,
+html[data-yx124-ornate-label="locked"] .btn-danger::after,
+html[data-yx124-ornate-label="locked"] .chip::after,
+html[data-yx124-ornate-label="locked"] .pill::after,
+html[data-yx124-ornate-label="locked"] .tiny-btn::after,
+html[data-yx124-ornate-label="locked"] .small-btn::after,
+html[data-yx124-ornate-label="locked"] .icon-btn::after,
+html[data-yx124-ornate-label="locked"] .interactive-pill::after,
+html[data-yx124-ornate-label="locked"] .category-title::after,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::after,
+html[data-yx124-ornate-label="locked"] .customer-chip::after,
+html[data-yx124-ornate-label="locked"] .customer-region-card::after,
+html[data-yx124-ornate-label="locked"] .zone-switch::after,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::after{
+  content:""!important;
+  position:absolute!important;
+  left:16%!important;
+  right:16%!important;
+  top:7px!important;
+  height:1px!important;
+  border-radius:999px!important;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.96),transparent)!important;
+  pointer-events:none!important;
+  z-index:0!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover,
+html[data-yx124-ornate-label="locked"] .back-btn:hover,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover,
+html[data-yx124-ornate-label="locked"] .chip:hover,
+html[data-yx124-ornate-label="locked"] .pill:hover,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover,
+html[data-yx124-ornate-label="locked"] .small-btn:hover,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover{
+  transform:translateY(-1px)!important;
+  border-color:var(--yx124-gold-2)!important;
+  box-shadow:0 14px 30px rgba(15,23,42,.14), inset 0 0 0 5px rgba(217,173,86,.38), inset 0 0 18px rgba(185,130,46,.12)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:active,
+html[data-yx124-ornate-label="locked"] .menu-btn:active,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:active,
+html[data-yx124-ornate-label="locked"] .primary-btn:active,
+html[data-yx124-ornate-label="locked"] .ghost-btn:active,
+html[data-yx124-ornate-label="locked"] .back-btn:active,
+html[data-yx124-ornate-label="locked"] .danger-btn:active,
+html[data-yx124-ornate-label="locked"] .chip:active,
+html[data-yx124-ornate-label="locked"] .pill:active,
+html[data-yx124-ornate-label="locked"] .tiny-btn:active,
+html[data-yx124-ornate-label="locked"] .small-btn:active,
+html[data-yx124-ornate-label="locked"] .icon-btn:active,
+html[data-yx124-ornate-label="locked"] .interactive-pill:active,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:active,
+html[data-yx124-ornate-label="locked"] .customer-chip:active,
+html[data-yx124-ornate-label="locked"] .customer-region-card:active,
+html[data-yx124-ornate-label="locked"] .zone-switch:active,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:active{
+  transform:scale(.982)!important;
+  box-shadow:0 5px 15px rgba(15,23,42,.11), inset 0 0 0 5px rgba(217,173,86,.34)!important;
+}
+/* 主頁按鈕不要再被舊黑色長條拉滿；維持原 href 功能。 */
+html[data-yx124-ornate-label="locked"] .home-menu.vertical{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:13px!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn{
+  width:auto!important;
+  min-width:0!important;
+  max-width:min(92vw,420px)!important;
+  min-height:66px!important;
+  padding:14px 48px!important;
+  font-size:clamp(1.35rem,4.8vw,1.9rem)!important;
+  line-height:1.08!important;
+  white-space:nowrap!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:10px!important;
+  width:min(520px,96vw)!important;
+  margin-inline:auto!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+  width:auto!important;
+  min-width:0!important;
+  min-height:46px!important;
+  padding:8px 12px!important;
+  font-size:.95rem!important;
+  text-align:center!important;
+}
+/* 舊版黑色/深色按鈕或被隱藏的舊畫面不可再接收事件。 */
+html[data-yx124-ornate-label="locked"] .yx115-hidden-legacy,
+html[data-yx124-ornate-label="locked"] .yx115-hidden-legacy-product,
+html[data-yx124-ornate-label="locked"] .yx88-hidden-legacy,
+html[data-yx124-ornate-label="locked"] [data-yx-legacy-hidden="1"]{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-old-visual-disabled{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx124-ornate-label="locked"] button:disabled,
+html[data-yx124-ornate-label="locked"] .primary-btn:disabled,
+html[data-yx124-ornate-label="locked"] .ghost-btn:disabled,
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:disabled{
+  opacity:.48!important;
+  cursor:not-allowed!important;
+  transform:none!important;
+}
+@media(max-width:640px){
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical{gap:12px!important;}
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn{min-height:60px!important;padding:12px 36px!important;}
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{gap:8px!important;}
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{font-size:.88rem!important;padding:8px 8px!important;}
+}

@@ -23,6 +23,41 @@
     if (mode === 'ship') return {qty:Number((r.order_qty || 0) + (r.master_qty || 0) + (r.inventory_qty || 0)), rows:Number((r.order_rows || 0) + (r.master_rows || 0) + (r.inventory_rows || 0))};
     return {qty:Number(c.item_count || r.total_qty || 0), rows:Number(c.row_count || r.total_rows || 0)};
   }
+  function mergeKey(name){
+    const info = tradeInfo(name || '');
+    const base = YX.clean(info.base || name || '').replace(/\s+/g,'').toLowerCase();
+    const tag = YX.clean(info.tag || '').replace(/\s+/g,'').toUpperCase();
+    return `${base}|${tag}`;
+  }
+  function mergeCounts(target, src, mode){
+    const fields = ['inventory_rows','order_rows','master_rows','shipping_rows','inventory_qty','order_qty','master_qty','shipping_qty','active_rows','total_rows','active_qty_total','history_qty_total','total_qty'];
+    target.relation_counts = target.relation_counts || {};
+    const sr = src.relation_counts || {};
+    fields.forEach(k => { target.relation_counts[k] = Number(target.relation_counts[k] || 0) + Number(sr[k] || 0); });
+    target.item_count = Number(target.item_count || 0) + Number(src.item_count || 0);
+    target.row_count = Number(target.row_count || 0) + Number(src.row_count || 0);
+    target.history_count = Number(target.history_count || 0) + Number(src.history_count || 0);
+    const rawNames = new Set([...(target.merge_names || []), target.name, ...(src.merge_names || []), src.name].filter(Boolean));
+    target.merge_names = Array.from(rawNames);
+    target.duplicate_merged_count = Math.max(0, target.merge_names.length - 1);
+    return target;
+  }
+  function mergeCustomerRows(items, mode){
+    const out = [];
+    const map = new Map();
+    (items || []).forEach(c => {
+      const key = mergeKey(c.name || '');
+      if (!key) return;
+      if (!map.has(key)) {
+        const clone = Object.assign({}, c, {relation_counts:Object.assign({}, c.relation_counts || {}), merge_names:Array.isArray(c.merge_names) ? [...c.merge_names] : [c.name].filter(Boolean)});
+        map.set(key, clone); out.push(clone);
+      } else {
+        mergeCounts(map.get(key), c, mode);
+      }
+    });
+    return out;
+  }
+
   function shouldShow(c, mode){
     const ct = counts(c, mode);
     if (mode === 'orders') return ct.qty > 0 || ct.rows > 0;
@@ -91,7 +126,7 @@
       const containers = Object.fromEntries(REGIONS.map(r => [r, $(map.ids[r])]).filter(([,el]) => !!el));
       if (!Object.keys(containers).length) return;
       Object.values(containers).forEach(el => { el.innerHTML = ''; el.classList.add('yx113-customer-list','yx114-customer-list'); });
-      let rows = (items || []).filter(c => shouldShow(c, map.mode));
+      let rows = mergeCustomerRows(items || [], map.mode).filter(c => shouldShow(c, map.mode));
       if (q) rows = rows.filter(c => String(c.name || '').toLowerCase().includes(q));
       rows.forEach(c => {
         const region = normRegion(c.region);

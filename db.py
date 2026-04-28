@@ -1163,6 +1163,125 @@ def _customer_uid_for_name_cur(cur, name):
         pass
     return ''
 
+
+
+def customer_merge_key(name):
+    """FIX125：客戶清單合併鍵。
+    同一客戶若因空白、大小寫或 CNF/FOB 標籤寫法不同而被拆成多張卡，
+    以前端顯示的「客戶名 + 貿易條件」為準合併，例如：山益 CNF、山益CNF。
+    """
+    raw = re.sub(r'\s+', ' ', str(name or '').strip())
+    if not raw:
+        return ''
+    tag_order = ['FOB代', 'FOB', 'CNF']
+    tags = []
+    def repl(m):
+        token = (m.group(0) or '').upper().replace('代付', '代')
+        if '代' in token:
+            tag = 'FOB代'
+        else:
+            tag = token
+        if tag not in tags:
+            tags.append(tag)
+        return ' '
+    base = re.sub(r'FOB\s*代付|FOB\s*代|FOB代付|FOB代|FOB|CNF', repl, raw, flags=re.I)
+    base = re.sub(r'\s+', '', base).strip().lower()
+    tags = [t for t in tag_order if t in tags]
+    return base + '|' + '/'.join(tags)
+
+
+def customer_merge_variants(cur, name):
+    """FIX125：找出應併為同一客戶卡的所有舊名稱。
+    只讀取名稱，不改資料，讓商品查詢可同時撈回舊名、空白差異名與 UID 分裂名。
+    """
+    key = customer_merge_key(name)
+    if not key:
+        return []
+    seen = set()
+    variants = []
+    def add(v):
+        v = (v or '').strip()
+        if not v or v in seen:
+            return
+        if customer_merge_key(v) == key:
+            seen.add(v)
+            variants.append(v)
+    add(name)
+    try:
+        cur.execute(sql("SELECT name FROM customer_profiles WHERE COALESCE(name, '') <> ''"))
+        for r in rows_to_dict(cur):
+            add(r.get('name'))
+    except Exception as e:
+        log_error('customer_merge_variants_profiles', str(e))
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        try:
+            cur.execute(sql(f"SELECT DISTINCT customer_name FROM {table} WHERE COALESCE(customer_name, '') <> ''"))
+            for r in rows_to_dict(cur):
+                add(r.get('customer_name'))
+        except Exception as e:
+            log_error('customer_merge_variants_relations', f'{table}: {e}')
+    return variants
+
+
+def merge_customer_rows_for_display(customers):
+    """FIX125：把相同顯示客戶合併成一張卡，數量與筆數加總。"""
+    merged = {}
+    order = []
+    count_fields = [
+        'inventory_rows','order_rows','master_rows','shipping_rows',
+        'inventory_qty','order_qty','master_qty','shipping_qty',
+        'active_rows','total_rows','active_qty_total','history_qty_total',
+    ]
+    for row in customers or []:
+        name = (row.get('name') or '').strip()
+        key = customer_merge_key(name) or name
+        if not key:
+            continue
+        if key not in merged:
+            base = dict(row)
+            base_counts = {k: 0 for k in count_fields}
+            base['relation_counts'] = base_counts
+            base['merge_names'] = []
+            base['duplicate_merged_count'] = 0
+            merged[key] = base
+            order.append(key)
+        dst = merged[key]
+        if dst.get('virtual_customer') and not row.get('virtual_customer'):
+            for k, v in row.items():
+                if k not in ('relation_counts','row_count','item_count','history_count','merge_names','duplicate_merged_count'):
+                    dst[k] = v
+        else:
+            for field in ('phone','address','notes','common_materials','common_sizes','region','customer_uid'):
+                if not (dst.get(field) or '') and (row.get(field) or ''):
+                    dst[field] = row.get(field)
+        if name and name not in dst['merge_names']:
+            dst['merge_names'].append(name)
+        rc = row.get('relation_counts') or {}
+        dc = dst['relation_counts']
+        for field in count_fields:
+            try:
+                dc[field] += int(rc.get(field) or 0)
+            except Exception:
+                pass
+        if not rc:
+            try:
+                dc['active_rows'] += int(row.get('row_count') or 0)
+                dc['total_rows'] += int(row.get('row_count') or 0)
+                dc['active_qty_total'] += int(row.get('item_count') or 0)
+            except Exception:
+                pass
+    out = []
+    for key in order:
+        row = merged[key]
+        rc = row.get('relation_counts') or {}
+        row['row_count'] = int(rc.get('active_rows') or 0)
+        row['item_count'] = int(rc.get('active_qty_total') or 0)
+        row['history_count'] = int(rc.get('shipping_qty') or rc.get('history_qty_total') or 0)
+        row['duplicate_merged_count'] = max(0, len(row.get('merge_names') or []) - 1)
+        out.append(row)
+    out.sort(key=lambda r: ({'北區':1,'中區':2,'南區':3}.get((r.get('region') or '').strip(), 9), customer_merge_key(r.get('name') or ''), (r.get('name') or '')))
+    return out
+
 def _sync_customer_uid_columns(cur):
     """FIX122：把客戶 UID 與客戶名稱重新對齊。
     舊版資料有時 customer_name 還在，但 customer_uid 空白或殘留不同 UID，
@@ -1300,19 +1419,29 @@ def get_customer_relation_counts(name='', customer_uid=''):
             row = fetchone_dict(cur)
             if row:
                 customer_uid = (row.get('customer_uid') or '').strip()
+        variants = customer_merge_variants(cur, name) if name else []
         for table, prefix in [
             ('inventory', 'inventory'),
             ('orders', 'order'),
             ('master_orders', 'master'),
             ('shipping_records', 'shipping'),
         ]:
-            if customer_uid and name:
-                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_uid = ? OR customer_name = ?"), (customer_uid, name))
-            elif customer_uid:
-                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_uid = ?"), (customer_uid,))
+            where_parts = []
+            params = []
+            if customer_uid:
+                where_parts.append("customer_uid = ?")
+                params.append(customer_uid)
+            if variants:
+                where_parts.append("customer_name IN (" + ",".join(["?"] * len(variants)) + ")")
+                params.extend(variants)
+            elif name:
+                where_parts.append("customer_name = ?")
+                params.append(name)
+            if not where_parts:
+                rows = []
             else:
-                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE customer_name = ?"), (name,))
-            rows = rows_to_dict(cur)
+                cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE " + " OR ".join(where_parts)), tuple(params))
+                rows = rows_to_dict(cur)
             counts[f'{prefix}_rows'] = len(rows)
             counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
         counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
@@ -1514,6 +1643,8 @@ def get_customers(active_only=True):
                 'virtual_customer': True,
             })
         customers.sort(key=lambda r: ({'北區':1,'中區':2,'南區':3}.get((r.get('region') or '').strip(), 9), (r.get('name') or '')))
+        # FIX125：畫面上完全相同的客戶卡只顯示一張，並把件數 / 筆數合併。
+        customers = merge_customer_rows_for_display(customers)
         conn.commit()
         return customers
     finally:

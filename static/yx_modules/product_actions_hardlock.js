@@ -47,15 +47,24 @@
     return raw;
   }
   function customerOf(r){ return YX.clean(r?.customer_name || selectedCustomer() || ''); }
-  function customerBaseName(v){
-    return YX.clean(v || '').replace(/FOB代付|FOB代|FOB|CNF/gi, ' ').replace(/\s+/g, ' ');
+  function customerMergeKey(v){
+    const raw = YX.clean(v || '');
+    const tags = [];
+    raw.replace(/FOB代付|FOB代|FOB|CNF/gi, m => {
+      const t = /代/.test(m) ? 'FOB代' : String(m || '').toUpperCase();
+      if (!tags.includes(t)) tags.push(t);
+      return m;
+    });
+    const base = raw.replace(/FOB代付|FOB代|FOB|CNF/gi, ' ').replace(/\s+/g, '').toLowerCase();
+    const order = ['FOB代','FOB','CNF'];
+    return `${base}|${order.filter(t => tags.includes(t)).join('/')}`;
   }
   function sameCustomerName(a, b){
     const aa = YX.clean(a || '');
     const bb = YX.clean(b || '');
     if (!aa || !bb) return false;
     if (aa === bb) return true;
-    return customerBaseName(aa) === customerBaseName(bb);
+    return customerMergeKey(aa) === customerMergeKey(bb);
   }
   function rowsStore(source, rows){
     window.__YX112_ROWS__ = window.__YX112_ROWS__ || {};
@@ -320,7 +329,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix123-ornate-gray-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix125-customer-merge-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';

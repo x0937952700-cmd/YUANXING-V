@@ -24,7 +24,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables, customer_merge_variants
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -1451,19 +1451,24 @@ def api_customer_items():
     conn = get_db()
     cur = conn.cursor()
     try:
+        # FIX125：相同顯示客戶已在清單合併；點進去時也要同時撈回所有舊名稱/空白差異名稱，
+        # 例如「山益 CNF」「山益CNF」不可只顯示其中一邊的商品。
+        variants = customer_merge_variants(cur, name) if name else []
         def pull(table, source_label):
-            if uid and name:
-                # FIX122：109 舊資料可能 customer_name 正確但 customer_uid 空白/不同，
-                # 查客戶商品時用「UID 或同名」一起找回，避免商品看起來丟失。
-                cur.execute(sql(f"""
-                    SELECT * FROM {table}
-                    WHERE customer_uid = ? OR customer_name = ?
-                    ORDER BY id DESC
-                """), (uid, name))
-            elif uid:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (uid,))
-            else:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
+            where_parts = []
+            params = []
+            if uid:
+                where_parts.append("customer_uid = ?")
+                params.append(uid)
+            if variants:
+                where_parts.append("customer_name IN (" + ",".join(["?"] * len(variants)) + ")")
+                params.extend(variants)
+            elif name:
+                where_parts.append("customer_name = ?")
+                params.append(name)
+            if not where_parts:
+                return
+            cur.execute(sql(f"SELECT * FROM {table} WHERE " + " OR ".join(where_parts) + " ORDER BY id DESC"), tuple(params))
             for r in rows_to_dict(cur):
                 r['source'] = source_label
                 items.append(r)
