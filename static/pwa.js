@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix128-inline-edit-full-list-hardlock';
+  const PWA_VERSION = 'fix129-product-master-loadsource-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

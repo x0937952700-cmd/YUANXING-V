@@ -349,3 +349,9 @@ FIX124 淺灰金邊圓型標籤 + 母版接管收斂版
 6. 後端 inventory/orders/master_orders/customer-item 更新 API 也改為自動件數，避免舊畫面送 qty 造成覆蓋。
 7. 新增 static/yx_modules/quantity_rule_hardlock.js，並在 app.js 前載入，讓舊函式也套用同一件數規則。
 8. 版本號更新為 fix128-inline-edit-full-list-hardlock，避免 PWA/手機吃到舊快取。
+
+
+## FIX129 商品母版完整接管修復
+- 修復 loadSource is not defined，補回 product_actions 母版的 loadSource / renderCards / refreshCurrent。
+- 新增 product_source_bridge_hardlock.js，把舊版刷新入口導回母版。
+- 保留 FIX128 完整清單、上方編輯全部、小卡直接編輯與尤加利/尤佳利材質。

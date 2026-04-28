@@ -1,4 +1,4 @@
-/* FIX128 商品母版硬鎖：完整清單直列顯示、上方編輯全部、小卡上方編輯、尤加利材質修復 */
+/* FIX129 商品母版硬鎖：補回 loadSource/renderCards/refreshCurrent，完整清單直列顯示、上方編輯全部、小卡上方編輯、尤加利材質修復 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -240,6 +240,38 @@
       : `<button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
     return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
+  function renderCards(source){
+    const list = listEl(source); if (!list) return;
+    let rows = filteredRows(source);
+    const ids = selectedIds(source);
+    if (ids.size) rows = rows.filter(r => ids.has(String(r.id || '')));
+    ensureFilterNote(source, ids.size);
+    list.classList.add('yx113-product-list','yx112-product-list','yx128-product-list');
+    if (source === 'master_order' && !selectedCustomer()) {
+      list.innerHTML = '<div class="empty-state-card compact-empty">請先點選客戶。</div>'; return;
+    }
+    list.innerHTML = rows.length ? rows.map(r => cardHTML(source, r)).join('') : `<div class="empty-state-card compact-empty">目前沒有${YX.esc(title(source))}</div>`;
+  }
+  async function loadSource(source, opts={}){
+    source = source || sourceFromModule();
+    if (!source) return [];
+    state.loading = source;
+    try {
+      const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET'});
+      const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+      rowsStore(source, rows);
+      pruneSelected(source);
+      ensureBatchToolbar(source);
+      ensureSummary(source);
+      renderSummary(source);
+      renderCards(source);
+      try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}
+      return rowsStore(source);
+    } finally {
+      if (state.loading === source) state.loading = null;
+    }
+  }
+  async function refreshCurrent(){ return loadSource(sourceFromModule()); }
   function rowFromCard(card){
     const source = card.dataset.source, id = card.dataset.id;
     return rowsStore(source).find(r => String(r.id || '') === String(id));
@@ -412,6 +444,8 @@
     window.YX114ProductActions = window.YX113ProductActions;
     window.YX115ProductActions = window.YX113ProductActions;
     window.YX121ProductActions = window.YX113ProductActions;
+    window.YX128ProductActions = window.YX113ProductActions;
+    window.YX129ProductActions = window.YX113ProductActions;
     const refreshFn = YX.mark((source, _silent) => loadSource(source), 'product_refresh_121');
     const renderRows = source => rows => { rowsStore(source, rows || []); pruneSelected(source); renderSummary(source); renderCards(source); };
     const bridges = {
@@ -424,7 +458,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix128-inline-edit-full-list-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix129-product-master-loadsource-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
