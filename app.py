@@ -1540,6 +1540,60 @@ def api_customer_items_batch_material():
 
 
 
+@app.route("/api/customer-items/batch-zone", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_zone():
+    """FIX132：庫存 / 訂單 / 總單共用 A/B 區批量標記。
+    只更新商品列的 location 欄位，不會刪除或搬動數量；實際倉庫格位仍由倉庫圖管理。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "").strip().upper()
+        if zone not in ("A", "B"):
+            return error_response("請選擇 A 區或 B 區")
+        items = data.get("items") or []
+        if not items:
+            return error_response("請先勾選要移動的商品")
+        table_map = {
+            "庫存": "inventory", "inventory": "inventory",
+            "訂單": "orders", "orders": "orders",
+            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
+        }
+        conn = get_db(); cur = conn.cursor()
+        count = 0; touched = []
+        try:
+            for it in items:
+                source = (it.get("source") or "").strip()
+                table = table_map.get(source)
+                item_id = int(it.get("id") or 0)
+                if not table or item_id <= 0:
+                    continue
+                try:
+                    cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
+                except Exception:
+                    # 舊資料表尚未補 location 欄位時，補完再重試。
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                        cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
+                    except Exception:
+                        cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
+                if cur.rowcount:
+                    count += 1
+                    touched.append({"source": source, "id": item_id, "zone": zone})
+            conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            conn.close()
+        add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json={}, after_json={"zone": zone, "count": count, "items": touched})
+        log_action(current_username(), f"批量移到 {zone} 區，共 {count} 筆")
+        notify_sync_event(kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
+        return jsonify(success=True, count=count, zone=zone)
+    except Exception as e:
+        log_error("customer_items_batch_zone", str(e))
+        return error_response(str(e) or "批量移動 A/B 區失敗")
+
+
 @app.route("/api/customer-items/batch-delete", methods=["POST"])
 @login_required_json
 def api_customer_items_batch_delete():
@@ -2542,16 +2596,26 @@ def _fix28_update_item_api(table, item_id):
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')
         if qty < 0:
             qty = 0
         conn = get_db(); cur = conn.cursor()
-        cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
+        try:
+            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
+        except Exception:
+            # FIX134：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location 欄位，
+            # 先補欄位再重試，避免 A/B 區在「編輯全部」後沒有存進去。
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
+            except Exception:
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
         conn.commit(); conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty})
+        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty, 'location': location})
         log_action(current_username(), f"修改{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
         notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已更新', extra={'id': item_id})
         return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
@@ -2620,6 +2684,16 @@ def api_fix28_items_transfer():
         elif target == 'ship':
             if not customer_name: return error_response('請選擇客戶')
             upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            # FIX134：表格列上的「直接出貨」要扣該列原本來源，避免訂單列被自動改扣總單、
+            # 或庫存列被改扣客戶總單。
+            if source_table == 'master_orders':
+                item['source_preference'] = 'master_orders'
+                item['source_customer_name'] = customer_name
+            elif source_table == 'orders':
+                item['source_preference'] = 'orders'
+                item['source_customer_name'] = customer_name
+            elif source_table == 'inventory':
+                item['source_preference'] = 'inventory'
             ship_result = ship_order(customer_name, [item], current_username(), allow_inventory_fallback=bool(data.get('allow_inventory_fallback')))
             if not ship_result.get('success'):
                 return jsonify(ship_result), 400

@@ -1,4 +1,4 @@
-/* FIX131 商品來源母版橋接：所有庫存/訂單/總單刷新都導到 product_actions 母版，避免舊版呼叫 loadSource 失敗 */
+/* FIX134 商品來源安全橋接：不重複寫唯讀 __yx113HardLock，避免紅色錯誤卡 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -13,31 +13,35 @@
   async function bridgeLoadSource(source){
     source = source || moduleSource();
     const pa = window.YX113ProductActions || window.YX128ProductActions || window.YX129ProductActions;
-    if (pa && typeof pa.loadSource === 'function') return pa.loadSource(source);
+    if (pa && typeof pa.loadSource === 'function' && pa.loadSource !== bridgeLoadSource) return pa.loadSource(source);
     const endpoint = source === 'inventory' ? '/api/inventory' : source === 'orders' ? '/api/orders' : source === 'master_order' ? '/api/master_orders' : '';
     if (!endpoint) return [];
-    const d = await YX.api(endpoint + '?yx131_bridge=1&ts=' + Date.now(), {method:'GET'});
-    return Array.isArray(d.items) ? d.items : [];
+    const d = await YX.api(endpoint + '?yx132_bridge=1&ts=' + Date.now(), {method:'GET'});
+    return Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+  }
+  function safeExpose(name, fn){
+    // FIX134：只在安全時安裝橋接。若該名稱已被母版 hardAssign 鎖住，直接尊重母版，
+    // 不再做任何指派，避免 Cannot assign to read only property / __yx113HardLock 紅色錯誤卡。
+    try {
+      const current = Object.getOwnPropertyDescriptor(window, name);
+      const currentValue = current && ('value' in current ? current.value : undefined);
+      if (currentValue === fn) return;
+      if (currentValue && currentValue.__yx113HardLock) return;
+      if (current && current.configurable === false) return;
+      Object.defineProperty(window, name, {value:fn, configurable:true, enumerable:false, writable:true});
+    } catch(_e) {
+      // 不再 fallback 到 window[name] = fn，因為舊版 getter/setter 可能是唯讀。
+    }
   }
   function expose(){
-    const fn = YX.mark(bridgeLoadSource, 'product_source_bridge_131');
-    const bridges = {
-      loadSource: fn,
-      refreshSource: fn,
-      loadInventory: () => fn('inventory'),
-      loadOrdersList: () => fn('orders'),
-      loadMasterList: () => fn('master_order')
-    };
-    Object.entries(bridges).forEach(([name, raw]) => {
-      const current = window[name];
-      if (typeof current === 'function' && current.__yx113HardLock) return;
-      const wrapped = YX.mark(raw, name + '_131');
-      try { YX.hardAssign(name, wrapped, {configurable:false}); }
-      catch(_e) { /* 不覆蓋唯讀硬鎖函式，避免紅色錯誤卡。 */ }
-    });
+    safeExpose('loadSource', bridgeLoadSource);
+    safeExpose('refreshSource', bridgeLoadSource);
+    safeExpose('loadInventory', () => bridgeLoadSource('inventory'));
+    safeExpose('loadOrdersList', () => bridgeLoadSource('orders'));
+    safeExpose('loadMasterList', () => bridgeLoadSource('master_order'));
   }
   function install(){
-    document.documentElement.dataset.yx131ProductSourceBridge='locked';
+    document.documentElement.dataset.yx132ProductSourceBridge='locked';
     expose();
     [80, 240, 700, 1500].forEach(ms => setTimeout(expose, ms));
   }
