@@ -1,4 +1,4 @@
-/* FIX124 簡約淡灰標籤母版硬鎖：取代華麗金框 / 蘋果風；只改視覺，不改事件、API、資料流程 */
+/* FIX125 簡約淡灰標籤母版硬鎖：取代華麗金框 / 蘋果風；只改視覺，不改事件、API、資料流程 */
 (function(){
   'use strict';
   const STYLE_ID = 'yx124-minimal-grey-ui-style';
@@ -263,10 +263,10 @@ html[data-yx124-minimal-grey-ui="locked"] .yx113-product-card .btn-row > button{
   }
 
   function mark(){
-    document.documentElement.dataset.yx118AppleUi = 'replaced-by-fix124';
-    document.documentElement.dataset.yx121LuxuryUi = 'replaced-by-fix124';
-    document.documentElement.dataset.yx122LabelUi = 'replaced-by-fix124';
-    document.documentElement.dataset.yx123LabelUi = 'replaced-by-fix124';
+    document.documentElement.dataset.yx118AppleUi = 'disabled-by-fix125';
+    document.documentElement.dataset.yx121LuxuryUi = 'disabled-by-fix125';
+    document.documentElement.dataset.yx122LabelUi = 'disabled-by-fix125';
+    document.documentElement.dataset.yx123LabelUi = 'disabled-by-fix125';
     document.documentElement.dataset.yx124MinimalGreyUi = 'locked';
     document.documentElement.classList.add('yx124-minimal-grey-ui-locked');
     if (document.body) document.body.classList.add('yx124-minimal-grey-ui-locked');

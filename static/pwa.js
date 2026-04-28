@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix124-minimal-grey-label-hardlock';
+  const PWA_VERSION = 'fix125-single-interface-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

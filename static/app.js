@@ -12,15 +12,18 @@
   window.__YX96_INTERVALS__ = new Set();
   window.__YX96_NATIVE_MUTATION_OBSERVER__ = window.MutationObserver;
   const legacyNeedles = [
-    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges({force:true})',
-    'renderWarehouse82','renderWarehouse95','loadWarehouseDynamic','renderWarehouseLegacyA','renderWarehouseLegacyB',
+    'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96','loadTodayChanges99','loadTodayChanges({force:true})',
+    'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102','renderWarehouse(true)','renderWarehouse();',
+    'loadWarehouseDynamic','renderWarehouseLegacyA','renderWarehouseLegacyB',
+    'loadCustomerBlocks()','loadCustomerBlocks(true)','YX_MASTER.loadCustomerBlocks','YX_MASTER?.loadCustomerBlocks','renderCustomers()',
     'toggleUnplaced93','refreshUnplaced95','refreshWarehouseBatchPanel82','periodicCleanup','__yx96Removed'
   ];
   function srcOf(fn){ try { return typeof fn === 'function' ? Function.prototype.toString.call(fn) : String(fn || ''); } catch(_e){ return ''; } }
   function blockLegacy(fn){
     const s = srcOf(fn);
     if (!s) return false;
-    if (s.indexOf('YX96_') >= 0 || s.indexOf('renderWarehouse96') >= 0 || s.indexOf('loadTodayChanges96') >= 0) return false;
+    // FIX125：舊版 UI 自動重畫計時器不再放行；只放行新版母版 / 單一介面守門。
+    if (s.indexOf('YX125') >= 0 || s.indexOf('YXHardLock') >= 0 || s.indexOf('YXMinimalGreyUI124') >= 0) return false;
     return legacyNeedles.some(n => s.indexOf(n) >= 0);
   }
   window.setTimeout = function(fn, delay, ...args){
