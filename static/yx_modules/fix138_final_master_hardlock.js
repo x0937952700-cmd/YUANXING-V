@@ -1,7 +1,7 @@
 /* FIX138 最終母版：舊版隔離、倉庫A/B未入倉篩選、出貨修復、按鈕文字修復 */
 (function(){
   'use strict';
-  const V='fix142-speed-ship-master-hardlock';
+  const V='fix144-modular-master-hardlock';
   const YX=window.YXHardLock;
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
@@ -234,7 +234,7 @@
     installFetchZoneFilter(); forceButtonText(); clearMasterRowButtons(); cleanWarehouseLegacy(); lockWarehouseGlobals(); enableWarehouseDragFallback(); installShipRepair(); bindEvents();
     if(moduleKey()==='ship'&&customerName()) loadShipItems(customerName());
     if(moduleKey()==='warehouse') setTimeout(()=>{ try{(window.YX121Warehouse||window.YX116Warehouse)?.render?.(true);}catch(_e){} },80);
-    [80,180,400,900,1600,3200,5200].forEach(ms=>setTimeout(()=>{ forceButtonText(); clearMasterRowButtons(); cleanWarehouseLegacy(); lockWarehouseGlobals(); installShipRepair(); },ms));
+    [60,180,420].forEach(ms=>setTimeout(()=>{ forceButtonText(); clearMasterRowButtons(); cleanWarehouseLegacy(); lockWarehouseGlobals(); installShipRepair(); },ms));
     if(!window.__YX138_OBSERVER__&&window.MutationObserver){
       window.__YX138_OBSERVER__=new MutationObserver(()=>{ clearTimeout(window.__YX138_REPAIR_TIMER__); window.__YX138_REPAIR_TIMER__=setTimeout(()=>{ forceButtonText(); clearMasterRowButtons(); cleanWarehouseLegacy(); },50); });
       window.__YX138_OBSERVER__.observe(document.body,{childList:true,subtree:true});

@@ -355,7 +355,7 @@
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
     bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
-    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
+    [60, 180].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom()) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();

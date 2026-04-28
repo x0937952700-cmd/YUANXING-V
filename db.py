@@ -861,7 +861,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         pass
 
 
-    # FIX142：加上常用查詢索引，降低點客戶、開出貨、開清單時的 PostgreSQL 延遲。
+    # FIX143：加上常用查詢索引，降低點客戶、開出貨、開清單時的 PostgreSQL 延遲。
     try:
         for _idx in (
             "CREATE INDEX IF NOT EXISTS ix_customer_profiles_name ON customer_profiles(name)",
@@ -1627,7 +1627,7 @@ def get_customers(active_only=True):
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX142：客戶清單要即時顯示，不能每次點訂單/總單/出貨都重掃四張資料表。
+        # FIX143：客戶清單要即時顯示，不能每次點訂單/總單/出貨都重掃四張資料表。
         # 資料救援保留在 /api/recover/customers-from-relations；自動維護每個伺服器行程最多只跑一次。
         if not globals().get('_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'):
             globals()['_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'] = True

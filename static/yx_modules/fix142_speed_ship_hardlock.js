@@ -1,7 +1,7 @@
-/* FIX142 速度與出貨母版：停止舊版延遲重畫，客戶點擊即時顯示，出貨用最後母版接管 */
+/* FIX143 速度與出貨母版：停止舊版延遲重畫，客戶點擊即時顯示，出貨用最後母版接管 */
 (function(){
   'use strict';
-  const V='fix142-speed-ship-master-hardlock';
+  const V='fix144-modular-master-hardlock';
   const YX=window.YXHardLock||{};
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();

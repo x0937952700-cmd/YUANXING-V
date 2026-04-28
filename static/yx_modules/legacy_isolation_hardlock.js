@@ -105,7 +105,7 @@
     document.documentElement.dataset.yx115LegacyIsolation = 'locked';
     document.documentElement.dataset.yx116LegacyIsolation = 'locked';
     isolateAll(); observe();
-    [100, 300, 800, 1600, 3200].forEach(ms => setTimeout(isolateAll, ms));
+    [80, 240].forEach(ms => setTimeout(isolateAll, ms));
   }
   YX.register('legacy_isolation', {install, isolateAll});
 })();

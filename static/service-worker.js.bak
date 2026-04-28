@@ -13,7 +13,6 @@ const PRECACHE_ASSETS=[
   '/static/yx_modules/fix138_final_master_hardlock.css?v=fix144-modular-master-hardlock',
   '/static/yx_modules/fix140_readme_master_hardlock.css?v=fix144-modular-master-hardlock',
   '/static/yx_modules/fix142_speed_ship_hardlock.css?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_modular_master.css?v=fix144-modular-master-hardlock',
   '/static/yx_assets/home_cloud_background.jpg?v=fix144-modular-master-hardlock',
   '/static/app.js?v=fix144-modular-master-hardlock',
   '/static/pwa.js?v=fix144-modular-master-hardlock',
@@ -39,13 +38,6 @@ const PRECACHE_ASSETS=[
   '/static/yx_modules/fix138_final_master_hardlock.js?v=fix144-modular-master-hardlock',
   '/static/yx_modules/fix140_readme_master_hardlock.js?v=fix144-modular-master-hardlock',
   '/static/yx_modules/fix142_speed_ship_hardlock.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_master_bootstrap.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_page_home_master.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_page_products_master.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_page_customers_master.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_page_shipping_master.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_page_warehouse_master.js?v=fix144-modular-master-hardlock',
-  '/static/yx_modules/fix144_final_guard.js?v=fix144-modular-master-hardlock',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{

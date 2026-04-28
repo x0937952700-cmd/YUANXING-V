@@ -1,7 +1,7 @@
 /* FIX135 最終母版保險鎖：最後載入，重新接管新版畫面與舊版入口，不刪功能 */
 (function(){
   'use strict';
-  const V = 'fix142-speed-ship-master-hardlock';
+  const V = 'fix144-modular-master-hardlock';
   const YX = window.YXHardLock;
   const $ = id => document.getElementById(id);
   function moduleKey(){
@@ -83,7 +83,7 @@
   window.addEventListener('pageshow', install);
   window.addEventListener('yx:master-installed', install);
   window.addEventListener('yx:legacy-rendered', install);
-  [100, 300, 800, 1600, 3200, 5200].forEach(ms => setTimeout(install, ms));
+  [80, 240].forEach(ms => setTimeout(install, ms));
   try {
     const MO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
     if (MO) {

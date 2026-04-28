@@ -1,7 +1,7 @@
 /* FIX136 標籤文字顯示修復母版：最後包住文字，避免舊版/內圈背景蓋住文字；不改 onclick/href/API。 */
 (function(){
   'use strict';
-  const V='fix142-speed-ship-master-hardlock';
+  const V='fix144-modular-master-hardlock';
   const SELECTOR=[
     '.yx124-ornate-label','.menu-btn','a.menu-btn','.home-mini-btn','a.home-mini-btn','.user-cell',
     '.primary-btn','button.primary-btn','.ghost-btn','button.ghost-btn','.back-btn','a.back-btn',

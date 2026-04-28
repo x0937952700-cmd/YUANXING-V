@@ -346,7 +346,7 @@
     document.documentElement.dataset.yx117Warehouse='locked';
     document.documentElement.dataset.yx121Warehouse='locked';
     aliasWarehouseEntries(); bindGlobalEvents(); observeWarehouse(); cleanupLegacyPanels(); renderWarehouseLocked(true);
-    [80,180,420,900,1800,3200,5200].forEach(ms => setTimeout(()=>{ aliasWarehouseEntries(); bindGlobalEvents(); observeWarehouse(); cleanupLegacyPanels(); }, ms));
+    [60,180,420].forEach(ms => setTimeout(()=>{ aliasWarehouseEntries(); bindGlobalEvents(); observeWarehouse(); cleanupLegacyPanels(); }, ms));
   }
   window.YX116Warehouse = {render:renderWarehouseLocked, renderGrid, cleanup:cleanupLegacyPanels, openWarehouseModal, saveWarehouseCell};
   window.YX121Warehouse = window.YX116Warehouse;

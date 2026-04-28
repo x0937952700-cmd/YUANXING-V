@@ -1,7 +1,7 @@
 /* FIX141 README 統整母版：把 README/歷代 FIX 指定行為最後接管；未改動功能仍走舊版函式輔助 */
 (function(){
   'use strict';
-  const V='fix142-speed-ship-master-hardlock';
+  const V='fix144-modular-master-hardlock';
   const YX=window.YXHardLock||{};
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
@@ -135,8 +135,8 @@
     window.__YX_MASTER_BRIDGE_VERSION__=V;
     window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
     installWarehouseBridge(); repairButtons(); normalizeCustomerCards(); stopLegacyVisuals(); bind(); repairShip();
-    [80,180,360,800,1600,3200,5200].forEach(ms=>setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},ms));
-    if(!window.__YX139_OBSERVER__&&window.MutationObserver){ window.__YX139_OBSERVER__=new MutationObserver(()=>{ clearTimeout(window.__YX139_REPAIR__); window.__YX139_REPAIR__=setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},60); }); window.__YX139_OBSERVER__.observe(document.body,{childList:true,subtree:true}); }
+    [60,180].forEach(ms=>setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},ms));
+    if(!window.__YX139_OBSERVER__&&window.MutationObserver){ window.__YX139_OBSERVER__=new MutationObserver(()=>{ clearTimeout(window.__YX139_REPAIR__); window.__YX139_REPAIR__=setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},30); }); window.__YX139_OBSERVER__.observe(document.body,{childList:true,subtree:true}); }
   }
   window.YX140Master={version:V,install,repairButtons,normalizeCustomerCards,repairShip};
   if(YX.register) YX.register('FIX141_readme_master',{install});
