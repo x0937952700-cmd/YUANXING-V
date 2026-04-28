@@ -1519,18 +1519,36 @@ def api_customer_items_batch_material():
             return error_response("請選擇材質")
         if not items:
             return error_response("請先勾選要套用材質的商品")
-        count = update_items_material(items, material, current_username())
-        # FIX113：批量材質屬於庫存 / 訂單 / 總單實際變更，不再只記成 customer_items 雜訊。
+        # FIX137：批量材質要先記錄每筆變更前資料，才可以「還原上一步」。
         source_map = {'inventory':'inventory', '庫存':'inventory', 'orders':'orders', '訂單':'orders', 'master_order':'master_orders', 'master_orders':'master_orders', '總單':'master_orders'}
+        before_by_entity = {}
+        try:
+            conn0 = get_db(); cur0 = conn0.cursor()
+            for it in items:
+                entity = source_map.get((it.get('source') or '').strip())
+                item_id = int(it.get('id') or 0)
+                if not entity or item_id <= 0:
+                    continue
+                cur0.execute(sql(f"SELECT * FROM {entity} WHERE id = ?"), (item_id,))
+                row0 = fetchone_dict(cur0)
+                if row0:
+                    before_by_entity.setdefault(entity, []).append({'source': it.get('source') or entity, 'table': entity, 'id': item_id, 'row': row0})
+            conn0.close()
+        except Exception as e:
+            try: conn0.close()
+            except Exception: pass
+            log_error('batch_material_snapshot_fix137', str(e))
+        count = update_items_material(items, material, current_username())
+        # FIX113/FIX137：批量材質屬於庫存 / 訂單 / 總單實際變更，並保留 before_json 供還原。
         grouped_sources = {}
         for it in items:
             entity = source_map.get((it.get('source') or '').strip())
             if entity:
                 grouped_sources.setdefault(entity, []).append(it)
         for entity, source_items in grouped_sources.items():
-            add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json={}, after_json={'material': material, 'count': len(source_items), 'items': source_items})
+            add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json=before_by_entity.get(entity, []), after_json={'material': material, 'count': len(source_items), 'items': source_items})
         if not grouped_sources:
-            add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json={}, after_json={'material': material, 'count': count, 'items': items})
+            add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json=before_by_entity, after_json={'material': material, 'count': count, 'items': items})
         log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
         notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
         return jsonify(success=True, count=count, material=material)
@@ -1568,6 +1586,10 @@ def api_customer_items_batch_zone():
                 item_id = int(it.get("id") or 0)
                 if not table or item_id <= 0:
                     continue
+                cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+                row_before = fetchone_dict(cur)
+                if row_before:
+                    touched.append({'source': source, 'table': table, 'id': item_id, 'row': row_before})
                 try:
                     cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                 except Exception:
@@ -1579,13 +1601,12 @@ def api_customer_items_batch_zone():
                         cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
                 if cur.rowcount:
                     count += 1
-                    touched.append({"source": source, "id": item_id, "zone": zone})
             conn.commit()
         except Exception:
             conn.rollback(); raise
         finally:
             conn.close()
-        add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json={}, after_json={"zone": zone, "count": count, "items": touched})
+        add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
         log_action(current_username(), f"批量移到 {zone} 區，共 {count} 筆")
         notify_sync_event(kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
         return jsonify(success=True, count=count, zone=zone)
@@ -2442,91 +2463,234 @@ def api_backup_restore():
     return error_response('目前只支援 JSON 備份還原')
 
 
+
+def _fix137_audit_table(entity_type=''):
+    raw = (entity_type or '').strip()
+    return {
+        '庫存': 'inventory', 'inventory': 'inventory',
+        '訂單': 'orders', 'orders': 'orders',
+        '總單': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders',
+        'shipping': 'shipping_records', 'shipping_records': 'shipping_records',
+    }.get(raw, raw if raw in ('inventory', 'orders', 'master_orders', 'shipping_records') else '')
+
+
+def _fix137_restore_row(cur, table, row):
+    row = dict(row or {})
+    if not table or not row:
+        return 0
+    row.pop('source', None); row.pop('table', None)
+    # 只保留一般資料欄位，避免 connector 補上的 row/table/source 造成 SQL 失敗。
+    bad = {'before_text', 'after_text', 'summary_text', 'action_label', 'entity_label'}
+    row = {k: v for k, v in row.items() if k and k not in bad}
+    if not row:
+        return 0
+    item_id = row.get('id')
+    keys = list(row.keys())
+    def _insert(keys2):
+        cols = ','.join(keys2)
+        holders = ','.join(['?'] * len(keys2))
+        cur.execute(sql(f"INSERT INTO {table}({cols}) VALUES ({holders})"), tuple(row.get(k) for k in keys2))
+    if item_id not in (None, ''):
+        cur.execute(sql(f"SELECT id FROM {table} WHERE id = ?"), (int(item_id),))
+        exists = fetchone_dict(cur)
+        if exists:
+            update_keys = [k for k in keys if k != 'id']
+            if update_keys:
+                sets = ', '.join([f"{k} = ?" for k in update_keys])
+                cur.execute(sql(f"UPDATE {table} SET {sets} WHERE id = ?"), tuple(row.get(k) for k in update_keys) + (int(item_id),))
+            return 1
+    try:
+        _insert(keys)
+    except Exception:
+        common = [k for k in keys if k in ('id','customer_uid','customer_name','product_text','product_code','material','qty','location','operator','ocr_text','status','created_at','updated_at','shipped_at')]
+        if common:
+            _insert(common)
+        else:
+            raise
+    return 1
+
+
+def _fix137_restore_before_payload(cur, default_table, before_json):
+    count = 0
+    payload = before_json or {}
+    if isinstance(payload, list):
+        for item in payload:
+            table = _fix137_audit_table(item.get('table') or item.get('entity_type') or item.get('source') or default_table)
+            row = item.get('row') if isinstance(item, dict) and isinstance(item.get('row'), dict) else item
+            if table and isinstance(row, dict):
+                count += _fix137_restore_row(cur, table, row)
+        return count
+    if isinstance(payload, dict) and any(isinstance(v, list) for v in payload.values()):
+        for table, rows in payload.items():
+            table = _fix137_audit_table(table) or default_table
+            for item in rows or []:
+                row = item.get('row') if isinstance(item, dict) and isinstance(item.get('row'), dict) else item
+                if table and isinstance(row, dict):
+                    count += _fix137_restore_row(cur, table, row)
+        return count
+    if isinstance(payload, dict):
+        table = _fix137_audit_table(payload.get('table') or payload.get('entity_type') or default_table)
+        row = payload.get('row') if isinstance(payload.get('row'), dict) else payload
+        if table:
+            count += _fix137_restore_row(cur, table, row)
+    return count
+
+
+def _fix137_delete_recent_matching(cur, table, customer_name='', product_text='', qty=None):
+    table = _fix137_audit_table(table)
+    if not table or not product_text:
+        return 0
+    params = []
+    where = ['product_text = ?']; params.append((product_text or '').strip())
+    if table != 'inventory' and customer_name:
+        where.append('customer_name = ?'); params.append((customer_name or '').strip())
+    elif table == 'inventory' and customer_name:
+        where.append("COALESCE(customer_name, '') = ?"); params.append((customer_name or '').strip())
+    cur.execute(sql(f"SELECT * FROM {table} WHERE " + ' AND '.join(where) + " ORDER BY id DESC"), tuple(params))
+    row = fetchone_dict(cur)
+    if not row:
+        return 0
+    row_qty = int(row.get('qty') or 0)
+    q = int(qty or row_qty or 0)
+    if q > 0 and row_qty > q:
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (q, now(), int(row.get('id'))))
+    else:
+        cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (int(row.get('id')),))
+    return 1
+
+
+def _fix137_undo_ship_breakdown(cur, after_json):
+    count = 0
+    customer_name = (after_json.get('customer_name') or '').strip()
+    for item in after_json.get('breakdown') or []:
+        for d in item.get('master_details') or []:
+            cur.execute(sql('UPDATE master_orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id')))); count += 1
+        for d in item.get('order_details') or []:
+            cur.execute(sql('UPDATE orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id')))); count += 1
+        for d in item.get('inventory_details') or []:
+            cur.execute(sql('UPDATE inventory SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id')))); count += 1
+        product_text = (item.get('product_text') or after_json.get('product_text') or '').strip()
+        if customer_name and product_text:
+            cur.execute(sql('SELECT id FROM shipping_records WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), (customer_name, product_text))
+            ship_row = fetchone_dict(cur)
+            if ship_row:
+                cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (int(ship_row.get('id')),)); count += 1
+    return count
+
+
 @app.route('/api/undo-last', methods=['POST'])
 @login_required_json
 def api_undo_last():
+    conn = None
     try:
-        trails = list_audit_trails(limit=120)
+        data = request.get_json(silent=True) or {}
+        audit_id = int(data.get('id') or data.get('audit_id') or 0)
+        trails = list_audit_trails(limit=300)
         target = None
         for item in trails:
-            if (item.get('username') or '') != current_username():
+            if audit_id and int(item.get('id') or 0) != audit_id:
                 continue
-            if item.get('entity_type') == 'undo':
+            if not audit_id and (item.get('username') or '') != current_username():
                 continue
-            if item.get('action_type') not in ('create','ship','move'):
+            if item.get('entity_type') == 'undo' or item.get('action_type') == 'undo':
+                continue
+            if item.get('action_type') not in ('create','update','delete','ship','move','transfer','upsert','archive','rename','restore'):
                 continue
             target = item
             break
         if not target:
             return error_response('目前沒有可還原的最近操作')
-        conn = get_db()
-        cur = conn.cursor()
-        action_type = target.get('action_type')
-        entity_type = target.get('entity_type')
+        conn = get_db(); cur = conn.cursor()
+        action_type = (target.get('action_type') or '').strip()
+        entity_type = (target.get('entity_type') or '').strip()
+        table = _fix137_audit_table(entity_type)
+        before_json = target.get('before_json') or {}
         after_json = target.get('after_json') or {}
-        entity_key = target.get('entity_key') or ''
         summary = ''
-        if action_type == 'create' and entity_type == 'inventory':
+
+        if action_type == 'create' and table in ('inventory','orders','master_orders'):
+            customer_name = (after_json.get('customer_name') or '').strip()
             for it in after_json.get('items') or []:
-                cur.execute(sql('SELECT id, qty FROM inventory WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
-                row = fetchone_dict(cur)
-                if row:
-                    cur.execute(sql('DELETE FROM inventory WHERE id = ?'), (row.get('id'),))
-            summary = '已還原最近一次建立庫存'
-        elif action_type == 'create' and entity_type == 'orders':
-            for it in after_json.get('items') or []:
-                cur.execute(sql('SELECT id FROM orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
-                row = fetchone_dict(cur)
-                if row:
-                    cur.execute(sql('DELETE FROM orders WHERE id = ?'), (row.get('id'),))
-            summary = '已還原最近一次建立訂單'
-        elif action_type == 'create' and entity_type == 'master_orders':
-            for it in after_json.get('items') or []:
-                cur.execute(sql('SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
-                row = fetchone_dict(cur)
-                if row:
-                    cur.execute(sql('DELETE FROM master_orders WHERE id = ?'), (row.get('id'),))
-            summary = '已還原最近一次建立總單'
+                _fix137_delete_recent_matching(cur, table, customer_name, (it.get('product_text') or '').strip(), it.get('qty'))
+            summary = '已還原最近一次新增資料'
+        elif action_type == 'update' and table in ('inventory','orders','master_orders'):
+            restored = _fix137_restore_before_payload(cur, table, before_json)
+            summary = f'已還原最近一次編輯，共 {restored} 筆'
+        elif action_type == 'delete' and table in ('inventory','orders','master_orders'):
+            restored = _fix137_restore_before_payload(cur, table, before_json)
+            summary = f'已還原最近一次刪除，共 {restored} 筆'
         elif action_type == 'ship':
-            for item in after_json.get('breakdown') or []:
-                for d in item.get('master_details') or []:
-                    cur.execute(sql('UPDATE master_orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
-                for d in item.get('order_details') or []:
-                    cur.execute(sql('UPDATE orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
-                for d in item.get('inventory_details') or []:
-                    cur.execute(sql('UPDATE inventory SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
-                cur.execute(sql('SELECT id FROM shipping_records WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (item.get('product_text') or '').strip()))
-                ship_row = fetchone_dict(cur)
-                if ship_row:
-                    cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (int(ship_row.get('id')),))
-            summary = '已還原最近一次出貨'
+            n = _fix137_undo_ship_breakdown(cur, after_json)
+            summary = f'已還原最近一次出貨，共 {n} 筆異動'
+        elif action_type == 'transfer':
+            source_table = _fix137_audit_table(before_json.get('table') or entity_type)
+            _fix137_restore_before_payload(cur, source_table, before_json)
+            target_label = (after_json.get('target') or '').strip()
+            target_table = {'庫存':'inventory','訂單':'orders','總單':'master_orders'}.get(target_label, '')
+            if target_label == '出貨':
+                _fix137_undo_ship_breakdown(cur, after_json if after_json.get('breakdown') else (after_json.get('result') or {}))
+            elif target_table:
+                _fix137_delete_recent_matching(cur, target_table, after_json.get('customer_name') or before_json.get('customer_name') or '', after_json.get('product_text') or before_json.get('product_text') or '', after_json.get('qty'))
+            summary = '已還原最近一次移動 / 直接出貨'
         elif action_type == 'move' and entity_type == 'warehouse_cells':
-            before_key = tuple((target.get('before_json') or {}).get('from_key') or [])
-            to_key = tuple((target.get('after_json') or {}).get('to_key') or [])
-            product_text = (target.get('after_json') or {}).get('product_text') or entity_key
-            qty = int((target.get('after_json') or {}).get('qty') or 1)
-            customer_name = (target.get('after_json') or {}).get('customer_name') or ''
-            result = warehouse_move_item(to_key, before_key, product_text, qty, customer_name=customer_name)
+            before_key = tuple((before_json or {}).get('from_key') or [])
+            to_key = tuple((after_json or {}).get('to_key') or [])
+            product_text = (after_json or {}).get('product_text') or target.get('entity_key') or ''
+            qty = int((after_json or {}).get('qty') or 1)
+            customer_name = (after_json or {}).get('customer_name') or ''
+            conn.commit(); conn.close(); conn = None
+            result = warehouse_move_item(to_key, before_key, product_text, qty, customer_name=customer_name, placement_label='前排')
             if not result.get('success'):
-                conn.close()
                 return error_response(result.get('error') or '還原倉庫移動失敗')
             summary = '已還原最近一次倉庫搬移'
+        elif action_type == 'move' and entity_type == 'customer_items':
+            restored = _fix137_restore_before_payload(cur, '', before_json)
+            summary = f'已還原最近一次 A/B 區移動，共 {restored} 筆'
+        elif action_type == 'move' and table == 'inventory':
+            # 舊版庫存移到訂單/總單的紀錄 before_json 較少，盡量用原 id / 數量補回庫存。
+            row = {'id': before_json.get('id'), 'product_text': before_json.get('product_text'), 'qty': before_json.get('qty'), 'customer_name': before_json.get('customer_name') or '', 'product_code': before_json.get('product_code') or '', 'material': before_json.get('material') or '', 'location': before_json.get('location') or '', 'operator': current_username(), 'updated_at': now()}
+            _fix137_restore_row(cur, 'inventory', row)
+            target = (after_json.get('target') or '').strip()
+            target_table = 'orders' if target == '訂單' else ('master_orders' if target == '總單' else '')
+            if target_table:
+                _fix137_delete_recent_matching(cur, target_table, after_json.get('customer_name') or '', before_json.get('product_text') or '', after_json.get('qty'))
+            summary = '已還原最近一次庫存移動'
+        elif action_type == 'upsert' and entity_type == 'warehouse_cells':
+            zone = (after_json.get('zone') or '').strip().upper()
+            col = int(after_json.get('column_index') or 0)
+            slot = int(after_json.get('slot_number') or 0)
+            note = before_json.get('note') or ''
+            raw_items = before_json.get('items_json') or before_json.get('items') or []
+            try:
+                items = json.loads(raw_items) if isinstance(raw_items, str) else raw_items
+            except Exception:
+                items = []
+            conn.commit(); conn.close(); conn = None
+            warehouse_save_cell(zone, col, 'direct', slot, items or [], note)
+            summary = '已還原最近一次倉庫格位編輯'
+        elif action_type in ('archive','rename','restore','upsert') and entity_type == 'customer_profiles':
+            # 客戶資料以 before_json 回寫。若 before_json 只有 name，也至少恢復可登入資料關聯。
+            row = before_json if isinstance(before_json, dict) else {}
+            old_name = row.get('name') or target.get('entity_key') or ''
+            if old_name:
+                upsert_customer(old_name, phone=row.get('phone') or '', address=row.get('address') or '', notes=row.get('notes') or '', common_materials=row.get('common_materials') or '', common_sizes=row.get('common_sizes') or '', region=row.get('region') or '北區', preserve_existing=False)
+            summary = '已還原最近一次客戶資料操作'
         else:
-            conn.close()
             return error_response('這筆操作暫不支援還原')
-        conn.commit()
-        conn.close()
+
+        if conn:
+            conn.commit(); conn.close(); conn = None
         add_audit_trail(current_username(), 'undo', 'undo', entity_type, before_json=target, after_json={'message': summary})
         notify_sync_event(kind='refresh', module='all', message=summary)
         log_action(current_username(), summary)
         return jsonify(success=True, message=summary)
     except Exception as e:
         try:
-            conn.rollback()
-            conn.close()
+            if conn:
+                conn.rollback(); conn.close()
         except Exception:
             pass
-        log_error('undo_last', str(e))
+        log_error('undo_last_fix137', str(e))
         return error_response('還原上一筆失敗')
 
 
@@ -2701,7 +2865,7 @@ def api_fix28_items_transfer():
             result_payload.update(ship_result)
         else:
             return error_response('目標類型錯誤')
-        add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, **row}, after_json={'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, 'table': source_table, **row}, after_json={'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty, 'result': result_payload, 'breakdown': result_payload.get('breakdown') if isinstance(result_payload, dict) else []})
         log_action(current_username(), f"{source_label}移到{target_label}：{customer_name} {product_text}x{qty}")
         notify_sync_event(kind='refresh', module='all', message=f'{source_label}已移到{target_label}', extra={'source': source_label, 'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
         return jsonify(success=True, message=f'已從{source_label}移到{target_label}', customer_name=customer_name, target=target_label, **result_payload)
