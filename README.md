@@ -282,3 +282,35 @@ PYTHON_VERSION=3.11.10
 - FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、今日異動未錄入倉庫圖長按刷新。
 - FIX116：舊版渲染隔離、原生 MutationObserver 只開給母版監控、商品批量選取狀態保留、倉庫 / 客戶 / 今日異動 / 設定頁新增最後一道畫面硬鎖，不改資料功能。
 - FIX120：蘋果風按鈕介面改為真正母版注入，庫存 / 訂單 / 總單新增獨立商品排序母版；排序規則為材質 → 高 → 寬 → 長由小到大，同商品件數 → 支數由大到小；全程不改資料功能。
+
+--- FIX123 補充 ---
+FIX123 淺灰金邊圓型標籤 + 母版接管收斂版
+
+本包基於 FIX122，不刪除既有功能，保留 109 客戶/商品救援邏輯，並做以下修正：
+
+1. 全站版本號改為 fix123-ornate-gray-master-hardlock。
+   - base.html、service-worker.js、pwa.js、manifest.webmanifest 已同步。
+   - PWA / 手機快取會換新 cache name，避免繼續吃 FIX121/FIX122 舊畫面。
+
+2. 母版載入順序調整。
+   - 先載 core_hardlock.js。
+   - 再載 app.js 當相容功能庫。
+   - 最後由 today / warehouse / customer / product / ship / legacy isolation 等新版母版硬鎖接管畫面。
+
+3. 109 客戶/商品救援保留，但降低卡頓。
+   - get_customers 不再每次開頁都掃 inventory / orders / master_orders / shipping_records。
+   - 改成每個伺服器行程最多自動救援一次。
+   - 需要手動重跑時仍可呼叫 /api/recover/customers-from-relations。
+
+4. 主頁黑色標籤改成淺灰色金邊圓型標籤。
+   - 庫存、訂單、總單、出貨、出貨查詢、倉庫圖、客戶資料、代辦事項已套用。
+   - 設定 / 今日異動 / 使用者標籤同步改成淺灰金邊圓型。
+
+5. 全站按鈕套用同一套淺灰金邊圓型標籤外觀。
+   - primary / ghost / back / chip / pill / small / tiny / icon / PWA 安裝按鈕都覆蓋成新版。
+   - 只改 CSS 外觀，不改 onclick、API、資料庫邏輯。
+
+已檢查：
+- Python py_compile OK
+- tools/smoke_test.py OK
+- node --check 主要 JS 模組 OK

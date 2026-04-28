@@ -1,4 +1,4 @@
-/* FIX121 母版整合器：先硬鎖、app.js 後補相容，再二次硬鎖
+/* FIX123 母版整合器：先硬鎖、app.js 後補相容，再二次硬鎖
    目的：新版頁面只走母版入口；app.js 保留功能庫但不再讓舊版畫面搶先輸出。 */
 (function(){
   'use strict';
@@ -18,11 +18,12 @@
     document.documentElement.dataset.yx116Master = 'installed';
     document.documentElement.dataset.yx118Master = 'installed';
     document.documentElement.dataset.yx121Master = 'installed';
+    document.documentElement.dataset.yx123Master = 'installed';
 
     const m = YX.moduleKey();
     // 只在已有新版母版完整接管的頁面清掉舊版延遲重畫；設定 / 出貨查詢 / 代辦仍保留原本初始化。
     if (['today_changes','warehouse','orders','master_order','inventory','ship','customers'].includes(m)) {
-      try { YX.cancelLegacyTimers('fix121-master-integrator'); } catch(_e) {}
+      try { YX.cancelLegacyTimers('fix123-master-integrator'); } catch(_e) {}
     }
 
     safeInstall('apple_ui');
@@ -35,11 +36,11 @@
     if (m === 'settings' || (location.pathname || '').includes('/settings')) safeInstall('settings_audit');
     safeInstall('legacy_isolation');
 
-    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix121-master-bridge-hardlock'}})); } catch(_e) {}
+    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix123-ornate-gray-master-hardlock'}})); } catch(_e) {}
   }
 
   window.__YX_MASTER_REINSTALL__ = install;
-  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix121-master-bridge-hardlock', install});
+  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix123-ornate-gray-master-hardlock', install});
 
   // 同一支檔案會在 app.js 前 / 後各載一次。第二次不跳過，直接重新硬鎖。
   install();

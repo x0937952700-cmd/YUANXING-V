@@ -1368,18 +1368,26 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
 
 
 def get_customers(active_only=True):
-    """FIX53：客戶清單用資料庫 GROUP BY 統計，以 customer_uid 為主、customer_name 只做舊資料備援。"""
+    """FIX53 / FIX123：客戶清單用資料庫 GROUP BY 統計，以 customer_uid 為主、customer_name 做舊資料備援。
+
+    FIX122 的 109 客戶/商品救援保留，但不再每次開客戶清單都掃 inventory / orders /
+    master_orders / shipping_records，避免開訂單、總單、出貨、客戶頁時卡頓。
+    目前改成每個伺服器行程最多自動救援一次；需要重跑時可手動呼叫
+    /api/recover/customers-from-relations。
+    """
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX122：客戶清單載入時先做安全救援，避免 109 舊資料還在商品表、但客戶檔沒被建立。
-        try:
-            conn.close()
-            recover_customer_profiles_from_relation_tables()
-            conn = get_db()
-            cur = conn.cursor()
-        except Exception as e:
-            log_error('get_customers_auto_recover', str(e))
+        global _YX123_CUSTOMERS_AUTO_RECOVERED
+        if not globals().get('_YX123_CUSTOMERS_AUTO_RECOVERED'):
+            globals()['_YX123_CUSTOMERS_AUTO_RECOVERED'] = True
+            try:
+                conn.close()
+                recover_customer_profiles_from_relation_tables()
+                conn = get_db()
+                cur = conn.cursor()
+            except Exception as e:
+                log_error('get_customers_auto_recover_once', str(e))
         _sync_customer_uid_columns(cur)
         try:
             _clean_product_like_materials(cur)
