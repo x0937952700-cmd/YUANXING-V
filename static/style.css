@@ -3978,3 +3978,166 @@ html[data-yx117AppleUi="locked"] .yx113-customer-action-card .ghost-btn{
   min-height:52px!important;
   font-size:15px!important;
 }
+
+/* ==== FIX118 Apple-style button hardlock + product sort marker ==== */
+html[data-yx118-apple-ui="locked"] button,
+html[data-yx118-apple-ui="locked"] a.menu-btn,
+html[data-yx118-apple-ui="locked"] a.home-mini-btn,
+html[data-yx118-apple-ui="locked"] a.back-btn,
+html[data-yx118-apple-ui="locked"] .primary-btn,
+html[data-yx118-apple-ui="locked"] .ghost-btn,
+html[data-yx118-apple-ui="locked"] .secondary-btn,
+html[data-yx118-apple-ui="locked"] .home-mini-btn,
+html[data-yx118-apple-ui="locked"] .menu-btn,
+html[data-yx118-apple-ui="locked"] .back-btn,
+html[data-yx118-apple-ui="locked"] .icon-btn,
+html[data-yx118-apple-ui="locked"] .chip,
+html[data-yx118-apple-ui="locked"] [role="button"]{
+  -webkit-tap-highlight-color:transparent!important;
+  border-radius:18px!important;
+  border:1px solid rgba(17,24,39,.10)!important;
+  background:linear-gradient(180deg, rgba(255,255,255,.94), rgba(247,248,250,.90))!important;
+  color:#111827!important;
+  box-shadow:0 10px 28px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.95)!important;
+  backdrop-filter:blur(20px) saturate(1.3)!important;
+  -webkit-backdrop-filter:blur(20px) saturate(1.3)!important;
+  font-weight:760!important;
+  letter-spacing:.01em!important;
+  transition:transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s ease, background .16s ease, border-color .16s ease, opacity .16s ease!important;
+  touch-action:manipulation!important;
+}
+html[data-yx118-apple-ui="locked"] button:hover,
+html[data-yx118-apple-ui="locked"] a.menu-btn:hover,
+html[data-yx118-apple-ui="locked"] a.home-mini-btn:hover,
+html[data-yx118-apple-ui="locked"] a.back-btn:hover,
+html[data-yx118-apple-ui="locked"] .primary-btn:hover,
+html[data-yx118-apple-ui="locked"] .ghost-btn:hover,
+html[data-yx118-apple-ui="locked"] .chip:hover{
+  transform:translateY(-1px)!important;
+  box-shadow:0 14px 34px rgba(15,23,42,.14), inset 0 1px 0 rgba(255,255,255,.96)!important;
+}
+html[data-yx118-apple-ui="locked"] button:active,
+html[data-yx118-apple-ui="locked"] a.menu-btn:active,
+html[data-yx118-apple-ui="locked"] a.home-mini-btn:active,
+html[data-yx118-apple-ui="locked"] a.back-btn:active,
+html[data-yx118-apple-ui="locked"] .primary-btn:active,
+html[data-yx118-apple-ui="locked"] .ghost-btn:active,
+html[data-yx118-apple-ui="locked"] .chip:active{
+  transform:scale(.982)!important;
+  box-shadow:0 5px 16px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.78)!important;
+}
+html[data-yx118-apple-ui="locked"] .primary-btn,
+html[data-yx118-apple-ui="locked"] button.primary-btn,
+html[data-yx118-apple-ui="locked"] .menu-btn,
+html[data-yx118-apple-ui="locked"] a.menu-btn{
+  background:linear-gradient(180deg, rgba(31,31,34,.98), rgba(17,24,39,.98))!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.14)!important;
+  box-shadow:0 14px 32px rgba(17,24,39,.22), inset 0 1px 0 rgba(255,255,255,.20)!important;
+}
+html[data-yx118-apple-ui="locked"] .danger-btn,
+html[data-yx118-apple-ui="locked"] button.danger-btn,
+html[data-yx118-apple-ui="locked"] .btn-danger{
+  color:#d70015!important;
+  background:linear-gradient(180deg, rgba(255,247,247,.96), rgba(255,241,242,.92))!important;
+  border-color:rgba(255,59,48,.24)!important;
+}
+html[data-yx118-apple-ui="locked"] button:disabled,
+html[data-yx118-apple-ui="locked"] .primary-btn:disabled,
+html[data-yx118-apple-ui="locked"] .ghost-btn:disabled{
+  opacity:.46!important;
+  transform:none!important;
+  cursor:not-allowed!important;
+}
+html[data-yx118-apple-ui="locked"] select,
+html[data-yx118-apple-ui="locked"] .text-input,
+html[data-yx118-apple-ui="locked"] .text-area{
+  border-radius:18px!important;
+  border:1px solid rgba(17,24,39,.10)!important;
+  background:rgba(255,255,255,.92)!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.92), 0 6px 18px rgba(15,23,42,.05)!important;
+}
+html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
+  content:"排序：材質 → 高 → 寬 → 長 / 同商品件數 → 支數";
+  font-size:12px;
+  color:#64748b;
+  margin-left:auto;
+  white-space:nowrap;
+}
+@media(max-width:640px){
+  html[data-yx118-product-sort="locked"] .yx113-summary-head::after{display:none;}
+}
+
+/* ==== FIX119 customer master stable hardlock ==== */
+html[data-yx119-customer-silencer="armed"]:not([data-yx119-customers-ready="1"]) #region-picker-section .customer-list,
+html[data-yx119-customer-silencer="armed"]:not([data-yx119-customers-ready="1"]) #customers-section .customer-list{
+  visibility:hidden!important;
+  min-height:64px!important;
+}
+html[data-yx119-customers="locked"] .yx119-customer-list,
+html[data-yx119-customers="locked"] .yx114-customer-list,
+html[data-yx119-customers="locked"] .customer-list{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:12px!important;
+  align-items:stretch!important;
+}
+html[data-yx119-customers="locked"] .yx119-customer-card,
+html[data-yx119-customers="locked"] .yx117-customer-card,
+html[data-yx119-customers="locked"] .yx116-customer-card{
+  width:100%!important;
+  min-width:0!important;
+  min-height:60px!important;
+  padding:14px 18px!important;
+  margin:0!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto minmax(120px,auto)!important;
+  gap:12px!important;
+  align-items:center!important;
+  overflow:hidden!important;
+  border-radius:18px!important;
+}
+html[data-yx119-customers="locked"] .yx116-customer-name,
+html[data-yx119-customers="locked"] .yx113-customer-left{
+  min-width:0!important;
+  width:auto!important;
+  max-width:none!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  display:block!important;
+  font-size:16px!important;
+  font-weight:850!important;
+}
+html[data-yx119-customers="locked"] .yx116-customer-tag,
+html[data-yx119-customers="locked"] .yx113-customer-tag{
+  justify-self:center!important;
+  min-width:60px!important;
+  max-width:90px!important;
+  text-align:center!important;
+  white-space:nowrap!important;
+}
+html[data-yx119-customers="locked"] .yx116-customer-count,
+html[data-yx119-customers="locked"] .yx113-customer-count{
+  justify-self:end!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+  min-width:112px!important;
+}
+html[data-yx119-customers="locked"] .customer-card-arrow,
+html[data-yx119-customers="locked"] .fix48-customer-arrow,
+html[data-yx119-customers="locked"] .yx113-customer-arrow{
+  display:none!important;
+  visibility:hidden!important;
+}
+@media(max-width:560px){
+  html[data-yx119-customers="locked"] .yx119-customer-card,
+  html[data-yx119-customers="locked"] .yx117-customer-card,
+  html[data-yx119-customers="locked"] .yx116-customer-card{
+    grid-template-columns:minmax(0,1fr) auto!important;
+    row-gap:6px!important;
+  }
+  html[data-yx119-customers="locked"] .yx116-customer-count,
+  html[data-yx119-customers="locked"] .yx113-customer-count{grid-column:1 / -1!important;justify-self:end!important;}
+}
+/* ==== FIX119 customer master stable hardlock end ==== */

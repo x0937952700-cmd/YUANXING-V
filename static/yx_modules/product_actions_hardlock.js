@@ -1,4 +1,4 @@
-/* FIX117 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
+/* FIX118 商品母版硬鎖：庫存 / 訂單 / 總單統整表、批量材質/刪除、小卡篩選與動作固定 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
@@ -64,7 +64,10 @@
     if (source === 'master_order' && !cust) rows = [];
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
     if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''}`.toLowerCase().includes(q));
-    return rows.sort((a,b) => `${materialOf(a)} ${splitProduct(a.product_text).size}`.localeCompare(`${materialOf(b)} ${splitProduct(b.product_text).size}`, 'zh-Hant', {numeric:true}));
+    const sorter = window.YX118ProductSort && typeof window.YX118ProductSort.compareRows === 'function'
+      ? window.YX118ProductSort.compareRows
+      : (a,b) => `${materialOf(a)} ${splitProduct(a.product_text).size}`.localeCompare(`${materialOf(b)} ${splitProduct(b.product_text).size}`, 'zh-Hant', {numeric:true});
+    return rows.sort(sorter);
   }
   function selectedIds(source){
     const ids = new Set(state.selected[source] ? Array.from(state.selected[source]) : []);

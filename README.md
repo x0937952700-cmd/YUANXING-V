@@ -1,8 +1,8 @@
-# 沅興木業｜最終商用整合版 FIX117
+# 沅興木業｜最終商用整合版 FIX118
 
-本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX117 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
+本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX118 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
 
-版本號統一為：`fix117-master-hardlock`。
+版本號統一為：`fix118-apple-sort-hardlock`。
 
 ---
 
@@ -70,7 +70,7 @@
 - 套用材質
 - 批量刪除
 
-批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX117 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
+批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX118 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
 
 ### 6. 北 / 中 / 南客戶列表固定新版
 
@@ -131,6 +131,7 @@ static/yx_modules/today_changes_hardlock.js
 static/yx_modules/warehouse_hardlock.js
 static/yx_modules/settings_audit_hardlock.js
 static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/product_sort_hardlock.js
 static/yx_modules/product_actions_hardlock.js
 static/yx_modules/ship_picker_hardlock.js
 static/yx_modules/legacy_isolation_hardlock.js
@@ -175,12 +176,14 @@ static/yx_modules/master_integrator.js
 - 不改後端 API，不影響原本出貨扣除、反查、預覽功能
 
 
-### FIX117 本次追加硬鎖
+### FIX118 本次追加硬鎖
 
-- 北區 / 中區 / 南區客戶卡片改回「一排一個客戶」，不再兩欄排列，保留長按 / 右鍵操作表、移區、編輯、刪除、點客戶載入商品等既有功能。
+- 北區 / 中區 / 南區客戶卡片保持「一排一個客戶」，保留長按 / 右鍵操作表、移區、編輯、刪除、點客戶載入商品等既有功能。
 - 舊版客戶卡片若再次輸出，會先被隱藏，再由母版重新渲染成新版一列式卡片，避免舊介面影響畫面。
-- 新增 `static/yx_modules/apple_ui_hardlock.js`，專門處理按鈕高級簡約蘋果風視覺；只改 CSS / dataset，不改任何資料 API、送出流程或按鈕事件。
-- `master_integrator.js` 最後統一安裝 `apple_ui`，讓蘋果風按鈕介面跟著母版硬鎖，不被舊 CSS 覆蓋。
+- `static/yx_modules/apple_ui_hardlock.js` 改成真正注入執行中的蘋果風按鈕樣式，並在 `templates/base.html` 先寫入 `data-yx118-apple-ui`，讓首頁與功能頁都能套用，不等舊 CSS。
+- 新增 `static/yx_modules/product_sort_hardlock.js`，專門處理庫存 / 訂單 / 總單顯示排序；不改資料庫、不改送出流程、不改任何 API。
+- 商品排序固定為：材質 → 高 → 寬 → 長由小到大；同商品再依件數 → 支數由大到小。
+- `master_integrator.js` 最後統一安裝 `apple_ui` 與 `product_sort`，讓按鈕風格與商品排序都由母版硬鎖，不被舊版覆蓋。
 
 ---
 
@@ -200,6 +203,7 @@ static/yx_modules/today_changes_hardlock.js
 static/yx_modules/warehouse_hardlock.js
 static/yx_modules/settings_audit_hardlock.js
 static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/product_sort_hardlock.js
 static/yx_modules/product_actions_hardlock.js
 static/yx_modules/ship_picker_hardlock.js
 static/yx_modules/legacy_isolation_hardlock.js
@@ -225,7 +229,7 @@ DATABASE_URL=Render PostgreSQL 連線字串
 PYTHON_VERSION=3.11.10
 ```
 
-如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix117-master-hardlock`。
+如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix118-apple-sort-hardlock`。
 
 ---
 
@@ -243,6 +247,7 @@ PYTHON_VERSION=3.11.10
 - 北中南客戶長按操作模組
 - 北中南客戶一排一個新版卡片
 - 蘋果風按鈕介面母版
+- 庫存 / 訂單 / 總單排序：材質 → 高 → 寬 → 長；同商品件數 → 支數
 - A / B 倉格子新版顯示格式
 
 ---
@@ -254,4 +259,21 @@ PYTHON_VERSION=3.11.10
 - FIX113：差異紀錄範圍硬鎖、設定頁 OCR 區塊移除、管理員 500 相容、商品清單批量材質 / 批量刪除、表格選取後小卡篩選、北中南客戶標籤與長按操作、A/B 倉格子顯示硬鎖。
 - FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、今日異動未錄入倉庫圖長按刷新。
 - FIX116：舊版渲染隔離、原生 MutationObserver 只開給母版監控、商品批量選取狀態保留、倉庫 / 客戶 / 今日異動 / 設定頁新增最後一道畫面硬鎖，不改資料功能。
-- FIX117：北中南客戶改回一排一個客戶，新增蘋果風按鈕介面母版，舊版客戶卡片由母版隱藏並重畫，不改任何資料功能。
+- FIX118：蘋果風按鈕介面改為真正母版注入，庫存 / 訂單 / 總單新增獨立商品排序母版；排序規則為材質 → 高 → 寬 → 長由小到大，同商品件數 → 支數由大到小；全程不改資料功能。
+
+## FIX119｜總單客戶穩定母版硬鎖
+
+本版只修復總單 / 北中南客戶清單顯示穩定性，不變更資料庫主流程、不移除任何功能。
+
+### 修正內容
+- 新增 `static/yx_modules/customer_master_stable_hardlock.js`，由母版最後接管北中南客戶清單。
+- 總單頁開啟時先靜默舊版客戶列表，等新版母版完成渲染後再顯示，避免「先跳舊版、再跳新版」的閃動。
+- 舊版 `loadCustomerBlocks` / `renderCustomers` 會被轉接到新版母版，舊版介面不再接管畫面。
+- 北中南客戶清單不再用件數過濾客戶，避免總單客戶因舊統計或舊資料缺欄而消失。
+- `get_customers()` 讀取時會補回只存在於庫存 / 訂單 / 總單 / 出貨紀錄內，但尚未存在於 `customer_profiles` 的舊客戶；此補回為讀取清單用，不直接改動原資料表。
+- 保留長按 / 右鍵操作、移區、編輯、刪除、點客戶載入商品等原功能。
+
+### 母版規則
+- 客戶清單畫面固定由 `customer_regions_hardlock.js` + `customer_master_stable_hardlock.js` 輸出。
+- 舊版渲染只能被轉接，不允許重新覆蓋新版客戶介面。
+- 後續若要調整北中南客戶樣式或總單客戶載入，請改 `static/yx_modules/customer_master_stable_hardlock.js` 或 `static/yx_modules/customer_regions_hardlock.js`，不要回頭修改舊 FIX 函式。

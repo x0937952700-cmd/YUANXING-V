@@ -1,4 +1,4 @@
-/* FIX117 出貨客戶商品下拉母版硬鎖：輸入客戶名稱後立即刷新該客戶全部商品 */
+/* FIX118 出貨客戶商品下拉母版硬鎖：輸入客戶名稱後立即刷新該客戶全部商品 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;

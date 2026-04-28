@@ -1310,6 +1310,48 @@ def get_customers(active_only=True):
             if name:
                 name_to_uid[name] = uid or name
 
+        # FIX119：補回只存在於庫存 / 訂單 / 總單 / 出貨紀錄、但尚未寫入 customer_profiles 的舊客戶。
+        # 只在讀取清單時做虛擬補齊，不改原資料表、不影響既有新增 / 編輯 / 刪除流程。
+        existing_names = set((row.get('name') or '').strip() for row in customers if (row.get('name') or '').strip())
+        existing_uids = set((row.get('customer_uid') or '').strip() for row in customers if (row.get('customer_uid') or '').strip())
+        try:
+            for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+                cur.execute(sql(f"""
+                    SELECT DISTINCT customer_name, customer_uid
+                    FROM {table}
+                    WHERE COALESCE(customer_name, '') <> ''
+                """))
+                for r in rows_to_dict(cur):
+                    vname = (r.get('customer_name') or '').strip()
+                    vuid = (r.get('customer_uid') or '').strip()
+                    if not vname:
+                        continue
+                    if vname in existing_names or (vuid and vuid in existing_uids):
+                        continue
+                    virtual_uid = vuid or _new_customer_uid(vname, '')
+                    customers.append({
+                        'id': None,
+                        'name': vname,
+                        'phone': '',
+                        'address': '',
+                        'notes': '',
+                        'common_materials': '',
+                        'common_sizes': '',
+                        'region': '北區',
+                        'customer_uid': virtual_uid,
+                        'is_archived': 0,
+                        'archived_at': None,
+                        'created_at': '',
+                        'updated_at': '',
+                        'is_virtual': True,
+                    })
+                    existing_names.add(vname)
+                    if virtual_uid:
+                        existing_uids.add(virtual_uid)
+                    name_to_uid[vname] = virtual_uid or vname
+        except Exception as e:
+            log_error('get_customers_virtual_recover', str(e))
+
         count_map = {}
         def add_grouped_counts(table, prefix):
             try:
@@ -1358,6 +1400,8 @@ def get_customers(active_only=True):
             row['history_count'] = counts['shipping_qty']
             row['customer_uid'] = uid or name_to_uid.get(name) or _new_customer_uid(name, row.get('created_at') or '')
             row['is_archived'] = int(row.get('is_archived') or 0)
+        order_map = {'北區': 1, '中區': 2, '南區': 3}
+        customers.sort(key=lambda r: (order_map.get((r.get('region') or '').strip(), 9), (r.get('name') or '')))
         conn.commit()
         return customers
     finally:
