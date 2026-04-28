@@ -1,3 +1,53 @@
+# FIX139 README 統整母版硬鎖版
+
+本版目的：修復 Render/GitHub 部署常見問題，並把 README 與歷代 FIX 已確認需求統一接到最後母版。
+
+## 主要修復
+
+1. 版本號統一升級為 `fix139-readme-unified-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
+2. 新增最後母版：
+   - `static/yx_modules/fix139_readme_master_hardlock.css`
+   - `static/yx_modules/fix139_readme_master_hardlock.js`
+3. 新母版最後載入，負責接管視覺與操作入口；舊版 `app.js` 保留作為輔助函式庫，不再讓舊版主動畫面覆蓋新版。
+4. 一般按鈕固定黑字，刪除 / 批量刪除 / 重要操作固定紅字；按下或滑過時銀色內圈更明顯。
+5. 修復空白按鈕：會依照 `data-*` 屬性自動補回「編輯 / 直接出貨 / 加到訂單 / 加到總單 / 刪除 / 還原上一步」等文字。
+6. 庫存 / 訂單 / 總單固定完整直列表格，不用下拉、不產生下方小卡；總單列操作按鈕清除。
+7. 客戶卡固定三段：左側客戶名、中間 CNF / FOB / FOB代、右側件 / 筆。
+8. 倉庫圖由新版母版接管；舊版倉庫面板隱藏，A 倉 / B 倉未入倉清單會依區域帶入 `zone=A/B`。
+9. 出貨頁補客戶快速選擇與客戶商品完整清單；客戶名稱輸入後會自動重新載入該客戶商品。
+10. 保留還原功能：還原上一步與設定頁差異紀錄單筆還原都保留。
+11. 加入 `runtime.txt`，協助 Render 固定 Python 3.11.10。
+
+## 部署注意
+
+請不要把 ZIP 直接上傳到 GitHub。必須先解壓縮，然後把解壓後的內容上傳到 GitHub 根目錄。根目錄要直接看到：
+
+- `app.py`
+- `db.py`
+- `requirements.txt`
+- `Procfile`
+- `render.yaml`
+- `runtime.txt`
+- `static/`
+- `templates/`
+
+Render 設定建議：
+
+- Build Command：`pip install -r requirements.txt`
+- Start Command：`gunicorn app:app --config gunicorn.conf.py`
+- Root Directory：留空
+
+## 測試
+
+已執行：
+
+- Python compile OK
+- FIX139 smoke test OK
+- 新母版 JS 語法 OK
+- Service Worker JS 語法 OK
+
+---
+
 # FIX128 完整商品清單 + 上方編輯母版硬鎖版
 
 - 出貨客戶商品改成完整直列顯示，不再靠下拉式。
