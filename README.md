@@ -16,7 +16,7 @@
 
 ## 母版統整
 
-1. 版本號升級：`fix142-speed-ship-master-hardlock`。
+1. 版本號升級：`fix141-render-502-db-safe-master`。
 2. README / 歷代 FIX 要求重新接到最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`
@@ -44,7 +44,7 @@ Environment：如果 Render 後台已經有 `PYTHON_VERSION`，請改成 `3.11.1
 
 ## 主要修復
 
-1. 版本號統一升級為 `fix142-speed-ship-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
+1. 版本號統一升級為 `fix141-render-502-db-safe-master`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
 2. 新增最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`
@@ -445,3 +445,41 @@ FIX124 淺灰金邊圓型標籤 + 母版接管收斂版
 - 修復 loadSource is not defined，補回 product_actions 母版的 loadSource / renderCards / refreshCurrent。
 - 新增 product_source_bridge_hardlock.js，把舊版刷新入口導回母版。
 - 保留 FIX128 完整清單、上方編輯全部、小卡直接編輯與尤加利/尤佳利材質。
+
+
+FIX148 安全頁面收斂加速版
+
+本版原則：不刪功能、不改頁面結構、不動原本按鈕，只把會拖慢與會覆蓋新版的舊邏輯再收斂。
+
+已處理：
+1. base.html 改成頁面級輕量載入：
+   - 首頁不再載入 app.js 與出貨/倉庫/商品舊母版。
+   - 設定頁只載入設定必要功能與差異紀錄，不載入出貨/倉庫/商品舊母版。
+   - 今日異動只載入今日異動 renderer，不載入 app.js 與倉庫/出貨舊母版。
+   - 功能頁仍保留原本功能庫與舊檔相容層，避免功能消失。
+
+2. 新增 static/yx_modules/fix148_final_safe_speed.js：
+   - API timeout，避免送出/載入卡死時按鈕永遠鎖住。
+   - 危險按鈕短時間防重複點擊，避免舊版與新版 handler 同時送出。
+   - 設定頁輕量版 changePassword / undoLastAction / downloadReport / createBackup / logout。
+   - 首頁今日異動 badge 用最小 API 背景更新。
+   - 內建 YX148HealthCheck，可在瀏覽器 console 檢查目前載入哪些母版。
+
+3. 今日異動刪除加速：
+   - 刪除單筆活動後，前端直接移除該卡片。
+   - 後端 /api/today-changes/<id> 不再重新計算整包今日異動與未入倉。
+   - 需要重新計算時仍保留「刷新」按鈕。
+
+4. Service Worker / PWA：
+   - 版本升級為 fix148-safe-page-converge。
+   - 舊檔保留，但不再把全部舊母版 precache。
+   - 靜態檔仍網路優先，避免手機吃舊快取。
+
+5. 資料庫安全加速：
+   - 新增 logs、audit_trails、customer_profiles、warehouse_cells 常用查詢索引。
+   - 差異紀錄改成 SQL 先 LIMIT，不再先整表撈出來再 Python 篩選。
+
+保留：
+- 原本頁面 HTML、按鈕、API、舊檔案都保留。
+- 功能頁仍照原本方式載入完整功能庫。
+- 只對首頁 / 設定 / 今日異動做輕量載入，降低返回主頁和開設定卡頓。

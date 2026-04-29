@@ -142,6 +142,16 @@ def duplicate_success(message='重複送出已忽略'):
     return jsonify(success=True, duplicate=True, message=message)
 
 
+def guard_duplicate_submission(data, endpoint='', message='重複操作已忽略'):
+    """FIX149：後端安全防重送。
+    前端有帶 request_key 時才擋重複；沒帶 request_key 的舊功能照常執行。
+    """
+    key_result = request_key_from_payload(data or {}, endpoint=endpoint)
+    if key_result is False:
+        return duplicate_success(message)
+    return None
+
+
 
 def resolve_customer_region(customer_name='', requested_region=''):
     requested = (requested_region or '').strip()
@@ -1146,6 +1156,8 @@ def api_customers():
         if request.method == "GET":
             return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customers_upsert')
+        if dup: return dup
         name = (data.get("name") or "").strip()
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
         name = name or resolved_name
@@ -1199,6 +1211,8 @@ def api_customers_archived():
 def api_customer_restore(name):
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customer_restore')
+        if dup: return dup
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
         target_name = resolved_name or name
         item = restore_customer(target_name)
@@ -1215,6 +1229,8 @@ def api_customer_restore(name):
 def api_customers_move():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customers_move')
+        if dup: return dup
         name = (data.get("name") or "").strip()
         region = (data.get("region") or "").strip()
         if region not in ["北區", "中區", "南區"]:
@@ -1240,6 +1256,8 @@ def api_customer_detail(name):
     if request.method == "PUT":
         try:
             data = request.get_json(silent=True) or {}
+            dup = guard_duplicate_submission(data, 'customer_detail_put')
+            if dup: return dup
             new_name = (data.get("new_name") or "").strip()
             if not new_name:
                 return error_response("請輸入新的客戶名稱")
@@ -1277,6 +1295,8 @@ def api_customer_detail(name):
     if request.method == "DELETE":
         try:
             data = request.get_json(silent=True) or {}
+            dup = guard_duplicate_submission(data, 'customer_detail_delete')
+            if dup: return dup
             _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
             name = resolved_name or name
             result = delete_customer(name)
@@ -1311,6 +1331,8 @@ def api_warehouse():
 def api_warehouse_cell():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_cell')
+        if dup: return dup
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
@@ -1344,6 +1366,8 @@ def api_warehouse_cell():
 def api_warehouse_move():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_move')
+        if dup: return dup
         from_key = data.get("from_key")
         to_key = data.get("to_key")
         product_text = format_product_text_height2(data.get("product_text"))
@@ -1372,6 +1396,8 @@ def api_warehouse_move():
 def api_warehouse_add_column():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_add_column')
+        if dup: return dup
         zone = (data.get("zone") or "A").strip().upper()
         if zone not in ("A", "B"):
             return error_response("區域錯誤")
@@ -1485,8 +1511,8 @@ def api_customer_items():
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX142：點客戶必須即時顯示。前端若已從客戶母版拿到 merge_names，
-        # 直接帶 variants 避免每次點擊又掃四張資料表找同名變體。
+        # FIX146：點客戶 / 出貨商品清單要立即顯示。
+        # 前端若已帶 variants 直接使用，避免每次又掃多張表找同名變體。
         raw_variants = (request.args.get('variants') or '').strip()
         variants = []
         if raw_variants:
@@ -1498,7 +1524,7 @@ def api_customer_items():
                 variants = [(x or '').strip() for x in re.split(r'[|,\n]+', raw_variants) if (x or '').strip()]
             if name and name not in variants:
                 variants.insert(0, name)
-        elif (request.args.get('fast') or '') == '1':
+        elif (request.args.get('fast') or request.args.get('yx146') or '') in ('1', 'true', 'yes'):
             variants = [name] if name else []
         else:
             variants = customer_merge_variants(cur, name) if name else []
@@ -1533,6 +1559,8 @@ def api_customer_items():
 def api_customer_item_modify():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customer_item_modify')
+        if dup: return dup
         source = (data.get("source") or "").strip()
         item_id = int(data.get("id") or 0)
         if not source or not item_id:
@@ -1561,6 +1589,8 @@ def api_customer_item_modify():
 def api_customer_items_batch_material():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customer_items_batch_material')
+        if dup: return dup
         material = (data.get("material") or "").strip().upper()
         items = data.get("items") or []
         if not material:
@@ -1614,6 +1644,8 @@ def api_customer_items_batch_zone():
     """
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customer_items_batch_zone')
+        if dup: return dup
         zone = (data.get("zone") or "").strip().upper()
         if zone not in ("A", "B"):
             return error_response("請選擇 A 區或 B 區")
@@ -1669,6 +1701,8 @@ def api_customer_items_batch_delete():
     """FIX56：庫存 / 訂單 / 總單共用批量刪除。"""
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'customer_items_batch_delete')
+        if dup: return dup
         items = data.get("items") or []
         if not items:
             return error_response("請先勾選要刪除的商品")
@@ -1803,6 +1837,8 @@ def api_warehouse_return_unplaced():
     """
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_return_unplaced')
+        if dup: return dup
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
@@ -1828,6 +1864,8 @@ def api_warehouse_return_unplaced():
 def api_warehouse_add_slot():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_add_slot')
+        if dup: return dup
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6:
@@ -1850,6 +1888,8 @@ def api_warehouse_add_slot():
 def api_warehouse_remove_slot():
     try:
         data = request.get_json(silent=True) or {}
+        dup = guard_duplicate_submission(data, 'warehouse_remove_slot')
+        if dup: return dup
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
@@ -2106,7 +2146,8 @@ def api_today_change_delete(log_id):
         conn.commit()
         conn.close()
         notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
-        return jsonify(success=True, **_today_changes_payload())
+        # FIX148：刪除單筆今日異動只回傳結果，不重新計算整包今日異動 / 未入倉，避免刪除後卡頓。
+        return jsonify(success=True, deleted_id=log_id)
     except Exception as e:
         log_error('today_change_delete', str(e))
         return error_response('刪除異動失敗')

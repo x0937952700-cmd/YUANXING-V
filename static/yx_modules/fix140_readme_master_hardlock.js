@@ -1,13 +1,12 @@
 /* FIX141 README 統整母版：把 README/歷代 FIX 指定行為最後接管；未改動功能仍走舊版函式輔助 */
 (function(){
   'use strict';
-  const V='fix142-speed-ship-master-hardlock';
+  const V='fix141-render-502-db-safe-master';
   const YX=window.YXHardLock||{};
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const mod=()=>{try{return YX.moduleKey?YX.moduleKey():'';}catch(_e){const p=location.pathname; if(p.includes('warehouse'))return'warehouse'; if(p.includes('ship'))return'ship'; if(p.includes('master-order'))return'master_order'; if(p.includes('orders'))return'orders'; if(p.includes('inventory'))return'inventory'; return p==='/'?'home':'';}};
-  const shipCache={customers:null, customerAt:0, items:new Map()};
   async function api(url,opt={}){ if(YX.api) return YX.api(url,opt); const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...(opt.headers||{})},...opt}); const data=await res.json().catch(()=>({success:false,message:'回應格式錯誤'})); if(!res.ok||data.success===false) throw new Error(data.message||data.error||'操作失敗'); return data; }
   function toast(msg,type='ok'){ try{ if(YX.toast) return YX.toast(msg,type); }catch(_e){} try{(window.toast||window.showToast||console.log)(msg,type);}catch(_e){} }
   function buttonLabel(btn){
@@ -86,20 +85,14 @@
     const names=['renderWarehouse','renderWarehouse108','renderWarehouseZones','loadWarehouseDynamic','renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102'];
     names.forEach(name=>{ const old=window[name]; if(typeof old==='function'&&!old.__yx139Wrapped){ window[name]=function(...args){ const wh=window.YX121Warehouse||window.YX116Warehouse; if(wh&&typeof wh.render==='function') return wh.render(true); return old.apply(this,args); }; window[name].__yx139Wrapped=true; } });
   }
-  async function loadCustomers(force=false){
-    if(!force && shipCache.customers && Date.now()-shipCache.customerAt < 15000) return shipCache.customers;
-    const d=await api('/api/customers?yx139=1');
-    const rows=Array.isArray(d.customers)?d.customers:(Array.isArray(d.items)?d.items:[]);
-    shipCache.customers=rows; shipCache.customerAt=Date.now();
-    return rows;
+  async function loadCustomers(){
+    const d=await api('/api/customers?yx139=1&ts='+Date.now());
+    return Array.isArray(d.customers)?d.customers:(Array.isArray(d.items)?d.items:[]);
   }
   function customerName(){ return clean($('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''); }
   async function loadCustomerItems(name){
     name=clean(name); if(!name) return [];
-    const variants=Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__)?window.__YX_SELECTED_CUSTOMER_VARIANTS__.filter(Boolean):[name];
-    const key=name+'|'+variants.join('|');
-    const hit=shipCache.items.get(key); if(hit && Date.now()-hit.at<8000) return hit.items;
-    try{ const d=await api('/api/customer-items?name='+encodeURIComponent(name)+'&fast=1&yx139=1&variants='+encodeURIComponent(JSON.stringify(variants))); const items=Array.isArray(d.items)?d.items:[]; shipCache.items.set(key,{items,at:Date.now()}); return items; }
+    try{ const d=await api('/api/customer-items?name='+encodeURIComponent(name)+'&yx139=1&ts='+Date.now()); return Array.isArray(d.items)?d.items:[]; }
     catch(_e){ return []; }
   }
   function renderShipCustomers(rows){
@@ -128,14 +121,14 @@
       const c=e.target?.closest?.('[data-yx139-ship-customer]');
       if(c){ e.preventDefault(); e.stopPropagation(); const name=clean(c.dataset.yx139ShipCustomer); window.__YX_SELECTED_CUSTOMER__=name; if($('customer-name')) $('customer-name').value=name; try{renderShipItems(await loadCustomerItems(name),name);}catch(err){toast(err.message||'客戶商品載入失敗','error');} return; }
     },true);
-    document.addEventListener('input',e=>{ if(e.target?.id==='customer-name'&&mod()==='ship'){ clearTimeout(window.__YX139_SHIP_TIMER__); window.__YX139_SHIP_TIMER__=setTimeout(()=>repairShip(),50); } },true);
+    document.addEventListener('input',e=>{ if(e.target?.id==='customer-name'&&mod()==='ship'){ clearTimeout(window.__YX139_SHIP_TIMER__); window.__YX139_SHIP_TIMER__=setTimeout(()=>repairShip(),180); } },true);
   }
   function install(){
     document.documentElement.dataset.yx139ReadmeMaster='locked';
     window.__YX_MASTER_BRIDGE_VERSION__=V;
     window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
     installWarehouseBridge(); repairButtons(); normalizeCustomerCards(); stopLegacyVisuals(); bind(); repairShip();
-    [80,180,360,800,1600,3200,5200].forEach(ms=>setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},ms));
+    [80,180,360,800,1600,3200,5200].forEach(ms=>setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();repairShip();},ms));
     if(!window.__YX139_OBSERVER__&&window.MutationObserver){ window.__YX139_OBSERVER__=new MutationObserver(()=>{ clearTimeout(window.__YX139_REPAIR__); window.__YX139_REPAIR__=setTimeout(()=>{repairButtons();normalizeCustomerCards();stopLegacyVisuals();},60); }); window.__YX139_OBSERVER__.observe(document.body,{childList:true,subtree:true}); }
   }
   window.YX140Master={version:V,install,repairButtons,normalizeCustomerCards,repairShip};

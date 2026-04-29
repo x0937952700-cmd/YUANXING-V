@@ -1,0 +1,61 @@
+/* FIX149_SAFE_GUARD */
+html[data-yx-fix149="fix149-safe-guard"]{
+  --yx149-version:"fix149-safe-guard";
+}
+.yx149-error-card{
+  position:fixed;
+  z-index:100000;
+  left:50%;
+  top:18px;
+  transform:translateX(-50%) translateY(-16px);
+  width:min(92vw,420px);
+  padding:14px 16px;
+  border-radius:18px;
+  background:rgba(255,255,255,.96);
+  color:#4b2514;
+  box-shadow:0 18px 42px rgba(73,42,19,.18);
+  border:1px solid rgba(139,92,48,.18);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease;
+}
+.yx149-error-card.show{
+  opacity:1;
+  pointer-events:auto;
+  transform:translateX(-50%) translateY(0);
+}
+.yx149-error-card[data-kind="session"]{
+  border-color:rgba(180,35,24,.28);
+}
+.yx149-error-title{
+  font-weight:900;
+  font-size:15px;
+  margin-bottom:4px;
+}
+.yx149-error-msg{
+  font-size:14px;
+  line-height:1.45;
+  color:#6b3b20;
+  padding-right:68px;
+}
+.yx149-error-close{
+  position:absolute;
+  right:12px;
+  bottom:12px;
+  border:0;
+  border-radius:999px;
+  padding:6px 10px;
+  font-weight:800;
+  background:#f3e8d9;
+  color:#5b351d;
+}
+.yx149-busy{opacity:.72; pointer-events:none;}
+html[data-yx-page-kind="home"] .module-screen,
+html[data-yx-page-kind="settings"] .warehouse-zone-wrap,
+html[data-yx-page-kind="today_changes"] .warehouse-zone-wrap{
+  content-visibility:auto;
+}
+@media (max-width:720px){
+  .yx149-error-card{top:10px; border-radius:16px;}
+  .yx149-error-msg{padding-right:0; padding-bottom:34px;}
+}

@@ -1,0 +1,115 @@
+/* FIX146：即時返回、商品小卡與出貨預覽穩定樣式 */
+html.yx146-leaving *, html.yx146-leaving *::before, html.yx146-leaving *::after{
+  animation:none!important;
+  transition:none!important;
+}
+#yx146-fast-nav-mask{
+  position:fixed;
+  inset:0;
+  z-index:2147483647;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(250,248,244,.76);
+  backdrop-filter:blur(4px);
+  font:800 18px system-ui,"Noto Sans TC",sans-serif;
+  color:#3b2b1f;
+  pointer-events:none;
+}
+.yx146-customer-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+.yx146-customer-list{
+  display:grid;
+  gap:10px;
+}
+.yx146-customer-item{
+  padding:12px;
+}
+.yx146-item-head,
+.yx146-item-line{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.yx146-item-line span{
+  font-weight:800;
+  font-size:1.08rem;
+}
+.yx146-item-line b{
+  font-size:1.02rem;
+}
+.yx146-qty{
+  color:#1d4ed8;
+  font-weight:900;
+}
+.yx146-actions{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.yx146-ship-full-list,
+.yx146-customer-list{
+  max-height:52vh;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.yx146-ship-list-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin:8px 0;
+  font-weight:800;
+}
+.yx146-ship-item{
+  width:100%;
+  border:1px solid rgba(80,60,40,.15);
+  background:rgba(255,255,255,.86);
+  border-radius:14px;
+  padding:10px;
+  margin:7px 0;
+  display:grid;
+  grid-template-columns:auto 1fr auto auto auto;
+  gap:8px;
+  align-items:center;
+  text-align:left;
+}
+.yx146-ship-item:active,
+.yx146-customer-item:active{
+  transform:scale(.995);
+}
+.yx146-preview-row{
+  display:grid;
+  gap:6px;
+}
+.yx146-ship-preview .ship-summary-chip span{
+  font-weight:900;
+  margin-left:8px;
+}
+.error-card.compact{
+  padding:6px 8px;
+  margin-top:4px;
+}
+@media (max-width:680px){
+  .yx146-ship-item{
+    grid-template-columns:1fr auto;
+  }
+  .yx146-ship-item span,
+  .yx146-ship-item strong,
+  .yx146-ship-item em,
+  .yx146-ship-item b,
+  .yx146-ship-item small{
+    min-width:0;
+  }
+  .yx146-customer-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}

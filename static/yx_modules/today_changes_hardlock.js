@@ -148,6 +148,14 @@
     })();
     return state.loading;
   }
+  async function fastDeleteToday112(id, anchor){
+    /* FIX148 fastDeleteToday112：刪除後只移除該卡片，不重新全量刷新未入倉。 */
+    if(!id) return;
+    await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'});
+    const row = anchor?.closest?.('.yx112-today-row,.today-item,.deduct-card');
+    if(row) row.remove();
+    YX.toast('已刪除異動', 'ok');
+  }
   function bindEvents(){
     if (state.eventsBound) return;
     state.eventsBound = true;
@@ -183,7 +191,7 @@
       if (del) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         const id = del.getAttribute('data-yx112-delete-today');
-        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); await loadTodayChanges112({force:true}); }
+        try { await fastDeleteToday112(id, del); }
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
         return;
       }
@@ -212,7 +220,7 @@
       touch = null;
       if (dx < -80 && dy < 45) {
         const id = row.dataset.logId;
-        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); row.remove(); await loadTodayChanges112({force:true}); }
+        try { await fastDeleteToday112(id, row); }
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
       }
     }, true);
@@ -222,7 +230,7 @@
     YX.hardAssign('loadTodayChanges', fn, {configurable:false});
     ['loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96','loadTodayChanges99','__yx96RemovedToday80','__yx96RemovedToday93','__yx96RemovedToday95'].forEach(name => YX.hardAssign(name, fn, {configurable:true}));
     if (window.YX_MASTER) {
-      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix142-speed-ship-master-hardlock', loadTodayChanges:fn}); } catch(_e) {}
+      try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix141-render-502-db-safe-master', loadTodayChanges:fn}); } catch(_e) {}
     }
   }
   function install(){

@@ -1,0 +1,14 @@
+/* FIX147：只做速度與收斂狀態樣式，不改頁面結構與按鈕位置 */
+html[data-yx-fix147="fix147-safe-converge-speed"] .yx146-customer-list,
+html[data-yx-fix147="fix147-safe-converge-speed"] .yx146-ship-full-list{
+  contain: content;
+}
+html[data-yx-fix147="fix147-safe-converge-speed"] #selected-customer-items,
+html[data-yx-fix147="fix147-safe-converge-speed"] #ship-customer-item-list,
+html[data-yx-fix147="fix147-safe-converge-speed"] #ship-preview-panel{
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 420px;
+}
+html[data-yx-fix147="fix147-safe-converge-speed"].yx146-leaving body{
+  pointer-events:none;
+}

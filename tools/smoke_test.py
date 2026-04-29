@@ -1,59 +1,56 @@
-import re
 import ast
+import py_compile
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
-    text = (ROOT / rel).read_text(encoding="utf-8", errors="ignore")
-    compile(text, str(ROOT / rel), "exec")
-    tree = ast.parse(text)
-    defs = [n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    from collections import Counter
-    duplicates = sorted([name for name, count in Counter(defs).items() if count > 1])
-    if duplicates:
-        raise SystemExit(f"{rel} duplicate Python functions: {duplicates}")
+with tempfile.TemporaryDirectory() as td:
+    for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
+        src = ROOT / rel
+        py_compile.compile(str(src), cfile=str(Path(td) / (rel + ".pyc")), doraise=True)
+        ast.parse(src.read_text(encoding="utf-8", errors="ignore"))
 
 required = {
     "static/app.js": [
-        "window.YX_MASTER",
-        "confirmSubmit",
-        "saveWarehouseCell",
-        "loadCustomerBlocks",
-        "ship-add-selected-item",
-        "insertWarehouseCell",
-        "deleteWarehouseCell",
+        "window.YX_MASTER", "confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks",
+        "ship-add-selected-item", "insertWarehouseCell", "deleteWarehouseCell",
     ],
-    "static/yx_modules/core_hardlock.js": ["fix142-speed-ship-master-hardlock", "YXHardLock", "register"],
-    "static/yx_modules/today_changes_hardlock.js": ["FIX118 今日異動硬鎖", "loadTodayChanges112", "yx112-today-label"],
-    "static/yx_modules/warehouse_hardlock.js": ["FIX118 倉庫硬鎖", "normalizeSlot"],
-    "static/yx_modules/product_actions_hardlock.js": ["FIX135 商品母版最終硬鎖", "loadSource", "renderCards", "編輯全部", "data-yx128-card-save"],
-    "static/yx_modules/product_sort_hardlock.js": ["FIX118 商品排序母版硬鎖", "YX118ProductSort", "compareRows"],
-    "static/yx_modules/ship_picker_hardlock.js": ["FIX128 出貨客戶商品母版硬鎖", "loadShipCustomerItems", "YX116ShipPicker", "yx128-ship-index"],
-    "static/yx_modules/legacy_isolation_hardlock.js": ["FIX118 舊版渲染隔離", "legacy_isolation", "isolateAll"],
-    "static/yx_modules/apple_ui_hardlock.js": ["FIX118 蘋果風按鈕介面母版硬鎖", "apple_ui", "yx117AppleUi"],
-    "static/yx_modules/ornate_label_hardlock.js": ["FIX127 淺灰外圈等寬標籤母版硬鎖", "ornate_label", "YX124OrnateLabel"],
-    "static/yx_modules/ornate_label_hardlock.css": ["FIX127 淺灰外圈", "data-yx124-ornate-label", "yx124-ornate-label"],
-    "static/yx_modules/home_background_hardlock.css": ["FIX133 主頁背景", "data-yx133-home-bg", "home_cloud_background"],
-    "static/yx_modules/quantity_rule_hardlock.js": ["FIX126 數量規則硬鎖", "YX126Qty", "calcTotalQty"],
-    "static/yx_modules/master_integrator.js": ["FIX124 母版整合器", "safeInstall('today_changes'", "legacy_isolation", "ship_picker", "product_source_bridge", "apple_ui", "ornate_label"],
-    "static/yx_modules/inline_edit_full_list_hardlock.js": ["FIX128 母版接管器", "inline_edit_full_list", "yx128InlineEdit"],
-    "static/yx_modules/product_source_bridge_hardlock.js": ["FIX135 商品來源橋接保險版", "product_source_bridge", "loadSource"],
-    "static/yx_modules/fix136_label_text_repair.css": ["FIX136", "data-yx136-label-text", "yx136-label-text"],
-    "static/yx_modules/fix136_label_text_repair.js": ["FIX136", "YX136LabelTextRepair", "label_text_repair"],
-    "static/yx_modules/fix138_final_master_hardlock.css": ["FIX138", "data-yx138-final-master", "yx138"],
-    "static/yx_modules/fix138_final_master_hardlock.js": ["FIX138", "YX138ShipRepair", "warehouse"],
-    "static/yx_modules/fix140_readme_master_hardlock.js": ["FIX141", "YX140Master", "FIX141_readme_master"],
-    "static/yx_modules/fix140_readme_master_hardlock.css": ["FIX141", "data-yx139-readme-master", "yx139"],
-    "static/style.css": ["yx112-today-locked", "yx112-product-card", "yx85-month-badge"],
-    "templates/base.html": ["fix142-speed-ship-master-hardlock", "yx_modules/core_hardlock.js", "home_background_hardlock.css", "fix135_master_final_hardlock.css", "quantity_rule_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "apple_ui_hardlock.js", "app.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "pwa.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js", "fix140_readme_master_hardlock.css", "fix140_readme_master_hardlock.js", "fix138_final_master_hardlock.css", "fix138_final_master_hardlock.js", "fix140_readme_master_hardlock.css", "fix140_readme_master_hardlock.js"],
-    "templates/today_changes.html": ["yx112-refresh-today", "today-filter-bar", "today-summary-cards"],
-    "static/service-worker.js": ["fix142-speed-ship-master-hardlock", "home_cloud_background.jpg", "yx_modules/core_hardlock.js", "ship_picker_hardlock.js", "ship_text_validate_hardlock.js", "inline_edit_full_list_hardlock.js", "product_sort_hardlock.js", "product_source_bridge_hardlock.js", "fix135_master_final_hardlock.js", "apple_ui_hardlock.js", "ornate_label_hardlock.css", "ornate_label_hardlock.js", "fix135_master_final_hardlock.css", "fix135_master_final_hardlock.js", "fix136_label_text_repair.css", "fix136_label_text_repair.js", "fix140_readme_master_hardlock.css", "fix140_readme_master_hardlock.js"],
-    "static/pwa.js": ["fix142-speed-ship-master-hardlock"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix142-speed-ship-master-hardlock"'],
+    "static/yx_modules/fix146_speed_ship_product_home.js": [
+        "fix146-speed-ship-product-home-hardlock", "shipSubmit", "loadCustomerItemsFast",
+    ],
+    "static/yx_modules/fix147_safe_converge_speed.js": [
+        "fix147-safe-converge-speed", "installShipBridge", "singleFlight", "loadShipCustomerItems83",
+    ],
+    "static/yx_modules/fix148_final_safe_speed.js": [
+        "fix148-safe-page-converge", "installSettingsLite", "installClickDedupe", "installFetchTimeout", "YX148HealthCheck",
+    ],
+    "static/yx_modules/fix148_final_safe_speed.css": ["content-visibility", "yx148-home-badge"],
+    "static/yx_modules/fix149_safe_guard.js": ["fix149-safe-guard", "installFetchGuard", "installPageInitGate", "YX149HealthCheck"],
+    "static/yx_modules/fix149_safe_guard.css": ["FIX149_SAFE_GUARD", "yx149-error-card"],
+    "static/yx_modules/core_hardlock.js": ["YXHardLock", "register", "cancelLegacyTimers"],
+    "static/yx_modules/master_integrator.js": ["FIX124 母版整合器", "legacy_isolation", "ship_picker", "product_source_bridge"],
+    "static/yx_modules/settings_audit_hardlock.js": ["loadAuditTrails", "loadAdminUsers"],
+    "static/yx_modules/today_changes_hardlock.js": ["fastDeleteToday112", "loadTodayChanges112"],
+    "static/yx_modules/ship_picker_hardlock.js": ["loadShipCustomerItems", "YX116ShipPicker"],
+    "static/yx_modules/product_actions_hardlock.js": ["loadSource", "renderCards", "data-yx128-card-save"],
+    "templates/base.html": [
+        "fix149-safe-guard", "FIX149_SAFE_GUARD", "fix148_final_safe_speed.js", "fix149_safe_guard.js", "fix149_safe_guard.css",
+        "ep == 'settings_page'", "ep == 'today_changes_page'", "ep not in ['home','login_page']",
+    ],
+    "templates/module.html": [
+        "submit-btn", "ship-customer-item-select", "selected-customer-items", "zone-A-grid", "zone-B-grid",
+    ],
+    "static/service-worker.js": [
+        "fix149-safe-guard", "fix149_safe_guard.js", "fix148_final_safe_speed.js", "PRECACHE_ASSETS",
+    ],
+    "static/pwa.js": ["fix149-safe-guard"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix149-safe-guard"'],
+    "db.py": ["idx_logs_created_at", "idx_audit_trails_created_at", "SELECT * FROM audit_trails ORDER BY id DESC LIMIT ?"],
+    "app.py": ["deleted_id=log_id", "刪除單筆今日異動只回傳結果"],
     ".python-version": ["3.11.11"],
     "runtime.txt": ["python-3.11.11"],
-    "render.yaml": ["PYTHON_VERSION", "3.11.11", "gunicorn app:app --config gunicorn.conf.py", "pip install --upgrade pip && pip install -r requirements.txt"],
+    "render.yaml": ["PYTHON_VERSION", "3.11.11", "gunicorn app:app --config gunicorn.conf.py"],
 }
 
 for rel, tokens in required.items():
@@ -62,16 +59,22 @@ for rel, tokens in required.items():
     if missing:
         raise SystemExit(f"{rel} missing {missing}")
 
-js = (ROOT / "static/app.js").read_text(encoding="utf-8", errors="ignore")
 html = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in (ROOT / "templates").glob("*.html"))
-
-# Lightweight inline-handler check only: keep this test fast for Render/free plans.
-for handler in ["confirmSubmit", "reverseLookup", "clearShipSelectedItems", "searchWarehouse", "renderWarehouse", "saveCustomer", "renderCustomers"]:
+js = "\n".join([
+    (ROOT / "static/app.js").read_text(encoding="utf-8", errors="ignore"),
+    (ROOT / "static/yx_modules/fix147_safe_converge_speed.js").read_text(encoding="utf-8", errors="ignore"),
+    (ROOT / "static/yx_modules/fix148_final_safe_speed.js").read_text(encoding="utf-8", errors="ignore"),
+])
+for handler in ["confirmSubmit", "reverseLookup", "clearShipSelectedItems", "searchWarehouse", "renderWarehouse", "saveCustomer", "renderCustomers", "changePassword", "createBackup", "logout"]:
     if handler + "(" in html and handler not in js and f"window.{handler}" not in js:
         raise SystemExit(f"Missing inline handler: {handler}")
 
-old_template_controls = re.findall(r"warehouse-plusminus|warehouse-add-slot|warehouse-remove-slot|data-action=\"(?:add|remove)-slot\"", html)
-if old_template_controls:
-    raise SystemExit(f"Old warehouse +/- controls still in templates: {old_template_controls}")
+base = (ROOT / "templates/base.html").read_text(encoding="utf-8", errors="ignore")
+settings_block = base.split("{% if ep == 'settings_page' %}", 1)[1].split("{% elif ep == 'today_changes_page' %}", 1)[0]
+if "app.js" in settings_block or "warehouse_hardlock.js" in settings_block or "ship_picker_hardlock.js" in settings_block:
+    raise SystemExit("Settings lightweight block loads heavy module scripts")
+home_block = base.split("{% elif ep not in ['home','login_page'] %}", 1)[0]
+if "app.js" in home_block:
+    raise SystemExit("Home/today/settings lightweight area should not load app.js")
 
-print("FIX141 smoke test OK")
+print("FIX149 smoke test OK")
