@@ -1,5 +1,5 @@
 {% set ep = request.endpoint or '' %}
-{% set v = 'fix150-label-text-visible' %}
+{% set v = 'fix151-nav-background-unstick' %}
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -12,98 +12,102 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix150-label-text-visible">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix150-label-text-visible">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix150-label-text-visible">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix150-label-text-visible">
-  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";document.documentElement.dataset.yxFix148="fix150-label-text-visible";document.documentElement.dataset.yxFix149="fix150-label-text-visible";document.documentElement.dataset.yxFix150="fix150-label-text-visible";</script>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=fix151-nav-background-unstick">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=fix151-nav-background-unstick">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=fix151-nav-background-unstick">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=fix151-nav-background-unstick">
+  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";document.documentElement.dataset.yxFix148="fix151-nav-background-unstick";document.documentElement.dataset.yxFix149="fix151-nav-background-unstick";document.documentElement.dataset.yxFix150="fix151-nav-background-unstick";document.documentElement.dataset.yxFix151="fix151-nav-background-unstick";document.documentElement.dataset.yxPageKind="{{ 'home' if ep == 'home' else ('settings' if ep == 'settings_page' else ('today_changes' if ep == 'today_changes_page' else 'module')) }}";{% if ep == 'home' %}document.documentElement.dataset.yx133HomeBg="locked";document.documentElement.dataset.yx151HomeBg="locked";{% endif %}</script>
   {# FIX149：CSS 也改成頁面輕量載入；舊 CSS 檔全部保留，只是不在不需要的頁面載入。 #}
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v=fix150-label-text-visible">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v=fix151-nav-background-unstick">
   {% if ep == 'home' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.css') }}?v=fix150-label-text-visible">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.css') }}?v=fix151-nav-background-unstick">
   {% elif ep == 'settings_page' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix150-label-text-visible">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix151-nav-background-unstick">
   {% elif ep == 'today_changes_page' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=fix150-label-text-visible">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=fix151-nav-background-unstick">
   {% elif ep not in ['login_page'] %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix146_speed_ship_product_home.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix147_safe_converge_speed.css') }}?v=fix150-label-text-visible">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix146_speed_ship_product_home.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix147_safe_converge_speed.css') }}?v=fix151-nav-background-unstick">
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix150_label_text_visible.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix148_final_safe_speed.css') }}?v=fix150-label-text-visible">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix149_safe_guard.css') }}?v=fix150-label-text-visible">
-  <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ ep|tojson }}; window.__YX_STATIC_VERSION__='fix150-label-text-visible';</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix150_label_text_visible.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix148_final_safe_speed.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix149_safe_guard.css') }}?v=fix151-nav-background-unstick">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix151_home_nav_background_guard.css') }}?v=fix151-nav-background-unstick">
+  <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ ep|tojson }}; window.__YX_STATIC_VERSION__='fix151-nav-background-unstick';</script>
   <script>
-  /* FIX149 preboot：點首頁/返回/功能按鈕立即導頁，避免舊 timer 卡住。 */
+  /* FIX151 preboot：導頁仍快速，但遮罩不再卡住、不再蓋掉背景。 */
   (function(){
-    if(window.__YX148_PREBOOT_NAV__) return; window.__YX148_PREBOOT_NAV__=true;
+    if(window.__YX151_PREBOOT_NAV__) return; window.__YX151_PREBOOT_NAV__=true;
     function urlOf(a){try{var u=new URL(a.getAttribute('href')||a.href,location.href);return u.origin===location.origin?(u.pathname+u.search+u.hash):'';}catch(e){return'';}}
     function ok(a){return a&&a.matches&&a.matches('a.back-btn[href],a.menu-btn[href],a.home-mini-btn[href],a[data-fast-nav][href]')&&(!a.target||a.target==='_self')&&urlOf(a);}
-    function mask(t){try{document.documentElement.classList.add('yx148-leaving');var m=document.getElementById('yx148-fast-nav-mask')||document.getElementById('yx146-fast-nav-mask');if(!m){m=document.createElement('div');m.id='yx148-fast-nav-mask';m.textContent=t||'開啟中…';document.body&&document.body.appendChild(m);}else m.textContent=t||m.textContent;}catch(e){}}
-    function kill(){try{window.__YX111_NAVIGATING__=true;window.__YX145_NAVIGATING__=true;window.__YX146_NAVIGATING__=true;window.__YX148_NAVIGATING__=true;if(window.__YX96_CANCEL_LEGACY_TIMERS__)window.__YX96_CANCEL_LEGACY_TIMERS__();}catch(e){}}
-    window.addEventListener('pointerdown',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(ok(a))mask(urlOf(a)==='/'?'返回主頁…':'開啟中…');},{capture:true,passive:true});
-    window.addEventListener('click',function(e){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button===1)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!ok(a))return;var u=urlOf(a);e.preventDefault();e.stopPropagation();e.stopImmediatePropagation&&e.stopImmediatePropagation();mask(u==='/'?'返回主頁…':'開啟中…');kill();location.assign(u);},true);
+    function clearMask(){try{document.documentElement.classList.remove('yx111-fast-navigating','yx145-leaving','yx146-leaving','yx148-leaving','yx151-leaving');['yx151-fast-nav-mask','yx148-fast-nav-mask','yx146-fast-nav-mask','yx145-fast-nav-mask'].forEach(function(id){var m=document.getElementById(id);if(m)m.remove();});}catch(e){}}
+    function mask(t){try{document.documentElement.classList.add('yx151-leaving');var m=document.getElementById('yx151-fast-nav-mask')||document.getElementById('yx148-fast-nav-mask')||document.getElementById('yx146-fast-nav-mask');if(!m){m=document.createElement('div');m.id='yx151-fast-nav-mask';m.textContent=t||'開啟中…';document.body&&document.body.appendChild(m);}else m.textContent=t||m.textContent;setTimeout(clearMask,1600);}catch(e){}}
+    function kill(){try{window.__YX111_NAVIGATING__=true;window.__YX145_NAVIGATING__=true;window.__YX146_NAVIGATING__=true;window.__YX148_NAVIGATING__=true;window.__YX151_NAVIGATING__=true;if(window.__YX96_CANCEL_LEGACY_TIMERS__)window.__YX96_CANCEL_LEGACY_TIMERS__();}catch(e){}}
+    window.addEventListener('pageshow',clearMask);
+    window.addEventListener('load',function(){setTimeout(clearMask,60);});
+    window.addEventListener('click',function(e){if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button===1)return;var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!ok(a))return;var u=urlOf(a);if(!u)return;var cur=location.pathname+location.search+location.hash;if(u===cur){clearMask();return;}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation&&e.stopImmediatePropagation();mask(u==='/'?'返回主頁…':'開啟中…');kill();setTimeout(function(){try{location.assign(u);}catch(_e){location.href=u;}},0);setTimeout(clearMask,1800);},true);
   })();
   </script>
   {% if ep != 'login_page' %}
-  <script>window.__YX_MASTER_BRIDGE_VERSION__='fix150-label-text-visible';window.__YX124_MASTER_FIRST__=true;window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;</script>
-  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix150_label_text_visible.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix149_safe_guard.js') }}?v=fix150-label-text-visible"></script>
+  <script>window.__YX_MASTER_BRIDGE_VERSION__='fix151-nav-background-unstick';window.__YX124_MASTER_FIRST__=true;window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;</script>
+  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix150_label_text_visible.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix149_safe_guard.js') }}?v=fix151-nav-background-unstick"></script>
   {% endif %}
 
   {% if ep == 'settings_page' %}
   <!-- FIX148：設定頁輕量載入，只載入設定需要的功能，不載入出貨/倉庫/商品舊母版。 -->
-  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix150-label-text-visible"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix151-nav-background-unstick"></script>
   {% elif ep == 'today_changes_page' %}
   <!-- FIX148：今日異動頁輕量載入，只載入今日異動 renderer。 -->
-  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix150-label-text-visible"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix151-nav-background-unstick"></script>
   {% elif ep not in ['home','login_page'] %}
   <!-- FIX148：功能頁保留原功能庫；首頁/設定/今日異動不再載入這批重型舊母版。 -->
-  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_source_bridge_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_text_validate_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/inline_edit_full_list_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/apple_ui_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix146_speed_ship_product_home.js') }}?v=fix150-label-text-visible"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix147_safe_converge_speed.js') }}?v=fix150-label-text-visible"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='app.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_source_bridge_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/ship_text_validate_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/inline_edit_full_list_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/apple_ui_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix145_fast_nav_guard.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix146_speed_ship_product_home.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix147_safe_converge_speed.js') }}?v=fix151-nav-background-unstick"></script>
   {% endif %}
   {% if ep != 'login_page' %}
-  <script defer src="{{ url_for('static', filename='yx_modules/fix148_final_safe_speed.js') }}?v=fix150-label-text-visible"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix148_final_safe_speed.js') }}?v=fix151-nav-background-unstick"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/fix151_home_nav_background_guard.js') }}?v=fix151-nav-background-unstick"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix150-label-text-visible"></script>
-  <!-- FIX150_LABEL_TEXT_VISIBLE -->
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=fix151-nav-background-unstick"></script>
+  <!-- FIX151_NAV_BACKGROUND_UNSTICK -->
 </head>
 <body>
   <div class="page-shell">

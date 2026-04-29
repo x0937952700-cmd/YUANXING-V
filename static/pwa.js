@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix150-label-text-visible';
+  const PWA_VERSION = 'fix151-nav-background-unstick';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

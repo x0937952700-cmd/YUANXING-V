@@ -1,0 +1,160 @@
+/* FIX151：修復首頁卡在「開啟中」與背景被遮住。
+   原則：不刪功能、不改頁面、不動按鈕，只把卡住的遮罩與背景層安全收斂。 */
+html[data-yx-fix151="fix151-nav-background-unstick"]{
+  --yx151-version:"fix151-nav-background-unstick";
+}
+
+/* 背景硬鎖：首頁直接還原雲霧背景，即使舊遮罩/舊背景層失效也不會變成純白。 */
+html[data-yx-page-kind="home"],
+html[data-yx-page-kind="home"] body,
+html[data-yx151-home-bg="locked"],
+html[data-yx151-home-bg="locked"] body,
+html[data-yx133-home-bg="locked"],
+html[data-yx133-home-bg="locked"] body{
+  min-height:100%;
+  background-color:#f6fbff!important;
+  background-image:url('/static/yx_assets/home_cloud_background.jpg?v=fix151-nav-background-unstick')!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  background-attachment:fixed!important;
+}
+html[data-yx-page-kind="home"] body::before,
+html[data-yx151-home-bg="locked"] body::before,
+html[data-yx133-home-bg="locked"] body::before{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-2!important;
+  pointer-events:none!important;
+  background-image:url('/static/yx_assets/home_cloud_background.jpg?v=fix151-nav-background-unstick')!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  filter:saturate(1.03) brightness(1.02)!important;
+}
+html[data-yx-page-kind="home"] body::after,
+html[data-yx151-home-bg="locked"] body::after,
+html[data-yx133-home-bg="locked"] body::after{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-1!important;
+  pointer-events:none!important;
+  background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.18))!important;
+}
+html[data-yx-page-kind="home"] .page-shell,
+html[data-yx-page-kind="home"] .home-screen,
+html[data-yx151-home-bg="locked"] .page-shell,
+html[data-yx151-home-bg="locked"] .home-screen{
+  background:transparent!important;
+}
+
+/* 文字只用 CSS 拉回可見，不再包 span、不改按鈕 DOM。 */
+html[data-yx151-text-visible="locked"] .menu-btn,
+html[data-yx151-text-visible="locked"] a.menu-btn,
+html[data-yx151-text-visible="locked"] .home-mini-btn,
+html[data-yx151-text-visible="locked"] a.home-mini-btn,
+html[data-yx151-text-visible="locked"] .user-cell,
+html[data-yx151-text-visible="locked"] .primary-btn,
+html[data-yx151-text-visible="locked"] .ghost-btn,
+html[data-yx151-text-visible="locked"] .back-btn,
+html[data-yx151-text-visible="locked"] .chip,
+html[data-yx151-text-visible="locked"] .pill,
+html[data-yx151-text-visible="locked"] .tiny-btn,
+html[data-yx151-text-visible="locked"] .small-btn,
+html[data-yx151-text-visible="locked"] .icon-btn,
+html[data-yx150-label-text="locked"] .menu-btn,
+html[data-yx150-label-text="locked"] a.menu-btn,
+html[data-yx150-label-text="locked"] .home-mini-btn,
+html[data-yx150-label-text="locked"] a.home-mini-btn{
+  color:#111827!important;
+  -webkit-text-fill-color:#111827!important;
+  opacity:1!important;
+  visibility:visible!important;
+  text-indent:0!important;
+  filter:none!important;
+  mix-blend-mode:normal!important;
+  position:relative!important;
+  z-index:1!important;
+}
+html[data-yx151-text-visible="locked"] .menu-btn,
+html[data-yx151-text-visible="locked"] a.menu-btn{
+  font-weight:900!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.82),0 2px 7px rgba(255,255,255,.55)!important;
+}
+html[data-yx151-text-visible="locked"] .home-mini-btn,
+html[data-yx151-text-visible="locked"] a.home-mini-btn,
+html[data-yx151-text-visible="locked"] .user-cell{
+  font-weight:850!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.9)!important;
+}
+html[data-yx151-text-visible="locked"] .danger-btn,
+html[data-yx151-text-visible="locked"] button.danger-btn,
+html[data-yx151-text-visible="locked"] .btn-danger{
+  color:#dc2626!important;
+  -webkit-text-fill-color:#dc2626!important;
+}
+html[data-yx151-text-visible="locked"] .menu-btn::before,
+html[data-yx151-text-visible="locked"] .menu-btn::after,
+html[data-yx151-text-visible="locked"] .home-mini-btn::before,
+html[data-yx151-text-visible="locked"] .home-mini-btn::after{
+  pointer-events:none!important;
+}
+
+/* 如果舊版或 preboot 遮罩留下來，改成小提示，不再蓋住整頁背景，也不再造成整頁模糊。 */
+#yx151-fast-nav-mask,
+#yx148-fast-nav-mask,
+#yx146-fast-nav-mask,
+#yx145-fast-nav-mask{
+  position:fixed!important;
+  inset:auto!important;
+  left:50%!important;
+  top:50%!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:translate(-50%,-50%)!important;
+  z-index:2147483647!important;
+  width:auto!important;
+  min-width:116px!important;
+  max-width:min(82vw,320px)!important;
+  min-height:auto!important;
+  padding:12px 18px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:999px!important;
+  background:rgba(255,255,255,.92)!important;
+  border:1px solid rgba(91,53,29,.16)!important;
+  box-shadow:0 12px 34px rgba(44,25,12,.16)!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  color:#5b351d!important;
+  font:800 15px/1.2 system-ui,-apple-system,"Noto Sans TC",sans-serif!important;
+  letter-spacing:.04em!important;
+  pointer-events:none!important;
+}
+html.yx111-fast-navigating .page-shell{
+  pointer-events:auto!important;
+}
+html.yx111-fast-navigating *,
+html.yx111-fast-navigating *::before,
+html.yx111-fast-navigating *::after{
+  animation-duration:.001s!important;
+}
+html.yx145-leaving body,
+html.yx146-leaving body,
+html.yx148-leaving body,
+html.yx151-leaving body{
+  cursor:progress;
+  filter:none!important;
+  opacity:1!important;
+}
+@media (max-width:720px){
+  html[data-yx-page-kind="home"],
+  html[data-yx-page-kind="home"] body,
+  html[data-yx151-home-bg="locked"],
+  html[data-yx151-home-bg="locked"] body{
+    background-attachment:scroll!important;
+  }
+}

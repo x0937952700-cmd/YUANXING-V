@@ -1,19 +1,21 @@
-/* 沅興木業 PWA Service Worker - fix150-label-text-visible */
-const YX_PWA_VERSION='fix150-label-text-visible';
+/* 沅興木業 PWA Service Worker - fix151-nav-background-unstick */
+const YX_PWA_VERSION='fix151-nav-background-unstick';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest',
   '/static/favicon.png',
-  '/static/style.css?v=fix150-label-text-visible',
-  '/static/yx_modules/ornate_label_hardlock.css?v=fix150-label-text-visible',
-  '/static/yx_modules/home_background_hardlock.css?v=fix150-label-text-visible',
-    '/static/yx_modules/fix150_label_text_visible.css?v=fix150-label-text-visible',
-  '/static/yx_modules/fix149_safe_guard.css?v=fix150-label-text-visible',
-  '/static/yx_modules/core_hardlock.js?v=fix150-label-text-visible',
-    '/static/yx_modules/fix150_label_text_visible.js?v=fix150-label-text-visible',
-  '/static/yx_modules/fix149_safe_guard.js?v=fix150-label-text-visible',
-  '/static/yx_modules/fix148_final_safe_speed.js?v=fix150-label-text-visible',
-  '/static/pwa.js?v=fix150-label-text-visible',
+  '/static/style.css?v=fix151-nav-background-unstick',
+  '/static/yx_modules/ornate_label_hardlock.css?v=fix151-nav-background-unstick',
+  '/static/yx_modules/home_background_hardlock.css?v=fix151-nav-background-unstick',
+    '/static/yx_modules/fix150_label_text_visible.css?v=fix151-nav-background-unstick',
+  '/static/yx_modules/fix149_safe_guard.css?v=fix151-nav-background-unstick',
+  '/static/yx_modules/fix151_home_nav_background_guard.css?v=fix151-nav-background-unstick',
+  '/static/yx_modules/core_hardlock.js?v=fix151-nav-background-unstick',
+    '/static/yx_modules/fix150_label_text_visible.js?v=fix151-nav-background-unstick',
+  '/static/yx_modules/fix149_safe_guard.js?v=fix151-nav-background-unstick',
+  '/static/yx_modules/fix148_final_safe_speed.js?v=fix151-nav-background-unstick',
+  '/static/yx_modules/fix151_home_nav_background_guard.js?v=fix151-nav-background-unstick',
+  '/static/pwa.js?v=fix151-nav-background-unstick',
   '/static/icons/icon-192x192.png',
   '/static/icons/icon-512x512.png',
   '/static/icons/icon-maskable-192x192.png',
@@ -69,7 +71,7 @@ self.addEventListener('fetch', event => {
     return;
   }
   if(url.pathname.startsWith('/static/')) {
-    // FIX150：靜態檔網路優先；舊母版不再全部 precache，避免手機吃舊版。
+    // FIX151：靜態檔網路優先；舊母版不再全部 precache，避免手機吃舊版。
     event.respondWith(fetch(req, {cache:'no-store'}).then(res => {
       if(res && res.ok) {
         const copy = res.clone();
