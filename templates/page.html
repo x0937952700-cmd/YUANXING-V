@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <a class="back" href="/">← 返回主頁</a>
+  <h1>{{ title }}</h1>
+  <p id="pageHint">完整商業版單頁邏輯，不載入舊母版。</p>
+</section>
+
+{% if page in ['inventory','orders','master'] %}
+<section class="panel entry-panel">
+  <h2>新增{{ title }}商品</h2>
+  <div class="form-grid">
+    {% if page != 'inventory' %}<label>客戶名稱<input id="customerInput" class="customer-input" autocomplete="off" placeholder="輸入第一個字會提示"></label>{% endif %}
+    <label>材質<input id="materialInput" placeholder="例如 柚木 / 白木"></label>
+  </div>
+  <textarea id="productText" rows="5" placeholder="132x23x05=249x3&#10;61x12x10=720x2"></textarea>
+  <button id="addItemBtn" class="primary">確認送出</button>
+</section>
+<section class="panel">
+  <div class="row between wrap">
+    <h2>{{ title }}清單</h2>
+    <div class="row gap"><input id="searchInput" placeholder="搜尋商品 / 材質 / 客戶"><button id="clearSearch" class="secondary">清除</button></div>
+  </div>
+  <div id="customerRegions" class="regions"></div>
+  {% if page == 'master' %}<details class="summary-card"><summary>總單純文字格式</summary><button id="loadMasterText" class="secondary">產生純文字總單</button><pre id="masterTextBox"></pre></details>{% endif %}
+  <div id="bulkBar" class="bulkbar"><input id="bulkMaterial" placeholder="批量材質"><button id="bulkMaterialBtn" class="secondary">批量加入材質</button><button id="bulkDeleteBtn" class="danger">批量刪除</button></div>
+  <div id="itemList" class="card-list"></div>
+</section>
+{% elif page == 'inbound' %}
+<section class="panel">
+  <h2>入庫 / OCR 貼文字整理</h2>
+  <p class="hint">PWA 版先使用拍照 / 上傳後貼上文字整理；低信心文字也直接放進下方文字框手動修正。</p>
+  <div class="form-grid">
+    <label>客戶名稱（空白則入庫存）<input id="customerInput" class="customer-input" autocomplete="off" placeholder="有客戶就進總單，沒客戶就進庫存"></label>
+    <label>材質<input id="materialInput" placeholder="選填"></label>
+  </div>
+  <div class="row gap wrap ocr-actions">
+    <label class="file-btn secondary">原生相簿辨識 / 上傳檔案<input type="file" id="photoInput" accept="image/*"></label>
+    <label class="file-btn primary">原生相機辨識 / 拍照<input type="file" id="cameraInput" accept="image/*" capture="environment"></label>
+    <span id="ocrConfidence" class="confidence-mini">信心值：原生辨識</span>
+    <button id="pasteDemo" class="secondary">整理文字</button>
+    <button id="setOcrRegion" class="secondary">設定框選區域</button>
+    <button id="clearOcrRegion" class="secondary">清除框選</button>
+    <span id="ocrRegionState" class="confidence-mini">框選：未設定</span>
+  </div>
+  <textarea id="inboundText" rows="10" placeholder="貼上辨識文字，紅字請人工略過；支援 ___ 承接上一筆寬高"></textarea>
+  <button id="submitInbound" class="primary">確認入庫</button>
+</section>
+{% elif page == 'shipping' %}
+<section class="panel">
+  <h2>出貨</h2>
+  <div class="form-grid">
+    <label>客戶名稱<input id="customerInput" class="customer-input" autocomplete="off" placeholder="輸入第一個字選客戶"></label>
+    <label>重量係數<input id="weightUnit" type="number" step="0.01" placeholder="材積 x 重量"></label>
+  </div>
+  <div class="row gap wrap"><button id="loadCustomerItems" class="secondary">載入客戶商品</button><select id="customerItemSelect"><option value="">客戶商品下拉選單</option></select><button id="addSelectedShipItem" class="secondary">加入選取商品</button><button id="addAllShipItems" class="secondary">加入全部商品</button><button id="previewShip" class="primary">出貨預覽</button><button id="confirmShip" class="danger">確認扣除</button></div>
+  <div id="shipItems" class="card-list"></div>
+  <div id="shipPreview" class="preview-box"></div>
+</section>
+{% elif page == 'warehouse' %}
+<section class="panel">
+  <div class="row between wrap"><h2>倉庫圖</h2><div class="seg"><button data-zone="A">A區</button><button data-zone="B">B區</button><button data-zone="ALL">全部</button></div></div>
+  <div class="row gap wrap"><input id="warehouseSearch" placeholder="搜尋客戶 / 商品 / 材質並跳到格位"><button id="warehouseSearchBtn" class="secondary">搜尋定位</button><button id="highlightSame" class="secondary">同客戶</button><button id="highlightUnlisted" class="secondary">未入倉</button><button id="clearHighlight" class="secondary">清除高亮</button><button id="undoWarehouse" class="secondary">撤回上一步</button></div>
+  <details class="summary-card" open><summary>未錄入商品，可拖到格子</summary><div id="unlistedItems" class="mini-list"></div></details>
+  <div id="warehouseMap" class="warehouse-map"></div>
+</section>
+{% elif page == 'customers' %}
+<section class="panel">
+  <h2>客戶資料</h2>
+  <div class="form-grid">
+    <label>客戶名稱<input id="customerName"></label>
+    <label>區域<select id="customerRegion"><option value="north">北區</option><option value="center">中區</option><option value="south">南區</option></select></label>
+    <label>常用材質<input id="commonMaterial"></label>
+    <label>常用尺寸<input id="commonSize"></label>
+  </div>
+  <button id="saveCustomer" class="primary">儲存客戶</button>
+</section>
+<section class="panel"><div id="customerRegions" class="regions"></div></section>
+{% elif page == 'activity' %}
+<section class="panel">
+  <div class="row between wrap"><h2>今日異動</h2><button id="refreshUnlisted" class="secondary">刷新未錄入倉庫圖</button></div>
+  <div id="unlistedBox" class="summary-card"></div>
+  <div id="activityList" class="card-list"></div>
+</section>
+{% elif page == 'records' %}
+<section class="panel">
+  <div class="row between wrap"><h2>出貨紀錄</h2><div class="row gap wrap"><input id="recordSearch" placeholder="搜尋客戶 / 商品 / 材質"><input id="dateFrom" type="date"><input id="dateTo" type="date"><button id="loadRecords" class="secondary">查詢</button></div></div>
+  <div id="recordsList" class="card-list"></div>
+</section>
+{% elif page == 'settings' %}
+<section class="panel">
+  <h2>設定</h2>
+  <div class="form-grid"><label>修改密碼<input id="newPassword" type="password" placeholder="新密碼"></label></div>
+  <div class="row gap wrap"><button id="changePassword" class="primary">儲存密碼</button><a class="secondary as-btn" href="/api/backup">下載 JSON 備份</a><a class="secondary as-btn" href="/api/backup?format=db">下載 SQLite .db</a><input id="restoreFile" type="file" accept="application/json,.json"><button id="restoreBtn" class="secondary">還原備份</button><button id="healthBtn" class="secondary">系統檢查</button><button id="requirementStatusBtn" class="secondary">完整需求對照</button><button id="logoutBtn" class="danger">登出</button></div>
+  <pre id="healthBox" class="health-box"></pre>
+</section>
+<section class="panel"><h2>管理員使用者管理</h2><div id="usersBox" class="card-list"></div></section>
+<section class="panel"><div class="row between wrap"><h2>備份紀錄</h2><button id="loadBackups" class="secondary">載入備份紀錄</button></div><div id="backupRecords" class="card-list"></div></section>
+<section class="panel"><div class="row between wrap"><h2>差異紀錄 / 操作紀錄</h2><button id="recoverCustomers" class="secondary">客戶資料救援</button></div><div class="row gap wrap"><button id="loadAudit" class="secondary">載入今日紀錄</button><button id="loadAuditAll" class="secondary">載入全部紀錄</button></div><div id="auditBox" class="card-list"></div></section>
+{% endif %}
+{% endblock %}

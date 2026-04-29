@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ title or '沅興木業' }}</title>
+  <link rel="icon" href="/static/favicon.png">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180x180.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/static/icons/icon-152x152.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="沅興木業">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="yx-fix142-visual-bridge" data-page="{{ page or 'login' }}" data-user="{{ user or '' }}">
+  {% if page %}
+  <header class="topbar">
+    <a class="brand" href="/">沅興木業</a>
+    <div class="top-meta">
+      <span>{{ user }}</span>
+      <span id="todayText"></span>
+      <button id="activityBadge" class="badge-btn" type="button">今日異動 <b>0</b></button>
+    </div>
+  </header>
+  {% endif %}
+  <main class="app-shell">
+    {% block content %}{% endblock %}
+  </main>
+  <div id="toastRoot" class="toast-root"></div>
+  <script src="/static/js/core.js"></script>
+  {% if page %}<script src="/static/js/{{ page }}.js"></script>{% endif %}
+</body>
+</html>

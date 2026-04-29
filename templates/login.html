@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>沅興木業登入</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body data-page="login">
+  <main class="login-wrap">
+    <section class="login-card">
+      <div class="logo-pill">沅興木業</div>
+      <h1>登入系統</h1>
+      <p>第一次使用可直接註冊姓名與密碼。</p>
+      <label>姓名<input id="username" autocomplete="username" placeholder="請輸入姓名"></label>
+      <label>密碼<input id="password" type="password" autocomplete="current-password" placeholder="請輸入密碼"></label>
+      <div class="row gap">
+        <button id="loginBtn" class="primary">登入</button>
+        <button id="registerBtn" class="secondary">註冊</button>
+      </div>
+      <div id="loginMsg" class="hint"></div>
+    </section>
+  </main>
+  <div id="toastRoot" class="toast-root"></div>
+  <script src="/static/js/core.js"></script>
+  <script>
+    async function submit(mode){
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const msg = document.getElementById('loginMsg');
+      try{
+        await YX.api('/api/' + mode, {method:'POST', body:{username,password}});
+        location.href = '/';
+      }catch(e){ msg.textContent = e.message || '登入失敗'; }
+    }
+    document.getElementById('loginBtn').onclick = ()=>submit('login');
+    document.getElementById('registerBtn').onclick = ()=>submit('register');
+  </script>
+</body>
+</html>
