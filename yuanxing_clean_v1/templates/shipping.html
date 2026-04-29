@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <div class="page-title-row"><h1>出貨</h1><a class="pill light" href="/home">返回主頁</a></div>
+  <div class="toolbar"><input id="customerInput" list="customerList" placeholder="客戶名稱"><datalist id="customerList"></datalist><button id="loadCustomerItems" class="secondary">載入客戶商品</button></div>
+  <div class="split">
+    <div><h3>客戶商品清單</h3><div id="customerItems" class="product-list compact"></div></div>
+    <div><h3>準備出貨商品</h3><input id="weightInput" type="number" step="0.01" placeholder="重量：材積 x 重量"><div id="shipItems" class="product-list compact"></div><button id="previewBtn" class="secondary">出貨預覽</button><button id="confirmBtn" class="primary">確認扣除</button></div>
+  </div>
+  <div id="preview" class="preview-box"></div>
+</section>
+{% endblock %}

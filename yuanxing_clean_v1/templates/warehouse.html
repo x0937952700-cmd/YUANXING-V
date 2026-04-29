@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel">
+  <div class="page-title-row"><h1>倉庫圖</h1><a class="pill light" href="/home">返回主頁</a></div>
+  <div class="toolbar"><button class="secondary zone-btn" data-zone="A">A區</button><button class="secondary zone-btn" data-zone="B">B區</button><button class="secondary zone-btn" data-zone="all">全部</button><input id="searchInput" placeholder="搜尋客戶 / 商品"><button id="clearHighlight" class="secondary">清除高亮</button><button id="unplacedBtn" class="secondary">未入倉</button></div>
+  <div id="unplacedSummary" class="notice hidden"></div>
+  <div id="warehouseGrid" class="warehouse-grid"></div>
+  <dialog id="cellDialog"><div id="cellDialogBody"></div><button onclick="this.closest('dialog').close()" class="secondary">關閉</button></dialog>
+</section>
+{% endblock %}

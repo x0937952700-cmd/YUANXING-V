@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#d9d4c8">
+  <title>{{ title or '沅興木業' }}</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/css/app.css?v=clean-v1">
+</head>
+<body data-page="{{ page or '' }}">
+  <div id="toastRoot" class="toast-root"></div>
+  {% if page != 'login' %}
+  <header class="topbar">
+    <a class="brand" href="/home">沅興木業</a>
+    <div class="top-actions">
+      <a class="pill small" href="/settings">設定</a>
+      <a class="pill small activity-link" href="/activity">今日異動<span id="activityBadge" class="badge hidden">0</span></a>
+      <button class="pill small light" id="logoutBtn" type="button">登出</button>
+    </div>
+  </header>
+  {% endif %}
+  <main class="page-wrap">
+    {% block content %}{{ content or '' }}{% endblock %}
+  </main>
+  <script src="/static/js/api.js?v=clean-v1"></script>
+  {% if page %}<script src="/static/js/{{ page }}.js?v=clean-v1"></script>{% endif %}
+</body>
+</html>
