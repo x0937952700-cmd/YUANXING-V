@@ -1,1 +1,0 @@
-CLEAN V1 DB Boot Fix: db.init_db supports old schema column migration.
