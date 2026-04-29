@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix149-safe-guard';
+  const PWA_VERSION = 'fix150-label-text-visible';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

@@ -27,7 +27,9 @@ required = {
     ],
     "static/yx_modules/fix148_final_safe_speed.css": ["content-visibility", "yx148-home-badge"],
     "static/yx_modules/fix149_safe_guard.js": ["fix149-safe-guard", "installFetchGuard", "installPageInitGate", "YX149HealthCheck"],
-    "static/yx_modules/fix149_safe_guard.css": ["FIX149_SAFE_GUARD", "yx149-error-card"],
+    "static/yx_modules/fix149_safe_guard.css": ["yx149-error-card"],
+    "static/yx_modules/fix150_label_text_visible.js": ["fix150-label-text-visible", "YX150LabelTextVisible", "yx150-label-text"],
+    "static/yx_modules/fix150_label_text_visible.css": ["FIX150", "yx150-label-text", "z-index:20"],
     "static/yx_modules/core_hardlock.js": ["YXHardLock", "register", "cancelLegacyTimers"],
     "static/yx_modules/master_integrator.js": ["FIX124 母版整合器", "legacy_isolation", "ship_picker", "product_source_bridge"],
     "static/yx_modules/settings_audit_hardlock.js": ["loadAuditTrails", "loadAdminUsers"],
@@ -35,17 +37,17 @@ required = {
     "static/yx_modules/ship_picker_hardlock.js": ["loadShipCustomerItems", "YX116ShipPicker"],
     "static/yx_modules/product_actions_hardlock.js": ["loadSource", "renderCards", "data-yx128-card-save"],
     "templates/base.html": [
-        "fix149-safe-guard", "FIX149_SAFE_GUARD", "fix148_final_safe_speed.js", "fix149_safe_guard.js", "fix149_safe_guard.css",
+        "fix150-label-text-visible", "FIX150_LABEL_TEXT_VISIBLE", "fix148_final_safe_speed.js", "fix149_safe_guard.js", "fix149_safe_guard.css", "fix150_label_text_visible.js", "fix150_label_text_visible.css",
         "ep == 'settings_page'", "ep == 'today_changes_page'", "ep not in ['home','login_page']",
     ],
     "templates/module.html": [
         "submit-btn", "ship-customer-item-select", "selected-customer-items", "zone-A-grid", "zone-B-grid",
     ],
     "static/service-worker.js": [
-        "fix149-safe-guard", "fix149_safe_guard.js", "fix148_final_safe_speed.js", "PRECACHE_ASSETS",
+        "fix150-label-text-visible", "fix149_safe_guard.js", "fix148_final_safe_speed.js", "fix150_label_text_visible.js", "fix150_label_text_visible.css", "PRECACHE_ASSETS",
     ],
-    "static/pwa.js": ["fix149-safe-guard"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix149-safe-guard"'],
+    "static/pwa.js": ["fix150-label-text-visible"],
+    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "fix150-label-text-visible"'],
     "db.py": ["idx_logs_created_at", "idx_audit_trails_created_at", "SELECT * FROM audit_trails ORDER BY id DESC LIMIT ?"],
     "app.py": ["deleted_id=log_id", "刪除單筆今日異動只回傳結果"],
     ".python-version": ["3.11.11"],
@@ -77,4 +79,4 @@ home_block = base.split("{% elif ep not in ['home','login_page'] %}", 1)[0]
 if "app.js" in home_block:
     raise SystemExit("Home/today/settings lightweight area should not load app.js")
 
-print("FIX149 smoke test OK")
+print("FIX150 smoke test OK")
