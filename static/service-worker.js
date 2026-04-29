@@ -1,4 +1,4 @@
-const CACHE='yuanxing-commercial-v9-text-full-alignment-locked';
+const CACHE='yuanxing-commercial-v10-render-safe-text-full-alignment-locked';
 const OFFLINE='/static/offline.html';
 const STATIC_ASSETS=[
   OFFLINE,

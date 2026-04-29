@@ -7,12 +7,14 @@ from functools import wraps
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_file, g
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.exceptions import HTTPException
 
 import db
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-v1-dev-secret')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+app.config['PROPAGATE_EXCEPTIONS'] = False
 
 ADMIN_NAME = os.environ.get('ADMIN_NAME', '陳韋廷')
 PAGE_TITLES = {
@@ -745,15 +747,21 @@ def ensure_db_ready():
 
 @app.before_request
 def boot_db():
-    # CLEAN V2：HTML 頁面先秒開，不在頁面請求時跑資料庫 migration。
-    # 只有 API 請求才初始化 DB，避免網站一直卡在空白或 about:blank。
-    if request.endpoint == 'static' or request.path in ['/login', '/static/manifest.webmanifest', '/favicon.ico']:
+    # Render 的 HEAD / 只能證明 worker 活著；GET / 仍可能因舊 session 或 DB schema 出錯。
+    if request.endpoint == 'static' or request.path in ['/static/manifest.webmanifest', '/favicon.ico']:
         return
-    if not request.path.startswith('/api/'):
+    if request.method == 'OPTIONS':
         return
-    ensure_db_ready()
-
-
+    try:
+        if request.path.startswith('/api/'):
+            ensure_db_ready()
+        elif request.path != '/login':
+            db.ensure_api_ready()
+    except Exception as exc:
+        g.boot_error = str(exc)[:500]
+        if request.path.startswith('/api/'):
+            return jsonify({'ok': False, 'error': '資料庫初始化失敗，請稍後再試', 'detail': g.boot_error}), 500
+        return None
 @app.after_request
 def after_request(resp):
     # Commercial hardening: keep API responses private and add basic browser safety headers.
@@ -788,7 +796,7 @@ def healthz():
         ok = False
         detail = str(exc)[:200]
     status = 200 if ok else 503
-    return jsonify({'ok': ok, 'version': 'YUANXING_COMMERCIAL_V9_TEXT_FULL_ALIGNMENT_LOCKED', 'database': 'postgres' if db.IS_PG else 'sqlite', 'detail': detail}), status
+    return jsonify({'ok': ok, 'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED', 'database': 'postgres' if db.IS_PG else 'sqlite', 'detail': detail}), status
 
 
 @app.route('/login')
@@ -796,12 +804,13 @@ def login_page():
     return render_template('login.html')
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'HEAD'])
 @login_required
 def home():
+    # HEAD / 是 Render 健康檢查；GET / 才會真正渲染畫面。
+    if request.method == 'HEAD':
+        return ('', 200)
     return render_template('home.html', page='home', title='沅興木業', user=current_user())
-
-
 @app.route('/<page>')
 @login_required
 def page_view(page):
@@ -2234,7 +2243,7 @@ def api_requirement_status():
     """
     return jsonify({
         'ok': True,
-        'version': 'YUANXING_COMMERCIAL_V9_TEXT_FULL_ALIGNMENT_LOCKED',
+        'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED',
         'schema_version': db.SCHEMA_VERSION,
         'text_file_alignment': 'full_32_section_matrix',
         'old_fix_loaded': False,
@@ -2249,7 +2258,7 @@ def api_requirement_status():
 def api_health():
     payload = {
         'ok': True,
-        'version': 'YUANXING_COMMERCIAL_V9_TEXT_FULL_ALIGNMENT_LOCKED',
+        'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED',
         'schema_version': db.SCHEMA_VERSION,
         'page_scripts': 'single-page-only',
         'old_fix_loaded': False,
@@ -2280,27 +2289,45 @@ def api_health():
     return jsonify(payload)
 
 
+@app.errorhandler(HTTPException)
+def handle_http_exception(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'ok': False, 'error': getattr(e, 'description', '請求錯誤'), 'status': e.code}), e.code
+    if e.code == 404:
+        return redirect(url_for('home'))
+    return (
+        '<!doctype html><meta charset="utf-8">'
+        '<title>沅興木業系統提示</title>'
+        '<body style="font-family:Arial, sans-serif;background:#f7f3ec;padding:28px;">'
+        '<section style="max-width:720px;margin:auto;background:#fff;border-radius:18px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.08);">'
+        '<h1 style="color:#6b3f22;margin-top:0;">沅興木業系統提示</h1>'
+        '<p>' + str(getattr(e, 'description', '請求錯誤')) + '</p>'
+        '<p><a href="/login">回登入頁</a>　<a href="/healthz">系統健康檢查</a></p>'
+        '</section></body>'
+    ), e.code
+
+
 @app.errorhandler(Exception)
 def handle_exception(e):
-    detail = str(e)[:500]
+    detail = str(getattr(e, 'original_exception', e))[:800] or '未知錯誤'
     try:
         db.mark_request_key_failed(getattr(g, 'request_key_started', ''), detail)
     except Exception:
         pass
     if request.path.startswith('/api/'):
         return jsonify({'ok': False, 'error': '系統錯誤，請稍後再試', 'detail': detail}), 500
+    safe_detail = detail.replace('<', '&lt;').replace('>', '&gt;')
     return (
         '<!doctype html><meta charset="utf-8">'
         '<title>沅興木業系統啟動錯誤</title>'
         '<body style="font-family:Arial, sans-serif;background:#f7f3ec;padding:28px;">'
-        '<h1 style="color:#6b3f22;">沅興木業系統啟動錯誤</h1>'
-        '<p>系統已接收到請求，但後端資料庫或模板啟動時發生錯誤。</p>'
-        '<pre style="white-space:pre-wrap;background:#fff;padding:16px;border-radius:12px;">'
-        + detail +
-        '</pre></body>'
+        '<section style="max-width:820px;margin:auto;background:#fff;border-radius:18px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.08);">'
+        '<h1 style="color:#6b3f22;margin-top:0;">沅興木業系統啟動錯誤</h1>'
+        '<p>不是 build 失敗；Render 顯示 live 只代表 worker 啟動，實際 GET /、模板或資料庫初始化仍可能發生錯誤。</p>'
+        '<pre style="white-space:pre-wrap;background:#f8f4ed;padding:16px;border-radius:12px;overflow:auto;">' + safe_detail + '</pre>'
+        '<p><a href="/login">回登入頁</a>　<a href="/healthz">系統健康檢查</a></p>'
+        '</section></body>'
     ), 500
-
-
 if __name__ == '__main__':
     db.init_db()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)

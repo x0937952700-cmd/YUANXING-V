@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: yuanxing-commercial-v9
+    name: yuanxing-commercial-v10-render-safe
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --config gunicorn.conf.py
