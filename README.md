@@ -84,3 +84,9 @@ gunicorn app:app
 ```
 
 兩種都可以；本包已同時保留 `Procfile` 與 `render.yaml`。
+
+
+## CLEAN V1 DB Boot Fix
+- 修正 Render 已部署但首頁 Internal Server Error：舊 PostgreSQL 資料表缺少 CLEAN V1 欄位時會自動補欄位。
+- 修正 PostgreSQL boolean 參數相容問題。
+- 舊 users.password 會在登入成功後自動升級為 password_hash。

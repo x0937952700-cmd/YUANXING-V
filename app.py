@@ -257,7 +257,7 @@ def api_register():
     try:
         db.execute(
             "INSERT INTO users(username, password_hash, role, is_blocked, created_at) VALUES(?,?,?,?,?)",
-            [username, generate_password_hash(password), role, 0, db.now()],
+            [username, generate_password_hash(password), role, db.flag(False), db.now()],
         )
     except Exception:
         return api_error('此姓名已註冊，請直接登入')
@@ -273,7 +273,24 @@ def api_login():
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
     user = db.fetchone("SELECT * FROM users WHERE username=?", [username])
-    if not user or not check_password_hash(user['password_hash'], password):
+    if not user:
+        return api_error('帳號或密碼錯誤', 401)
+    password_ok = False
+    stored_hash = user.get('password_hash') or ''
+    legacy_password = user.get('password') or ''
+    if stored_hash:
+        try:
+            password_ok = check_password_hash(stored_hash, password)
+        except Exception:
+            password_ok = False
+    if not password_ok and legacy_password:
+        try:
+            password_ok = check_password_hash(legacy_password, password)
+        except Exception:
+            password_ok = (legacy_password == password)
+        if password_ok and not stored_hash:
+            db.execute("UPDATE users SET password_hash=? WHERE username=?", [generate_password_hash(password), username])
+    if not password_ok:
         return api_error('帳號或密碼錯誤', 401)
     if int(user.get('is_blocked') or 0):
         return api_error('此帳號已被封鎖，請聯絡管理員', 403)
@@ -300,7 +317,7 @@ def api_customers():
     archived = request.args.get('archived') == '1'
     rows = db.fetchall(
         "SELECT * FROM customers WHERE archived=? ORDER BY region, sort_order, name",
-        [1 if archived else 0],
+        [db.flag(archived)],
     )
     return jsonify({'ok': True, 'customers': rows})
 
@@ -310,7 +327,7 @@ def api_customers():
 def api_customer_suggest():
     q = (request.args.get('q') or '').strip()
     like = q + '%'
-    rows = db.fetchall("SELECT name, region FROM customers WHERE archived=0 AND name LIKE ? ORDER BY name LIMIT 20", [like])
+    rows = db.fetchall("SELECT name, region FROM customers WHERE archived=? AND name LIKE ? ORDER BY name LIMIT 20", [db.flag(False), like])
     return jsonify({'ok': True, 'customers': rows})
 
 
@@ -361,7 +378,7 @@ def api_customer_delete(name):
     data = body_json()
     if db.check_request_key(data.get('request_key')):
         return jsonify({'ok': True, 'duplicate': True})
-    db.execute("UPDATE customers SET archived=1, updated_at=? WHERE name=?", [db.now(), name])
+    db.execute("UPDATE customers SET archived=?, updated_at=? WHERE name=?", [db.flag(True), db.now(), name])
     db.add_activity('封存客戶', name, '', '客戶已封存', current_user())
     return jsonify({'ok': True})
 
@@ -369,7 +386,7 @@ def api_customer_delete(name):
 @app.post('/api/customers/<path:name>/restore')
 @login_required
 def api_customer_restore(name):
-    db.execute("UPDATE customers SET archived=0, updated_at=? WHERE name=?", [db.now(), name])
+    db.execute("UPDATE customers SET archived=?, updated_at=? WHERE name=?", [db.flag(False), db.now(), name])
     db.add_activity('還原客戶', name, '', '客戶已還原', current_user())
     return jsonify({'ok': True})
 
@@ -704,14 +721,14 @@ def api_warehouse_delete_slot():
 @login_required
 def api_activity():
     rows = db.fetchall("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 200")
-    unread = db.fetchone("SELECT COUNT(*) AS c FROM activity_logs WHERE unread=1")
+    unread = db.fetchone("SELECT COUNT(*) AS c FROM activity_logs WHERE unread=?", [db.flag(True)])
     return jsonify({'ok': True, 'items': rows, 'unread': int((unread or {}).get('c') or 0)})
 
 
 @app.post('/api/activity/read')
 @login_required
 def api_activity_read():
-    db.execute("UPDATE activity_logs SET unread=0 WHERE unread=1")
+    db.execute("UPDATE activity_logs SET unread=? WHERE unread=?", [db.flag(False), db.flag(True)])
     return jsonify({'ok': True})
 
 
@@ -747,7 +764,7 @@ def api_block_user(user_id):
     if not is_admin():
         return api_error('只有管理員可封鎖使用者', 403)
     data = body_json()
-    blocked = 1 if data.get('blocked', True) else 0
+    blocked = db.flag(data.get('blocked', True))
     db.execute("UPDATE users SET is_blocked=? WHERE id=?", [blocked, user_id])
     db.add_activity('帳號管理', '', '', '封鎖/解除封鎖使用者', current_user())
     return jsonify({'ok': True})
@@ -783,7 +800,7 @@ def api_backup():
 def api_health():
     return jsonify({
         'ok': True,
-        'version': 'YUANXING_CLEAN_V1',
+        'version': 'YUANXING_CLEAN_V1_DBBOOT_FIX',
         'page_scripts': 'single-page-only',
         'old_fix_loaded': False,
         'shipping_records_page': False,
@@ -793,9 +810,19 @@ def api_health():
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    detail = str(e)[:500]
     if request.path.startswith('/api/'):
-        return jsonify({'ok': False, 'error': '系統錯誤，請稍後再試', 'detail': str(e)[:300]}), 500
-    raise e
+        return jsonify({'ok': False, 'error': '系統錯誤，請稍後再試', 'detail': detail}), 500
+    return (
+        '<!doctype html><meta charset="utf-8">'
+        '<title>沅興木業系統啟動錯誤</title>'
+        '<body style="font-family:Arial, sans-serif;background:#f7f3ec;padding:28px;">'
+        '<h1 style="color:#6b3f22;">沅興木業系統啟動錯誤</h1>'
+        '<p>系統已接收到請求，但後端資料庫或模板啟動時發生錯誤。</p>'
+        '<pre style="white-space:pre-wrap;background:#fff;padding:16px;border-radius:12px;">'
+        + detail +
+        '</pre></body>'
+    ), 500
 
 
 if __name__ == '__main__':

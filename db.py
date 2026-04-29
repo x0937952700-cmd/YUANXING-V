@@ -25,6 +25,11 @@ def _convert_sql(sql: str) -> str:
     return sql.replace('?', '%s')
 
 
+def flag(value=False):
+    """Return a DB-safe boolean flag value for SQLite/Postgres."""
+    return bool(value) if IS_PG else (1 if value else 0)
+
+
 @contextmanager
 def get_conn():
     if IS_PG:
@@ -70,7 +75,6 @@ def insert_and_get_id(sql, params=None):
         cur = conn.cursor()
         cur.execute(_convert_sql(sql), params)
         if IS_PG:
-            # Prefer RETURNING id when caller uses it; fallback to currval not used here.
             try:
                 row = cur.fetchone()
                 return dict(row).get('id') if row else None
@@ -84,13 +88,172 @@ def _pk():
 
 
 def _bool(default=False):
-    if IS_PG:
-        return 'BOOLEAN DEFAULT ' + ('TRUE' if default else 'FALSE')
-    return 'INTEGER DEFAULT ' + ('1' if default else '0')
+    return 'BOOLEAN DEFAULT ' + ('TRUE' if default else 'FALSE') if IS_PG else 'INTEGER DEFAULT ' + ('1' if default else '0')
 
 
 def _text_json(obj):
     return json.dumps(obj, ensure_ascii=False)
+
+
+def table_columns(table):
+    try:
+        if IS_PG:
+            rows = fetchall(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=?",
+                [table],
+            )
+            return {r['column_name'] for r in rows}
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute(f"PRAGMA table_info({table})")
+            return {r[1] for r in cur.fetchall()}
+    except Exception:
+        return set()
+
+
+def safe_execute(sql, params=None):
+    try:
+        return execute(sql, params or [])
+    except Exception:
+        return None
+
+
+def ensure_column(table, column, definition):
+    cols = table_columns(table)
+    if column in cols:
+        return
+    try:
+        if IS_PG:
+            execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+        else:
+            execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except Exception:
+        # 不讓舊資料表的非關鍵欄位遷移阻斷整站啟動。
+        pass
+
+
+def ensure_schema_columns():
+    bool_false = _bool(False)
+    text = "TEXT DEFAULT ''"
+    integer = "INTEGER DEFAULT 0"
+    real = "REAL DEFAULT 0"
+
+    schema = {
+        'users': {
+            'username': "TEXT DEFAULT ''",
+            'password_hash': "TEXT DEFAULT ''",
+            'role': "TEXT DEFAULT 'user'",
+            'is_blocked': bool_false,
+            'created_at': 'TEXT',
+        },
+        'customers': {
+            'name': "TEXT DEFAULT ''",
+            'region': "TEXT DEFAULT 'north'",
+            'common_material': text,
+            'common_size': text,
+            'archived': bool_false,
+            'sort_order': integer,
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'inventory': {
+            'customer_name': text,
+            'product_text': text,
+            'material': text,
+            'length_text': text,
+            'width_text': text,
+            'height_text': text,
+            'qty_expr': text,
+            'pieces': integer,
+            'warehouse_key': text,
+            'operator': text,
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'orders': {
+            'customer_name': text,
+            'product_text': text,
+            'material': text,
+            'length_text': text,
+            'width_text': text,
+            'height_text': text,
+            'qty_expr': text,
+            'pieces': integer,
+            'status': "TEXT DEFAULT 'open'",
+            'warehouse_key': text,
+            'operator': text,
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'master_orders': {
+            'customer_name': text,
+            'product_text': text,
+            'material': text,
+            'length_text': text,
+            'width_text': text,
+            'height_text': text,
+            'qty_expr': text,
+            'pieces': integer,
+            'warehouse_key': text,
+            'operator': text,
+            'created_at': 'TEXT',
+            'updated_at': 'TEXT',
+        },
+        'shipping_records': {
+            'customer_name': text,
+            'source_table': text,
+            'source_id': integer,
+            'product_text': text,
+            'material': text,
+            'pieces': integer,
+            'volume': real,
+            'weight_unit': real,
+            'total_weight': real,
+            'operator': text,
+            'created_at': 'TEXT',
+        },
+        'warehouse_cells': {
+            'zone': text,
+            'band': integer,
+            'row_name': text,
+            'slot': integer,
+            'items_json': "TEXT DEFAULT '[]'",
+            'updated_at': 'TEXT',
+        },
+        'activity_logs': {
+            'action': text,
+            'customer_name': text,
+            'product_text': text,
+            'detail': text,
+            'operator': text,
+            'unread': bool_false,
+            'created_at': 'TEXT',
+        },
+        'request_keys': {
+            'request_key': 'TEXT',
+            'created_at': 'TEXT',
+        },
+        'corrections': {
+            'wrong_text': 'TEXT',
+            'correct_text': 'TEXT',
+            'created_at': 'TEXT',
+        },
+        'image_hashes': {
+            'image_hash': 'TEXT',
+            'created_at': 'TEXT',
+        },
+    }
+    for table, cols in schema.items():
+        for col, definition in cols.items():
+            ensure_column(table, col, definition)
+
+    # 兼容早期原型欄位：若舊表只有 product/quantity/qty，就盡量複製到新主線欄位。
+    safe_execute("UPDATE inventory SET product_text=COALESCE(NULLIF(product_text,''), product) WHERE COALESCE(product_text,'')=''")
+    safe_execute("UPDATE orders SET product_text=COALESCE(NULLIF(product_text,''), product) WHERE COALESCE(product_text,'')=''")
+    safe_execute("UPDATE master_orders SET product_text=COALESCE(NULLIF(product_text,''), product) WHERE COALESCE(product_text,'')=''")
+    safe_execute("UPDATE inventory SET pieces=COALESCE(NULLIF(pieces,0), quantity) WHERE COALESCE(pieces,0)=0")
+    safe_execute("UPDATE orders SET pieces=COALESCE(NULLIF(pieces,0), qty) WHERE COALESCE(pieces,0)=0")
+    safe_execute("UPDATE master_orders SET pieces=COALESCE(NULLIF(pieces,0), qty) WHERE COALESCE(pieces,0)=0")
 
 
 def init_db():
@@ -237,7 +400,8 @@ def init_db():
     for s in stmts:
         execute(s)
 
-    # Safe indexes: speed only, no behavior change.
+    ensure_schema_columns()
+
     idxs = [
         "CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)",
         "CREATE INDEX IF NOT EXISTS idx_customers_region ON customers(region)",
@@ -249,7 +413,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_warehouse_lookup ON warehouse_cells(zone, band, row_name, slot)",
     ]
     for s in idxs:
-        execute(s)
+        safe_execute(s)
 
     seed_warehouse_cells()
 
@@ -261,8 +425,8 @@ def ensure_customer(name, region='north', operator='system'):
     existing = fetchone("SELECT id FROM customers WHERE name=?", [name])
     if not existing:
         execute(
-            "INSERT INTO customers(name, region, created_at, updated_at) VALUES(?,?,?,?)",
-            [name, region, now(), now()],
+            "INSERT INTO customers(name, region, archived, created_at, updated_at) VALUES(?,?,?,?,?)",
+            [name, region, flag(False), now(), now()],
         )
         add_activity('新增客戶', name, '', '自動建立客戶資料', operator)
 
@@ -281,7 +445,7 @@ def add_activity(action, customer_name='', product_text='', detail='', operator=
     execute(
         """INSERT INTO activity_logs(action, customer_name, product_text, detail, operator, unread, created_at)
            VALUES(?,?,?,?,?,?,?)""",
-        [action, customer_name or '', product_text or '', detail or '', operator or '', 1, now()],
+        [action, customer_name or '', product_text or '', detail or '', operator or '', flag(True), now()],
     )
 
 
