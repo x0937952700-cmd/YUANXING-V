@@ -1,52 +1,50 @@
-# 沅興木業 CLEAN V1 乾淨主線整合版
+# 沅興木業 CLEAN V1 全新母版
 
-這版是重新統整後的乾淨主線，不再載入 FIX135～FIX151 的舊母版檔案。
+這包是從舊 FIX151 壓縮檔中剝離「要保留的功能、介面、按鈕、資料庫方向」後重新整理的乾淨母版。
 
-## 本版原則
+## 這版的核心差異
 
-- 舊 FIX 母版不再沿用。
-- 每個頁面只載入自己的 JS。
-- 不使用多層全頁「開啟中」遮罩。
-- 按鈕只綁定一次事件。
-- API 統一回傳 JSON 錯誤，不讓畫面卡死。
-- 前端危險動作會帶 request_key，後端防重複送出。
-- 支援 SQLite 本機測試與 PostgreSQL(Render DATABASE_URL)。
+- 不再載入 `FIX135～FIX151` 舊版 JS/CSS。
+- 不再用多層 `開啟中...` 全頁遮罩。
+- 首頁、庫存、訂單、總單、入庫、出貨、倉庫圖、客戶資料、今日異動、出貨紀錄、設定分頁清楚分離。
+- 後端每個 API 都回 JSON，錯誤不會直接變白畫面。
+- 資料庫支援 SQLite 與 Render PostgreSQL：有 `DATABASE_URL` 就走 PostgreSQL，沒有就走 SQLite。
+- 有 PWA manifest / service-worker / app icon，可加到手機主畫面。
 
-## 已包含頁面
+## 頁面
 
-1. 登入
+1. 登入 / 註冊
 2. 首頁
 3. 庫存
 4. 訂單
 5. 總單
-6. 入庫
+6. 入庫 / OCR貼文字整理
 7. 出貨
 8. 倉庫圖
 9. 客戶資料
 10. 今日異動
-11. 設定
+11. 出貨紀錄
+12. 設定 / 備份 / 使用者管理
 
-依照最新指示，沒有另外建立「出貨紀錄」獨立頁；出貨紀錄仍會存進資料表，並會寫入今日異動。
+## Render 設定
 
-## 部署到 Render
-
-Build Command:
-
-```bash
-pip install -r requirements.txt
-```
-
-Start Command:
+Build Command：
 
 ```bash
-gunicorn app:app
+pip install --upgrade pip && pip install -r requirements.txt
 ```
 
-環境變數：
+Start Command：
 
-- `SECRET_KEY`：建議設定隨機字串
-- `DATABASE_URL`：有 PostgreSQL 時設定；沒設定則自動使用 SQLite
-- `ADMIN_NAME`：預設為 `陳韋廷`
+```bash
+gunicorn app:app --bind 0.0.0.0:$PORT
+```
+
+環境變數建議：
+
+- `PYTHON_VERSION=3.11.11`
+- `SECRET_KEY=自己隨機字串`
+- `DATABASE_URL=Render PostgreSQL 連線字串`（可選；沒有就用 SQLite）
 
 ## 本機測試
 
@@ -55,55 +53,26 @@ pip install -r requirements.txt
 python app.py
 ```
 
-開啟：
+打開：
 
 ```text
 http://127.0.0.1:5000
 ```
 
-第一次使用可在登入頁直接註冊。
+第一次註冊的帳號會自動成為管理員；姓名為 `陳韋廷` 也會是管理員。
 
-## Render 啟動修正
-
-本版已加入 `gunicorn.conf.py`，可相容 Render Start Command：
+## Smoke Test
 
 ```bash
-gunicorn app:app --config gunicorn.conf.py
+python tools/smoke_test.py
 ```
 
-如果 Render 後台 Start Command 曾手動設定，建議改成以下其中一種：
+通過會看到：
 
-```bash
-gunicorn app:app --config gunicorn.conf.py
+```text
+CLEAN V1 smoke test passed
 ```
 
-或：
+## 注意
 
-```bash
-gunicorn app:app
-```
-
-兩種都可以；本包已同時保留 `Procfile` 與 `render.yaml`。
-
-
-## CLEAN V1 DB Boot Fix
-- 修正 Render 已部署但首頁 Internal Server Error：舊 PostgreSQL 資料表缺少 CLEAN V1 欄位時會自動補欄位。
-- 修正 PostgreSQL boolean 參數相容問題。
-- 舊 users.password 會在登入成功後自動升級為 password_hash。
-
-
-## 首頁卡在 about:blank 修正
-
-本版已修正 CLEAN V1 第一次開站會卡住的問題：
-
-- 登入頁、首頁導向、靜態檔不再先跑完整資料庫 migration。
-- Render PostgreSQL 連線加入 `DB_CONNECT_TIMEOUT`，預設 5 秒，不會無限等待。
-- 倉庫 A/B 預設 120 格改成同一個交易批次建立，不再每格開新連線。
-- 舊資料表補欄位改成每張表只查一次欄位，避免第一次開站產生上百次 DB 連線。
-- Service Worker 不再預先快取 `/`，避免安裝 PWA 時觸發需要登入的首頁請求。
-
-Render 後台 Start Command 建議固定：
-
-```bash
-gunicorn app:app --config gunicorn.conf.py
-```
+這是乾淨母版，不是把舊檔全部疊上去。舊版大型 `static/app.js`、`static/yx_modules/fix*.js`、重複 hardlock CSS/JS 都沒有放進來，避免互相覆蓋與拖慢。

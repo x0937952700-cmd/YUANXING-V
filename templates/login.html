@@ -1,40 +1,42 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>沅興木業登入</title>
-  <link rel="stylesheet" href="/static/css/app.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>沅興木業｜登入</title>
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="icon" href="/static/favicon.png" />
+  <link rel="stylesheet" href="/static/css/app.css" />
 </head>
-<body data-page="login">
-  <main class="login-wrap">
+<body class="login-body">
+  <main class="login-shell">
     <section class="login-card">
-      <div class="logo-pill">沅興木業</div>
-      <h1>登入系統</h1>
-      <p>第一次使用可直接註冊姓名與密碼。</p>
-      <label>姓名<input id="username" autocomplete="username" placeholder="請輸入姓名"></label>
-      <label>密碼<input id="password" type="password" autocomplete="current-password" placeholder="請輸入密碼"></label>
-      <div class="row gap">
-        <button id="loginBtn" class="primary">登入</button>
-        <button id="registerBtn" class="secondary">註冊</button>
-      </div>
-      <div id="loginMsg" class="hint"></div>
+      <div class="brand-mark">沅興木業</div>
+      <p class="subtle center">CLEAN V1 母版登入</p>
+      <label>姓名<input id="username" autocomplete="username" placeholder="第一次使用請輸入姓名" /></label>
+      <label>密碼<input id="password" type="password" autocomplete="current-password" placeholder="請輸入密碼" /></label>
+      <button id="loginBtn" class="btn primary">登入</button>
+      <button id="registerBtn" class="btn secondary">第一次註冊</button>
+      <div id="msg" class="error-card hidden"></div>
     </section>
   </main>
-  <div id="toastRoot" class="toast-root"></div>
-  <script src="/static/js/core.js"></script>
-  <script>
-    async function submit(mode){
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
-      const msg = document.getElementById('loginMsg');
-      try{
-        await YX.api('/api/' + mode, {method:'POST', body:{username,password}});
-        location.href = '/';
-      }catch(e){ msg.textContent = e.message || '登入失敗'; }
+  <script type="module">
+    async function post(url, body){
+      const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+      const data = await r.json().catch(()=>({ok:false,error:'伺服器回應錯誤'}));
+      if(!r.ok || !data.ok) throw new Error(data.error || '操作失敗');
+      return data;
     }
-    document.getElementById('loginBtn').onclick = ()=>submit('login');
-    document.getElementById('registerBtn').onclick = ()=>submit('register');
+    const $ = s => document.querySelector(s);
+    function msg(t){ const m=$('#msg'); m.textContent=t; m.classList.remove('hidden'); }
+    async function auth(url){
+      const username=$('#username').value.trim(), password=$('#password').value;
+      if(!username || !password) return msg('請輸入姓名和密碼');
+      try{ await post(url,{username,password}); location.href='/app'; }catch(e){ msg(e.message); }
+    }
+    $('#loginBtn').onclick=()=>auth('/api/login');
+    $('#registerBtn').onclick=()=>auth('/api/register');
+    window.addEventListener('keydown', e=>{ if(e.key==='Enter') auth('/api/login'); });
   </script>
 </body>
 </html>

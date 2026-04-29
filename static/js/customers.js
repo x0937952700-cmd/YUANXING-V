@@ -1,21 +1,15 @@
-document.addEventListener('DOMContentLoaded',()=>{
-  const save=YX.$('#saveCustomer'); save.onclick=()=>YX.safe(save,saveCustomer);
-  loadCustomers();
-});
-async function saveCustomer(){
-  const body={name:YX.$('#customerName').value.trim(),region:YX.$('#customerRegion').value,common_material:YX.$('#commonMaterial').value,common_size:YX.$('#commonSize').value,request_key:YX.key()};
-  await YX.api('/api/customers',{method:'POST',body}); YX.toast('客戶已儲存'); loadCustomers();
+import {API} from './api.js';
+import {$, $$, toast, empty, escapeHtml} from './ui.js';
+export async function renderCustomers(root){
+  root.innerHTML=`<div class="section-head"><h2>客戶資料</h2><button class="btn ghost" data-nav="home">返回首頁</button></div><section class="card"><div class="form-grid three"><label>客戶名稱<input id="custName"></label><label>區域<select id="custRegion"><option value="north">北區</option><option value="middle">中區</option><option value="south">南區</option></select></label><label>常用材質<input id="custMaterials"></label><label>常用尺寸<input id="custSizes"></label></div><div class="toolbar" style="margin-top:10px"><button id="custSave" class="btn primary">新增 / 儲存客戶</button><button id="showArchived" class="btn secondary">顯示封存</button></div></section><section class="card"><div id="custList" class="region-grid"></div></section>`;
+  $('#custSave',root).onclick=async()=>{await API.post('/api/customers',{name:$('#custName',root).value.trim(),region:$('#custRegion',root).value,common_materials:$('#custMaterials',root).value,common_sizes:$('#custSizes',root).value});toast('客戶已儲存');renderCustomers(root);};
+  $('#showArchived',root).onclick=()=>load(root,true);
+  await load(root,false);
 }
-async function loadCustomers(){
-  const d=await YX.api('/api/customers'); const names={north:'北區',center:'中區',south:'南區'}; const box=YX.$('#customerRegions');
-  box.innerHTML=['north','center','south'].map(r=>`<div class="region" data-region="${r}"><h3>${names[r]}</h3><div class="chip-list">${d.customers.filter(c=>c.region===r).map(c=>`<button class="customer-chip" draggable="true" data-name="${YX.esc(c.name)}" data-region="${r}">${YX.esc(c.name)}</button>`).join('') || '<span class="hint">尚無客戶</span>'}</div></div>`).join('');
-  YX.$$('.customer-chip').forEach(ch=>{let timer=null,moved=false; ch.onclick=()=>{ if(!moved){YX.$('#customerName').value=ch.dataset.name;} moved=false;}; ch.oncontextmenu=e=>{e.preventDefault(); menu(ch.dataset.name);}; ch.onpointerdown=()=>{moved=false; timer=setTimeout(()=>menu(ch.dataset.name),700);}; ch.onpointermove=()=>{moved=true; clearTimeout(timer);}; ch.onpointerup=()=>clearTimeout(timer); ch.ondragstart=e=>e.dataTransfer.setData('name',ch.dataset.name);});
-  YX.$$('.region').forEach(r=>{r.ondragover=e=>e.preventDefault(); r.ondrop=async e=>{e.preventDefault(); const name=e.dataTransfer.getData('name'); await YX.api('/api/customers/'+encodeURIComponent(name),{method:'PATCH',body:{region:r.dataset.region,request_key:YX.key()}}); loadCustomers();};});
-}
-async function menu(name){
-  const act=prompt(`${name}\n1 編輯名稱\n2 移到北區\n3 移到中區\n4 移到南區\n5 封存客戶`);
-  if(act==='1'){ const nn=prompt('新客戶名稱',name); if(nn) await YX.api('/api/customers/'+encodeURIComponent(name),{method:'PATCH',body:{name:nn,request_key:YX.key()}}); }
-  if(['2','3','4'].includes(act)){ const region={2:'north',3:'center',4:'south'}[act]; await YX.api('/api/customers/'+encodeURIComponent(name),{method:'PATCH',body:{region,request_key:YX.key()}}); }
-  if(act==='5'){ await YX.api('/api/customers/'+encodeURIComponent(name),{method:'DELETE',body:{request_key:YX.key()}}); }
-  loadCustomers();
+async function load(root,archived=false){
+  const d=await API.get(`/api/customers${archived?'?archived=1':''}`); const labels={north:'北區',middle:'中區',south:'南區'};
+  $('#custList',root).innerHTML=['north','middle','south'].map(r=>`<div class="region"><h3>${labels[r]}</h3>${d.customers.filter(c=>c.region===r).map(c=>`<article class="item-card"><div class="item-top"><div><b>${escapeHtml(c.name)}</b> ${c.archived?'<span class="tag red">已封存</span>':''}<p class="subtle">材質：${escapeHtml(c.common_materials||'')}｜尺寸：${escapeHtml(c.common_sizes||'')}</p></div></div><div class="item-actions"><button class="btn small secondary" data-edit="${c.id}">編輯</button><button class="btn small secondary" data-archive="${c.id}" data-archived="${c.archived?0:1}">${c.archived?'還原':'封存'}</button><button class="btn small danger" data-delete="${c.id}">刪除</button></div></article>`).join('')||empty('此區沒有客戶')}</div>`).join('');
+  $$('[data-edit]',root).forEach(b=>b.onclick=()=>{const c=d.customers.find(x=>String(x.id)===b.dataset.edit); $('#custName',root).value=c.name; $('#custRegion',root).value=c.region; $('#custMaterials',root).value=c.common_materials||''; $('#custSizes',root).value=c.common_sizes||''; $('#custSave',root).onclick=async()=>{await API.put(`/api/customers/${c.id}`,{name:$('#custName',root).value.trim(),region:$('#custRegion',root).value,common_materials:$('#custMaterials',root).value,common_sizes:$('#custSizes',root).value});toast('客戶已更新');renderCustomers(root);}; window.scrollTo({top:0,behavior:'smooth'});});
+  $$('[data-archive]',root).forEach(b=>b.onclick=async()=>{await API.post(`/api/customers/${b.dataset.archive}/archive`,{archived:b.dataset.archived==='1'});toast('狀態已更新');load(root,archived);});
+  $$('[data-delete]',root).forEach(b=>b.onclick=async()=>{if(confirm('確定刪除客戶？')){await API.del(`/api/customers/${b.dataset.delete}`);toast('已刪除');load(root,archived);}});
 }

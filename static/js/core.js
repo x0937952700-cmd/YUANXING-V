@@ -1,124 +1,75 @@
-window.YX = (()=>{
-  const $ = (s, r=document)=>r.querySelector(s);
-  const $$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
-  const esc = (v)=>String(v ?? '').replace(/[&<>'"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const key = ()=>`${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let tokens = {};
-  function nextToken(name){ tokens[name]=(tokens[name]||0)+1; return tokens[name]; }
-  function isFresh(name,t){ return tokens[name]===t; }
-  function toast(msg, err=false){
-    const root = $('#toastRoot'); if(!root) return alert(msg);
-    const el = document.createElement('div'); el.className='toast'+(err?' err':''); el.textContent=msg;
-    root.appendChild(el); setTimeout(()=>el.remove(), 3200);
-  }
-  async function api(url, opts={}){
-    const method = opts.method || 'GET';
-    const headers = Object.assign({'Accept':'application/json'}, opts.headers||{});
-    let body = opts.body;
-    if(body && !(body instanceof FormData)){ headers['Content-Type']='application/json'; body=JSON.stringify(body); }
-    const ctrl = new AbortController(); const to = setTimeout(()=>ctrl.abort(), opts.timeout || 12000);
-    try{
-      const res = await fetch(url, {method, headers, body, signal:ctrl.signal});
-      if(res.status===401){ toast('登入已過期，請重新登入', true); setTimeout(()=>location.href='/login',800); throw new Error('登入已過期'); }
-      const data = await res.json().catch(()=>({ok:false,error:'伺服器回應格式錯誤'}));
-      if(!res.ok || data.ok===false) throw new Error(data.error || '操作失敗');
-      return data;
-    }catch(e){
-      if(e.name==='AbortError') throw new Error('連線逾時，請稍後再試');
-      throw e;
-    }finally{ clearTimeout(to); }
-  }
-  async function safe(btn, fn){
-    if(btn && btn.dataset.busy==='1') return;
-    const old = btn ? btn.textContent : '';
-    try{ if(btn){btn.dataset.busy='1'; btn.disabled=true;} return await fn(); }
-    catch(e){ toast(e.message||'操作失敗', true); }
-    finally{ if(btn){btn.dataset.busy='0'; btn.disabled=false; btn.textContent=old;} }
-  }
-  function today(){ const d=new Date(); const t=$('#todayText'); if(t) t.textContent=d.toLocaleDateString('zh-TW'); }
-  async function loadBadge(){
-    const b=$('#activityBadge'); if(!b) return;
-    try{ const d=await api('/api/activity'); const n=d.unread||0; b.querySelector('b').textContent=n; b.onclick=()=>location.href='/activity'; }catch(e){}
-  }
-  function attachCustomerSuggest(input){
-    if(!input) return;
-    let box=null, timer=null;
-    input.addEventListener('input',()=>{
-      clearTimeout(timer); const q=input.value.trim(); if(box) box.remove(); if(!q) return;
-      timer=setTimeout(async()=>{
-        try{
-          const d=await api('/api/customer-suggest?q='+encodeURIComponent(q));
-          if(!d.customers.length) return;
-          box=document.createElement('div'); box.className='suggest-box';
-          const r=input.getBoundingClientRect(); box.style.left=r.left+'px'; box.style.top=(r.bottom+window.scrollY+4)+'px'; box.style.width=r.width+'px';
-          d.customers.forEach(c=>{ const bt=document.createElement('button'); bt.type='button'; bt.textContent=c.name; bt.onclick=()=>{input.value=c.name; box.remove(); input.dispatchEvent(new Event('change'));}; box.appendChild(bt); });
-          document.body.appendChild(box);
-        }catch(e){}
-      },180);
-    });
-    document.addEventListener('click',e=>{ if(box && e.target!==input && !box.contains(e.target)) box.remove(); });
-  }
-  async function logout(){ try{ await api('/api/logout',{method:'POST'}); location.href='/login'; }catch(e){ location.href='/login'; } }
-  document.addEventListener('DOMContentLoaded',()=>{ today(); loadBadge(); $$('.customer-input').forEach(attachCustomerSuggest); const out=$('#logoutBtn'); if(out) out.onclick=logout; if('serviceWorker' in navigator) navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{}); });
-  return { $, $$, esc, key, api, safe, toast, nextToken, isFresh, attachCustomerSuggest, loadBadge };
-})();
-window.ItemPage = {
-  module: 'inventory', selectedCustomer: '', selectedIds: new Set(),
-  init(module){
-    this.module = module;
-    YX.attachCustomerSuggest(YX.$('#customerInput'));
-    const add=YX.$('#addItemBtn'); if(add) add.onclick=()=>YX.safe(add,()=>this.addItem());
-    const search=YX.$('#searchInput'); if(search) search.addEventListener('input',()=>this.loadItems());
-    const clear=YX.$('#clearSearch'); if(clear) clear.onclick=()=>{search.value=''; this.loadItems();};
-    const bulk=YX.$('#bulkMaterialBtn'); if(bulk) bulk.onclick=()=>YX.safe(bulk,()=>this.bulkMaterial());
-    const del=YX.$('#bulkDeleteBtn'); if(del) del.onclick=()=>YX.safe(del,()=>this.bulkDelete());
-    this.loadCustomers(); this.loadItems();
-  },
-  async addItem(){
-    const body={text:YX.$('#productText').value, material:YX.$('#materialInput').value, request_key:YX.key()};
-    const ci=YX.$('#customerInput'); if(ci) body.customer_name=ci.value.trim();
-    await YX.api('/api/items/'+this.module,{method:'POST',body});
-    YX.toast('已新增'); YX.$('#productText').value=''; this.loadCustomers(); this.loadItems(); YX.loadBadge();
-  },
-  async loadCustomers(){
-    const box=YX.$('#customerRegions'); if(!box) return;
-    const d=await YX.api('/api/customers');
-    const names={north:'北區',center:'中區',south:'南區'};
-    box.innerHTML=['north','center','south'].map(r=>`<div class="region" data-region="${r}"><h3>${names[r]}</h3><div class="chip-list">${d.customers.filter(c=>c.region===r).map(c=>`<button class="customer-chip" data-name="${YX.esc(c.name)}">${YX.esc(c.name)}</button>`).join('') || '<span class="hint">尚無客戶</span>'}</div></div>`).join('');
-    YX.$$('.customer-chip',box).forEach(btn=>{ btn.onclick=()=>{ this.selectedCustomer=btn.dataset.name; YX.$$('.customer-chip',box).forEach(b=>b.classList.remove('active')); btn.classList.add('active'); this.loadItems(); }; });
-  },
-  async loadItems(){
-    const token=YX.nextToken('items-'+this.module);
-    const q=YX.$('#searchInput')?.value.trim() || '';
-    const params=new URLSearchParams(); if(q) params.set('q',q); if(this.selectedCustomer && this.module!=='inventory') params.set('customer',this.selectedCustomer);
-    const d=await YX.api('/api/items/'+this.module+'?'+params.toString()).catch(e=>{YX.toast(e.message,true); return {items:[]};});
-    if(!YX.isFresh('items-'+this.module, token)) return;
-    const list=YX.$('#itemList'); if(!list) return;
-    this.selectedIds.clear();
-    if(!d.items.length){ list.innerHTML='<div class="empty">目前沒有資料</div>'; return; }
-    list.innerHTML=d.items.map(item=>this.card(item)).join('');
-    YX.$$('.select-item',list).forEach(cb=>cb.onchange=()=>{ cb.checked ? this.selectedIds.add(cb.dataset.id) : this.selectedIds.delete(cb.dataset.id); });
-    YX.$$('.edit-item',list).forEach(b=>b.onclick=()=>this.editItem(b.dataset.id));
-    YX.$$('.del-item',list).forEach(b=>b.onclick=()=>this.deleteItem(b.dataset.id));
-    YX.$$('.to-order',list).forEach(b=>b.onclick=()=>this.toOrder(b.dataset.id));
-    YX.$$('.to-master',list).forEach(b=>b.onclick=()=>this.toMaster(b.dataset.id));
-    YX.$$('.ship-item',list).forEach(b=>b.onclick=()=>{ sessionStorage.setItem('shipSeed', JSON.stringify({source:this.module,id:b.dataset.id})); location.href='/shipping'; });
-  },
-  card(item){
-    const unlisted = !item.warehouse_key ? '<span class="source">未錄入倉庫圖</span>' : `<span class="source">${YX.esc(item.warehouse_key)}</span>`;
-    const source = {inventory:'庫存',orders:'訂單',master:'總單'}[this.module] || this.module;
-    const invBtns = this.module==='inventory' ? `<button class="to-order secondary" data-id="${item.id}">加到訂單</button><button class="to-master secondary" data-id="${item.id}">加到總單</button>` : '';
-    const masterBtn = this.module==='orders' ? `<button class="to-master secondary" data-id="${item.id}">加入總單</button>` : '';
-    return `<article class="item-card"><div class="item-main"><input class="select-item" data-id="${item.id}" type="checkbox"><div><div><span class="mat">${YX.esc(item.material||'未填材質')}</span> ${unlisted} <span class="source">${source}</span></div><div class="prod">${YX.esc(item.product_text)}</div>${item.customer_name?`<div class="hint">${YX.esc(item.customer_name)}</div>`:''}</div><div class="pieces">${item.pieces}件</div></div><div class="actions"><button class="edit-item secondary" data-id="${item.id}">編輯</button><button class="ship-item primary" data-id="${item.id}">直接出貨</button>${invBtns}${masterBtn}<button class="del-item danger" data-id="${item.id}">刪除</button></div></article>`;
-  },
-  async editItem(id){
-    const text=prompt('修改商品格式'); if(!text) return;
-    await YX.api(`/api/items/${this.module}/${id}`,{method:'PATCH',body:{product_text:text,request_key:YX.key()}});
-    YX.toast('已修改'); this.loadItems();
-  },
-  async deleteItem(id){ if(!confirm('確定刪除？')) return; await YX.api(`/api/items/${this.module}/${id}`,{method:'DELETE',body:{request_key:YX.key()}}); YX.toast('已刪除'); this.loadItems(); YX.loadBadge(); },
-  async toOrder(id){ const customer=prompt('加入哪個客戶訂單？'); if(!customer) return; await YX.api('/api/items/add-to-order',{method:'POST',body:{inventory_id:id,customer_name:customer,request_key:YX.key()}}); YX.toast('已加入訂單'); this.loadItems(); },
-  async toMaster(id){ const customer=prompt('加入哪個客戶總單？'); if(!customer) return; const merge=confirm('如果相同客戶+尺寸+材質已存在，是否合併？'); await YX.api('/api/items/add-to-master',{method:'POST',body:{source:this.module,id,customer_name:customer,merge,request_key:YX.key()}}); YX.toast('已加入總單'); this.loadItems(); },
-  async bulkMaterial(){ const mat=YX.$('#bulkMaterial').value.trim(); if(!mat) return YX.toast('請輸入材質',true); for(const id of this.selectedIds){ await YX.api(`/api/items/${this.module}/${id}`,{method:'PATCH',body:{material:mat,request_key:YX.key()}}); } YX.toast('批量材質完成'); this.loadItems(); },
-  async bulkDelete(){ if(!this.selectedIds.size) return YX.toast('請先選取商品',true); if(!confirm('確定批量刪除？')) return; for(const id of this.selectedIds){ await YX.api(`/api/items/${this.module}/${id}`,{method:'DELETE',body:{request_key:YX.key()}}); } YX.toast('批量刪除完成'); this.loadItems(); }
+import {API} from './api.js';
+import {$, $$, toast} from './ui.js';
+import {renderItemsPage, renderInbound} from './items.js';
+import {renderShipping, renderShippingRecords} from './shipping.js';
+import {renderWarehouse} from './warehouse.js';
+import {renderCustomers} from './customers.js';
+import {renderActivity} from './activity.js';
+import {renderSettings} from './settings.js';
+
+const routes = {
+  home: renderHome,
+  inventory: root => renderItemsPage('inventory', root),
+  orders: root => renderItemsPage('orders', root),
+  master: root => renderItemsPage('master', root),
+  inbound: renderInbound,
+  shipping: renderShipping,
+  warehouse: renderWarehouse,
+  customers: renderCustomers,
+  activity: renderActivity,
+  shippingRecords: renderShippingRecords,
+  settings: renderSettings
 };
+
+const loaded = new Set();
+
+async function boot(){
+  $('#todayText').textContent = new Date().toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit', weekday:'short'});
+  const me = await API.get('/api/me');
+  if(!me.logged_in){ location.href='/login'; return; }
+  $('#userName').textContent = me.username || '使用者';
+  $('#logoutBtn').onclick = async()=>{ await API.post('/api/logout',{}); location.href='/login'; };
+  document.body.addEventListener('click', e=>{ const nav=e.target.closest('[data-nav]'); if(nav) navigate(nav.dataset.nav); });
+  window.addEventListener('yx:navigate', e=>navigate(e.detail));
+  window.addEventListener('yx:badge', updateBadge);
+  await navigate('home');
+  updateBadge();
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/static/service-worker.js').catch(()=>{}); }
+  setInterval(updateBadge, 30000);
+}
+
+async function navigate(name){
+  const page = document.getElementById(name) || document.getElementById('home');
+  $$('.page').forEach(p=>p.classList.remove('active'));
+  page.classList.add('active');
+  window.scrollTo({top:0, behavior:'instant'});
+  if(name==='home' || !loaded.has(name)){
+    try{ await routes[name](page); loaded.add(name); }
+    catch(e){ page.innerHTML = `<div class="error-card">載入失敗：${e.message}</div>`; toast(e.message); }
+  }
+  if(name==='activity') updateBadge();
+}
+
+function renderHome(root){
+  loaded.delete('inventory'); loaded.delete('orders'); loaded.delete('master'); loaded.delete('shipping'); loaded.delete('warehouse'); loaded.delete('customers'); loaded.delete('settings'); loaded.delete('shippingRecords'); loaded.delete('inbound'); loaded.delete('activity');
+  root.innerHTML = `<section class="home-hero"><div class="label-chip">CLEAN V1 新母版</div><h1 class="home-title">沅興木業</h1><p class="subtle">乾淨架構：不載入 FIX135～FIX151 舊版覆蓋檔，頁面秒切換、按鈕只綁一次。</p></section><section class="home-grid">
+    ${homeBtn('inventory','庫存','商品列表、批量材質、加入訂單/總單')}
+    ${homeBtn('orders','訂單','北中南客戶、修改、直接出貨')}
+    ${homeBtn('master','總單','客戶持有貨品、合併、扣除')}
+    ${homeBtn('inbound','入庫 / OCR','拍照上傳、貼文字整理、送出')}
+    ${homeBtn('shipping','出貨','選客戶商品、預覽材積、扣除')}
+    ${homeBtn('warehouse','倉庫圖','A/B倉、前後排、長按格子')}
+    ${homeBtn('customers','客戶資料','北中南、封存、常用資料')}
+    ${homeBtn('activity','今日異動','通知中心、滑動刪除、未入倉')}
+    ${homeBtn('shippingRecords','出貨紀錄','搜尋、材積、重量、扣除摘要')}
+    ${homeBtn('settings','設定 / 備份','健康檢查、使用者、黑名單')}
+  </section>`;
+}
+function homeBtn(nav,title,sub){return `<button class="home-btn" data-nav="${nav}">${title}<small>${sub}</small></button>`;}
+
+async function updateBadge(){
+  try{const d=await API.get('/api/activity'); const b=$('#activityBadge'); if(d.unread>0){b.textContent=d.unread;b.classList.remove('hidden');}else b.classList.add('hidden');}
+  catch{}
+}
+
+boot().catch(e=>{ document.body.innerHTML = `<main class="login-shell"><div class="error-card">系統啟動失敗：${e.message}</div></main>`; });

@@ -2,10 +2,11 @@ services:
   - type: web
     name: yuanxing-clean-v1
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --config gunicorn.conf.py
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.10
+        value: 3.11.11
       - key: SECRET_KEY
         generateValue: true
