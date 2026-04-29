@@ -216,12 +216,22 @@ def update_product_table(table, item_id, data, operator):
     db.execute(f"UPDATE {table} SET {', '.join(fields)} WHERE id=?", params)
 
 
-@app.before_request
-def boot_db():
-    # Cheap enough; CREATE IF NOT EXISTS keeps deployment simple and prevents UndefinedTable.
+def ensure_db_ready():
     if not getattr(app, '_yx_db_ready', False):
         db.init_db()
         app._yx_db_ready = True
+
+
+@app.before_request
+def boot_db():
+    # 首頁 / 登入頁 / 靜態檔不需要先跑資料庫初始化。
+    # 舊版會在第一個瀏覽器請求就跑完整 migration + 120 格倉庫 seed，
+    # Render PostgreSQL 第一次連線時容易讓頁面卡在 about:blank。
+    if request.endpoint == 'static' or request.path in ['/login', '/static/manifest.webmanifest', '/favicon.ico']:
+        return
+    if request.path == '/' and not current_user():
+        return
+    ensure_db_ready()
 
 
 @app.route('/login')

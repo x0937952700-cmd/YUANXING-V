@@ -33,7 +33,11 @@ def flag(value=False):
 @contextmanager
 def get_conn():
     if IS_PG:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=int(os.environ.get('DB_CONNECT_TIMEOUT', '5')),
+        )
     else:
         conn = sqlite3.connect(SQLITE_PATH)
         conn.row_factory = sqlite3.Row
@@ -243,9 +247,19 @@ def ensure_schema_columns():
             'created_at': 'TEXT',
         },
     }
+    # 每張表只查一次欄位，避免 Render PostgreSQL 第一次開站時產生上百次連線。
     for table, cols in schema.items():
+        existing_cols = table_columns(table)
         for col, definition in cols.items():
-            ensure_column(table, col, definition)
+            if col in existing_cols:
+                continue
+            try:
+                if IS_PG:
+                    execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {definition}")
+                else:
+                    execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
+            except Exception:
+                pass
 
     # 兼容早期原型欄位：若舊表只有 product/quantity/qty，就盡量複製到新主線欄位。
     safe_execute("UPDATE inventory SET product_text=COALESCE(NULLIF(product_text,''), product) WHERE COALESCE(product_text,'')=''")
@@ -450,19 +464,26 @@ def add_activity(action, customer_name='', product_text='', detail='', operator=
 
 
 def seed_warehouse_cells():
-    for zone in ['A', 'B']:
-        for band in range(1, 7):
-            for row_name in ['front', 'back']:
-                for slot in range(1, 11):
-                    exists = fetchone(
-                        "SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?",
-                        [zone, band, row_name, slot],
-                    )
-                    if not exists:
-                        execute(
-                            "INSERT INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at) VALUES(?,?,?,?,?,?)",
-                            [zone, band, row_name, slot, '[]', now()],
-                        )
+    """建立 A/B 倉預設格位。
+
+    舊版每一格都 fetch + insert，而且每次都開新 DB 連線；
+    Render 第一次開站會很慢。這版改成同一個交易內批次建立。
+    """
+    if IS_PG:
+        sql = """INSERT INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at)
+                 VALUES(%s,%s,%s,%s,%s,%s)
+                 ON CONFLICT (zone, band, row_name, slot) DO NOTHING"""
+    else:
+        sql = """INSERT OR IGNORE INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at)
+                 VALUES(?,?,?,?,?,?)"""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        ts = now()
+        for zone in ['A', 'B']:
+            for band in range(1, 7):
+                for row_name in ['front', 'back']:
+                    for slot in range(1, 11):
+                        cur.execute(sql, [zone, band, row_name, slot, '[]', ts])
 
 
 def table_for_module(module):

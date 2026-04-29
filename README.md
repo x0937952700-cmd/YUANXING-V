@@ -90,3 +90,20 @@ gunicorn app:app
 - 修正 Render 已部署但首頁 Internal Server Error：舊 PostgreSQL 資料表缺少 CLEAN V1 欄位時會自動補欄位。
 - 修正 PostgreSQL boolean 參數相容問題。
 - 舊 users.password 會在登入成功後自動升級為 password_hash。
+
+
+## 首頁卡在 about:blank 修正
+
+本版已修正 CLEAN V1 第一次開站會卡住的問題：
+
+- 登入頁、首頁導向、靜態檔不再先跑完整資料庫 migration。
+- Render PostgreSQL 連線加入 `DB_CONNECT_TIMEOUT`，預設 5 秒，不會無限等待。
+- 倉庫 A/B 預設 120 格改成同一個交易批次建立，不再每格開新連線。
+- 舊資料表補欄位改成每張表只查一次欄位，避免第一次開站產生上百次 DB 連線。
+- Service Worker 不再預先快取 `/`，避免安裝 PWA 時觸發需要登入的首頁請求。
+
+Render 後台 Start Command 建議固定：
+
+```bash
+gunicorn app:app --config gunicorn.conf.py
+```
