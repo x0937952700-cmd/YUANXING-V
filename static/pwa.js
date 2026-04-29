@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix143-instant-customer-ship-master';
+  const PWA_VERSION = 'fix142-speed-ship-master-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

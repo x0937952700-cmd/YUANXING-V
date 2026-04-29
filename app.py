@@ -1475,14 +1475,9 @@ def api_customer_items():
     """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
     name = (request.args.get("name") or "").strip()
     uid = (request.args.get("customer_uid") or "").strip()
-    fast_mode = (request.args.get('fast') or '') == '1'
-    # FIX143：點客戶 / 出貨載入商品走 fast=1 時，不能呼叫 resolve_customer_identity，
-    # 因為 get_customer() 會再掃四張關聯表算 relation_counts，會造成 2～3 秒延遲。
-    # fast 模式保留原名與前端帶入 variants，直接查商品表。
-    if not fast_mode:
-        row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
-        name = resolved_name or name
-        uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
+    row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
+    name = resolved_name or name
+    uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
     items = []
     if not name and not uid:
         return jsonify(success=True, items=[])
@@ -1490,7 +1485,7 @@ def api_customer_items():
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX143：點客戶必須即時顯示。前端若已從客戶母版拿到 merge_names，
+        # FIX142：點客戶必須即時顯示。前端若已從客戶母版拿到 merge_names，
         # 直接帶 variants 避免每次點擊又掃四張資料表找同名變體。
         raw_variants = (request.args.get('variants') or '').strip()
         variants = []
@@ -1503,7 +1498,7 @@ def api_customer_items():
                 variants = [(x or '').strip() for x in re.split(r'[|,\n]+', raw_variants) if (x or '').strip()]
             if name and name not in variants:
                 variants.insert(0, name)
-        elif fast_mode:
+        elif (request.args.get('fast') or '') == '1':
             variants = [name] if name else []
         else:
             variants = customer_merge_variants(cur, name) if name else []

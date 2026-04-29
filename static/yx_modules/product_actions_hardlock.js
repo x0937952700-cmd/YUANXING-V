@@ -521,14 +521,11 @@
   function wrapSelectCustomer(){
     const old = window.selectCustomerForModule;
     if (typeof old !== 'function' || old.__yx113ProductWrapped) return;
-    const wrapped = function(name, ...args){
-      // FIX143：全域 selectCustomerForModule 也不能等待舊版 / API 完成，先立即切換畫面。
+    const wrapped = async function(name, ...args){
       window.__YX_SELECTED_CUSTOMER__ = YX.clean(name || '');
       const input = $('customer-name'); if (input) input.value = window.__YX_SELECTED_CUSTOMER__;
-      try { const s = sourceFromModule(); if (s) { renderSummary(s); renderCards(s); } } catch(_e) {}
-      let ret = null;
-      try { ret = old.call(this, name, ...args); } catch(_e) {}
-      try { const s = sourceFromModule(); if (s && !rowsStore(s).length) refreshCurrent().catch(()=>{}); } catch(_e) {}
+      const ret = await old.call(this, name, ...args);
+      try { await refreshCurrent(); } catch(_e) {}
       return ret;
     };
     wrapped.__yx113ProductWrapped = true;
@@ -559,7 +556,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix143-instant-customer-ship-master', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';

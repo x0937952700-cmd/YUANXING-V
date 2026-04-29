@@ -76,7 +76,7 @@
     if (!isShip()) return;
     document.documentElement.dataset.yx132ShipText = 'locked';
     bind(); wrapConfirm(); normalizeBox();
-    [60,180,420].forEach(ms => setTimeout(wrapConfirm, ms));
+    [80,240,700,1500,3000].forEach(ms => setTimeout(wrapConfirm, ms));
   }
   YX.register('ship_text_validate', {install, split:splitShipText, validate:validateMasterAvailable});
 })();

@@ -1,7 +1,7 @@
 /* FIX137：最後母版接管：還原上一步、修復空白按鈕、出貨客戶載入、倉庫拖拉 */
 (function(){
   'use strict';
-  const V='fix143-instant-customer-ship-master';
+  const V='fix142-speed-ship-master-hardlock';
   const $=id=>document.getElementById(id);
   const YX=window.YXHardLock;
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
@@ -204,7 +204,7 @@
     });
   }
   function keepAlive(){ repairLabels(document); injectUndoButton(); ensureShipCustomer(); enableWarehouseDrag(); enableWarehousePointerDrag(); }
-  function install(){ keepAlive(); [50,180].forEach(ms=>setTimeout(keepAlive,ms)); }
+  function install(){ keepAlive(); [50,150,350,800,1600,3200].forEach(ms=>setTimeout(keepAlive,ms)); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
   window.addEventListener('pageshow',install);
   document.addEventListener('yx:master-installed',install);

@@ -1,0 +1,10 @@
+/* FIX145 快速返回：避免舊版動畫/重畫擋住導頁 */
+html.yx145-leaving *, html.yx145-leaving *::before, html.yx145-leaving *::after{
+  animation:none!important;
+  transition:none!important;
+}
+html[data-yx135-master-final="locked"] .back-btn,
+html[data-yx135-master-final="locked"] a.back-btn{
+  touch-action:manipulation;
+  cursor:pointer;
+}

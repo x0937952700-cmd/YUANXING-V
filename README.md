@@ -1,7 +1,4 @@
-# 沅興木業 FIX143 即時顯示 + 出貨不卡住母版修正版
-
-本版重點：點客戶立即顯示商品、出貨功能不卡住、移除舊版多段延遲重畫、保留舊版作輔助功能庫。
-
+# 沅興木業 FIX141 Render 部署確實修復 + README 母版統整版
 
 本版是 FIX139 的部署修正版，目標是解決 Render 無法部署與新版母版被舊版覆蓋的問題。
 
@@ -19,7 +16,7 @@
 
 ## 母版統整
 
-1. 版本號升級：`fix143-instant-customer-ship-master`。
+1. 版本號升級：`fix142-speed-ship-master-hardlock`。
 2. README / 歷代 FIX 要求重新接到最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`
@@ -47,7 +44,7 @@ Environment：如果 Render 後台已經有 `PYTHON_VERSION`，請改成 `3.11.1
 
 ## 主要修復
 
-1. 版本號統一升級為 `fix143-instant-customer-ship-master`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
+1. 版本號統一升級為 `fix142-speed-ship-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
 2. 新增最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`
