@@ -19,7 +19,7 @@
 
 ## 母版統整
 
-1. 版本號升級：`fix144-modular-master-hardlock`。
+1. 版本號升級：`fix143-instant-customer-ship-master`。
 2. README / 歷代 FIX 要求重新接到最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`
@@ -47,7 +47,7 @@ Environment：如果 Render 後台已經有 `PYTHON_VERSION`，請改成 `3.11.1
 
 ## 主要修復
 
-1. 版本號統一升級為 `fix144-modular-master-hardlock`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
+1. 版本號統一升級為 `fix143-instant-customer-ship-master`，Service Worker / PWA / manifest / base.html 全部同步，避免手機或瀏覽器吃到舊版快取。
 2. 新增最後母版：
    - `static/yx_modules/fix140_readme_master_hardlock.css`
    - `static/yx_modules/fix140_readme_master_hardlock.js`

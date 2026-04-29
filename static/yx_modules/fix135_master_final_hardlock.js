@@ -1,7 +1,7 @@
 /* FIX135 最終母版保險鎖：最後載入，重新接管新版畫面與舊版入口，不刪功能 */
 (function(){
   'use strict';
-  const V = 'fix144-modular-master-hardlock';
+  const V = 'fix143-instant-customer-ship-master';
   const YX = window.YXHardLock;
   const $ = id => document.getElementById(id);
   function moduleKey(){

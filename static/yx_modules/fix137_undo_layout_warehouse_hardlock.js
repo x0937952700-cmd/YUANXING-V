@@ -1,7 +1,7 @@
 /* FIX137：最後母版接管：還原上一步、修復空白按鈕、出貨客戶載入、倉庫拖拉 */
 (function(){
   'use strict';
-  const V='fix144-modular-master-hardlock';
+  const V='fix143-instant-customer-ship-master';
   const $=id=>document.getElementById(id);
   const YX=window.YXHardLock;
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();

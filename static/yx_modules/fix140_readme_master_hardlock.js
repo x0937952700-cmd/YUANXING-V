@@ -1,7 +1,7 @@
 /* FIX141 README 統整母版：把 README/歷代 FIX 指定行為最後接管；未改動功能仍走舊版函式輔助 */
 (function(){
   'use strict';
-  const V='fix144-modular-master-hardlock';
+  const V='fix143-instant-customer-ship-master';
   const YX=window.YXHardLock||{};
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();
