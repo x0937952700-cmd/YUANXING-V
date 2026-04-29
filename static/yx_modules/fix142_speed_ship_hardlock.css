@@ -1,7 +1,0 @@
-/* FIX142：速度優化時保留目前銀色標籤外觀，移除多餘動畫延遲 */
-html[data-yx142-fast="locked"] .customer-region-card,
-html[data-yx142-fast="locked"] .yx113-summary,
-html[data-yx142-fast="locked"] .ship-customer-item-list,
-html[data-yx142-fast="locked"] .yx113-table-wrap{ transition: background-color .08s ease, box-shadow .08s ease, transform .08s ease !important; }
-.yx142-preview-row{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; }
-.yx142-ship-preview .ship-summary-chip span{ font-weight:800; margin-left:8px; }
