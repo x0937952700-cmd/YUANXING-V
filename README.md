@@ -62,3 +62,25 @@ http://127.0.0.1:5000
 ```
 
 第一次使用可在登入頁直接註冊。
+
+## Render 啟動修正
+
+本版已加入 `gunicorn.conf.py`，可相容 Render Start Command：
+
+```bash
+gunicorn app:app --config gunicorn.conf.py
+```
+
+如果 Render 後台 Start Command 曾手動設定，建議改成以下其中一種：
+
+```bash
+gunicorn app:app --config gunicorn.conf.py
+```
+
+或：
+
+```bash
+gunicorn app:app
+```
+
+兩種都可以；本包已同時保留 `Procfile` 與 `render.yaml`。
