@@ -25,7 +25,7 @@ from services.importer import parse_import_workbook, import_template_workbook
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config['JSON_AS_ASCII'] = False
-socketio = SocketIO(app, cors_allowed_origins='*', async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'eventlet')) if SocketIO else None
+socketio = SocketIO(app, cors_allowed_origins='*', async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')) if SocketIO else None
 init_db()
 
 def emit_update(scope='all', payload=None):
