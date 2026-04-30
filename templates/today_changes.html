@@ -1,1 +1,34 @@
-{% extends "base.html" %}{% block body %}<div class="module-screen"><div class="module-topbar"><a class="back-btn" href="/">← 返回</a><div class="module-title">今日異動</div><div></div></div><div class="glass feature-card"><div class="btn-row" style="justify-content:flex-end"><span class="pill">0</span><button class="ghost-btn small-btn" data-demo>刷新</button></div><div class="section-head"><h3>今日異動</h3></div><div class="today-filter-bar"><button class="chip" data-demo>全部</button><button class="chip" data-demo>進貨</button><button class="chip" data-demo>出貨</button><button class="chip" data-demo>新增訂單</button><button class="chip" data-demo>未錄入</button></div><div class="today-columns"><div class="glass panel"><div class="section-title">進貨</div><div class="list-placeholder">尚無資料</div></div><div class="glass panel"><div class="section-title">出貨</div><div class="list-placeholder">尚無資料</div></div><div class="glass panel"><div class="section-title">新增訂單</div><div class="list-placeholder">尚無資料</div></div><div class="glass panel"><div class="section-title">未錄入倉庫圖</div><div class="list-placeholder">尚無資料</div></div></div></div></div>{% endblock %}
+{% extends "base.html" %}
+{% block body %}
+<div class="home-shell">
+  <div class="home-header glass">
+    <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
+    <h1 class="brand center">今日異動</h1>
+    <div></div>
+  </div>
+  <div class="glass feature-card">
+    <div class="btn-row compact yx112-today-fixed-tools" style="justify-content:flex-end; margin-bottom:10px; gap:8px;">
+      <span class="pill" id="today-unread-badge">0</span>
+      <button id="yx112-refresh-today" class="ghost-btn small-btn" type="button">刷新</button>
+    </div>
+    <div class="section-head">
+      <h3>今日異動</h3>
+    </div>
+    <div class="today-filter-bar">
+      <button class="chip active" id="today-filter-all" type="button" data-today-filter="all">全部</button>
+      <button class="chip" id="today-filter-inbound" type="button" data-today-filter="inbound">進貨</button>
+      <button class="chip" id="today-filter-outbound" type="button" data-today-filter="outbound">出貨</button>
+      <button class="chip" id="today-filter-orders" type="button" data-today-filter="orders">新增訂單</button>
+      <button class="chip" id="today-filter-unplaced" type="button" data-today-filter="unplaced">未錄入</button>
+    </div>
+    <div id="today-summary-cards" class="card-list"></div>
+    <div class="today-columns today-columns-4 today-columns-vertical">
+      <div class="glass panel" data-today-panel="inbound"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel" data-today-panel="outbound"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel" data-today-panel="orders"><div class="section-title">新增訂單</div><div id="today-order-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel" data-today-panel="unplaced"><div class="section-title">未錄入倉庫圖</div><div id="today-unplaced-list" class="chip-list stacked-list"></div></div>
+    </div>
+  </div>
+  <div id="fix28-operation-anchor"></div>
+</div>
+{% endblock %}

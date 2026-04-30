@@ -1,1 +1,287 @@
-{% extends "base.html" %}{% block body %}<div class="module-screen" data-module="{{ module_key }}"><div class="module-topbar"><a class="back-btn" href="/">← 返回</a><div class="module-title">{{ title }}</div><button class="ghost-btn small-btn" onclick="dbCheck()" data-db-status>資料庫：{{ '已連線' if db_status.ok else '未連線' }}</button></div>{% if module_key in ['inventory','orders','master_order','ship'] %}<section class="subsection glass"><div class="section-head"><h3>{{ title }}輸入區</h3><span class="muted">保留原介面，功能尚未接入</span></div><label class="field-label">客戶名稱</label><input class="text-input" placeholder="可直接輸入，或貼上商品資料後自動帶入客戶名稱"><label class="field-label">批量材質</label><select class="text-input"><option>不指定材質</option><option>梢楠</option><option>檜木</option><option>紅檜</option></select><label class="field-label">OCR / 商品文字</label><textarea class="text-area" placeholder="例如：132x23x05=249x3"></textarea><div class="btn-row"><button class="primary-btn" data-demo>送出</button><button class="ghost-btn" data-demo>反查格位</button><button class="ghost-btn" data-demo>清除已選商品</button></div></section>{% endif %}{% if module_key in ['orders','master_order','ship'] %}<section class="subsection glass"><div class="section-head"><h3>北中南客戶</h3></div><div class="category-grid"><div class="category-box"><div class="section-title">北區</div><div class="list-placeholder">客戶標籤預留</div></div><div class="category-box"><div class="section-title">中區</div><div class="list-placeholder">客戶標籤預留</div></div><div class="category-box"><div class="section-title">南區</div><div class="list-placeholder">客戶標籤預留</div></div></div></section>{% endif %}{% if module_key == 'ship' %}<section class="subsection glass"><div class="section-head"><h3>出貨預覽</h3></div><div class="list-placeholder">材積、總長度、重量、扣除前後數量預留區</div><div class="btn-row"><button class="primary-btn" data-demo>確認出貨</button><button class="ghost-btn" data-demo>取消</button></div></section><section class="subsection glass"><div class="section-head"><h3>已選商品</h3></div><select class="text-input"><option>請先選擇 / 輸入客戶名稱</option></select><div class="btn-row"><button class="primary-btn small-btn" data-demo>加入選取</button><button class="ghost-btn small-btn" data-demo>全部加入</button></div></section>{% endif %}{% if module_key == 'shipping_query' %}<section class="subsection glass"><div class="section-head"><h3>出貨查詢</h3></div><div class="btn-row"><input class="text-input small" placeholder="搜尋客戶 / 商品 / 操作人"><select class="text-input small"><option>3 天內</option><option selected>7 天內</option><option>10 天內</option><option>15 天內</option><option>自訂日期</option></select><input class="text-input small" type="date"><input class="text-input small" type="date"><button class="primary-btn" data-demo>查詢</button></div><div class="table-card">查詢結果預留區</div></section>{% endif %}{% if module_key == 'warehouse' %}<section class="subsection glass warehouse-page-shell"><div class="section-head"><h3>倉庫圖</h3><span class="muted">A/B 區、6 層、前後排、1–10 格介面預留</span></div><div class="warehouse-toolbar"><input class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07"><button class="primary-btn" data-demo>搜尋</button><button class="ghost-btn" data-demo>重新整理</button><span class="pill">未入倉：0件</span><button class="ghost-btn small-btn" data-demo>同客戶</button><button class="ghost-btn small-btn" data-demo>未入倉</button><button class="ghost-btn small-btn" data-demo>清除高亮</button></div><div class="warehouse-zone-nav"><button class="chip" data-demo>A 區</button><button class="chip" data-demo>B 區</button><button class="chip" data-demo>全部</button></div><div class="warehouse-zone-wrap">{% for zone in ['A','B'] %}<div class="zone-card panel"><div class="zone-titlebar"><div class="zone-title">{{ zone }} 區</div><div class="small-note">動態格數</div></div><div class="zone-grid">{% for i in range(1,61) %}<div class="cell {{ 'used' if i in [3,14,29,45] else '' }}">{{ i }}</div>{% endfor %}</div></div>{% endfor %}</div></section>{% endif %}{% if module_key == 'customers' %}<section class="subsection glass"><div class="section-head"><h3>客戶資料</h3><span class="muted">可手動編輯名稱、電話、地址、特殊要求、常用材質、常用尺寸</span></div><div class="customer-editor"><div class="customer-detail glass panel"><label class="field-label">客戶名稱</label><input class="text-input"><label class="field-label">電話</label><input class="text-input"><label class="field-label">地址</label><input class="text-input"><label class="field-label">特殊要求</label><textarea class="text-area small"></textarea><label class="field-label">常用材質</label><input class="text-input" placeholder="尚未建立"><label class="field-label">常用尺寸</label><input class="text-input" placeholder="尚未建立"><label class="field-label">區域</label><select class="text-input"><option>北區</option><option>中區</option><option>南區</option></select><button class="primary-btn" data-demo>儲存客戶</button></div><div><div class="customer-search-row"><input class="text-input" placeholder="搜尋客戶"><button class="primary-btn" data-demo>搜尋</button><button class="ghost-btn" data-demo>封存客戶</button></div><div class="category-grid"><div class="category-box panel"><div class="section-title">北區</div><div class="list-placeholder">客戶列表</div></div><div class="category-box panel"><div class="section-title">中區</div><div class="list-placeholder">客戶列表</div></div><div class="category-box panel"><div class="section-title">南區</div><div class="list-placeholder">客戶列表</div></div></div></div></div></section>{% endif %}{% if module_key == 'todos' %}<section class="subsection glass"><div class="section-head"><h3>代辦事項</h3></div><div class="btn-row"><button class="primary-btn" data-demo>上傳照片</button><button class="ghost-btn" data-demo>拍照</button></div><input class="text-input" type="date"><label class="field-label">備註</label><textarea class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea><div class="btn-row"><button class="primary-btn" data-demo>儲存代辦</button><button class="ghost-btn" data-demo>清除</button></div><div class="table-card">代辦清單預留區</div></section>{% endif %}{% if module_key == 'inventory' %}<section class="subsection glass"><div class="section-head"><h3>庫存清單</h3></div><div class="quick-grid"><button class="ghost-btn" data-demo>批量材質</button><button class="ghost-btn" data-demo>刪除</button><button class="ghost-btn" data-demo>加到訂單</button><button class="ghost-btn" data-demo>加到總單</button></div><div class="card-list">庫存商品卡片預留區</div></section>{% endif %}{% if module_key == 'orders' %}<section class="subsection glass"><div class="section-head"><h3>訂單清單</h3></div><div class="quick-grid"><button class="ghost-btn" data-demo>編輯</button><button class="ghost-btn" data-demo>刪除</button><button class="ghost-btn" data-demo>加到總單</button></div><div class="card-list">訂單商品卡片預留區</div></section>{% endif %}{% if module_key == 'master_order' %}<section class="subsection glass"><div class="section-head"><h3>總單清單</h3></div><div class="quick-grid"><button class="ghost-btn" data-demo>編輯</button><button class="ghost-btn" data-demo>直接出貨</button><button class="ghost-btn" data-demo>刪除</button></div><div class="card-list">總單商品卡片預留區</div></section>{% endif %}</div>{% endblock %}
+{% extends "base.html" %}
+{% block body %}
+<div class="module-screen" data-module="{{ module_key }}">
+  <div class="module-topbar">
+    <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
+    <div class="module-title">{{ title }}</div>
+    <div class="spacer"></div>
+  </div>
+
+  {% if module_key not in ['shipping_query','warehouse','customers','todos'] %}
+  <div class="glass panel upload-panel compact-upload streamlined manual-entry-panel {% if module_key in ['inventory','orders','master_order','ship'] %}manual-only{% endif %}">
+    {% if module_key != 'inventory' %}
+    <label class="field-label">客戶名稱</label>
+    <input class="text-input" id="customer-name" placeholder="可直接輸入，或貼上商品資料後自動帶入客戶名稱">
+    {% endif %}
+
+    {% if module_key == 'ship' %}
+    <label class="field-label">客戶商品清單</label>
+    <div class="ship-customer-picker" id="ship-customer-picker">
+      <div class="ship-picker-row">
+        <select class="text-input" id="ship-customer-item-select">
+          <option value="">請先選擇 / 輸入客戶名稱</option>
+        </select>
+        <button class="ghost-btn small-btn" type="button" id="ship-refresh-customer-items">重新載入</button>
+      </div>
+      <div class="btn-row compact-row ship-picker-actions">
+        <button class="primary-btn small-btn" type="button" id="ship-add-selected-item">加入選取商品</button>
+        <button class="ghost-btn small-btn" type="button" id="ship-add-all-items">整個加入下方商品資料</button>
+      </div>
+      <div class="small-note">下拉選單會顯示該客戶目前所有商品；加入後可在「商品資料」欄位直接修改本次要出的數量 / 支數。</div>
+    </div>
+    <input type="hidden" id="location-input" value="">
+    {% else %}
+    <input type="hidden" id="location-input" value="">
+    {% endif %}
+
+    {% if module_key == 'master_order' %}
+    <select class="text-input" id="batch-material" style="display:none">
+      <option value="">不指定材質</option>
+    </select>
+    {% endif %}
+
+    <label class="field-label">商品資料</label>
+    <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
+    <div class="btn-row">
+      <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
+      {% if module_key == 'ship' %}
+      <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
+      {% endif %}
+    </div>
+    <div id="duplicate-action-panel" class="result-card hidden"></div>
+    <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
+    <div id="module-result" class="result-card hidden" style="display:none"></div>
+    {% if module_key == 'inventory' %}
+    <div id="inventory-inline-panel" class="result-card inventory-inline-panel">
+      <div class="section-head inventory-inline-head">
+        <h3>庫存清單</h3>
+        <span class="muted">送出完成後會直接顯示在這裡，可點開編輯或移到訂單 / 總單</span>
+      </div>
+      <div id="inventory-inline-list" class="card-list inventory-inline-list"></div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>北中南客戶</h3>
+      <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
+    </div>
+    <div class="category-grid compact-grid">
+      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north"></div></div>
+      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center"></div></div>
+      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south"></div></div>
+    </div>
+    <div id="selected-customer-items" class="glass panel hidden"></div>
+  </section>
+
+  <section class="subsection" id="ship-preview-section" {% if module_key != 'ship' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>出貨預覽</h3>
+      <span class="muted">先看倉庫位置與扣減來源，再按確認出貨</span>
+    </div>
+    <div id="ship-preview-panel" class="glass panel hidden"></div>
+  </section>
+
+  <section class="subsection" id="ship-selected-section" {% if module_key != 'ship' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>已選商品</h3>
+      <span class="muted">同商品會自動合併，可調整順序、移除或一鍵清空</span>
+    </div>
+    <div class="btn-row compact-row">
+      <button class="ghost-btn" onclick="clearShipSelectedItems()">一鍵清空</button>
+    </div>
+    <div id="ship-selected-items" class="card-list"></div>
+  </section>
+
+
+  <section class="subsection" id="inventory-summary-section" style="display:none">
+    <div id="inventory-summary" class="card-list"></div>
+  </section>
+
+  <section class="subsection" id="shipping-query-section" {% if module_key != 'shipping_query' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>出貨查詢</h3>
+    </div>
+    <div class="query-bar">
+      <input id="ship-keyword" class="text-input small" placeholder="搜尋客戶 / 商品 / 操作人">
+      <select id="ship-range" class="text-input small">
+        <option value="3">3 天內</option>
+        <option value="7" selected>7 天內</option>
+        <option value="10">10 天內</option>
+        <option value="15">15 天內</option>
+        <option value="custom">自訂日期</option>
+      </select>
+      <input id="ship-start" class="text-input small" type="date">
+      <input id="ship-end" class="text-input small" type="date">
+      <button class="primary-btn" onclick="loadShippingRecords()">查詢</button>
+    </div>
+    <div id="shipping-results" class="table-card"></div>
+  </section>
+
+  
+  <section class="subsection warehouse-page-shell" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+    <div class="section-head warehouse-head">
+      <div>
+        <h3>倉庫圖</h3>
+        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可插入格子或刪除格子。</span>
+      </div>
+    </div>
+
+    <div class="glass panel warehouse-toolbar-panel">
+      <div class="search-row warehouse-search-toolbar">
+        <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
+        <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
+        <button class="ghost-btn" type="button" onclick="renderWarehouse(true)">清除搜尋</button>
+      </div>
+
+      <div class="query-bar warehouse-meta-bar">
+        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" onclick="toggleWarehouseUnplacedHighlight()">未入倉：0件</span>
+        <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
+        <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
+        <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
+        <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
+      </div>
+
+      <div class="warehouse-zone-nav">
+        <button id="zone-switch-A" class="chip zone-switch active" type="button" onclick="setWarehouseZone('A')">A 區</button>
+        <button id="zone-switch-B" class="chip zone-switch" type="button" onclick="setWarehouseZone('B')">B 區</button>
+        <button id="zone-switch-ALL" class="chip zone-switch" type="button" onclick="setWarehouseZone('ALL')">全部</button>
+      </div>
+    </div>
+
+    <div id="warehouse-search-results" class="search-results hidden"></div>
+    <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
+    <div id="warehouse-detail-panel" class="glass panel hidden"></div>
+
+    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout">
+      <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
+        <div class="zone-titlebar">
+          <div class="zone-title">A 區</div>
+          <div class="small-note" id="zone-A-count-note">動態格數</div>
+        </div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
+          <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
+        </div>
+      </div>
+
+      <div class="zone-card full-zone warehouse-zone-card" id="zone-B">
+        <div class="zone-titlebar">
+          <div class="zone-title">B 區</div>
+          <div class="small-note" id="zone-B-count-note">動態格數</div>
+        </div>
+        <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
+          <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <section class="subsection" id="customers-section" {% if module_key != 'customers' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>客戶資料</h3>
+      <span class="muted">可手動編輯名稱、電話、地址、特殊要求、常用材質、常用尺寸</span>
+    </div>
+    <div class="customer-editor">
+      <div class="customer-detail glass">
+        <label class="field-label">客戶名稱</label>
+        <input class="text-input" id="cust-name">
+        <label class="field-label">電話</label>
+        <input class="text-input" id="cust-phone">
+        <label class="field-label">地址</label>
+        <input class="text-input" id="cust-address">
+        <label class="field-label">特殊要求</label>
+        <textarea class="text-area small" id="cust-notes"></textarea>
+        <label class="field-label">常用材質：</label>
+        <div class="text-input readonly-field editable-field" id="cust-common-materials" contenteditable="true" data-placeholder="尚未建立">尚未建立</div>
+        <label class="field-label">常用尺寸：</label>
+        <div class="text-input readonly-field editable-field" id="cust-common-sizes" contenteditable="true" data-placeholder="尚未建立">尚未建立</div>
+        <label class="field-label">區域</label>
+        <select id="cust-region" class="text-input">
+          <option>北區</option><option>中區</option><option>南區</option>
+        </select>
+        <button class="primary-btn" onclick="saveCustomer()">儲存客戶</button>
+      </div>
+      <div class="customer-board">
+        <div class="customer-search-row">
+          <input id="customer-search" class="text-input" placeholder="搜尋客戶">
+          <button class="primary-btn" onclick="renderCustomers()">搜尋</button>
+          <button class="ghost-btn" onclick="openArchivedCustomersModal()">封存客戶</button>
+        </div>
+        <div class="category-grid">
+          <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="customers-north"></div></div>
+          <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="customers-center"></div></div>
+          <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="customers-south"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  
+  <section class="subsection" id="todos-section" {% if module_key != 'todos' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>代辦事項</h3>
+      <span class="muted">可拍照 / 上傳相簿圖片，依日期排序，今天到期置頂，完成後移到已完成區</span>
+    </div>
+    <div class="glass panel todo-panel">
+      <div class="upload-row tight-row todo-upload-row">
+        <button class="primary-btn" onclick="openTodoAlbumPicker()">上傳檔案</button>
+        <button class="ghost-btn" onclick="openTodoCameraPicker()">拍照</button>
+      </div>
+      <input id="todo-image-input" class="hidden" type="file" accept="image/*" multiple>
+      <input id="todo-camera-input" class="hidden" type="file" accept="image/*" capture="environment" multiple>
+      <div id="todo-selected-preview" class="todo-selected-preview hidden"></div>
+      <label class="field-label">日期</label>
+      <input id="todo-date" class="text-input" type="date">
+      <label class="field-label">備忘內容</label>
+      <textarea id="todo-note" class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea>
+      <div class="btn-row">
+        <button class="primary-btn" id="todo-save-btn" onclick="saveTodoItem()">新增代辦</button>
+        <button class="ghost-btn" onclick="clearTodoForm()">清空</button>
+      </div>
+    </div>
+    <div id="todo-list" class="todo-list"></div>
+  </section>
+
+  <section class="subsection" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>訂單清單</h3>
+      <span class="muted">可直接加入總單</span>
+    </div>
+    <div id="orders-list" class="card-list"></div>
+  </section>
+
+  <section class="subsection" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %}>
+    <div class="section-head">
+      <h3>總單清單</h3>
+    </div>
+    <div id="master-list" class="card-list"></div>
+  </section>
+
+  <input id="selected-item-json" type="hidden">
+  <div id="warehouse-modal" class="modal hidden">
+    <div class="modal-card glass">
+      <div class="modal-head">
+        <div class="section-title">格位編輯</div>
+        <button class="icon-btn" onclick="closeWarehouseModal()">✕</button>
+      </div>
+      <div id="warehouse-modal-meta" class="muted"></div>
+      <label class="field-label">搜尋已錄入商品</label>
+      <input id="warehouse-item-search" class="text-input" placeholder="輸入 113 直接篩選">
+      <!-- FIX88：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
+      <div class="yx83-legacy-warehouse-controls" style="display:none" aria-hidden="true">
+        <label class="field-label">加入商品</label>
+        <select id="warehouse-item-select" class="text-input"></select>
+        <label class="field-label">加入數量</label>
+        <input id="warehouse-add-qty" class="text-input" type="number" min="1" value="1">
+        <div id="warehouse-recent-slots" class="chip-list"></div>
+      </div>
+      <label class="field-label">格位備註</label>
+      <textarea id="warehouse-note" class="text-area small"></textarea>
+      <div id="warehouse-cell-items" class="chip-list"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
