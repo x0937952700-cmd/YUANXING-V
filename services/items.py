@@ -9,6 +9,29 @@ TABLES = {
 }
 
 
+def customer_match_key(name: str) -> str:
+    """Normalize customer display names for matching old master-order rows."""
+    import re
+    v = (name or '').strip()
+    v = re.sub(r'\s+', ' ', v)
+    v = re.sub(r'(\s+|^)(CNF|FOB|FOB代|FOB代付)(\s+|$)', ' ', v, flags=re.I).strip()
+    return re.sub(r'\s+', '', v).lower()
+
+
+def is_same_customer(a: str, b: str) -> bool:
+    a0 = (a or '').strip()
+    b0 = (b or '').strip()
+    if not a0 or not b0:
+        return False
+    if a0 == b0:
+        return True
+    ak = customer_match_key(a0)
+    bk = customer_match_key(b0)
+    if ak and bk and (ak == bk or ak.startswith(bk) or bk.startswith(ak)):
+        return True
+    return a0.startswith(b0 + ' ') or b0.startswith(a0 + ' ')
+
+
 def normalize_table(source: str) -> str:
     table = TABLES.get(source)
     if not table:
@@ -61,10 +84,12 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
     table = normalize_table(table)
     where = []
     params = []
-    if customer_uid:
+    filter_customer_name = (customer_name or '').strip()
+    # If both uid and name are supplied, prefer name for legacy data because old rows
+    # often have empty customer_uid. Ignore virtual frontend ids too.
+    if customer_uid and not filter_customer_name and not str(customer_uid).startswith('VIRTUAL-'):
         where.append('customer_uid=?')
         params.append(customer_uid)
-    filter_customer_name = (customer_name or '').strip()
     # 不直接用 SQL customer_name=?，因舊資料可能在 customer/client/name 欄位。
     # 先讀出來用 _repair_row_if_needed 合併欄位後再篩選，避免總單客戶點了沒商品。
     if zone in ('A', 'B'):
@@ -89,7 +114,7 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
     rows = [_repair_row_if_needed(table, row) for row in fetch_all(sql, params)]
     rows = [row for row in rows if row]
     if filter_customer_name:
-        rows = [row for row in rows if (row.get('customer_name') or '').strip() == filter_customer_name]
+        rows = [row for row in rows if is_same_customer(row.get('customer_name') or '', filter_customer_name)]
     # UI/business sort: material -> month -> height -> width -> length.
     # This keeps inventory/order/master lists from jumping by updated_at only.
     return sorted(rows, key=lambda row: product_sort_key(row.get('product_text') or '', row.get('material') or '', row.get('qty') or 0))

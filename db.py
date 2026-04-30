@@ -301,7 +301,7 @@ def _unlock_postgres_constraints(cur):
         _safe_pg_execute(cur, """
             SELECT conname
             FROM pg_constraint
-            WHERE conrelid = %s::regclass AND contype <> 'p'
+            WHERE conrelid = to_regclass(%s) AND contype <> 'p'
         """, (table,))
         try:
             constraints = cur.fetchall() or []
@@ -356,16 +356,16 @@ def _init_db_inner():
     schema = [
         '''CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
+            username TEXT DEFAULT '',
             password_hash TEXT NOT NULL,
             is_admin INTEGER DEFAULT 0,
             is_blocked INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS customer_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uid TEXT UNIQUE NOT NULL,
-            name TEXT UNIQUE NOT NULL,
+            uid TEXT DEFAULT '',
+            name TEXT DEFAULT '',
             phone TEXT DEFAULT '',
             address TEXT DEFAULT '',
             special_notes TEXT DEFAULT '',
@@ -374,56 +374,56 @@ def _init_db_inner():
             region TEXT DEFAULT '北區',
             trade_type TEXT DEFAULT '',
             is_archived INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_uid TEXT DEFAULT '',
             customer_name TEXT DEFAULT '',
-            product_text TEXT NOT NULL,
+            product_text TEXT DEFAULT '',
             material TEXT DEFAULT '',
             qty INTEGER DEFAULT 1,
             zone TEXT DEFAULT '',
             location TEXT DEFAULT '',
             operator TEXT DEFAULT '',
             note TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_uid TEXT DEFAULT '',
             customer_name TEXT DEFAULT '',
-            product_text TEXT NOT NULL,
+            product_text TEXT DEFAULT '',
             material TEXT DEFAULT '',
             qty INTEGER DEFAULT 1,
             zone TEXT DEFAULT '',
             location TEXT DEFAULT '',
             operator TEXT DEFAULT '',
             note TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS master_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_uid TEXT DEFAULT '',
             customer_name TEXT DEFAULT '',
-            product_text TEXT NOT NULL,
+            product_text TEXT DEFAULT '',
             material TEXT DEFAULT '',
             qty INTEGER DEFAULT 1,
             zone TEXT DEFAULT '',
             location TEXT DEFAULT '',
             operator TEXT DEFAULT '',
             note TEXT DEFAULT '',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS shipping_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_uid TEXT DEFAULT '',
             customer_name TEXT DEFAULT '',
-            product_text TEXT NOT NULL,
+            product_text TEXT DEFAULT '',
             material TEXT DEFAULT '',
             qty INTEGER DEFAULT 1,
             source TEXT DEFAULT '',
@@ -436,19 +436,18 @@ def _init_db_inner():
             weight_input REAL DEFAULT 0,
             total_weight REAL DEFAULT 0,
             operator TEXT DEFAULT '',
-            shipped_at TEXT NOT NULL,
+            shipped_at TEXT DEFAULT '',
             note TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS warehouse_cells (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            zone TEXT NOT NULL,
-            column_index INTEGER NOT NULL,
-            slot_type TEXT NOT NULL DEFAULT 'direct',
-            slot_number INTEGER NOT NULL,
+            zone TEXT DEFAULT 'A',
+            column_index INTEGER DEFAULT 1,
+            slot_type TEXT DEFAULT 'direct',
+            slot_number INTEGER DEFAULT 1,
             items_json TEXT DEFAULT '[]',
             note TEXT DEFAULT '',
-            updated_at TEXT NOT NULL,
-            UNIQUE(zone, column_index, slot_number)
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS today_changes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -462,35 +461,35 @@ def _init_db_inner():
             operator TEXT DEFAULT '',
             detail_json TEXT DEFAULT '{}',
             is_read INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS audit_trails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT DEFAULT '',
-            action_type TEXT NOT NULL,
-            entity_type TEXT NOT NULL,
+            action_type TEXT DEFAULT '',
+            entity_type TEXT DEFAULT '',
             entity_key TEXT DEFAULT '',
             before_json TEXT DEFAULT '{}',
             after_json TEXT DEFAULT '{}',
-            created_at TEXT NOT NULL
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS errors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT DEFAULT '',
             message TEXT DEFAULT '',
-            created_at TEXT NOT NULL
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS corrections (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            wrong_text TEXT UNIQUE NOT NULL,
-            correct_text TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            wrong_text TEXT DEFAULT '',
+            correct_text TEXT DEFAULT '',
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS customer_aliases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_uid TEXT DEFAULT '',
-            alias TEXT UNIQUE NOT NULL,
-            created_at TEXT NOT NULL
+            alias TEXT DEFAULT '',
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS warehouse_recent_slots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -501,18 +500,18 @@ def _init_db_inner():
         )''',
         '''CREATE TABLE IF NOT EXISTS submit_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            request_key TEXT UNIQUE NOT NULL,
-            created_at TEXT NOT NULL
+            request_key TEXT DEFAULT '',
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS todo_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
+            title TEXT DEFAULT '',
             due_date TEXT DEFAULT '',
             image_path TEXT DEFAULT '',
             is_done INTEGER DEFAULT 0,
             sort_order INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
@@ -520,23 +519,23 @@ def _init_db_inner():
         )''',
         '''CREATE TABLE IF NOT EXISTS image_hashes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            image_hash TEXT UNIQUE NOT NULL,
-            created_at TEXT NOT NULL
+            image_hash TEXT DEFAULT '',
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS backups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            filename TEXT DEFAULT '',
+            created_at TEXT DEFAULT ''
         )''',
         '''CREATE TABLE IF NOT EXISTS undo_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT DEFAULT '',
-            action_type TEXT NOT NULL,
-            entity_type TEXT NOT NULL,
+            action_type TEXT DEFAULT '',
+            entity_type TEXT DEFAULT '',
             entity_key TEXT DEFAULT '',
             undo_json TEXT DEFAULT '{}',
             is_used INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
+            created_at TEXT DEFAULT ''
         )''',
     ]
     with db_cursor(commit=True) as cur:

@@ -22,7 +22,7 @@ import db as db_module
 from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, DATABASE_URL, masked_database_url
 from services.products import parse_product_text, normalize_product_text, total_qty_from_text
 from services.customers import ensure_customer, customer_suggestions, find_customer_by_uid_or_name, VALID_REGIONS
-from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty
+from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty, is_same_customer
 from services.shipping import build_preview, confirm_shipping
 from services.warehouse import list_cells, update_cell, add_slot, remove_slot, placed_qty_map, available_items_from_rows, move_front, get_cell, save_undo, undo_last, find_locations
 from services.audit import audit, today
@@ -368,37 +368,52 @@ def api_parse_product_post():
     return ok(items=parse_product_text(text), normalized_text=normalize_product_text(text), qty=total_qty_from_text(text))
 
 
-def _attach_customer_counts(rows):
-    """Fast customer counts without N+1 SQL.
+def _find_customer_row_for_group(group, by_uid, rows):
+    """Match item table groups back to a customer row, including legacy names.
 
-    Older builds queried orders/master_orders once per customer; with many customers
-    this made every customer/order/master page feel stuck. This version aggregates
-    each table once and attaches counts in memory.
+    Old master_orders often store trade type in customer_name, e.g. 山益 CNF,
+    while the customer profile or FIX139 UI may use 山益. Exact matching makes
+    total rows look empty, so we match uid first, then tolerant name matching.
     """
+    if group.get('customer_uid') and group.get('customer_uid') in by_uid:
+        return by_uid[group.get('customer_uid')]
+    gname = group.get('customer_name') or ''
+    for row in rows:
+        if is_same_customer(row.get('name') or '', gname):
+            return row
+    return None
+
+
+def _attach_customer_counts(rows):
+    """Attach order/master counts in the shape old FIX UI expects."""
     rows = [dict(r) for r in (rows or [])]
-    by_uid, by_name = {}, {}
+    by_uid = {}
     for row in rows:
         row['total_qty'] = 0
         row['total_rows'] = 0
+        row['order_qty'] = 0
+        row['order_rows'] = 0
+        row['master_qty'] = 0
+        row['master_rows'] = 0
+        row['relation_counts'] = {'order_qty': 0, 'order_rows': 0, 'master_qty': 0, 'master_rows': 0}
         if row.get('uid'):
             by_uid[row.get('uid')] = row
-        if row.get('name'):
-            by_name[row.get('name')] = row
     try:
-        for table in ('orders', 'master_orders'):
+        for table, prefix in (('orders', 'order'), ('master_orders', 'master')):
             for r in fetch_all(f"""SELECT customer_uid, customer_name, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum
                               FROM {table}
                               GROUP BY customer_uid, customer_name"""):
-                row = None
-                if r.get('customer_uid'):
-                    row = by_uid.get(r.get('customer_uid'))
-                if row is None and r.get('customer_name'):
-                    row = by_name.get(r.get('customer_name'))
+                row = _find_customer_row_for_group(r, by_uid, rows)
                 if row is not None:
-                    row['total_rows'] = int(row.get('total_rows') or 0) + int(r.get('rows_count') or 0)
-                    row['total_qty'] = int(row.get('total_qty') or 0) + int(r.get('qty_sum') or 0)
+                    rows_count = int(r.get('rows_count') or 0)
+                    qty_sum = int(r.get('qty_sum') or 0)
+                    row[f'{prefix}_rows'] = int(row.get(f'{prefix}_rows') or 0) + rows_count
+                    row[f'{prefix}_qty'] = int(row.get(f'{prefix}_qty') or 0) + qty_sum
+                    row['total_rows'] = int(row.get('total_rows') or 0) + rows_count
+                    row['total_qty'] = int(row.get('total_qty') or 0) + qty_sum
+                    row['relation_counts'][f'{prefix}_rows'] = row[f'{prefix}_rows']
+                    row['relation_counts'][f'{prefix}_qty'] = row[f'{prefix}_qty']
     except Exception:
-        # Counts are helpful, but must never block the page.
         pass
     return rows
 
