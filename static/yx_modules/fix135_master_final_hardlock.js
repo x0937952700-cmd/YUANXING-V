@@ -1,7 +1,7 @@
 /* FIX135 最終母版保險鎖：最後載入，重新接管新版畫面與舊版入口，不刪功能 */
 (function(){
   'use strict';
-  const V = 'fix138-final-master-warehouse-ship-hardlock';
+  const V = 'fix137-undo-layout-warehouse-master-hardlock';
   const YX = window.YXHardLock;
   const $ = id => document.getElementById(id);
   function moduleKey(){

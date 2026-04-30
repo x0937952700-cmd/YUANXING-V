@@ -1,7 +1,7 @@
 /* FIX137：最後母版接管：還原上一步、修復空白按鈕、出貨客戶載入、倉庫拖拉 */
 (function(){
   'use strict';
-  const V='fix138-final-master-warehouse-ship-hardlock';
+  const V='fix137-undo-layout-warehouse-master-hardlock';
   const $=id=>document.getElementById(id);
   const YX=window.YXHardLock;
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();

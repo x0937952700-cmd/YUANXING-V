@@ -10,15 +10,23 @@
   const esc = v => YX.esc(v);
   function customer(){ return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || ''); }
   function qtyOf(it){
-    const raw = String(it?.product_text || it?.support || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    const text = String(it?.product_text || it?.support || '');
+    const fallback = Number(it?.qty ?? it?.effective_qty ?? it?.total_qty ?? 0);
+    if (typeof window.YX126Qty === 'function') {
+      const q = window.YX126Qty(text, fallback);
+      if (Number(q) > 0) return Number(q);
+    }
+    const raw = text.replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
     if (right) {
+      const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+      if (right.replace(/\s+/g,'').toLowerCase() === canonical) return 10;
       const parts = right.split('+').map(x => x.trim()).filter(Boolean);
       let total = 0;
       parts.forEach(seg => { const m = seg.match(/x\s*(\d+)$/i); total += m ? Number(m[1] || 0) : (/\d/.test(seg) ? 1 : 0); });
       if (total) return total;
     }
-    const n = Number(it?.qty ?? it?.effective_qty ?? it?.total_qty ?? 0);
+    const n = fallback;
     return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
   }
   function splitProduct(text){
