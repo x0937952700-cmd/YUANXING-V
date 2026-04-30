@@ -24,12 +24,17 @@ DEFAULT_RENDER_DATABASE_URL = (
 if os.environ.get('YX_USE_SQLITE', '0') == '1':
     DATABASE_URL = ''
 else:
-    DATABASE_URL = (
-        os.environ.get('DATABASE_URL')
-        or os.environ.get('WAREHOUSE_DATABASE_URL')
-        or DEFAULT_RENDER_DATABASE_URL
-        or ''
-    ).strip()
+    # 這版依照你指定的 Render PostgreSQL 直接鎖定；避免 Render 上還殘留舊 DATABASE_URL 時，
+    # 庫存/訂單/總單讀到另一個空資料庫。若未來要改資料庫，設 YX_FORCE_PROVIDED_DATABASE_URL=0。
+    if os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL', '1') != '0':
+        DATABASE_URL = DEFAULT_RENDER_DATABASE_URL
+    else:
+        DATABASE_URL = (
+            os.environ.get('DATABASE_URL')
+            or os.environ.get('WAREHOUSE_DATABASE_URL')
+            or DEFAULT_RENDER_DATABASE_URL
+            or ''
+        ).strip()
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
 # 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
 # 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
@@ -594,6 +599,43 @@ def _copy_legacy_master_order_table(cur):
         ))
 
 
+
+
+def _copy_legacy_customers_table(cur):
+    """部分舊版用 customers / clients 表存客戶；新版統一 customer_profiles。"""
+    if not _table_exists(cur, 'customer_profiles'):
+        return
+    legacy_table = 'customers' if _table_exists(cur, 'customers') else ('clients' if _table_exists(cur, 'clients') else '')
+    if not legacy_table:
+        return
+    cols = _select_existing(cur, legacy_table, [
+        'id','uid','customer_uid','name','customer_name','customer','client',
+        'phone','tel','address','special_notes','note','common_materials','common_sizes',
+        'region','area','trade_type','type','is_archived','created_at','updated_at'
+    ])
+    if not cols:
+        return
+    cur.execute(_sql(f"SELECT {', '.join(cols)} FROM {legacy_table}"))
+    for row in cur.fetchall():
+        name = (_row_get(row,'name') or _row_get(row,'customer_name') or _row_get(row,'customer') or _row_get(row,'client') or '').strip()
+        if not name:
+            continue
+        uid = (_row_get(row,'uid') or _row_get(row,'customer_uid') or '').strip() or new_uid('CUST')
+        region = (_row_get(row,'region') or _row_get(row,'area') or '北區').strip()
+        if region not in ('北區','中區','南區'):
+            region = '北區'
+        cur.execute(_sql('SELECT uid FROM customer_profiles WHERE name=? OR uid=? LIMIT 1'), (name, uid))
+        if cur.fetchone():
+            continue
+        t = _row_get(row,'updated_at') or _row_get(row,'created_at') or now_iso()
+        cur.execute(_sql("""INSERT INTO customer_profiles(uid,name,phone,address,special_notes,common_materials,common_sizes,region,trade_type,is_archived,created_at,updated_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"""), (
+            uid, name, _row_get(row,'phone') or _row_get(row,'tel') or '', _row_get(row,'address') or '',
+            _row_get(row,'special_notes') or _row_get(row,'note') or '', _row_get(row,'common_materials') or '',
+            _row_get(row,'common_sizes') or '', region, _row_get(row,'trade_type') or _row_get(row,'type') or '',
+            _to_int(_row_get(row,'is_archived'),0), t, t
+        ))
+
 def _ensure_customer_profiles_from_items(cur):
     """從庫存/訂單/總單/出貨舊資料反建客戶資料與 customer_uid。"""
     if not _table_exists(cur, 'customer_profiles'):
@@ -625,6 +667,7 @@ def _ensure_customer_profiles_from_items(cur):
 
 
 def _backfill_legacy_data_with_cursor(cur):
+    _copy_legacy_customers_table(cur)
     _copy_legacy_master_order_table(cur)
     for table in ('inventory', 'orders', 'master_orders'):
         _backfill_legacy_item_table(cur, table)

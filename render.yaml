@@ -18,5 +18,7 @@ services:
         value: "require"
       - key: ENABLE_SOCKETIO
         value: "0"
+      - key: YX_FORCE_PROVIDED_DATABASE_URL
+        value: "1"
       - key: DATABASE_URL
-        sync: false
+        value: postgresql://warehouse_ocr_d_user:5xOpnPjCU02QZdlMnICbRQOOKSRTyR3o@dpg-d7h1lumgvqtc73es1mjg-a.oregon-postgres.render.com/warehouse_ocr_d

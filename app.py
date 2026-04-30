@@ -1423,10 +1423,12 @@ def health_page():
             'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
             'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
             'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
+            'customer_profiles': (fetch_one('SELECT COUNT(*) AS c FROM customer_profiles') or {}).get('c', 0),
+            'today_changes': (fetch_one('SELECT COUNT(*) AS c FROM today_changes') or {}).get('c', 0),
         }
     except Exception as exc:
         counts = {'error': str(exc)}
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), counts=counts, socketio_enabled=bool(socketio))
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0', counts=counts, socketio_enabled=bool(socketio))
 
 
 @app.get('/api/health')
@@ -1440,15 +1442,34 @@ def api_health():
             'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
             'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
             'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
+            'customer_profiles': (fetch_one('SELECT COUNT(*) AS c FROM customer_profiles') or {}).get('c', 0),
+            'today_changes': (fetch_one('SELECT COUNT(*) AS c FROM today_changes') or {}).get('c', 0),
         }
     except Exception as exc:
         counts = {'error': str(exc)}
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), counts=counts, socketio_enabled=bool(socketio))
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0', counts=counts, socketio_enabled=bool(socketio))
 
 
 @app.get('/api/db-status')
 def api_db_status():
     return api_health()
+
+
+@app.get('/api/db-samples')
+def api_db_samples():
+    """部署後檢查正式 PostgreSQL 是否真的有資料。"""
+    try:
+        ensure_db_ready()
+        return ok(
+            use_postgres=using_postgres(),
+            database=masked_database_url(),
+            inventory=fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM inventory ORDER BY id DESC LIMIT 5'),
+            orders=fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM orders ORDER BY id DESC LIMIT 5'),
+            master_orders=fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM master_orders ORDER BY id DESC LIMIT 5'),
+            customers=fetch_all('SELECT uid,name,region,total_qty FROM (SELECT uid,name,region,0 AS total_qty FROM customer_profiles) x ORDER BY name LIMIT 10')
+        )
+    except Exception as exc:
+        return fail(exc, 500)
 
 
 if __name__ == '__main__':
