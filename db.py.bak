@@ -87,10 +87,6 @@ class _PooledPgConn:
         return self._conn.rollback()
     def close(self):
         try:
-            try:
-                self._conn.rollback()
-            except Exception:
-                pass
             self._pool.putconn(self._conn)
         except Exception:
             try:
@@ -110,16 +106,9 @@ def _get_pg_conn_from_pool():
             PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
-    try:
-        conn = PG_POOL.getconn()
-        conn.autocommit = True
-        return _PooledPgConn(PG_POOL, conn)
-    except Exception as exc:
-        if "exhausted" in str(exc).lower() or "connection pool" in str(exc).lower():
-            conn = psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
-            conn.autocommit = True
-            return conn
-        raise
+    conn = PG_POOL.getconn()
+    conn.autocommit = True
+    return _PooledPgConn(PG_POOL, conn)
 
 def get_conn():
     global USE_POSTGRES

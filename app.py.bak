@@ -1,5 +1,7 @@
 import os
 import shutil
+import threading
+import time
 from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,7 +22,7 @@ import db as db_module
 from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, DATABASE_URL, masked_database_url
 from services.products import parse_product_text, normalize_product_text, total_qty_from_text
 from services.customers import ensure_customer, customer_suggestions, find_customer_by_uid_or_name, VALID_REGIONS
-from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty
+from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty, is_same_customer
 from services.shipping import build_preview, confirm_shipping
 from services.warehouse import list_cells, update_cell, add_slot, remove_slot, placed_qty_map, available_items_from_rows, move_front, get_cell, save_undo, undo_last, find_locations
 from services.audit import audit, today
@@ -34,37 +36,56 @@ app.config['JSON_AS_ASCII'] = False
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 16 * 1024 * 1024))
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')) if SocketIO else None
 STARTUP_DB_ERROR = None
+DB_INITIALIZED = False
+LAST_DB_INIT_ATTEMPT = 0.0
+DB_INIT_RETRY_SECONDS = int(os.environ.get('YX_DB_INIT_RETRY_SECONDS', '15'))
 # Ensure local folders exist before backup/upload endpoints use them.
 (Path(app.root_path) / 'uploads').mkdir(parents=True, exist_ok=True)
 (Path(app.root_path) / 'backups').mkdir(parents=True, exist_ok=True)
 
-try:
-    init_db()
-except Exception as exc:
-    # Render 啟動時絕對不要因資料庫舊欄位 / 暫時連線問題直接 Exit 1。
-    # 首頁可先打開，/api/health 會顯示實際錯誤，登入或操作時也會回傳錯誤卡片。
-    STARTUP_DB_ERROR = str(exc)
-    print('YUANXING_DB_INIT_ERROR:', STARTUP_DB_ERROR, flush=True)
+# 不在 gunicorn import app 時直接跑完整資料庫 migration。
+# 舊版 502 的主因是啟動階段就連 PostgreSQL + 回填舊資料，Render 在服務尚未啟動前就被卡住。
+# 這版改成：頁面先秒開；API 第一次需要資料時才初始化 DB。
+if os.environ.get('YX_INIT_DB_ON_STARTUP', '0') == '1':
+    try:
+        init_db()
+        DB_INITIALIZED = True
+    except Exception as exc:
+        STARTUP_DB_ERROR = str(exc)
+        print('YUANXING_DB_INIT_ERROR:', STARTUP_DB_ERROR, flush=True)
 
 def emit_update(scope='all', payload=None):
     if socketio:
         socketio.emit('update', {'scope': scope, 'payload': payload or {}, 'at': now_iso()})
 
 
-def ensure_db_ready():
-    global STARTUP_DB_ERROR
-    if STARTUP_DB_ERROR:
-        try:
-            init_db()
-            STARTUP_DB_ERROR = None
-        except Exception as exc:
-            STARTUP_DB_ERROR = str(exc)
-            raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
+def ensure_db_ready(force=False):
+    global STARTUP_DB_ERROR, DB_INITIALIZED, LAST_DB_INIT_ATTEMPT
+    if DB_INITIALIZED and not force:
+        return
+    import time
+    now = time.time()
+    if STARTUP_DB_ERROR and not force and (now - LAST_DB_INIT_ATTEMPT) < DB_INIT_RETRY_SECONDS:
+        raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
+    LAST_DB_INIT_ATTEMPT = now
+    try:
+        init_db()
+        if force:
+            try:
+                sync_customers_from_item_tables()
+            except Exception:
+                pass
+        STARTUP_DB_ERROR = None
+        DB_INITIALIZED = True
+    except Exception as exc:
+        STARTUP_DB_ERROR = str(exc)
+        DB_INITIALIZED = False
+        raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
 
 
 @app.before_request
 def _ensure_db_before_api():
-    if request.path.startswith('/api/') and request.path != '/api/health':
+    if request.path.startswith('/api/') and request.path not in ('/api/health', '/api/db-status'):
         ensure_db_ready()
 
 
@@ -133,6 +154,43 @@ def username():
     return session.get('username', '')
 
 
+def sync_customers_from_item_tables(limit_per_table: int = 500) -> dict:
+    """Bridge old item-table customer names into customer_profiles and customer_uid."""
+    created = 0
+    linked = 0
+    seen = set()
+    for table in ('master_orders', 'orders', 'inventory'):
+        try:
+            rows = fetch_all(f"""SELECT customer_name, customer_uid, COUNT(*) AS c
+                                 FROM {table}
+                                 WHERE COALESCE(customer_name,'')!=''
+                                 GROUP BY customer_name, customer_uid
+                                 ORDER BY MAX(id) DESC
+                                 LIMIT ?""", (limit_per_table,))
+        except Exception:
+            continue
+        for r in rows:
+            name = (r.get('customer_name') or '').strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            try:
+                prof = find_customer_by_uid_or_name(uid=(r.get('customer_uid') or ''), name=name)
+                if not prof:
+                    prof = ensure_customer(name, region='北區', trade_type='')
+                    created += 1
+                uid = (prof or {}).get('uid') or (r.get('customer_uid') or '')
+                if uid:
+                    execute(f"""UPDATE {table}
+                                SET customer_uid=?
+                                WHERE COALESCE(customer_name,'')=?
+                                  AND (customer_uid IS NULL OR customer_uid='')""", (uid, name))
+                    linked += 1
+            except Exception:
+                continue
+    return {'created': created, 'linked_groups': linked, 'scanned_customers': len(seen)}
+
+
 
 @app.get('/uploads/<path:filename>')
 def uploaded_file(filename):
@@ -152,17 +210,10 @@ AUTO_FIX101_UI = os.environ.get('YX_FIX101_UI_AUTO_LOGIN', '1') != '0'
 def _ensure_auto_user():
     if not AUTO_FIX101_UI:
         return
-    try:
-        ensure_db_ready()
-        name = ADMIN_NAME
-        user = fetch_one('SELECT * FROM users WHERE username=?', (name,))
-        if not user:
-            execute('INSERT INTO users(username,password_hash,is_admin,is_blocked,created_at) VALUES(?,?,?,?,?)',
-                    (name, generate_password_hash(os.environ.get('YX_DEFAULT_PASSWORD', '1234')), 1, 0, now_iso()))
-        if not session.get('username'):
-            session['username'] = name
-    except Exception as exc:
-        print('YX_FIX101_AUTO_LOGIN_ERROR:', exc, flush=True)
+    # 頁面顯示不應該等待資料庫；否則 PostgreSQL 慢或 migration 卡住時，首頁/功能頁會 502。
+    # API 寫入時仍會由 ensure_db_ready() 確保資料庫與 users 表存在。
+    if not session.get('username'):
+        session['username'] = ADMIN_NAME
 
 @app.before_request
 def _fix101_auto_login_before_request():
@@ -317,30 +368,139 @@ def api_parse_product_post():
     return ok(items=parse_product_text(text), normalized_text=normalize_product_text(text), qty=total_qty_from_text(text))
 
 
-def _attach_customer_counts(rows):
-    """Attach order/master totals. 件數直接用 product_text 重算，避免舊 DB 仍存 15 件。"""
+def _find_customer_row_for_group(group, by_uid, rows):
+    """Match item table groups back to a customer row, including legacy names.
+
+    Old master_orders often store trade type in customer_name, e.g. 山益 CNF,
+    while the customer profile or FIX139 UI may use 山益. Exact matching makes
+    total rows look empty, so we match uid first, then tolerant name matching.
+    """
+    if group.get('customer_uid') and group.get('customer_uid') in by_uid:
+        return by_uid[group.get('customer_uid')]
+    gname = group.get('customer_name') or ''
     for row in rows:
-        uid = row.get('uid') or ''
-        name = row.get('name') or ''
-        total_qty = 0
-        total_rows = 0
-        for table in ('orders', 'master_orders'):
-            items = fetch_all(f"""SELECT product_text, qty FROM {table}
-                                WHERE (customer_uid=? AND customer_uid!='') OR customer_name=?""", (uid, name))
-            total_rows += len(items)
-            for item in items:
-                total_qty += total_qty_from_text(item.get('product_text') or '') or int(item.get('qty') or 0)
-        row['total_qty'] = total_qty
-        row['total_rows'] = total_rows
+        if is_same_customer(row.get('name') or '', gname):
+            return row
+    return None
+
+
+def _attach_customer_counts(rows):
+    """Attach order/master counts in the shape old FIX UI expects."""
+    rows = [dict(r) for r in (rows or [])]
+    by_uid = {}
+    for row in rows:
+        row['total_qty'] = 0
+        row['total_rows'] = 0
+        row['order_qty'] = 0
+        row['order_rows'] = 0
+        row['master_qty'] = 0
+        row['master_rows'] = 0
+        row['relation_counts'] = {'order_qty': 0, 'order_rows': 0, 'master_qty': 0, 'master_rows': 0}
+        if row.get('uid'):
+            by_uid[row.get('uid')] = row
+    try:
+        for table, prefix in (('orders', 'order'), ('master_orders', 'master')):
+            for r in fetch_all(f"""SELECT customer_uid, customer_name, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum
+                              FROM {table}
+                              GROUP BY customer_uid, customer_name"""):
+                row = _find_customer_row_for_group(r, by_uid, rows)
+                if row is not None:
+                    rows_count = int(r.get('rows_count') or 0)
+                    qty_sum = int(r.get('qty_sum') or 0)
+                    row[f'{prefix}_rows'] = int(row.get(f'{prefix}_rows') or 0) + rows_count
+                    row[f'{prefix}_qty'] = int(row.get(f'{prefix}_qty') or 0) + qty_sum
+                    row['total_rows'] = int(row.get('total_rows') or 0) + rows_count
+                    row['total_qty'] = int(row.get('total_qty') or 0) + qty_sum
+                    row['relation_counts'][f'{prefix}_rows'] = row[f'{prefix}_rows']
+                    row['relation_counts'][f'{prefix}_qty'] = row[f'{prefix}_qty']
+    except Exception:
+        pass
     return rows
 
+
+
+@app.get('/api/region-customers')
+@require_login
+def api_region_customers():
+    """Fast customer list for orders/master pages.
+
+    Returns only grouped customer buttons first; product rows are loaded only
+    after clicking a customer. This avoids opening pages by downloading every
+    item row from PostgreSQL.
+    """
+    source = normalize_table(request.args.get('source') or 'master_orders')
+    try:
+        profiles = fetch_all('SELECT uid,name,region,trade_type FROM customer_profiles WHERE is_archived=0')
+        by_uid = {r.get('uid'): r for r in profiles if r.get('uid')}
+        by_name = {r.get('name'): r for r in profiles if r.get('name')}
+        groups = fetch_all(f"""SELECT customer_uid, customer_name, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum
+                            FROM {source}
+                            WHERE COALESCE(customer_name,'')!='' OR COALESCE(customer_uid,'')!=''
+                            GROUP BY customer_uid, customer_name
+                            ORDER BY customer_name""")
+        items = []
+        for g in groups:
+            p = by_uid.get(g.get('customer_uid') or '') or by_name.get(g.get('customer_name') or '') or {}
+            name = p.get('name') or g.get('customer_name') or '未指定客戶'
+            items.append({
+                'uid': p.get('uid') or g.get('customer_uid') or '',
+                'name': name,
+                'region': p.get('region') or '北區',
+                'trade_type': p.get('trade_type') or '',
+                'total_qty': int(g.get('qty_sum') or 0),
+                'total_rows': int(g.get('rows_count') or 0),
+                'source': source,
+            })
+        return ok(items=items)
+    except Exception as exc:
+        return fail(exc, 500)
 
 @app.get('/api/customers')
 @require_login
 def api_customers():
     archived = request.args.get('archived') == '1'
+    if not archived and request.args.get('sync', '1') != '0':
+        try:
+            sync_customers_from_item_tables(limit_per_table=300)
+        except Exception:
+            pass
     rows = fetch_all('SELECT * FROM customer_profiles WHERE is_archived=? ORDER BY region, name', (1 if archived else 0,))
+    if not archived:
+        seen = {str(r.get('name') or '') for r in rows}
+        extras = []
+        try:
+            for table in ('master_orders', 'orders'):
+                for g in fetch_all(f"""SELECT customer_name, customer_uid, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum
+                                      FROM {table}
+                                      WHERE COALESCE(customer_name,'')!=''
+                                      GROUP BY customer_name, customer_uid
+                                      ORDER BY customer_name"""):
+                    name = (g.get('customer_name') or '').strip()
+                    if not name or name in seen:
+                        continue
+                    seen.add(name)
+                    extras.append({
+                        'uid': g.get('customer_uid') or ('VIRTUAL-' + str(abs(hash(name)))),
+                        'name': name,
+                        'region': '北區',
+                        'trade_type': '',
+                        'phone': '',
+                        'address': '',
+                        'special_notes': '',
+                        'common_materials': '',
+                        'common_sizes': '',
+                        'is_archived': 0,
+                    })
+        except Exception:
+            pass
+        rows = list(rows) + extras
     return ok(items=_attach_customer_counts(rows))
+
+
+@app.post('/api/customers/sync-from-items')
+@require_login
+def api_customers_sync_from_items():
+    return ok(item=sync_customers_from_item_tables(limit_per_table=1000), message='已同步總單/訂單/庫存客戶到客戶資料')
 
 
 @app.get('/api/customers/archived')
@@ -466,7 +626,7 @@ def register_item_routes(prefix, table_name):
     @app.get(prefix, endpoint=f'{table_name}_list')
     @require_login
     def list_route(table=table_name):
-        return ok(items=list_items(table, request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
+        return ok(items=list_items(table, request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search',''), request.args.get('limit'), request.args.get('offset', 0)))
 
     @app.get(prefix + '/<int:item_id>', endpoint=f'{table_name}_get')
     @require_login
@@ -528,7 +688,7 @@ register_item_routes('/api/master_orders', 'master_orders')
 @app.get('/api/order')
 @require_login
 def api_order_list_compat():
-    return ok(items=list_items('orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
+    return ok(items=list_items('orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search',''), request.args.get('limit'), request.args.get('offset',0)))
 
 
 @app.post('/api/order')
@@ -579,7 +739,7 @@ def api_order_delete_compat(item_id):
 @app.get('/api/master_order')
 @require_login
 def api_master_order_list_compat():
-    return ok(items=list_items('master_orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
+    return ok(items=list_items('master_orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search',''), request.args.get('limit'), request.args.get('offset',0)))
 
 
 @app.post('/api/master_order')
@@ -1414,40 +1574,47 @@ def api_backups_list():
 
 @app.get('/health')
 def health_page():
-    counts = {}
-    try:
-        ensure_db_ready()
-        counts = {
-            'inventory': (fetch_one('SELECT COUNT(*) AS c FROM inventory') or {}).get('c', 0),
-            'orders': (fetch_one('SELECT COUNT(*) AS c FROM orders') or {}).get('c', 0),
-            'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
-            'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
-            'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
-            'customer_profiles': (fetch_one('SELECT COUNT(*) AS c FROM customer_profiles') or {}).get('c', 0),
-            'today_changes': (fetch_one('SELECT COUNT(*) AS c FROM today_changes') or {}).get('c', 0),
-        }
-    except Exception as exc:
-        counts = {'error': str(exc)}
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0', counts=counts, socketio_enabled=bool(socketio))
+    # Render health check 要快，不能在這裡跑完整 migration 或大量 count。
+    return ok(
+        status='ok' if not STARTUP_DB_ERROR else 'degraded',
+        db_initialized=DB_INITIALIZED,
+        db_error=STARTUP_DB_ERROR or '',
+        use_postgres=using_postgres(),
+        database=masked_database_url(),
+        forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0',
+        socketio_enabled=bool(socketio)
+    )
 
 
 @app.get('/api/health')
 def api_health():
     counts = {}
+    samples = {}
     try:
-        ensure_db_ready()
-        counts = {
-            'inventory': (fetch_one('SELECT COUNT(*) AS c FROM inventory') or {}).get('c', 0),
-            'orders': (fetch_one('SELECT COUNT(*) AS c FROM orders') or {}).get('c', 0),
-            'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
-            'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
-            'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
-            'customer_profiles': (fetch_one('SELECT COUNT(*) AS c FROM customer_profiles') or {}).get('c', 0),
-            'today_changes': (fetch_one('SELECT COUNT(*) AS c FROM today_changes') or {}).get('c', 0),
+        force = request.args.get('force') == '1'
+        ensure_db_ready(force=force)
+        bridge = sync_customers_from_item_tables() if force else {}
+        for table in ('inventory','orders','master_orders','shipping_records','warehouse_cells','customer_profiles','today_changes'):
+            counts[table] = (fetch_one(f'SELECT COUNT(*) AS c FROM {table}') or {}).get('c', 0)
+        samples = {
+            'inventory': fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM inventory ORDER BY id DESC LIMIT 3'),
+            'orders': fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM orders ORDER BY id DESC LIMIT 3'),
+            'master_orders': fetch_all('SELECT id,customer_name,material,product_text,qty,zone FROM master_orders ORDER BY id DESC LIMIT 3'),
         }
     except Exception as exc:
         counts = {'error': str(exc)}
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0', counts=counts, socketio_enabled=bool(socketio))
+    return ok(
+        status='ok' if not STARTUP_DB_ERROR else 'degraded',
+        db_initialized=DB_INITIALIZED,
+        db_error=STARTUP_DB_ERROR or '',
+        use_postgres=using_postgres(),
+        database=masked_database_url(),
+        forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0',
+        counts=counts,
+        customer_bridge=locals().get('bridge', {}),
+        samples=samples,
+        socketio_enabled=bool(socketio)
+    )
 
 
 @app.get('/api/db-status')
