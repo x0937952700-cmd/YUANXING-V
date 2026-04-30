@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="module-screen">
+  <div class="module-topbar">
+    <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
+    <div class="module-title">設定</div>
+    <div class="spacer"></div>
+  </div>
+
+  <div class="glass panel">
+    <div class="section-title">修改密碼</div>
+    <label class="field-label">舊密碼</label>
+    <input class="text-input" id="old-password" type="password">
+    <label class="field-label">新密碼</label>
+    <input class="text-input" id="new-password" type="password">
+    <label class="field-label">確認新密碼</label>
+    <input class="text-input" id="confirm-password" type="password">
+    <button class="primary-btn" onclick="changePassword()">儲存</button>
+    <div id="settings-msg" class="alert hidden"></div>
+  </div>
+  <!-- FIX113: OCR 模式說明區已依需求移除，保留後端原生 OCR 功能但不在設定頁顯示。 -->
+
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">快速還原</div>
+        <div class="muted">可還原你最近一次建立 / 倉庫搬移。</div>
+      </div>
+      <button class="primary-btn" onclick="undoLastAction()">還原上一筆</button>
+    </div>
+    <div id="undo-msg" class="small-note">尚未執行還原。</div>
+  </div>
+
+<div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">報表匯出</div>
+        <div class="muted">快速下載 Excel 報表。</div>
+      </div>
+    </div>
+    <div class="btn-row compact">
+      <input class="text-input small" id="report-start" type="date">
+      <input class="text-input small" id="report-end" type="date">
+      <button class="ghost-btn" onclick="downloadReport('inventory')">庫存報表</button>
+      <button class="ghost-btn" onclick="downloadReport('shipping')">出貨報表</button>
+      <button class="ghost-btn" onclick="downloadReport('master_orders')">總單報表</button>
+      <button class="ghost-btn" onclick="downloadReport('unplaced')">未錄入報表</button>
+    </div>
+  </div>
+
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">差異紀錄</div>
+        <div class="muted">查看誰在什麼時間改了哪些資料。</div>
+      </div>
+      <button class="primary-btn" onclick="loadAuditTrails()">重新整理</button>
+    </div>
+    <div class="btn-row compact">
+      <input class="text-input small" id="audit-q" placeholder="搜尋關鍵字">
+      <input class="text-input small" id="audit-user" placeholder="操作人">
+      <input class="text-input small" id="audit-entity" placeholder="模組">
+      <input class="text-input small" id="audit-start" type="date">
+      <input class="text-input small" id="audit-end" type="date">
+    </div>
+    <div id="audit-trails-list" class="chip-list stacked-list"></div>
+  </div>
+
+  {% if is_admin %}
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">管理員功能</div>
+        <div class="muted">僅陳韋廷可查看管理名單並將註冊帳號加入黑名單，黑名單不可登入。</div>
+      </div>
+      <button class="primary-btn" onclick="loadAdminUsers()">重新整理名單</button>
+    </div>
+    <div id="admin-users" class="table-card"></div>
+  </div>
+
+
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">資料備份</div>
+        <div class="muted">可手動建立備份並查看最近備份清單。</div>
+      </div>
+      <button class="primary-btn" onclick="createBackup()">立即備份</button>
+    </div>
+    <div id="backup-panel" class="table-card">載入中...</div><div class="small-note">還原前請先下載備份保留一份。</div>
+  </div>
+  {% endif %}
+
+  <div class="glass panel">
+    <div class="section-title">帳號</div>
+    <button class="primary-btn full" onclick="logout()">登出</button>
+  </div>
+</div>
+{% endblock %}
