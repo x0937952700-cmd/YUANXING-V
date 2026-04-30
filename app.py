@@ -26,11 +26,37 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config['JSON_AS_ASCII'] = False
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')) if SocketIO else None
-init_db()
+_DB_READY = False
+_DB_ERROR = None
+
+def ensure_db_ready():
+    global _DB_READY, _DB_ERROR
+    if _DB_READY:
+        return True
+    try:
+        init_db()
+        _DB_READY = True
+        _DB_ERROR = None
+        return True
+    except Exception as exc:
+        _DB_ERROR = str(exc)
+        app.logger.exception('Database initialization failed')
+        return False
+
+@app.before_request
+def _lazy_init_db():
+    # Static files and health check should still respond even if the database is temporarily unavailable.
+    if request.path.startswith('/static') or request.path in ('/api/health',):
+        return None
+    ensure_db_ready()
+    return None
 
 def emit_update(scope='all', payload=None):
     if socketio:
-        socketio.emit('update', {'scope': scope, 'payload': payload or {}, 'at': now_iso()})
+        try:
+            socketio.emit('update', {'scope': scope, 'payload': payload or {}, 'at': now_iso()})
+        except Exception:
+            app.logger.exception('SocketIO emit failed')
 
 
 
@@ -137,7 +163,7 @@ def api_logout():
 @app.get('/api/session/config')
 def api_session():
     user = current_user()
-    return ok(user=user, app_name='沅興木業', clean_version='final_brand_pg_socket_backup')
+    return ok(user=user, app_name='沅興木業', clean_version='final_browser_safe_render')
 
 
 @app.post('/api/change_password')
@@ -1023,7 +1049,8 @@ def api_backups_list():
 
 @app.get('/api/health')
 def api_health():
-    return ok(status='ok', db_path=str(DB_PATH))
+    db_ok = ensure_db_ready()
+    return ok(status='ok', db_ok=db_ok, db_error=_DB_ERROR or '', db_path=str(DB_PATH), use_postgres=USE_POSTGRES)
 
 
 if __name__ == '__main__':

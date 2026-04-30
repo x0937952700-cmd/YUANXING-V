@@ -17,7 +17,7 @@
   <main id="app" class="app-shell">
     <section class="loading-card">系統載入中…</section>
   </main>
-  <script type="module" src="/static/js/main.js"></script>
-<script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/static/js/main.js?v=browser-safe-1"></script>
+  <script>if ("serviceWorker" in navigator) { navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister())).catch(()=>{}); } if (window.caches) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(()=>{}); }</script>
 </body>
 </html>

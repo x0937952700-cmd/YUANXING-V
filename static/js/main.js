@@ -13,14 +13,12 @@ installGlobalRouter();
   }
 })();
 
-if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/static/sw.js').catch(()=>{}); }
-
-
+// FINAL_BROWSER_SAFE: Service Worker and SocketIO client disabled on Render stable build.
+// Core actions still refresh their own page sections; this avoids Chrome RESULT_CODE_KILLED_BAD_MESSAGE.
 function setupRealtime(){
-  if(!window.io) return;
-  const socket = io();
-  socket.on('update', (msg) => {
-    if(window.YX && YX.refreshPartial){ YX.refreshPartial(msg.scope, msg.payload || {}); }
-  });
+  if(!state.user) return;
+  window.setInterval(() => {
+    if(window.YX && YX.refreshPartial){ YX.refreshPartial('today_changes', {}); }
+  }, 60000);
 }
 window.addEventListener('load', setupRealtime);

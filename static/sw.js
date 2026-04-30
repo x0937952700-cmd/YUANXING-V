@@ -1,3 +1,2 @@
 self.addEventListener('install', event => self.skipWaiting());
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', event => { /* network-first placeholder: avoids stale hardlock cache */ });
+self.addEventListener('activate', event => event.waitUntil(self.registration.unregister().then(() => self.clients.claim())));
