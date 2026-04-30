@@ -1,14 +1,14 @@
 services:
   - type: web
-    name: yuanxing
+    name: yuanxing-final-stable
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --config gunicorn.conf.py
-    healthCheckPath: /health
+    startCommand: gunicorn -k eventlet -w 1 app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.10
-      - key: WEB_CONCURRENCY
-        value: 1
-      - key: GUNICORN_TIMEOUT
-        value: 120
+        value: 3.11.11
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false

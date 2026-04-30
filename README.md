@@ -1,219 +1,98 @@
-# 沅興木業｜最終商用整合版 FIX114
+# 沅興木業｜乾淨重做系統 第四包
 
-本版是 **母版硬鎖整合版**。原則是：舊版沒有被指定修改的功能全部保留；這次有明確要求的地方一律由 FIX114 模組接管，避免舊函式、舊 timer、舊 MutationObserver 或舊版渲染流程把新版畫面蓋回去。
+這是依照《沅興木業乾淨重做完整需求規格書》做的第一包，重點不是把舊 FIX 檔繼續疊上去，而是建立一個乾淨、可繼續加功能的母版。
 
-版本號統一為：`fix114-master-hardlock`。
+## 第一包已完成
 
----
+- Flask + SQLite 乾淨後端，可直接啟動。
+- 單一前端母版：只有一套路由、一套 CSS、一套狀態管理。
+- 登入 / 第一次註冊，管理員固定為 `陳韋廷`。
+- 首頁 8 個功能入口：庫存、訂單、總單、出貨、出貨查詢、倉庫圖、客戶資料、代辦事項。
+- 庫存 / 訂單 / 總單基本 CRUD。
+- 客戶資料基本建立、編輯、封存。
+- 商品解析核心：符號標準化、底線承接、件數計算、材積公式。
+- 出貨流程：選商品 → 預覽 → 顯示材積 / 重量 / 扣除前後 → 確認扣除。
+- 倉庫圖：A/B 區、6 欄、格位顯示、插入 / 刪除空格、加入未錄入商品。
+- 今日異動：新增、出貨、刪除後立即消失、打開後已讀。
+- 設定：修改密碼、管理員使用者封鎖 / 解除封鎖、備份下載。
+- 代辦事項 CRUD。
+- Pytest 測試商品規則與主要 API 流程。
 
-## 這版修正重點
+## 第一包刻意不做的事
 
-### 1. 差異紀錄固定範圍
+這些留到下一包接上，避免第一包太大又變成舊版互蓋問題：
 
-設定頁的「差異紀錄」現在只顯示當天與下列模組有關的操作：
+- 出貨扣除時精準拆 RHS 每段支數，而不是先以 `qty` 欄位扣件數。
+- 倉庫拖拉 pointer 完整手勢與還原上一步。
+- 客戶長按完整操作表與拖拉換區。
+- PWA / APK 包裝。
+- PostgreSQL 完整切換。
 
-- 訂單
-- 總單
-- 庫存 / 進貨
-- 出貨
-- 倉庫圖
-
-以下舊雜訊不再顯示在差異紀錄中：
-
-- `customer_items`
-- `customer_profiles`
-- OCR 修正詞
-- 登入紀錄
-- 代辦事項
-- 其他舊版內部同步紀錄
-
-後端 `/api/audit-trails` 已改為預設只抓今天，並套用白名單篩選。匯出操作紀錄時也同步使用同一套篩選規則。
-
-### 2. 設定頁 OCR 模式區塊移除
-
-設定頁的「OCR 模式」說明區已移除。後端 OCR / 原生上傳 / 拍照辨識功能仍保留，只是不再在設定頁顯示這塊說明，避免畫面多出無用卡片。
-
-### 3. 管理員功能 500 修復
-
-`/api/admin/users` 已改成相容讀取：
-
-- 先執行 `init_db()` 補齊舊資料庫欄位
-- `list_users()` 失敗時改用安全 fallback 讀取
-- 即使舊資料庫缺欄位，也不再讓畫面直接顯示 `請求失敗：500`
-
-`/api/admin/block` 也加上錯誤保護，封鎖 / 解除封鎖後會重新載入名單。
-
-### 4. 庫存 / 訂單 / 總單清單固定新版
-
-新增 `static/yx_modules/product_actions_hardlock.js`，由母版最後載入並接管三個清單：
-
-- 庫存清單
-- 訂單清單
-- 總單清單
-
-固定功能：
-
-- 清單上方顯示新版統整表
-- 點選表格列會批量選取
-- 下方小卡會依選取內容即時篩選
-- 未選取時，下方小卡顯示目前清單全部商品
-- 庫存小卡固定有：編輯、刪除、加到訂單、加到總單
-- 訂單 / 總單小卡固定有：編輯、直接出貨、刪除
-
-### 5. 批量增加材質 / 批量刪除
-
-庫存、訂單、總單清單上方都新增批量工具列：
-
-- 全選目前清單
-- 搜尋商品 / 客戶 / 材質
-- 批量增加材質下拉式選單
-- 套用材質
-- 批量刪除
-
-批量材質與批量刪除仍使用原本後端 API，保留舊功能，但畫面由 FIX114 工具列統一接管。批量增加材質下拉式選單已加入 `尤佳利`，且下拉選單、套用材質、批量刪除固定靠右同一排。
-
-### 6. 北 / 中 / 南客戶列表固定新版
-
-新增 `static/yx_modules/customer_regions_hardlock.js`。
-
-新版顯示規則：
-
-- 客戶名稱在左側
-- `CNF` / `FOB` / `FOB代` 顯示成置中的標籤
-- `件 / 筆` 靠右
-- 不顯示右側箭頭
-- 各區客戶改成兩個兩個排列
-
-訂單頁只顯示有訂單的客戶；總單頁只顯示有總單的客戶。點選客戶後會立即刷新下方商品清單。若舊版客戶卡片再次渲染，母版會用新版客戶卡片覆蓋回來。
-
-### 7. 北 / 中 / 南客戶長按操作
-
-客戶卡片現在支援長按或右鍵開啟操作表：
-
-- 打開客戶商品
-- 編輯客戶
-- 移到北區
-- 移到中區
-- 移到南區
-- 刪除客戶
-
-操作完成後會立即重新載入客戶列表，並同步刷新商品清單，不需要手動重新整理。
-
-### 8. A / B 倉格子顯示固定
-
-倉庫格子顯示已固定為兩行，不再顯示 FOB / CNF / 尺寸 / 商品資訊。
-
-固定格式：
-
-```text
-1  立凡/永和/保固
-4+2+1          7件
-```
-
-顏色規則：
-
-- 客戶名稱：紅色
-- 支數加總與總件數：藍色
-- 未指定客戶：顯示 `庫存`
-- 格號只顯示數字，不顯示「第 X 格」
-
-舊版倉庫顯示函式若再次觸發，也會被 `warehouse_hardlock.js` 清理成新版格式；格號與客戶名稱固定同一行，客戶名稱只與格號空一格。
-
-### 9. 母版模組化硬鎖
-
-本版由 `templates/base.html` 最後載入以下模組：
-
-```text
-static/yx_modules/core_hardlock.js
-static/yx_modules/today_changes_hardlock.js
-static/yx_modules/warehouse_hardlock.js
-static/yx_modules/settings_audit_hardlock.js
-static/yx_modules/customer_regions_hardlock.js
-static/yx_modules/product_actions_hardlock.js
-static/yx_modules/master_integrator.js
-```
-
-`master_integrator.js` 會依目前頁面安裝需要的模組：
-
-- 今日異動 → 今日異動硬鎖
-- 倉庫圖 → 倉庫硬鎖
-- 訂單 / 總單 / 出貨 / 客戶 → 北中南客戶硬鎖
-- 庫存 / 訂單 / 總單 → 商品清單硬鎖
-- 設定 → 差異紀錄與管理員功能硬鎖
-
-這樣日後要改單一功能時，可以只改對應模組，再由母版統一整合，避免互相覆蓋。
-
-### 10. 今日異動未錄入倉庫圖長按刷新
-
-今日異動中的「未錄入倉庫圖」標籤 / 小卡支援長按刷新。
-
-- 點一下仍然是篩選未錄入倉庫圖
-- 長按會重新抓取未錄入倉庫圖資料
-- 不再主動重複刷新造成跳版或卡頓
-
----
-
-## 主要檔案
-
-```text
-app.py
-static/app.js
-static/style.css
-static/pwa.js
-static/service-worker.js
-static/manifest.webmanifest
-templates/base.html
-templates/settings.html
-static/yx_modules/core_hardlock.js
-static/yx_modules/today_changes_hardlock.js
-static/yx_modules/warehouse_hardlock.js
-static/yx_modules/settings_audit_hardlock.js
-static/yx_modules/customer_regions_hardlock.js
-static/yx_modules/product_actions_hardlock.js
-static/yx_modules/master_integrator.js
-```
-
----
-
-## Render 部署
-
-Start Command：
+## 本機啟動
 
 ```bash
-gunicorn app:app
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
 ```
 
-建議環境變數：
+開啟：`http://127.0.0.1:5000`
 
-```text
-SECRET_KEY=任意長字串
-DATABASE_URL=Render PostgreSQL 連線字串
-PYTHON_VERSION=3.11.10
+## Render 設定
+
+- Build Command：`pip install -r requirements.txt`
+- Start Command：`gunicorn app:app`
+- Python：`3.11.11`
+
+## 測試
+
+```bash
+pip install pytest
+pytest -q
 ```
 
-如果手機或瀏覽器仍看到舊畫面，請清除網站資料或重新安裝 PWA；本版快取版本已更新為 `fix114-master-hardlock`。
+## 下一包建議
 
----
+下一包應該加：
 
-## 本版驗證
+1. 出貨精準拆段扣除與合併確認。
+2. 倉庫 pointer 拖拉、前排、撤回上一步。
+3. 客戶長按 / 右鍵操作表、移區、封存列表還原。
+4. 今日異動滑動刪除與未錄入刷新細節。
 
-已檢查項目：
+## 第二包新增
 
-- JavaScript 語法檢查
-- 母版模組載入順序
-- PWA / Service Worker 版本號
-- 設定頁 OCR 模式區塊移除
-- 差異紀錄 API 篩選
-- 管理員名單相容讀取
-- 庫存 / 訂單 / 總單批量工具列與小卡篩選
-- 北中南客戶長按操作模組
-- A / B 倉格子新版顯示格式
+第二包加入出貨拆減、合併確認、倉庫拖拉前排、還原上一步、客戶長按操作表與未錄入倉庫圖扣除已上架數量。
 
----
+啟動方式同第一包：
 
-## 版本紀錄
+```bash
+pip install -r requirements.txt
+python app.py
+```
 
-- FIX111：開功能 / 返回主頁速度優化。
-- FIX112：README 統一、功能模組拆分、母版最後整合、今日異動標籤與小卡硬鎖。
-- FIX113：差異紀錄範圍硬鎖、設定頁 OCR 區塊移除、管理員 500 相容、商品清單批量材質 / 批量刪除、表格選取後小卡篩選、北中南客戶標籤與長按操作、A/B 倉格子顯示硬鎖。
-- FIX114：移除訂單 / 總單客戶箭頭、北中南客戶兩欄硬鎖、批量工具列三件套靠右同排、材質加入尤佳利、倉庫格號與客戶距離收緊、倉庫舊版渲染監控修復、今日異動未錄入倉庫圖長按刷新。
+預設 SQLite，部署 Render 時使用 `gunicorn app:app`。
+
+
+## 第三包新增
+
+第三包加入出貨頁北中南快速客戶卡、出貨預覽倉庫位置跳轉、倉庫格內單筆拖拉、今日異動手機滑動與批量刪除。
+
+## 第四包新增
+
+第四包以使用者最新刪減後的規格書為主，修正文件與程式規則，並補齊目前主線缺口：
+
+- 商品件數規則正式改為：`100x30x63=504x5+588+587+502+420+382+378+280+254+237+174` 算 15 件。
+- 出貨查詢增加 3 / 7 / 10 / 15 天與自訂日期篩選。
+- 設定頁補上 OCR 修正詞與客戶別名管理，但不加入任何舊 Google OCR 或 hardlock。
+- 今日異動與操作紀錄補上管理員批量刪除 API。
+- Clean version 更新為 step4。
+
+## Step5 更新
+
+- 客戶件數統計改後端回傳，減少客戶頁重算。
+- 客戶資料頁加入封存客戶還原。
+- 庫存 / 訂單 / 總單加入「編輯全部」批量更新。
+- 設定頁加入管理員 `.db` 備份還原。
+- Clean version 更新為 step5。
