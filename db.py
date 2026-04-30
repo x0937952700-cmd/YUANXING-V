@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 import uuid
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -39,8 +40,8 @@ else:
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
 PG_POOL = None
 PG_POOL_MIN = int(os.environ.get('YX_PG_POOL_MIN', '1'))
-PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '4'))
-PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '8000'))
+PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '12'))
+PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '3500'))
 # 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
 # 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
 ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '0') == '1'
@@ -87,6 +88,10 @@ class _PooledPgConn:
         return self._conn.rollback()
     def close(self):
         try:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
             self._pool.putconn(self._conn)
         except Exception:
             try:
@@ -102,13 +107,26 @@ def _get_pg_conn_from_pool():
         conn.autocommit = True
         return conn
     if PG_POOL is None:
-        PG_POOL = psycopg2.pool.SimpleConnectionPool(
+        PG_POOL = psycopg2.pool.ThreadedConnectionPool(
             PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
-    conn = PG_POOL.getconn()
-    conn.autocommit = True
-    return _PooledPgConn(PG_POOL, conn)
+    # 不再在 pool exhausted 時另外開新連線；那會把 Render PostgreSQL 打爆，最後 502。
+    # 改成短暫等待可用連線，仍失敗才拋錯，讓前端節流後重試。
+    last_exc = None
+    wait_until = time.time() + float(os.environ.get('YX_PG_POOL_WAIT_SECONDS', '4'))
+    while True:
+        try:
+            conn = PG_POOL.getconn()
+            conn.autocommit = True
+            return _PooledPgConn(PG_POOL, conn)
+        except Exception as exc:
+            last_exc = exc
+            text = str(exc).lower()
+            if ("exhausted" in text or "connection pool" in text) and time.time() < wait_until:
+                time.sleep(0.08)
+                continue
+            raise last_exc
 
 def get_conn():
     global USE_POSTGRES

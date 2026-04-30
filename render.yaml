@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120 --access-logfile - --error-logfile -
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile -
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
@@ -26,5 +26,13 @@ services:
         value: "0"
       - key: YX_FORCE_PROVIDED_DATABASE_URL
         value: "1"
+      - key: YX_PG_POOL_MIN
+        value: "1"
+      - key: YX_PG_POOL_MAX
+        value: "12"
+      - key: YX_PG_POOL_WAIT_SECONDS
+        value: "4"
+      - key: YX_PG_STATEMENT_TIMEOUT_MS
+        value: "3500"
       - key: DATABASE_URL
         value: postgresql://warehouse_ocr_d_user:5xOpnPjCU02QZdlMnICbRQOOKSRTyR3o@dpg-d7h1lumgvqtc73es1mjg-a.oregon-postgres.render.com/warehouse_ocr_d

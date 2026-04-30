@@ -1,46 +1,8 @@
-/* 沅興木業 PWA Service Worker - fix139-ui-pg-customer-bridge-v13 */
-const YX_PWA_VERSION='fix139-ui-pg-customer-bridge-v13';
+/* 沅興木業 PWA Service Worker - v17 pool/api dedupe */
+const YX_PWA_VERSION='v17-pool-api-dedupe';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
-const PRECACHE_ASSETS=[
-  '/static/manifest.webmanifest',
-  '/static/favicon.png',
-  '/static/style.css?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/ornate_label_hardlock.css?v=fix139-ui-pg-customer-bridge-v13',
-    '/static/yx_modules/fix135_master_final_hardlock.css?v=fix139-ui-pg-customer-bridge-v13',
-
-  '/static/yx_modules/fix136_label_text_repair.css?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.css?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix138_final_master_hardlock.css?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix139_readme_master_hardlock.css?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_assets/home_cloud_background.jpg?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/app.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/pwa.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/core_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/ornate_label_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/today_changes_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/warehouse_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/settings_audit_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/customer_regions_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/product_sort_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/product_actions_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/product_source_bridge_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/ship_picker_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/ship_text_validate_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/inline_edit_full_list_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/legacy_isolation_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/apple_ui_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-    '/static/yx_modules/fix135_master_final_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-
-  '/static/yx_modules/fix136_label_text_repair.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix138_final_master_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/yx_modules/fix139_readme_master_hardlock.js?v=fix139-ui-pg-customer-bridge-v13',
-  '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
-];
 self.addEventListener('install',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k))))
-    .then(()=>caches.open(STATIC_CACHE)).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k)))).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate',event=>{
   event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
@@ -58,12 +20,11 @@ self.addEventListener('fetch',event=>{
     event.respondWith(fetch(req,{cache:'no-store'}));
     return;
   }
-  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
+  if(url.pathname==='/' || url.pathname.endsWith('.html') || ['/customers','/orders','/master','/inventory','/ship','/warehouse','/settings','/today-changes','/shipping-query','/todos','/login'].some(p=>url.pathname.startsWith(p))){
     event.respondWith(fetch(req,{cache:'no-store'}));
     return;
   }
   if(url.pathname.startsWith('/static/')){
-    // FIX136：有版本號的靜態檔先走網路，拿不到才回快取，避免舊母版覆蓋新版。
     event.respondWith(fetch(req,{cache:'no-store'}).then(res=>{
       if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
       return res;
