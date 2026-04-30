@@ -1,11 +1,24 @@
 from db import execute, now_iso
 from services.items import get_item, deduct_item
-from services.products import volume_for_items
+from services.products import volume_for_items, deduct_qty_from_product_text
 from services.audit import today, audit
-from services.warehouse import find_locations
+from services.warehouse import find_locations, deduct_placements
 
 SOURCE_TABLE = {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master_orders'}
 SOURCE_LABEL = {'inventory': '庫存', 'orders': '訂單', 'master_orders': '總單'}
+
+
+def _aggregate_entries(items: list[dict]) -> list[dict]:
+    merged: dict[tuple[str, int], dict] = {}
+    for entry in items or []:
+        source = entry.get('source')
+        source_id = int(entry.get('id') or entry.get('source_id') or 0)
+        qty = int(entry.get('qty') or 1)
+        key = (source, source_id)
+        if key not in merged:
+            merged[key] = {'source': source, 'id': source_id, 'qty': 0}
+        merged[key]['qty'] += qty
+    return list(merged.values())
 
 
 def build_preview(customer_uid: str, customer_name: str, items: list[dict], weight_input: float = 0) -> dict:
@@ -13,7 +26,7 @@ def build_preview(customer_uid: str, customer_name: str, items: list[dict], weig
     product_texts = []
     total_qty = 0
     problems = []
-    for entry in items or []:
+    for entry in _aggregate_entries(items):
         source = entry.get('source')
         source_id = int(entry.get('id') or entry.get('source_id') or 0)
         qty = int(entry.get('qty') or 1)
@@ -26,21 +39,28 @@ def build_preview(customer_uid: str, customer_name: str, items: list[dict], weig
             continue
         before = int(row.get('qty') or 0)
         after = before - qty
+        deducted_text = row.get('product_text') or ''
         if qty <= 0:
             problems.append(f'{row.get("product_text")} 出貨數量必須大於 0')
-        if after < 0:
+        elif after < 0:
             problems.append(f'{row.get("product_text")} 數量不足，目前 {before} 件，要扣 {qty} 件')
+        else:
+            try:
+                deducted_text = deduct_qty_from_product_text(row.get('product_text') or '', qty).get('deducted_text') or deducted_text
+            except Exception as exc:
+                problems.append(str(exc))
         borrowed_from = ''
         if customer_name and row.get('customer_name') and row.get('customer_name') != customer_name:
             borrowed_from = row.get('customer_name')
-        product_texts.append(row.get('product_text') or '')
-        total_qty += qty
+        product_texts.append(deducted_text)
+        total_qty += max(qty, 0)
         preview_rows.append({
             'source': source,
             'source_label': SOURCE_LABEL[source],
             'source_id': source_id,
             'customer_name': row.get('customer_name') or customer_name or '庫存',
-            'product_text': row.get('product_text'),
+            'product_text': deducted_text,
+            'original_product_text': row.get('product_text'),
             'material': row.get('material'),
             'qty': qty,
             'before_qty': before,
@@ -78,9 +98,11 @@ def confirm_shipping(username: str, customer_uid: str, customer_name: str, items
             before, after, row.get('borrowed_from') or '', preview['volume_formula'], preview['volume_total'],
             float(weight_input or 0), preview['total_weight'], username or '', now_iso(), note or ''
         ))
+        warehouse_sync = deduct_placements(row['source'], row['source_id'], row['qty'])
         shipped_row = dict(row)
         shipped_row['record_id'] = record_id
+        shipped_row['warehouse_sync'] = warehouse_sync
         shipped.append(shipped_row)
         today('出貨', '確認出貨', customer_name or original.get('customer_name') or '', original.get('product_text') or '', row['qty'], original.get('location') or '', row['source_label'], username, shipped_row)
-        audit(username, 'ship', row['source'], str(row['source_id']), before=original, after={'qty': after, 'record_id': record_id})
+        audit(username, 'ship', row['source'], str(row['source_id']), before=original, after={'qty': after, 'record_id': record_id, 'warehouse_sync': warehouse_sync})
     return {'preview': preview, 'shipped': shipped}

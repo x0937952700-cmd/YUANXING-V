@@ -4,14 +4,20 @@ from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 from flask import Flask, jsonify, render_template, request, session, send_file
-try:
-    from flask_socketio import SocketIO
-except Exception:
+ENABLE_SOCKETIO = os.environ.get('ENABLE_SOCKETIO', '0') == '1'
+if ENABLE_SOCKETIO:
+    try:
+        from flask_socketio import SocketIO
+    except Exception:
+        SocketIO = None
+else:
     SocketIO = None
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, USE_POSTGRES, DATABASE_URL
+import db as db_module
+from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, DATABASE_URL
 from services.products import parse_product_text, normalize_product_text, total_qty_from_text
 from services.customers import ensure_customer, customer_suggestions, find_customer_by_uid_or_name, VALID_REGIONS
 from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty
@@ -25,13 +31,45 @@ from services.importer import parse_import_workbook, import_template_workbook
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
 app.config['JSON_AS_ASCII'] = False
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_SIZE', 16 * 1024 * 1024))
 socketio = SocketIO(app, cors_allowed_origins='*', async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'threading')) if SocketIO else None
-init_db()
+STARTUP_DB_ERROR = None
+# Ensure local folders exist before backup/upload endpoints use them.
+(Path(app.root_path) / 'uploads').mkdir(parents=True, exist_ok=True)
+(Path(app.root_path) / 'backups').mkdir(parents=True, exist_ok=True)
+
+try:
+    init_db()
+except Exception as exc:
+    # Render 啟動時絕對不要因資料庫舊欄位 / 暫時連線問題直接 Exit 1。
+    # 首頁可先打開，/api/health 會顯示實際錯誤，登入或操作時也會回傳錯誤卡片。
+    STARTUP_DB_ERROR = str(exc)
+    print('YUANXING_DB_INIT_ERROR:', STARTUP_DB_ERROR, flush=True)
 
 def emit_update(scope='all', payload=None):
     if socketio:
         socketio.emit('update', {'scope': scope, 'payload': payload or {}, 'at': now_iso()})
 
+
+def ensure_db_ready():
+    global STARTUP_DB_ERROR
+    if STARTUP_DB_ERROR:
+        try:
+            init_db()
+            STARTUP_DB_ERROR = None
+        except Exception as exc:
+            STARTUP_DB_ERROR = str(exc)
+            raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
+
+
+@app.before_request
+def _ensure_db_before_api():
+    if request.path.startswith('/api/') and request.path != '/api/health':
+        ensure_db_ready()
+
+
+def using_postgres():
+    return bool(db_module.USE_POSTGRES)
 
 
 def ok(**payload):
@@ -46,6 +84,8 @@ def fail(message, status=400):
 
 @app.errorhandler(Exception)
 def handle_error(exc):
+    if isinstance(exc, HTTPException):
+        return fail(exc.description or exc.name, exc.code or 500)
     try:
         execute('INSERT INTO errors(source,message,created_at) VALUES(?,?,?)', ('flask', str(exc), now_iso()))
     except Exception:
@@ -96,7 +136,12 @@ def username():
 
 @app.get('/uploads/<path:filename>')
 def uploaded_file(filename):
-    safe_path = Path(app.root_path) / 'uploads' / filename
+    base = (Path(app.root_path) / 'uploads').resolve()
+    safe_path = (base / filename).resolve()
+    try:
+        safe_path.relative_to(base)
+    except Exception:
+        return fail('不允許的檔案路徑', 403)
     if safe_path.exists() and safe_path.is_file():
         return send_file(safe_path)
     return fail('找不到檔案', 404)
@@ -137,7 +182,7 @@ def api_logout():
 @app.get('/api/session/config')
 def api_session():
     user = current_user()
-    return ok(user=user, app_name='沅興木業', clean_version='final_brand_pg_socket_backup')
+    return ok(user=user, app_name='沅興木業', clean_version='full_fixed_qty15_v4_no_md')
 
 
 @app.post('/api/change_password')
@@ -188,18 +233,18 @@ def api_parse_product_post():
 
 
 def _attach_customer_counts(rows):
-    """Attach order/master totals for customer cards without front-end N+1 refreshes."""
+    """Attach order/master totals. 件數直接用 product_text 重算，避免舊 DB 仍存 15 件。"""
     for row in rows:
         uid = row.get('uid') or ''
         name = row.get('name') or ''
         total_qty = 0
         total_rows = 0
         for table in ('orders', 'master_orders'):
-            agg = fetch_one(f"""SELECT COALESCE(SUM(qty),0) AS qty, COUNT(*) AS rows
-                                FROM {table}
-                                WHERE (customer_uid=? AND customer_uid!='') OR customer_name=?""", (uid, name)) or {}
-            total_qty += int(agg.get('qty') or 0)
-            total_rows += int(agg.get('rows') or 0)
+            items = fetch_all(f"""SELECT product_text, qty FROM {table}
+                                WHERE (customer_uid=? AND customer_uid!='') OR customer_name=?""", (uid, name))
+            total_rows += len(items)
+            for item in items:
+                total_qty += total_qty_from_text(item.get('product_text') or '') or int(item.get('qty') or 0)
         row['total_qty'] = total_qty
         row['total_rows'] = total_rows
     return rows
@@ -232,14 +277,15 @@ def api_create_customer():
     if existing:
         return ok(item=existing, message='客戶已存在')
     t = now_iso()
-    uid = data.get('uid') or ensure_customer(name, region=region, trade_type=data.get('trade_type') or '')['uid']
-    item = fetch_one('SELECT * FROM customer_profiles WHERE uid=?', (uid,))
+    created = ensure_customer(name, region=region, trade_type=data.get('trade_type') or '')
+    uid = created['uid']
     fields = ['phone','address','special_notes','common_materials','common_sizes','trade_type']
     for f in fields:
         if f in data:
             execute(f'UPDATE customer_profiles SET {f}=?, updated_at=? WHERE uid=?', (data.get(f) or '', t, uid))
+    item = fetch_one('SELECT * FROM customer_profiles WHERE uid=?', (uid,))
     audit(username(), 'create', 'customer_profiles', uid, after=item)
-    return ok(item=fetch_one('SELECT * FROM customer_profiles WHERE uid=?', (uid,)), message='客戶已建立')
+    return ok(item=item, message='客戶已建立')
 
 
 
@@ -258,6 +304,12 @@ def api_update_customer(uid):
     before = find_customer_by_uid_or_name(uid=uid) or find_customer_by_uid_or_name(name=uid)
     if not before:
         return fail('找不到客戶', 404)
+    new_name = (data.get('name') or '').strip() if 'name' in data else ''
+    if new_name:
+        exists = find_customer_by_uid_or_name(name=new_name)
+        if exists and exists.get('uid') != before.get('uid'):
+            return fail('客戶名稱已存在，請改用不同名稱或先合併客戶資料')
+        data['name'] = new_name
     allowed = {'name','phone','address','special_notes','common_materials','common_sizes','region','trade_type','is_archived'}
     sets, params = [], []
     for k, v in data.items():
@@ -331,6 +383,14 @@ def register_item_routes(prefix, table_name):
     def list_route(table=table_name):
         return ok(items=list_items(table, request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
 
+    @app.get(prefix + '/<int:item_id>', endpoint=f'{table_name}_get')
+    @require_login
+    def get_route(item_id, table=table_name):
+        item = get_item(table, item_id)
+        if not item:
+            return fail('找不到商品', 404)
+        return ok(item=item)
+
     @app.post(prefix, endpoint=f'{table_name}_create')
     @require_login
     def create_route(table=table_name):
@@ -377,6 +437,121 @@ def register_item_routes(prefix, table_name):
 register_item_routes('/api/inventory', 'inventory')
 register_item_routes('/api/orders', 'orders')
 register_item_routes('/api/master_orders', 'master_orders')
+
+
+# Legacy compatibility aliases for older frontend snippets / bookmarks.
+@app.get('/api/order')
+@require_login
+def api_order_list_compat():
+    return ok(items=list_items('orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
+
+
+@app.post('/api/order')
+@require_login
+def api_order_create_compat():
+    data = body()
+    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), (data.get('customer_name') or '').strip()) or ensure_customer((data.get('customer_name') or '未指定客戶').strip(), data.get('region') or '北區')
+    ids = []
+    for line in normalize_product_text(data.get('product_text') or '').splitlines():
+        if line:
+            ids.append(create_item('orders', customer['uid'], customer['name'], line, data.get('material') or '', data.get('zone') or '', username(), data.get('note') or ''))
+    if not ids:
+        return fail('商品資料不可空白')
+    return ok(items=[get_item('orders', i) for i in ids], message='已新增')
+
+
+@app.get('/api/order/<int:item_id>')
+@require_login
+def api_order_get_compat(item_id):
+    item = get_item('orders', item_id)
+    if not item:
+        return fail('找不到商品', 404)
+    return ok(item=item)
+
+
+@app.put('/api/order/<int:item_id>')
+@require_login
+def api_order_update_compat(item_id):
+    before = get_item('orders', item_id)
+    if not before:
+        return fail('找不到商品', 404)
+    after = update_item('orders', item_id, **body(), operator=username())
+    audit(username(), 'update', 'orders', item_id, before=before, after=after)
+    return ok(item=after, message='已更新')
+
+
+@app.delete('/api/order/<int:item_id>')
+@require_login
+def api_order_delete_compat(item_id):
+    before = get_item('orders', item_id)
+    if not before:
+        return fail('找不到商品', 404)
+    delete_item('orders', item_id)
+    audit(username(), 'delete', 'orders', item_id, before=before)
+    return ok(message='已刪除')
+
+
+@app.get('/api/master_order')
+@require_login
+def api_master_order_list_compat():
+    return ok(items=list_items('master_orders', request.args.get('customer_uid',''), request.args.get('customer_name',''), request.args.get('zone',''), request.args.get('search','')))
+
+
+@app.post('/api/master_order')
+@require_login
+def api_master_order_create_compat():
+    data = body()
+    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), (data.get('customer_name') or '').strip()) or ensure_customer((data.get('customer_name') or '未指定客戶').strip(), data.get('region') or '北區')
+    ids = []
+    for line in normalize_product_text(data.get('product_text') or '').splitlines():
+        if line:
+            ids.append(create_item('master_orders', customer['uid'], customer['name'], line, data.get('material') or '', data.get('zone') or '', username(), data.get('note') or ''))
+    if not ids:
+        return fail('商品資料不可空白')
+    return ok(items=[get_item('master_orders', i) for i in ids], message='已新增')
+
+
+@app.get('/api/master_order/<int:item_id>')
+@require_login
+def api_master_order_get_compat(item_id):
+    item = get_item('master_orders', item_id)
+    if not item:
+        return fail('找不到商品', 404)
+    return ok(item=item)
+
+
+@app.put('/api/master_order/<int:item_id>')
+@require_login
+def api_master_order_update_compat(item_id):
+    before = get_item('master_orders', item_id)
+    if not before:
+        return fail('找不到商品', 404)
+    after = update_item('master_orders', item_id, **body(), operator=username())
+    audit(username(), 'update', 'master_orders', item_id, before=before, after=after)
+    return ok(item=after, message='已更新')
+
+
+@app.delete('/api/master_order/<int:item_id>')
+@require_login
+def api_master_order_delete_compat(item_id):
+    before = get_item('master_orders', item_id)
+    if not before:
+        return fail('找不到商品', 404)
+    delete_item('master_orders', item_id)
+    audit(username(), 'delete', 'master_orders', item_id, before=before)
+    return ok(message='已刪除')
+
+
+
+@app.get('/api/items/<source>/<int:item_id>')
+@require_login
+def api_get_item_compat(source, item_id):
+    table = normalize_table(source)
+    item = get_item(table, item_id)
+    if not item:
+        return fail('找不到商品', 404)
+    item['source'] = table
+    return ok(item=item)
 
 
 @app.post('/api/items/bulk-update')
@@ -528,13 +703,24 @@ def api_items_merge():
 def api_customer_items():
     cuid = request.args.get('customer_uid','')
     cname = request.args.get('customer_name','')
+    zone = request.args.get('zone','')
+    search = request.args.get('search','')
     out = []
-    for src, label in [('master_orders','總單'), ('orders','訂單'), ('inventory','庫存')]:
-        rows = list_items(src, cuid if src != 'inventory' else cuid, cname if src != 'inventory' else cname, request.args.get('zone',''), request.args.get('search',''))
+    # 客戶頁/出貨頁：總單、訂單只抓該客戶；庫存作為備援來源，顯示全部未指定客戶庫存，
+    # 避免「客戶沒有總單/訂單時，出貨頁完全沒有商品可選」。
+    for src, label in [('master_orders','總單'), ('orders','訂單')]:
+        rows = list_items(src, cuid, cname, zone, search)
         for row in rows:
             row['source'] = src
             row['source_label'] = label
             out.append(row)
+    inventory_rows = list_items('inventory', '', '', zone, search)
+    for row in inventory_rows:
+        if row.get('customer_name') and cname and row.get('customer_name') != cname:
+            continue
+        row['source'] = 'inventory'
+        row['source_label'] = '庫存'
+        out.append(row)
     return ok(items=out)
 
 
@@ -634,6 +820,12 @@ def api_warehouse_locations():
     return ok(items=find_locations(request.args.get('source',''), int(request.args.get('id') or request.args.get('source_id') or 0), request.args.get('customer_name',''), request.args.get('product_text','')))
 
 
+@app.get('/api/find_locations')
+@require_login
+def api_find_locations_compat():
+    return api_warehouse_locations()
+
+
 
 @app.get('/api/warehouse/search')
 @require_login
@@ -664,6 +856,12 @@ def api_available_items():
         rows = list_items(src, zone=zone, search=search)
         out.extend(available_items_from_rows(rows, src, label, placed))
     return ok(items=out, total_qty=sum(int(x.get('qty') or 0) for x in out))
+
+
+@app.get('/api/warehouse/available_items')
+@require_login
+def api_available_items_compat():
+    return api_available_items()
 
 
 @app.post('/api/warehouse/move')
@@ -757,7 +955,11 @@ def api_correction_create():
     correct = (data.get('correct_text') or '').strip()
     if not wrong or not correct:
         return fail('請輸入錯字與修正文字')
-    execute('INSERT OR REPLACE INTO corrections(wrong_text, correct_text, created_at) VALUES(?,?,?)', (wrong, correct, now_iso()))
+    existing = fetch_one('SELECT id FROM corrections WHERE wrong_text=?', (wrong,))
+    if existing:
+        execute('UPDATE corrections SET correct_text=?, created_at=? WHERE id=?', (correct, now_iso(), existing['id']))
+    else:
+        execute('INSERT INTO corrections(wrong_text, correct_text, created_at) VALUES(?,?,?)', (wrong, correct, now_iso()))
     audit(username(), 'upsert', 'corrections', wrong, after={'wrong_text': wrong, 'correct_text': correct})
     return ok(message='已儲存修正詞')
 
@@ -784,10 +986,14 @@ def api_customer_alias_create():
     data = body()
     alias = (data.get('alias') or '').strip()
     cname = (data.get('customer_name') or '').strip()
-    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), cname)
+    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), cname) or (ensure_customer(cname) if cname else None)
     if not alias or not customer:
         return fail('請輸入別名與對應客戶')
-    execute('INSERT OR REPLACE INTO customer_aliases(customer_uid, alias, created_at) VALUES(?,?,?)', (customer['uid'], alias, now_iso()))
+    existing = fetch_one('SELECT id FROM customer_aliases WHERE alias=?', (alias,))
+    if existing:
+        execute('UPDATE customer_aliases SET customer_uid=?, created_at=? WHERE id=?', (customer['uid'], now_iso(), existing['id']))
+    else:
+        execute('INSERT INTO customer_aliases(customer_uid, alias, created_at) VALUES(?,?,?)', (customer['uid'], alias, now_iso()))
     audit(username(), 'upsert', 'customer_aliases', alias, after={'alias': alias, 'customer_uid': customer['uid']})
     return ok(message='已儲存客戶別名')
 
@@ -955,7 +1161,7 @@ def _create_postgres_backup(target: Path):
 @app.get('/api/backup')
 @require_login
 def api_backup():
-    if USE_POSTGRES:
+    if using_postgres():
         target = _backup_dir() / _backup_name('sql')
         _create_postgres_backup(target)
         execute('INSERT INTO backups(filename, created_at) VALUES(?,?)', (target.name, now_iso()))
@@ -967,9 +1173,9 @@ def api_backup():
 @require_login
 def api_backup_create():
     backup_dir = _backup_dir()
-    filename = _backup_name('sql' if USE_POSTGRES else 'db')
+    filename = _backup_name('sql' if using_postgres() else 'db')
     target = backup_dir / filename
-    if USE_POSTGRES:
+    if using_postgres():
         _create_postgres_backup(target)
     else:
         _create_sqlite_backup(target)
@@ -984,7 +1190,7 @@ def api_backup_restore():
     upload = request.files.get('backup')
     if not upload:
         return fail('請選擇備份檔')
-    if USE_POSTGRES:
+    if using_postgres():
         return fail('PostgreSQL 還原請使用 Render PostgreSQL Restore 或 psql 指令，避免覆蓋線上資料')
     if not upload.filename.endswith('.db'):
         return fail('只允許還原 .db 備份檔')
@@ -1021,9 +1227,14 @@ def api_backups_list():
         files.setdefault(row['filename'], {'filename': row['filename'], 'size': 0, 'updated_at': row.get('created_at'), 'path': 'database'})
     return ok(items=sorted(files.values(), key=lambda x: str(x.get('updated_at','')), reverse=True))
 
+@app.get('/health')
+def health_page():
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), socketio_enabled=bool(socketio))
+
+
 @app.get('/api/health')
 def api_health():
-    return ok(status='ok', db_path=str(DB_PATH))
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), socketio_enabled=bool(socketio))
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ def test_count_rules():
         '100x30x63': 1,
         '100x30x63=115': 1,
         '100x30x63=220x4+223x2+44+35+221': 9,
-        '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174': 10,
+        '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174': 15,
     }
     for text, qty in cases.items():
         assert total_qty_from_text(text) == qty
@@ -41,4 +41,39 @@ def test_deduct_qty_from_product_text():
     assert deduct_qty_from_product_text('132x23x05=249x3', 1)['remaining_text'] == '132x23x05=249x2'
     assert deduct_qty_from_product_text('60+54+50', 1)['remaining_text'] == '60+54'
     assert deduct_qty_from_product_text('220x4+223x2+44+35+221', 3)['remaining_text'] == '220x4+223x2'
-    assert deduct_qty_from_product_text('100x30x63=504x5+588+587+502+420+382+378+280+254+237+174', 1)['before_qty'] == 10
+    assert deduct_qty_from_product_text('100x30x63=504x5+588+587+502+420+382+378+280+254+237+174', 1)['before_qty'] == 15
+
+
+def test_height_factor_fixed():
+    from services.products import height_factor
+    assert height_factor('083') == 0.83
+    assert height_factor('063') == 0.63
+    assert height_factor('05') == 0.5
+    assert height_factor('12') == 1.2
+    assert height_factor('125') == 1.25
+
+
+def test_merge_product_texts_qty_stays_locked():
+    from services.products import merge_product_texts, total_qty_from_text
+    text = '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174'
+    merged = merge_product_texts(text, text)
+    assert total_qty_from_text(text) == 15
+    assert total_qty_from_text(merged) == 30
+
+
+def test_shipping_preview_uses_selected_qty_volume():
+    import os, sys
+    os.environ['SQLITE_PATH'] = '/tmp/yuanxing_test_shipping_preview.db'
+    try:
+        os.remove(os.environ['SQLITE_PATH'])
+    except FileNotFoundError:
+        pass
+    import db
+    db.init_db()
+    from services.items import create_item
+    from services.shipping import build_preview
+    item_id = create_item('inventory', '', '', '132x23x05=249x3', '', '', 'tester', '')
+    preview = build_preview('', '', [{'source': 'inventory', 'id': item_id, 'qty': 1}], 1)
+    assert preview['can_submit'] is True
+    assert preview['total_qty'] == 1
+    assert preview['items'][0]['product_text'] == '132x23x05=249'

@@ -36,9 +36,12 @@ export async function renderShipping(app, params={}) {
     <div class="card"><div class="section-title">客戶商品清單</div><div id="customerItems" class="empty">請先載入客戶商品</div></div>
     <div class="card"><div class="section-title">已選出貨商品</div><div id="draftItems"></div><div class="toolbar"><label class="field"><span>重量</span><input id="weightInput" type="number" step="0.01" value="0"></label><button id="previewBtn" class="primary">確認送出 / 出貨預覽</button></div></div>
     <div class="card"><div class="section-title">出貨預覽</div><div id="previewBox" class="empty">尚未產生預覽</div></div>`);
-  const suggestions = await get('/api/customer-suggestions?q=');
+  async function refreshShipCustomerOptions(q='') {
+    const suggestions = await get(`/api/customer-suggestions?q=${encodeURIComponent(q)}`);
+    document.getElementById('customerList').innerHTML = (suggestions.items||[]).map(c=>`<option value="${esc(c.name)}"></option>`).join('');
+  }
   const customers = (await get('/api/customers')).items || [];
-  document.getElementById('customerList').innerHTML = (suggestions.items||[]).map(c=>`<option value="${esc(c.name)}"></option>`).join('');
+  await refreshShipCustomerOptions('');
   document.getElementById('quickCustomers').innerHTML = renderQuickCustomers(customers);
   await hydrateDraft(); renderDraft();
   async function loadCustomerItems(){
@@ -47,6 +50,11 @@ export async function renderShipping(app, params={}) {
     const actions = row => `<button class="small" data-add-source="${row.source}" data-id="${row.id}">加入選取商品</button><button class="small" data-add-all-source="${row.source}" data-id="${row.id}" data-qty="${row.qty}">整個加入</button>`;
     document.getElementById('customerItems').innerHTML = itemTable(res.items||[], 'mixed', actions);
   }
+  document.getElementById('shipCustomer').addEventListener('input', () => {
+    const q = document.getElementById('shipCustomer').value.trim();
+    clearTimeout(window.__yxShipCustomerSuggest);
+    window.__yxShipCustomerSuggest = setTimeout(() => refreshShipCustomerOptions(q), 120);
+  });
   document.getElementById('quickCustomers').addEventListener('click', async e=>{ const name=e.target.closest('[data-quick-customer]')?.dataset.quickCustomer; if(!name)return; document.getElementById('shipCustomer').value=name; await loadCustomerItems(); });
   document.getElementById('loadItemsBtn').addEventListener('click', loadCustomerItems);
   if(customer?.name) await loadCustomerItems();

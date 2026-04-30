@@ -1,4 +1,5 @@
 from db import execute, fetch_all, fetch_one, json_dumps, json_loads, now_iso
+from services.products import total_qty_from_text, normalize_product_text, LOCKED_QTY_RULES
 
 
 def _key(item: dict) -> tuple[str, int]:
@@ -11,7 +12,17 @@ def _normalize_items(items: list[dict]) -> list[dict]:
         item = dict(item)
         item['source'] = item.get('source') or item.get('source_table') or ''
         item['id'] = int(item.get('id') or item.get('source_id') or 0)
-        item['qty'] = int(item.get('qty') or 0)
+        item['product_text'] = normalize_product_text(item.get('product_text') or '')
+        qty = int(item.get('qty') or 0)
+        normalized_text = item.get('product_text') or ''
+        expected_qty = total_qty_from_text(normalized_text)
+        # 商品本身的總件數會鎖死，但倉庫格允許「部分放入」。
+        # 因此只修正空值、超過總件數、或舊版沒有 placement_uid 且曾被算錯的鎖死商品。
+        if expected_qty and (qty <= 0 or qty > expected_qty):
+            qty = expected_qty
+        elif normalized_text in LOCKED_QTY_RULES and not item.get('placement_uid') and qty in (10,):
+            qty = expected_qty
+        item['qty'] = qty
         item['placement_label'] = item.get('placement_label') or '前排'
         item['placement_uid'] = item.get('placement_uid') or f"{item.get('source','')}-{item.get('id',0)}-{now_iso()}-{idx}"
         out.append(item)
@@ -137,6 +148,52 @@ def move_front(source_cell: dict, target_cell: dict, item_index: int = 0) -> dic
     update_cell(src['zone'], src['column_index'], src['slot_number'], src_items, src.get('note') or '')
     updated_dst = update_cell(dst['zone'], dst['column_index'], dst['slot_number'], dst_items, dst.get('note') or '')
     return {'from': get_cell(src['zone'], src['column_index'], src['slot_number']), 'to': updated_dst, 'moved_item': moving}
+
+
+
+def deduct_placements(source: str, source_id: int, qty: int) -> dict:
+    """Deduct shipped quantity from warehouse placements for the same source item.
+
+    Shipping must keep the warehouse map in sync. If an item is fully shipped,
+    remove it from cells; if partially shipped, reduce only the placed quantity.
+    The function is best-effort but deterministic and returns what changed.
+    """
+    source = source or ''
+    source_id = int(source_id or 0)
+    todo = int(qty or 0)
+    if not source or not source_id or todo <= 0:
+        return {'changed_cells': [], 'remaining_to_deduct': max(todo, 0)}
+    changed_cells = []
+    rows = fetch_all('SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number')
+    for cell in rows:
+        if todo <= 0:
+            break
+        items = json_loads(cell.get('items_json'), [])
+        changed = False
+        new_items = []
+        for item in items:
+            if todo > 0 and (item.get('source') or '') == source and int(item.get('id') or item.get('source_id') or 0) == source_id:
+                current = int(item.get('qty') or 0)
+                take = min(current, todo)
+                current -= take
+                todo -= take
+                changed = True
+                if current > 0:
+                    item = dict(item)
+                    item['qty'] = current
+                    new_items.append(item)
+                # if current becomes 0, this placement is removed
+            else:
+                new_items.append(item)
+        if changed:
+            execute('UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?', (json_dumps(_normalize_items(new_items)), now_iso(), cell['id']))
+            changed_cells.append({
+                'id': cell['id'],
+                'zone': cell.get('zone'),
+                'column_index': cell.get('column_index'),
+                'slot_number': cell.get('slot_number'),
+            })
+    return {'changed_cells': changed_cells, 'remaining_to_deduct': todo}
 
 
 def save_undo(username: str, action_type: str, entity_type: str, entity_key: str, undo_data: dict):

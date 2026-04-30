@@ -58,8 +58,21 @@ export async function renderWarehouse(app) {
     m.addEventListener('dragover', ev=>{ if(ev.target.closest('[data-cell-item-index]')) ev.preventDefault(); });
     m.addEventListener('drop', ev=>{ const target=ev.target.closest('[data-cell-item-index]'); if(!target || draggedIndex===null)return; ev.preventDefault(); const to=Number(target.dataset.cellItemIndex); if(to!==draggedIndex){ const [moved]=items.splice(draggedIndex,1); moved.placement_label='前排'; items.splice(to,0,moved); rerenderItems(); toast('已調整順序，請按儲存格位'); } draggedIndex=null; });
     m.addEventListener('click', async ev=>{ if(ev.target.dataset.removeCellItem){ items.splice(Number(ev.target.dataset.removeCellItem),1); rerenderItems(); }
-      if(ev.target.id==='addAvailable'){ await refreshUnlisted(); document.getElementById('availableBox').innerHTML = (state.warehouse.availableItems||[]).slice(0,20).map(it=>`<div class="item-card"><div class="item-main"><b>${esc(it.customer_name||'庫存')}｜${esc(it.source_label)}</b><div>${esc(it.product_text)}</div><div class="qty">${it.qty}件</div><button class="small" data-add-avail='${JSON.stringify({source:it.source,id:it.id,customer_name:it.customer_name||'庫存',customer_uid:it.customer_uid||'',product_text:it.product_text,material:it.material,qty:it.qty,placement_label:'前排'}).replace(/'/g,'&#39;')}'>加入此格</button></div></div>`).join('') || '<div class="empty">沒有未錄入商品</div>'; }
-      if(ev.target.dataset.addAvail){ items.unshift(JSON.parse(ev.target.dataset.addAvail)); rerenderItems(); toast('已加入此格，請按儲存格位'); }
+      if(ev.target.id==='addAvailable'){
+        await refreshUnlisted();
+        document.getElementById('availableBox').innerHTML = (state.warehouse.availableItems||[]).slice(0,30).map(it=>`<div class="item-card"><div class="item-main"><b>${esc(it.customer_name||'庫存')}｜${esc(it.source_label)}</b><div>${esc(it.product_text)}</div><div class="qty">可加入 ${it.qty} 件</div><button class="small" data-add-avail='${JSON.stringify({source:it.source,id:it.id,customer_name:it.customer_name||'庫存',customer_uid:it.customer_uid||'',product_text:it.product_text,material:it.material,qty:it.qty,placement_label:'前排'}).replace(/'/g,'&#39;')}'>加入此格</button></div></div>`).join('') || '<div class="empty">沒有未錄入商品</div>';
+      }
+      if(ev.target.dataset.addAvail){
+        const data = JSON.parse(ev.target.dataset.addAvail);
+        const maxQty = Math.max(1, Number(data.qty || 1));
+        const raw = prompt(`要加入此格幾件？最多 ${maxQty} 件`, String(maxQty));
+        if(raw === null) return;
+        const qty = Math.max(1, Math.min(maxQty, Number(raw || 1)));
+        data.qty = qty;
+        items.unshift(data);
+        rerenderItems();
+        toast('已加入此格，請按儲存格位');
+      }
       if(ev.target.id==='saveCell'){ await post('/api/warehouse/cell',{zone,column_index:col,slot_number:slot,items}); toast('格位已儲存'); m.remove(); await loadWarehouse(); await refreshUnlisted(); }
       if(ev.target.id==='insertAfter'){ await post('/api/warehouse/add-slot',{zone,column_index:col,after_slot:slot}); toast('已插入格子'); m.remove(); await loadWarehouse(); }
       if(ev.target.id==='deleteSlot'){ try{ await post('/api/warehouse/remove-slot',{zone,column_index:col,slot_number:slot}); toast('已刪除格子'); m.remove(); await loadWarehouse(); }catch(err){ toast(err.message,'error'); } }

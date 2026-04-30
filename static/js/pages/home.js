@@ -10,10 +10,11 @@ export async function renderHome(app) {
   const username = state.user?.username || '使用者';
   app.innerHTML = `<section class="home-page">
     <h1 class="home-brand">沅興木業</h1>
+    <div class="home-user">目前使用者：${esc(username)}</div>
     <div class="home-top-row">
-      <button id="logoutBtn" class="secondary" title="登出">${esc(username)}</button>
       <button class="secondary" data-route="settings">設定</button>
       <button class="secondary" data-route="todayChanges">今日異動${badge}</button>
+      <button id="logoutBtn" class="secondary" title="登出">登出</button>
     </div>
     <div class="home-grid">
       <button class="home-btn primary" data-route="inventory">庫存</button>

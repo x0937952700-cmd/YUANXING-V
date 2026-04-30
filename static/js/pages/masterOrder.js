@@ -31,10 +31,19 @@ export async function renderMasterOrder(app) {
     <div class="muted" style="text-align:right">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</div>
     <div id="customerRegions" class="customer-grid"></div>
     <div class="card list-card"><div class="section-title">總單商品 <span id="selectedName" class="muted"></span></div><div class="toolbar"><input id="batchMaterial" placeholder="批量材質"><button id="applyMaterialBtn" class="secondary">套用材質</button><button id="bulkDeleteBtn" class="danger">批量刪除</button><button id="moveABtn" class="secondary">移到 A 區</button><button id="moveBBtn" class="secondary">移到 B 區</button><button id="bulkEditBtn" class="secondary">編輯全部</button></div><div id="masterItems" class="empty">請先點客戶</div></div>`);
-  const suggestions = await get('/api/customer-suggestions?q='); document.getElementById('customerList').innerHTML = (suggestions.items||[]).map(c=>`<option value="${esc(c.name)}"></option>`).join('');
+  async function refreshCustomerOptions(q='') {
+    const suggestions = await get(`/api/customer-suggestions?q=${encodeURIComponent(q)}`);
+    document.getElementById('customerList').innerHTML = (suggestions.items||[]).map(c=>`<option value="${esc(c.name)}"></option>`).join('');
+  }
+  await refreshCustomerOptions('');
   const customers = await loadCustomerSummary(); document.getElementById('customerRegions').innerHTML = renderCustomers(customers);
   async function openByUid(uid, name){ state.selectedCustomer={uid,name}; document.getElementById('selectedName').textContent=name; document.getElementById('customerRegions').innerHTML = renderCustomers(customers); renderItems(await loadItems(uid)); }
   document.getElementById('addMaster').addEventListener('submit', async e=>{ e.preventDefault(); const data=Object.fromEntries(new FormData(e.currentTarget).entries()); await submitWithDuplicateCheck({ target:'master_orders', payload:data, postPath:'/api/master_orders', onDone: async(msg)=>{ toast(msg === '已合併商品' ? msg : '總單已新增'); e.currentTarget.reset(); await renderMasterOrder(app); } }); });
+  const customerInput = document.querySelector('#addMaster input[name="customer_name"]');
+  customerInput.addEventListener('input', () => {
+    clearTimeout(window.__yxCustomerSuggest);
+    window.__yxCustomerSuggest = setTimeout(() => refreshCustomerOptions(customerInput.value.trim()), 120);
+  });
   document.getElementById('customerRegions').addEventListener('click', async e=>{ const card=e.target.closest('.customer-card'); if(!card)return; await openByUid(card.dataset.customerUid, card.dataset.customerName); });
   installLongPress(document.getElementById('customerRegions'), '.customer-card', (card)=>openCustomerActionModal(card,{onOpen:openByUid,onRefresh:()=>renderMasterOrder(app)}));
   async function selectedIds(){ return Array.from(document.querySelectorAll('#masterItems .row-check:checked')).map(x=>x.dataset.id); }

@@ -88,6 +88,28 @@ def _split_rhs(rhs: str) -> list[str]:
     return [p for p in rhs.split('+') if p]
 
 
+def product_dimension_key(text: str) -> str:
+    """Return the canonical dimension-left key for duplicate/merge checks.
+
+    Examples:
+    100x30x63=504x5+588 -> 100x30x63
+    100X30X063=504x5    -> 100x30x063
+    """
+    normalized = normalize_product_text(text)
+    if not normalized:
+        normalized = normalize_symbols(text)
+    line = next((x for x in normalized.splitlines() if x), '')
+    return line.split('=', 1)[0] if line else ''
+
+
+
+# 直接鎖死的商品件數規則。
+# 這一筆使用者確認必須永遠算 15 件：504x5 算 5 件，後面每一段各算 1 件。
+LOCKED_QTY_RULES = {
+    '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174': 15,
+}
+
+
 def count_rhs_pieces(rhs: str, has_dimension_left: bool = True) -> int:
     rhs = normalize_symbols(rhs)
     if not rhs:
@@ -96,13 +118,8 @@ def count_rhs_pieces(rhs: str, has_dimension_left: bool = True) -> int:
     if not parts:
         return 1
 
-    # Normal rule: A x N counts as N pieces and standalone segment counts 1.
-    # Special multi-length package with dimension on the left:
-    # 100x30x63=504x5+588+... => first A x N is a support/stick-sum segment,
-    # not a package count; remaining standalone lengths each count 1.
-    if has_dimension_left and len(parts) >= 5 and re.fullmatch(r'\d+(?:\.\d+)?x\d+', parts[0]) and all(re.fullmatch(r'\d+(?:\.\d+)?', p) for p in parts[1:]):
-        return max(len(parts) - 1, 1)
-
+    # 固定規則：A x N 一律算 N 件，單獨段落一律算 1 件。
+    # 例：504x5+588+587+502+420+382+378+280+254+237+174 = 5 + 10 = 15 件。
     total = 0
     for part in parts:
         m = re.fullmatch(r'\d+(?:\.\d+)?x(\d+)', part)
@@ -111,7 +128,6 @@ def count_rhs_pieces(rhs: str, has_dimension_left: bool = True) -> int:
         else:
             total += 1
     return max(total, 1)
-
 
 def stick_sum(rhs: str) -> float:
     rhs = normalize_symbols(rhs)
@@ -139,15 +155,18 @@ def width_factor(width: str) -> float:
 
 
 def height_factor(height: str) -> float:
-    # Preserve 05 => 0.5, 083 => 0.83, 125 => 1.25, 12 => 1.2
-    h = int(re.sub(r'\D', '', height) or '0')
-    return h / 100.0 if h >= 100 else h / 10.0
+    # 規則：05 => 0.5、083/063 => 0.83/0.63、125 => 1.25、12 => 1.2。
+    # 舊版用 int(height)>=100 判斷，會把 083 誤算成 8.3，這裡改用位數判斷。
+    digits = re.sub(r'\D', '', str(height) or '0') or '0'
+    h = int(digits)
+    return h / 100.0 if len(digits) >= 3 else h / 10.0
 
 
 def parse_product_line(line: str) -> ProductParseResult:
     normalized, _, _ = normalize_product_line(line)
     if not normalized:
         return ProductParseResult(line, '', None, None, None, 0, 0.0, '', 0.0)
+    locked_qty = LOCKED_QTY_RULES.get(normalized)
     m = re.match(r'^((?:\d+(?:\.\d+)?|\.\d+))x((?:\d+(?:\.\d+)?|\.\d+))x(\d+)(?:=(.*))?$', normalized)
     if not m:
         qty = count_rhs_pieces(normalized, has_dimension_left=False)
@@ -155,7 +174,7 @@ def parse_product_line(line: str) -> ProductParseResult:
 
     l, w, h = normalize_dimension(m.group(1), m.group(2), m.group(3))
     rhs = m.group(4) or ''
-    qty = count_rhs_pieces(rhs, has_dimension_left=True) if rhs else 1
+    qty = locked_qty if locked_qty is not None else (count_rhs_pieces(rhs, has_dimension_left=True) if rhs else 1)
     sticks = stick_sum(rhs) if rhs else 1.0
     lf, wf, hf = length_factor(l), width_factor(w), height_factor(h)
     volume = sticks * lf * wf * hf
@@ -193,6 +212,73 @@ def volume_for_items(product_texts: list[str]) -> tuple[list[dict], float, str]:
     return rows, round(total, 4), formula
 
 
+
+def merge_product_texts(existing_text: str, incoming_text: str, incoming_qty: int | None = None) -> str:
+    """Merge two product expressions while keeping qty derivable from product_text.
+
+    For same dimension lines, append the right-hand side pieces so later reads,
+    shipping preview, warehouse display, and reports all calculate the merged
+    quantity from one canonical text instead of depending on a separate qty field.
+    If the text cannot be merged safely, keep both normalized lines.
+    """
+    existing_norm = normalize_product_text(existing_text)
+    incoming_norm = normalize_product_text(incoming_text)
+    if not existing_norm:
+        return incoming_norm
+    if not incoming_norm:
+        return existing_norm
+
+    existing_lines = [x for x in existing_norm.splitlines() if x]
+    incoming_lines = [x for x in incoming_norm.splitlines() if x]
+    if len(existing_lines) != 1 or len(incoming_lines) != 1:
+        return '\n'.join(existing_lines + incoming_lines)
+
+    old = existing_lines[0]
+    new = incoming_lines[0]
+    if old == new:
+        # Exact same expression. When a RHS exists, repeating it preserves both
+        # count and stick/volume math. Dimension-only lines cannot express more
+        # than one counted piece, so keep two lines.
+        if '=' in old:
+            left, rhs = old.split('=', 1)
+            return f'{left}={rhs}+{rhs}' if rhs else '\n'.join([old, new])
+        return '\n'.join([old, new])
+
+    if '=' in old and '=' in new:
+        left_old, rhs_old = old.split('=', 1)
+        left_new, rhs_new = new.split('=', 1)
+        if left_old == left_new and rhs_old and rhs_new:
+            return f'{left_old}={rhs_old}+{rhs_new}'
+
+    # Same dimension left side but one side has no RHS. Keep separate lines to
+    # avoid inventing fake stick values.
+    return '\n'.join([old, new])
+
+
+
+def product_sort_key(text: str, material: str = '', qty: int | None = None) -> tuple:
+    """Business sort: material -> month -> height -> width -> length -> qty.
+
+    Keeps UI lists stable and avoids old updated_at-only ordering. Month can be
+    written like 1月/12月 anywhere before the product expression.
+    """
+    raw = str(text or '')
+    normalized = normalize_product_text(raw) or normalize_symbols(raw)
+    first = next((x for x in normalized.splitlines() if x), normalized)
+    month_match = re.search(r'(1[0-2]|[1-9])月', raw)
+    month = int(month_match.group(1)) if month_match else 99
+    m = re.match(r'^((?:\d+(?:\.\d+)?|\.\d+))x((?:\d+(?:\.\d+)?|\.\d+))x(\d+)', first)
+    length = width = height = 999999.0
+    if m:
+        l, w, h = normalize_dimension(m.group(1), m.group(2), m.group(3))
+        try:
+            length, width, height = float(l), float(w), float(h)
+        except Exception:
+            pass
+    q = int(qty if qty is not None else (total_qty_from_text(first) or 0))
+    return (str(material or ''), month, height, width, length, q, first)
+
+
 def is_material_like(value: str) -> bool:
     value = normalize_symbols(value or '')
     return bool(value) and ('x' not in value and '=' not in value)
@@ -221,6 +307,7 @@ def deduct_qty_from_product_text(product_text: str, deduct_qty: int) -> dict:
     - 249x3, deduct 1 -> 249x2
     - 60+54+50, deduct 1 -> 60+54
     - 504x5 counts as 5 pieces; standalone segments count 1 each.
+    - 100x30x63=504x5+588+587+502+420+382+378+280+254+237+174 is locked as 15 pieces.
     """
     deduct_qty = int(deduct_qty or 0)
     if deduct_qty <= 0:
@@ -276,7 +363,6 @@ def deduct_qty_from_product_text(product_text: str, deduct_qty: int) -> dict:
             'deducted_text': normalized,
         }
     parts = _split_rhs(rhs)
-    long_bundle = bool(len(parts) >= 5 and re.fullmatch(r'\d+(?:\.\d+)?x\d+', parts[0] or '') and all(re.fullmatch(r'\d+(?:\.\d+)?', p) for p in parts[1:]))
     remaining = parts[:]
     deducted_parts: list[str] = []
     todo = deduct_qty
@@ -284,8 +370,7 @@ def deduct_qty_from_product_text(product_text: str, deduct_qty: int) -> dict:
         if todo <= 0:
             break
         part = remaining[idx]
-        counted = not (long_bundle and idx == 0)
-        cnt = _count_piece(part, counted=counted)
+        cnt = _count_piece(part, counted=True)
         if cnt == 0:
             continue
         m = re.fullmatch(r'(\d+(?:\.\d+)?)x(\d+)', part)
@@ -305,7 +390,7 @@ def deduct_qty_from_product_text(product_text: str, deduct_qty: int) -> dict:
             todo -= 1
     remaining_counted = 0
     for i, p in enumerate(remaining):
-        remaining_counted += _count_piece(p, counted=not (long_bundle and i == 0))
+        remaining_counted += _count_piece(p, counted=True)
     if remaining_counted <= 0:
         remaining_text = ''
     else:

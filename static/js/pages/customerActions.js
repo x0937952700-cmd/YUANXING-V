@@ -1,4 +1,4 @@
-import { post, del } from '../core/api.js';
+import { post, put, del } from '../core/api.js';
 import { modal, esc, toast } from '../utils/dom.js';
 
 export function openCustomerActionModal(card, { onOpen, onRefresh } = {}) {
@@ -7,15 +7,26 @@ export function openCustomerActionModal(card, { onOpen, onRefresh } = {}) {
   const m = modal('客戶操作', `<div class="preview-box"><b>${esc(name)}</b></div>
     <div class="action-list">
       <button class="secondary" data-act="open">打開客戶商品</button>
+      <button class="secondary" data-act="edit">編輯客戶</button>
       <button class="secondary" data-act="north">移到北區</button>
       <button class="secondary" data-act="middle">移到中區</button>
       <button class="secondary" data-act="south">移到南區</button>
       <button class="danger" data-act="archive">封存客戶</button>
+      <button class="danger" data-act="delete">刪除客戶</button>
     </div>`);
   m.addEventListener('click', async (e) => {
     const act = e.target.dataset.act;
     if (!act) return;
     if (act === 'open') { m.remove(); if (onOpen) await onOpen(uid, name); return; }
+    if (act === 'edit') {
+      const newName = prompt('修改客戶名稱', name) || name;
+      const tradeType = prompt('CNF / FOB / FOB代（留空可不填）', card.querySelector('.trade')?.textContent?.trim() || '') || '';
+      await put(`/api/customers/${uid}`, { name: newName.trim(), trade_type: tradeType.trim() });
+      toast('客戶已更新');
+      m.remove();
+      if (onRefresh) await onRefresh();
+      return;
+    }
     const regionMap = { north: '北區', middle: '中區', south: '南區' };
     if (regionMap[act]) {
       await post('/api/customers/move', { customer_uid: uid, region: regionMap[act] });
@@ -24,10 +35,11 @@ export function openCustomerActionModal(card, { onOpen, onRefresh } = {}) {
       if (onRefresh) await onRefresh();
       return;
     }
-    if (act === 'archive') {
-      if (!confirm(`確定封存 ${name}？`)) return;
+    if (act === 'archive' || act === 'delete') {
+      const label = act === 'delete' ? '刪除' : '封存';
+      if (!confirm(`確定${label} ${name}？\n系統會先移到封存，避免誤刪資料。`)) return;
       await del(`/api/customers/${uid}`);
-      toast('已封存客戶');
+      toast(act === 'delete' ? '已移到封存，避免誤刪' : '已封存客戶');
       m.remove();
       if (onRefresh) await onRefresh();
     }

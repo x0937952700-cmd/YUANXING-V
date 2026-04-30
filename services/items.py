@@ -1,5 +1,5 @@
 from db import execute, fetch_all, fetch_one, now_iso
-from services.products import normalize_product_text, total_qty_from_text, deduct_qty_from_product_text
+from services.products import normalize_product_text, total_qty_from_text, deduct_qty_from_product_text, merge_product_texts, product_dimension_key, product_sort_key
 
 TABLES = {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master_orders'}
 
@@ -9,6 +9,22 @@ def normalize_table(source: str) -> str:
     if not table:
         raise ValueError('未知資料來源')
     return table
+
+
+def _repair_row_if_needed(table: str, row: dict | None) -> dict | None:
+    """讀取時也修正件數，避免舊資料庫件數與鎖死規則不一致時前台繼續顯示錯誤。"""
+    if not row:
+        return row
+    normalized = normalize_product_text(row.get('product_text') or '')
+    expected = total_qty_from_text(normalized) or 1
+    current = int(row.get('qty') or 0)
+    if normalized != (row.get('product_text') or '') or expected != current:
+        execute(f'UPDATE {table} SET product_text=?, qty=?, updated_at=? WHERE id=?', (normalized, expected, now_iso(), row['id']))
+        row = dict(row)
+        row['product_text'] = normalized
+        row['qty'] = expected
+        row['updated_at'] = now_iso()
+    return row
 
 
 def create_item(table: str, customer_uid='', customer_name='', product_text='', material='', zone='', operator='', note='') -> int:
@@ -41,13 +57,17 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
         where.append('(product_text LIKE ? OR material LIKE ? OR customer_name LIKE ? OR zone LIKE ?)')
         like = f'%{search}%'
         params += [like, like, like, like]
-    sql = f'SELECT * FROM {table}' + ((' WHERE ' + ' AND '.join(where)) if where else '') + ' ORDER BY updated_at DESC, id DESC'
-    return fetch_all(sql, params)
+    sql = f'SELECT * FROM {table}' + ((' WHERE ' + ' AND '.join(where)) if where else '') + ' ORDER BY id DESC'
+    rows = [_repair_row_if_needed(table, row) for row in fetch_all(sql, params)]
+    rows = [row for row in rows if row]
+    # UI/business sort: material -> month -> height -> width -> length.
+    # This keeps inventory/order/master lists from jumping by updated_at only.
+    return sorted(rows, key=lambda row: product_sort_key(row.get('product_text') or '', row.get('material') or '', row.get('qty') or 0))
 
 
 def get_item(table: str, item_id: int) -> dict | None:
     table = normalize_table(table)
-    return fetch_one(f'SELECT * FROM {table} WHERE id=?', (item_id,))
+    return _repair_row_if_needed(table, fetch_one(f'SELECT * FROM {table} WHERE id=?', (item_id,)))
 
 
 def update_item(table: str, item_id: int, **fields) -> dict | None:
@@ -95,10 +115,19 @@ def deduct_item(table: str, item_id: int, qty: int) -> tuple[dict, int, int]:
 
 
 def find_duplicate_items(table: str, customer_uid: str = '', customer_name: str = '', product_text: str = '', material: str = '') -> list[dict]:
+    """Find duplicate items by same customer + same dimension-left + same material.
+
+    Older builds only matched the full product_text exactly, so these two would
+    not ask to merge:
+      100x30x63=504x5
+      100x30x63=588
+    The business rule is same customer + same size + same material, so compare
+    only the canonical dimension-left side while still returning normal rows.
+    """
     table = normalize_table(table)
-    normalized = normalize_product_text(product_text)
-    where = ['product_text=?']
-    params = [normalized]
+    key = product_dimension_key(product_text)
+    where = []
+    params = []
     if material:
         where.append('material=?')
         params.append(material)
@@ -108,8 +137,20 @@ def find_duplicate_items(table: str, customer_uid: str = '', customer_name: str 
     elif customer_name:
         where.append('customer_name=?')
         params.append(customer_name)
-    clause = ' AND '.join(where)
-    return fetch_all(f'SELECT * FROM {table} WHERE {clause} ORDER BY updated_at DESC, id DESC', params)
+    if key:
+        # Pre-filter by text prefix for speed, then do the canonical comparison below.
+        where.append('(product_text=? OR product_text LIKE ?)')
+        params.extend([key, f'{key}=%'])
+    clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+    rows = fetch_all(f'SELECT * FROM {table}{clause} ORDER BY updated_at DESC, id DESC', params)
+    if not key:
+        return [_repair_row_if_needed(table, row) for row in rows]
+    out = []
+    for row in rows:
+        fixed = _repair_row_if_needed(table, row)
+        if fixed and product_dimension_key(fixed.get('product_text') or '') == key:
+            out.append(fixed)
+    return out
 
 
 def merge_item_qty(table: str, item_id: int, add_product_text: str, add_qty: int | None = None, operator: str = '') -> dict:
@@ -117,8 +158,8 @@ def merge_item_qty(table: str, item_id: int, add_product_text: str, add_qty: int
     row = get_item(table, item_id)
     if not row:
         raise ValueError('找不到要合併的商品')
-    normalized = normalize_product_text(add_product_text or row.get('product_text') or '')
-    qty = int(add_qty if add_qty is not None else (total_qty_from_text(normalized) or 1))
-    new_qty = int(row.get('qty') or 0) + qty
-    execute(f'UPDATE {table} SET qty=?, operator=?, updated_at=? WHERE id=?', (new_qty, operator or row.get('operator') or '', now_iso(), item_id))
+    merged_text = merge_product_texts(row.get('product_text') or '', add_product_text or row.get('product_text') or '', add_qty)
+    merged_qty = total_qty_from_text(merged_text) or (int(row.get('qty') or 0) + int(add_qty or 0) or 1)
+    execute(f'UPDATE {table} SET product_text=?, qty=?, operator=?, updated_at=? WHERE id=?',
+            (merged_text, merged_qty, operator or row.get('operator') or '', now_iso(), item_id))
     return get_item(table, item_id)
