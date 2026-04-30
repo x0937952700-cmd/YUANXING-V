@@ -344,6 +344,7 @@ def _init_db_inner():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             zone TEXT NOT NULL,
             column_index INTEGER NOT NULL,
+            slot_type TEXT NOT NULL DEFAULT 'direct',
             slot_number INTEGER NOT NULL,
             items_json TEXT DEFAULT '[]',
             note TEXT DEFAULT '',
@@ -451,8 +452,8 @@ def _init_db_inner():
                     cur.execute(_sql('SELECT id FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?'), (zone, col, slot))
                     exists = cur.fetchone()
                     if not exists:
-                        cur.execute(_sql('''INSERT INTO warehouse_cells(zone,column_index,slot_number,items_json,note,updated_at)
-                                            VALUES(?,?,?,?,?,?)'''), (zone, col, slot, '[]', '', now_iso()))
+                        cur.execute(_sql('''INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at)
+                                            VALUES(?,?,?,?,?,?,?)'''), (zone, col, 'direct', slot, '[]', '', now_iso()))
         _repair_product_qty_with_cursor(cur)
 
 
@@ -765,11 +766,18 @@ def _ensure_migrations_with_cursor(cur):
     for col, definition in ship_cols.items():
         _add_column_if_missing(cur, 'shipping_records', col, definition)
     warehouse_cols = {
-        'zone': "TEXT DEFAULT 'A'", 'column_index': 'INTEGER DEFAULT 1', 'slot_number': 'INTEGER DEFAULT 1',
+        'zone': "TEXT DEFAULT 'A'", 'column_index': 'INTEGER DEFAULT 1',
+        'slot_type': "TEXT DEFAULT 'direct'", 'slot_number': 'INTEGER DEFAULT 1',
         'items_json': "TEXT DEFAULT '[]'", 'note': "TEXT DEFAULT ''", 'updated_at': "TEXT DEFAULT ''",
     }
     for col, definition in warehouse_cols.items():
         _add_column_if_missing(cur, 'warehouse_cells', col, definition)
+    try:
+        if USE_POSTGRES:
+            cur.execute("ALTER TABLE warehouse_cells ALTER COLUMN slot_type SET DEFAULT 'direct'")
+        cur.execute(_sql("UPDATE warehouse_cells SET slot_type=? WHERE slot_type IS NULL OR slot_type=''"), ('direct',))
+    except Exception:
+        pass
     today_cols = {
         'category': "TEXT DEFAULT ''", 'action': "TEXT DEFAULT ''", 'customer_name': "TEXT DEFAULT ''",
         'product_text': "TEXT DEFAULT ''", 'qty': 'INTEGER DEFAULT 0', 'location': "TEXT DEFAULT ''",

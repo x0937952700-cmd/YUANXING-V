@@ -71,8 +71,8 @@ def update_cell(zone: str, column_index: int, slot_number: int, items: list[dict
     items = _normalize_items(items or [])
     row = fetch_one('SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?', (zone, column_index, slot_number))
     if not row:
-        execute('''INSERT INTO warehouse_cells(zone,column_index,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?)''',
-                (zone, column_index, slot_number, json_dumps(items), note or '', now_iso()))
+        execute('''INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?,?)''',
+                (zone, column_index, 'direct', slot_number, json_dumps(items), note or '', now_iso()))
     else:
         execute('''UPDATE warehouse_cells SET items_json=?, note=?, updated_at=? WHERE zone=? AND column_index=? AND slot_number=?''',
                 (json_dumps(items), note or '', now_iso(), zone, column_index, slot_number))
@@ -83,15 +83,15 @@ def add_slot(zone: str, column_index: int, after_slot: int | None = None) -> Non
     rows = fetch_all('SELECT slot_number FROM warehouse_cells WHERE zone=? AND column_index=? ORDER BY slot_number DESC', (zone, column_index))
     max_slot = rows[0]['slot_number'] if rows else 0
     if after_slot is None or after_slot >= max_slot:
-        execute('''INSERT INTO warehouse_cells(zone,column_index,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?)''',
-                (zone, column_index, max_slot + 1, '[]', '', now_iso()))
+        execute('''INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?,?)''',
+                (zone, column_index, 'direct', max_slot + 1, '[]', '', now_iso()))
         return
     for row in rows:
         slot = row['slot_number']
         if slot > after_slot:
             execute('UPDATE warehouse_cells SET slot_number=? WHERE zone=? AND column_index=? AND slot_number=?', (slot + 1, zone, column_index, slot))
-    execute('''INSERT INTO warehouse_cells(zone,column_index,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?)''',
-            (zone, column_index, after_slot + 1, '[]', '', now_iso()))
+    execute('''INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?,?)''',
+            (zone, column_index, 'direct', after_slot + 1, '[]', '', now_iso()))
 
 
 def remove_slot(zone: str, column_index: int, slot_number: int) -> None:
