@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'stable-v7-single-ui';
+  const PWA_VERSION = 'stable-v9-fast-sql-cache';
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
       caches && caches.keys && caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).catch(()=>{});

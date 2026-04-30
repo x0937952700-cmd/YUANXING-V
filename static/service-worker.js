@@ -1,4 +1,4 @@
-const YX_PWA_VERSION = 'stable-v7-single-ui';
+const YX_PWA_VERSION = 'stable-v9-fast-sql-cache';
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));

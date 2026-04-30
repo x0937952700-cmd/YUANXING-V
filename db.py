@@ -10,6 +10,7 @@ from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 try:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
 except Exception:
     psycopg2 = None
 
@@ -36,6 +37,10 @@ else:
             or ''
         ).strip()
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
+PG_POOL = None
+PG_POOL_MIN = int(os.environ.get('YX_PG_POOL_MIN', '1'))
+PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '4'))
+PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '8000'))
 # 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
 # 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
 ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '0') == '1'
@@ -63,6 +68,44 @@ def _postgres_url():
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+
+class _PooledPgConn:
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+    def cursor(self, *args, **kwargs):
+        cur = self._conn.cursor(*args, **kwargs)
+        try:
+            if PG_STATEMENT_TIMEOUT_MS > 0:
+                cur.execute('SET statement_timeout = %s', (PG_STATEMENT_TIMEOUT_MS,))
+        except Exception:
+            pass
+        return cur
+    def commit(self):
+        return self._conn.commit()
+    def rollback(self):
+        return self._conn.rollback()
+    def close(self):
+        try:
+            self._pool.putconn(self._conn)
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+
+def _get_pg_conn_from_pool():
+    global PG_POOL
+    if os.environ.get('YX_DISABLE_PG_POOL', '0') == '1':
+        return psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+    if PG_POOL is None:
+        PG_POOL = psycopg2.pool.SimpleConnectionPool(
+            PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+    return _PooledPgConn(PG_POOL, PG_POOL.getconn())
+
 def get_conn():
     global USE_POSTGRES
     if DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')):
@@ -71,7 +114,7 @@ def get_conn():
                 raise RuntimeError('psycopg2-binary 未安裝，無法連接 PostgreSQL')
         elif USE_POSTGRES:
             try:
-                return psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+                return _get_pg_conn_from_pool()
             except Exception as exc:
                 if not ALLOW_SQLITE_FALLBACK:
                     raise RuntimeError(f'PostgreSQL 連線失敗，已阻止降級 SQLite：{exc}') from exc
@@ -759,18 +802,25 @@ def _ensure_migrations_with_cursor(cur):
                 _add_column_if_missing(cur, table, col, definition)
             except Exception:
                 pass
-    # 把舊版 PostgreSQL 欄位 product/customer/quantity 轉回新版欄位，避免 UI 看不到既有資料。
-    try:
-        _backfill_legacy_data_with_cursor(cur)
-    except Exception:
-        # 舊資料回填失敗不能中斷啟動；/api/health 仍可檢查連線狀態。
-        pass
+    # v8：預設不在啟動/首個 API 做大量舊資料回填，避免 Render 502 與功能頁開啟緩慢。
+    # 舊欄位會在 list_items 讀取時用記憶體 coalesce 顯示；需要永久回填時再設 YX_RUN_HEAVY_MIGRATION=1。
+    if os.environ.get('YX_RUN_HEAVY_MIGRATION', '0') == '1':
+        try:
+            _backfill_legacy_data_with_cursor(cur)
+        except Exception:
+            pass
 
     # 低風險索引：加速常用查詢。舊表有重複資料也不會失敗，因為不是 unique index。
     for stmt in (
         'CREATE INDEX IF NOT EXISTS idx_inventory_customer ON inventory(customer_uid, customer_name)',
+        'CREATE INDEX IF NOT EXISTS idx_inventory_updated ON inventory(updated_at)',
+        'CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_text)',
         'CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_uid, customer_name)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_updated ON orders(updated_at)',
+        'CREATE INDEX IF NOT EXISTS idx_orders_product ON orders(product_text)',
         'CREATE INDEX IF NOT EXISTS idx_master_customer ON master_orders(customer_uid, customer_name)',
+        'CREATE INDEX IF NOT EXISTS idx_master_updated ON master_orders(updated_at)',
+        'CREATE INDEX IF NOT EXISTS idx_master_product ON master_orders(product_text)',
         'CREATE INDEX IF NOT EXISTS idx_warehouse_lookup ON warehouse_cells(zone, column_index, slot_number)',
         'CREATE INDEX IF NOT EXISTS idx_today_unread ON today_changes(is_read, created_at)',
     ):
@@ -782,6 +832,8 @@ def _ensure_migrations_with_cursor(cur):
 
 def _repair_product_qty_with_cursor(cur):
     """啟動時自動依鎖死規則修正舊資料件數與倉庫格舊 JSON。"""
+    if os.environ.get('YX_RUN_HEAVY_MIGRATION', '0') != '1':
+        return
     try:
         from services.products import normalize_product_text, total_qty_from_text, LOCKED_QTY_RULES
         for table in ('inventory', 'orders', 'master_orders'):

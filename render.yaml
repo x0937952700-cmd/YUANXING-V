@@ -13,10 +13,16 @@ services:
       - key: ALLOW_SQLITE_FALLBACK
         value: "0"
       - key: PGCONNECT_TIMEOUT
-        value: "10"
+        value: "3"
       - key: PGSSLMODE
         value: "require"
       - key: ENABLE_SOCKETIO
+        value: "0"
+      - key: YX_INIT_DB_ON_STARTUP
+        value: "0"
+      - key: YX_RUN_HEAVY_MIGRATION
+        value: "0"
+      - key: YX_REPAIR_ON_READ
         value: "0"
       - key: YX_FORCE_PROVIDED_DATABASE_URL
         value: "1"

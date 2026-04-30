@@ -1,3 +1,4 @@
+import os
 from db import execute, fetch_all, fetch_one, now_iso
 from services.products import normalize_product_text, total_qty_from_text, deduct_qty_from_product_text, merge_product_texts, product_dimension_key, product_sort_key
 
@@ -16,18 +17,30 @@ def normalize_table(source: str) -> str:
 
 
 def _repair_row_if_needed(table: str, row: dict | None) -> dict | None:
-    """讀取時也修正件數，避免舊資料庫件數與鎖死規則不一致時前台繼續顯示錯誤。"""
+    """Normalize one item row for UI display.
+
+    v8 change: do not write UPDATE during every list render by default.
+    The old read-repair caused slow page opening and could trigger long PostgreSQL
+    migrations/locks. We coalesce legacy columns in memory so old DB data still
+    shows immediately.
+    """
     if not row:
         return row
-    normalized = normalize_product_text(row.get('product_text') or '')
-    expected = total_qty_from_text(normalized) or 1
-    current = int(row.get('qty') or 0)
-    if normalized != (row.get('product_text') or '') or expected != current:
-        execute(f'UPDATE {table} SET product_text=?, qty=?, updated_at=? WHERE id=?', (normalized, expected, now_iso(), row['id']))
-        row = dict(row)
-        row['product_text'] = normalized
-        row['qty'] = expected
-        row['updated_at'] = now_iso()
+    row = dict(row)
+    raw_text = (row.get('product_text') or row.get('product') or row.get('item') or row.get('item_name') or '').strip()
+    normalized = normalize_product_text(raw_text)
+    expected = total_qty_from_text(normalized) or int(row.get('qty') or row.get('quantity') or 0) or 1
+    row['product_text'] = normalized
+    row['qty'] = expected
+    row['customer_name'] = (row.get('customer_name') or row.get('customer') or row.get('client') or row.get('name') or '').strip()
+    row['material'] = (row.get('material') or '').strip()
+    row['zone'] = (row.get('zone') or row.get('location') or '').strip()
+    if os.environ.get('YX_REPAIR_ON_READ', '0') == '1':
+        try:
+            execute(f'UPDATE {table} SET product_text=?, qty=?, customer_name=?, updated_at=? WHERE id=?',
+                    (row['product_text'], row['qty'], row['customer_name'], now_iso(), row['id']))
+        except Exception:
+            pass
     return row
 
 
@@ -44,7 +57,7 @@ def create_item(table: str, customer_uid='', customer_name='', product_text='', 
     ))
 
 
-def list_items(table: str, customer_uid='', customer_name='', zone='', search='') -> list[dict]:
+def list_items(table: str, customer_uid='', customer_name='', zone='', search='', limit=None, offset=0) -> list[dict]:
     table = normalize_table(table)
     where = []
     params = []
@@ -62,6 +75,17 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
         like = f'%{search}%'
         params += [like, like, like, like]
     sql = f'SELECT * FROM {table}' + ((' WHERE ' + ' AND '.join(where)) if where else '') + ' ORDER BY id DESC'
+    try:
+        limit_val = int(limit if limit is not None else os.environ.get('YX_FAST_LIST_LIMIT', '500'))
+    except Exception:
+        limit_val = 500
+    try:
+        offset_val = int(offset or 0)
+    except Exception:
+        offset_val = 0
+    if limit_val > 0:
+        sql += ' LIMIT ? OFFSET ?'
+        params += [limit_val, offset_val]
     rows = [_repair_row_if_needed(table, row) for row in fetch_all(sql, params)]
     rows = [row for row in rows if row]
     # UI/business sort: material -> month -> height -> width -> length.
