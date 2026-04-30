@@ -1,2333 +1,2621 @@
-import os
-import re
-import json
-import hashlib
-import difflib
-from functools import wraps
-from datetime import datetime
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_file, g
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.exceptions import HTTPException
 
-import db
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
+from datetime import timedelta, datetime
+from functools import wraps
+import os
+import io
+import time
+import hashlib
+import json
+import re
+from PIL import Image
+from werkzeug.utils import secure_filename
+from openpyxl import Workbook
+
+from db import (
+    init_db, get_user, create_user, update_password, log_action,
+    save_inventory_item, list_inventory, save_order, save_master_order,
+    ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
+    save_image_hash, image_hash_exists, upsert_customer, get_customers,
+    get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
+    warehouse_add_slot, warehouse_remove_slot,
+    inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
+    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
+    register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
+    record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
+    create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value
+)
+from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
+from backup import run_daily_backup
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-v1-dev-secret')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-app.config['PROPAGATE_EXCEPTIONS'] = False
+# FIX52：優先使用 Render 環境變數 SECRET_KEY。
+# 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
+_SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
+app.secret_key = _SECRET_KEY
+app.permanent_session_lifetime = timedelta(days=30)
 
-ADMIN_NAME = os.environ.get('ADMIN_NAME', '陳韋廷')
-PAGE_TITLES = {
-    'home': '首頁',
-    'inventory': '庫存',
-    'orders': '訂單',
-    'master': '總單',
-    'inbound': '入庫',
-    'shipping': '出貨',
-    'warehouse': '倉庫圖',
-    'customers': '客戶資料',
-    'activity': '今日異動',
-    'settings': '設定',
-    'records': '出貨紀錄',
+UPLOAD_FOLDER = "uploads"
+TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic", "gif"}
+MAX_UPLOAD_SIZE = 16 * 1024 * 1024
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
+
+def run_startup_self_check():
+    checks = {"uploads": False, "todo_uploads": False, "backups": False, "todos": False}
+    try:
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        checks["uploads"] = True
+        os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
+        checks["todo_uploads"] = True
+        os.makedirs("backups", exist_ok=True)
+        checks["backups"] = True
+    except Exception as e:
+        try:
+            log_error("startup_self_check_dirs", str(e))
+        except Exception:
+            pass
+    try:
+        list_todo_items()
+        checks["todos"] = True
+    except Exception as e:
+        try:
+            log_error("startup_self_check_todos", str(e))
+        except Exception:
+            pass
+    return checks
+
+init_db()
+STARTUP_CHECKS = run_startup_self_check()
+
+PUBLIC_PATHS = {
+    "login", "api_login", "health", "static"
 }
 
-REQUIREMENT_FULL_ALIGNMENT = [
-    {'id': 1, 'title': '整體原則', 'status': 'locked', 'evidence': '乾淨母版；base.html 僅載 core.js + page.js；不載 FIX135~FIX151 hardlock'},
-    {'id': 2, 'title': '首頁 / 主選單', 'status': 'locked', 'evidence': '沅興木業標題、設定/今日異動/登出同排、全站搜尋、10 個功能入口'},
-    {'id': 3, 'title': '全站導頁邏輯', 'status': 'locked', 'evidence': '無全頁遮罩；返回首頁只做頁面跳轉；API 內部 loading/toast'},
-    {'id': 4, 'title': '庫存功能', 'status': 'locked', 'evidence': '搜尋、商品篩選、批量選取、批量材質、批量刪除、編輯/刪除/加訂單/加總單/出貨'},
-    {'id': 5, 'title': '訂單功能', 'status': 'locked', 'evidence': '只列有訂單客戶、取消退回庫存、直接出貨、加入總單、長按/右鍵/拖拉客戶'},
-    {'id': 6, 'title': '總單功能', 'status': 'locked', 'evidence': '分客戶、純文字總單、合併預覽確認、直接出貨、扣除前後數量'},
-    {'id': 7, 'title': '入庫功能', 'status': 'locked', 'evidence': '有客戶入總單、無客戶入庫存、白板分組解析、今日異動記錄'},
-    {'id': 8, 'title': '出貨功能', 'status': 'locked', 'evidence': '客戶建議、客戶商品下拉、加入選取/全部、預覽、借貨確認、扣來源、前後數量'},
-    {'id': 9, 'title': '材積 / 重量 / 長度', 'status': 'locked', 'evidence': 'dim_to_meter、qty_sum、calc_volume_for_item；總重=材積x重量係數'},
-    {'id': 10, 'title': '商品格式解析', 'status': 'locked', 'evidence': 'x/× 正規化、底線承接、小數點修正、100X30X63 特例 10 件'},
-    {'id': 11, 'title': 'OCR / 拍照 / 上傳', 'status': 'locked', 'evidence': '相簿/相機按鈕、TextDetector 可用時辨識、紅字忽略、藍字優先、框選區記憶、低信心輸出到文字框'},
-    {'id': 12, 'title': '倉庫圖', 'status': 'locked', 'evidence': 'A/B、6段、前/後排、動態格、拖拉、撤回、搜尋定位、高亮、單格刷新'},
-    {'id': 13, 'title': '客戶資料', 'status': 'locked', 'evidence': '新增/編輯/刪除名片/封存/還原/拖拉換區/改名同步/常用材質尺寸'},
-    {'id': 14, 'title': '北中南客戶標籤', 'status': 'locked', 'evidence': '點擊、長按、右鍵、pointer 拖拉換區，不用舊 HTML5 drop'},
-    {'id': 15, 'title': '今日異動', 'status': 'locked', 'evidence': '每人 badge、開頁已讀、未錄入明細、點擊詳細、左滑刪除/右滑詳細'},
-    {'id': 16, 'title': '設定頁', 'status': 'locked', 'evidence': '改密碼、使用者管理、黑名單、備份/還原、備份紀錄、操作紀錄、系統檢查'},
-    {'id': 17, 'title': '登入 / 帳號 / 管理員', 'status': 'locked', 'evidence': '註冊/登入/登出/session/封鎖即時生效/第一位管理員/避免鎖出最後管理員'},
-    {'id': 18, 'title': '資料同步 / 多人使用', 'status': 'locked', 'evidence': 'sync-state 12 秒短輪詢、toast 提醒、局部刷新'},
-    {'id': 19, 'title': '防重複送出 / 穩定性', 'status': 'locked', 'evidence': 'request_keys pending/success/failed；危險操作 request_key；transaction 包覆'},
-    {'id': 20, 'title': '錯誤顯示', 'status': 'locked', 'evidence': 'api_error JSON、toast 小卡、登入過期自動回登入頁、無白畫面'},
-    {'id': 21, 'title': '資料庫 / 後端', 'status': 'locked', 'evidence': 'SQLite/PostgreSQL、自動建表補欄、舊 records 轉換、缺欄重試'},
-    {'id': 22, 'title': '備份 / 還原', 'status': 'locked', 'evidence': 'JSON備份、SQLite db下載、備份紀錄、還原前快照、還原鎖出保護'},
-    {'id': 23, 'title': 'PWA / 手機 App', 'status': 'locked', 'evidence': 'manifest、service worker、離線頁、多尺寸 icon、iPhone meta'},
-    {'id': 24, 'title': 'UI 視覺風格', 'status': 'locked', 'evidence': '淡灰膠囊、雲背景、商業卡片、陰影、空狀態、錯誤小卡'},
-    {'id': 25, 'title': '手機操作優化', 'status': 'locked', 'evidence': '大按鈕、響應式、滑動卡片、pointer 拖拉、倉庫橫向滑動'},
-    {'id': 26, 'title': '搜尋功能', 'status': 'locked', 'evidence': '首頁全站搜尋、即時篩選、清除、最近搜尋、來源顯示、倉庫跳格'},
-    {'id': 27, 'title': '出貨查詢 / 紀錄', 'status': 'locked', 'evidence': 'records page、日期篩選、搜尋、詳細、材積/重量/長度'},
-    {'id': 28, 'title': '資料格式 / 排序', 'status': 'locked', 'evidence': '月份→高→寬→長；客戶 sort_order 保存'},
-    {'id': 29, 'title': '效能要求', 'status': 'locked', 'evidence': '無舊母版、單頁 JS、批量 transaction、單格更新、API no-store'},
-    {'id': 30, 'title': '乾淨版本命名', 'status': 'locked', 'evidence': 'COMMERCIAL_V9_TEXT_FULL_ALIGNMENT_LOCKED'},
-    {'id': 31, 'title': 'CLEAN 第一版 12 頁', 'status': 'locked', 'evidence': 'login/home/inventory/orders/master/inbound/shipping/warehouse/customers/activity/records/settings'},
-    {'id': 32, 'title': '成功標準', 'status': 'locked', 'evidence': 'health schema、smoke tests、service-worker v9、無舊 FIX 載入'},
-]
+def current_username():
+    return session.get("user", "")
 
 
+SYNC_SETTINGS_KEY = 'sync_last_event'
+LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
+PENDING_QUEUE_LIMIT = 50
 
-def current_user():
-    # 真正依 session 判斷登入；不再未登入自動當成管理員。
-    return session.get('username')
+_db_log_action = log_action
 
-
-def is_admin():
-    user = current_user()
-    return bool(user) and (user == ADMIN_NAME or session.get('role') == 'admin')
-
-
-def db_truthy(value):
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() in ['1', 'true', 't', 'yes', 'y', 'on']
-
-
-def current_user_row():
-    user = current_user()
-    if not user:
-        return None
-    return db.safe_fetchone("SELECT * FROM users WHERE username=?", [user])
+def notify_sync_event(kind='refresh', module='all', message='', extra=None):
+    payload = {
+        'id': str(int(time.time() * 1000)),
+        'kind': kind,
+        'module': module or 'all',
+        'message': message or '',
+        'user': current_username(),
+        'at': now(),
+        'extra': extra or {},
+    }
+    try:
+        set_setting(SYNC_SETTINGS_KEY, json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        try:
+            log_error('notify_sync_event', str(e))
+        except Exception:
+            pass
+    return payload
 
 
-def is_current_user_blocked():
-    row = current_user_row()
-    # If the user row disappeared after restore, force re-login rather than allowing a ghost session.
-    if current_user() and not row:
+def log_action(username, action):
+    _db_log_action(username, action)
+    notify_sync_event(kind='log', module='all', message=action, extra={'username': username})
+
+
+def ensure_daily_backup():
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        if get_setting(LAST_DAILY_BACKUP_KEY, '') == today:
+            return
+        result = run_daily_backup()
+        if result.get('success'):
+            set_setting(LAST_DAILY_BACKUP_KEY, today)
+    except Exception as e:
+        log_error('ensure_daily_backup', str(e))
+
+
+def request_key_from_payload(data, endpoint=''):
+    key = (request.headers.get('X-Request-Key') or (data or {}).get('request_key') or '').strip()
+    # 沒有 request_key 時要照常送出；只有「帶了 request_key 且重複」才擋掉。
+    if not key:
         return True
-    return db_truthy((row or {}).get('is_blocked'))
+    if register_submit_request(key, endpoint=endpoint):
+        return key
+    return False
+
+def duplicate_success(message='重複送出已忽略'):
+    return jsonify(success=True, duplicate=True, message=message)
 
 
-def request_key_duplicate(data, operation=''):
-    request_key = (data.get('request_key') or '').strip() if isinstance(data, dict) else ''
-    if not request_key:
-        return False
-    duplicate = db.check_request_key(request_key, operation or request.path)
-    if not duplicate:
-        g.request_key_started = request_key
-    return duplicate
 
-
-def transactional(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        with db.atomic():
-            return fn(*args, **kwargs)
-    return wrapper
-
-
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        if not current_user():
-            if request.path.startswith('/api/'):
-                return jsonify({'ok': False, 'error': '登入已過期，請重新登入', 'login_required': True}), 401
-            return redirect(url_for('login_page'))
-        if is_current_user_blocked():
-            session.clear()
-            if request.path.startswith('/api/'):
-                return jsonify({'ok': False, 'error': '此帳號已被封鎖，請聯絡管理員', 'login_required': True}), 403
-            return redirect(url_for('login_page'))
-        return fn(*args, **kwargs)
-    return wrapper
-
-
-def api_error(message, code=400, **extra):
-    payload = {'ok': False, 'error': message}
-    payload.update(extra)
-    return jsonify(payload), code
-
-
-def body_json():
-    return request.get_json(silent=True) or {}
-
-
-def normalize_dim(v):
-    v = str(v or '').strip().replace(' ', '')
-    if not v:
-        return ''
-    v = v.replace('O', '0').replace('o', '0')
-    # OCR often reads 1.65 when intended 165; keep 0xx strings as text.
-    if re.fullmatch(r'\d+\.\d+', v):
-        return v.replace('.', '')
-    return v
-
-
-def normalize_line(line, last_wh=None):
-    last_wh = last_wh or ('', '')
-    raw = (line or '').strip()
-    raw = raw.replace('×', 'x').replace('X', 'x').replace('✕', 'x').replace('*', 'x')
-    raw = re.sub(r'\s+', '', raw)
-    raw = raw.replace('＝', '=').replace(':', '=')
-    raw = raw.replace('件', '')
-    if not raw:
-        return None, last_wh
-
-    if '=' not in raw:
-        return None, last_wh
-    left, right = raw.split('=', 1)
-    dims = [d for d in left.split('x') if d != '']
-    if len(dims) == 2 and ('___' in left or '_' in left):
-        dims = [dims[0], last_wh[0], last_wh[1]]
-    elif len(dims) == 1 and ('___' in left or '_' in left):
-        dims = [dims[0], last_wh[0], last_wh[1]]
-    elif len(dims) < 3:
-        return None, last_wh
-    length, width, height = [normalize_dim(x.replace('_', '')) for x in dims[:3]]
-    if width and height:
-        last_wh = (width, height)
-    right = right.replace('×', 'x').replace('X', 'x')
-    right = re.sub(r'\s+', '', right)
-    product_text = f'{length}x{width}x{height}={right}'
-    pieces = count_pieces(right)
-    return {
-        'product_text': product_text,
-        'length_text': length,
-        'width_text': width,
-        'height_text': height,
-        'qty_expr': right,
-        'pieces': pieces,
-    }, last_wh
-
-
-def count_pieces(expr):
-    expr = (expr or '').replace('×', 'x').replace('X', 'x')
-    expr = re.sub(r'\s+', '', expr)
-    # User-confirmed special OCR/master-order case:
-    # 100X30X63=504x5+588+587+502+420+382+378+280+254+237+174 is counted as 10 件.
-    if expr == '504x5+588+587+502+420+382+378+280+254+237+174':
-        return 10
-    if not expr:
-        return 0
-    total = 0
-    for token in expr.split('+'):
-        token = token.strip()
-        if not token:
-            continue
-        m = re.search(r'x(\d+)$', token)
-        if m:
-            total += int(m.group(1))
-        else:
-            total += 1
-    return total
-
-
-def parse_product_text(text):
-    rows = []
-    last_wh = ('', '')
-    for raw_line in (text or '').splitlines():
-        parsed, last_wh = normalize_line(raw_line, last_wh)
-        if parsed:
-            rows.append(parsed)
-    return rows
-
-
-def dim_to_meter(v):
-    s = normalize_dim(v)
-    if not s:
-        return 0.0
-    try:
-        n = float(s)
-    except ValueError:
-        return 0.0
-    # User rule: 363 -> 0.363, 212 -> 0.212; 80 -> 0.8, 140 -> 1.4.
-    if n > 210:
-        return n / 1000.0
-    return n / 100.0
-
-
-def qty_sum(expr):
-    expr = (expr or '').replace('×', 'x').replace('X', 'x')
-    total = 0
-    parts = []
-    for token in expr.split('+'):
-        token = token.strip()
-        if not token:
-            continue
-        m = re.match(r'^(\d+(?:\.\d+)?)x(\d+)$', token)
-        if m:
-            val = float(m.group(1)) * int(m.group(2))
-            parts.append(f"{m.group(1)}x{m.group(2)}")
-            total += val
-        else:
-            try:
-                total += float(token)
-                parts.append(token)
-            except ValueError:
-                pass
-    return total, '+'.join(parts)
-
-
-def calc_volume_for_item(item):
-    qty, formula_qty = qty_sum(item.get('qty_expr') or '')
-    length_m = dim_to_meter(item.get('length_text'))
-    width_m = dim_to_meter(item.get('width_text'))
-    height_m = dim_to_meter(item.get('height_text'))
-    volume = qty * length_m * width_m * height_m
-    formula = f"({formula_qty})x{length_m:g}x{width_m:g}x{height_m:g}"
-    return round(volume, 4), formula
-
-
-def safe_int(value, default=0):
-    try:
-        if value is None or value == '':
-            return default
-        return int(float(str(value).strip()))
-    except Exception:
-        return default
-
-
-def safe_float(value, default=0.0):
-    try:
-        if value is None or value == '':
-            return default
-        return float(str(value).strip())
-    except Exception:
-        return default
-
-
-def fuzzy_customer_name(name):
-    """Return the closest existing customer name for OCR/customer input.
-
-    Used when pasted OCR text has a slightly wrong customer heading. It prefers exact and
-    prefix matches, then uses a conservative similarity score. If there is no good match,
-    the original text is kept so new customers can still be auto-created.
-    """
-    raw = str(name or '').strip()
-    if not raw:
-        return ''
-    try:
-        rows = db.safe_fetchall("SELECT name FROM customers WHERE archived=?", [db.flag(False)])
-    except Exception:
-        return raw
-    names = [str(r.get('name') or '').strip() for r in rows if str(r.get('name') or '').strip()]
-    if not names:
-        return raw
-    if raw in names:
-        return raw
-    for n in names:
-        if n.startswith(raw) or raw.startswith(n):
-            return n
-    for n in names:
-        if raw in n or n in raw:
-            return n
-    best = max(names, key=lambda n: difflib.SequenceMatcher(None, raw, n).ratio())
-    score = difflib.SequenceMatcher(None, raw, best).ratio()
-    return best if score >= 0.58 else raw
-
-
-def activity_last_read_id(username=None):
-    username = username or current_user() or ''
-    row = db.safe_fetchone("SELECT last_read_id FROM activity_reads WHERE username=?", [username])
-    return safe_int((row or {}).get('last_read_id'), 0)
-
-
-def activity_unread_count(username=None):
-    last_id = activity_last_read_id(username)
-    row = db.safe_fetchone("SELECT COUNT(*) AS c FROM activity_logs WHERE id>?", [last_id]) or {}
-    return safe_int(row.get('c'), 0)
-
-
-def mark_activity_read(username=None):
-    username = username or current_user() or ''
-    if not username:
-        return
-    mx = db.safe_fetchone("SELECT COALESCE(MAX(id),0) AS m FROM activity_logs") or {}
-    last_id = safe_int(mx.get('m'), 0)
-    if db.IS_PG:
-        db.safe_execute("""INSERT INTO activity_reads(username, last_read_id, updated_at) VALUES(?,?,?)
-                         ON CONFLICT(username) DO UPDATE SET last_read_id=EXCLUDED.last_read_id, updated_at=EXCLUDED.updated_at""",
-                        [username, last_id, db.now()])
-    else:
-        old = db.safe_fetchone("SELECT id FROM activity_reads WHERE username=?", [username])
-        if old:
-            db.safe_execute("UPDATE activity_reads SET last_read_id=?, updated_at=? WHERE username=?", [last_id, db.now(), username])
-        else:
-            db.safe_execute("INSERT INTO activity_reads(username, last_read_id, updated_at) VALUES(?,?,?)", [username, last_id, db.now()])
-
-
-def clean_zone(value):
-    value = str(value or 'A').upper().strip()
-    return value if value in ['A', 'B'] else 'A'
-
-
-def clean_row_name(value):
-    value = str(value or 'front').strip()
-    return value if value in ['front', 'back'] else 'front'
-
-
-def clean_band(value):
-    return max(1, min(6, safe_int(value, 1)))
-
-
-def clean_slot(value):
-    return max(1, safe_int(value, 1))
-
-
-def module_from_table(table):
-    return {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master'}.get(table or '', '')
-
-
-def cell_key(zone, band, row_name, slot):
-    return f"{zone}-{int(band)}-{row_name}-{int(slot)}"
-
-
-def table_from_source(source):
-    if source in ['inventory', 'orders', 'master']:
-        return db.table_for_module(source)
-    if source in ['master_orders']:
-        return 'master_orders'
-    if source in ['inventory', 'orders']:
-        return source
+def resolve_customer_region(customer_name='', requested_region=''):
+    requested = (requested_region or '').strip()
+    if requested in ['北區', '中區', '南區']:
+        return requested
+    if customer_name:
+        row = get_customer(customer_name, include_archived=True)
+        if row and (row.get('region') or '').strip() in ['北區', '中區', '南區']:
+            return (row.get('region') or '').strip()
     return ''
 
 
-def source_name_from_table(table):
-    return {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master'}.get(table, table or '')
+def build_customer_payload_snapshot(customer_name=''):
+    customer_name = (customer_name or '').strip()
+    customer = get_customer(customer_name, include_archived=True) if customer_name else None
+    counts = get_customer_relation_counts(customer_name) if customer_name else {}
+    return {'customer': customer, 'relation_counts': counts}
 
 
-def normalize_warehouse_items(items, zone, band, row_name, slot):
-    """Clean warehouse item payloads, enrich source-linked rows, and prevent duplicate refs.
-
-    同一個商品來源不應同時在同一格出現兩次，否則倉庫件數和未錄入統計會失真。
-    有來源表/id 的商品以來源為準；手動輸入的簡化件數保留原樣。
-    """
-    normalized = []
-    seen_refs = {}
-    for idx, item in enumerate(items or []):
-        if not isinstance(item, dict):
-            continue
-        source = item.get('source') or source_name_from_table(item.get('source_table'))
-        source_table = table_from_source(source)
-        source_id = safe_int(item.get('id') or item.get('source_id'), 0)
-        row = None
-        if source_table and source_id:
-            row = db.safe_fetchone(f"SELECT * FROM {source_table} WHERE id=?", [source_id])
-            if not row:
-                # 來源商品已刪除時，不再把幽靈資料留在倉庫格子。
-                continue
-        customer = (item.get('customer') or item.get('customer_name') or (row or {}).get('customer_name') or '庫存').strip() or '庫存'
-        max_pieces = safe_int((row or {}).get('pieces'), 0)
-        pieces = safe_int(item.get('pieces'), max_pieces)
-        if max_pieces:
-            pieces = min(max(0, pieces), max_pieces)
-        payload = {
-            'source': source_name_from_table(source_table) if source_table else (source or ''),
-            'source_table': source_table,
-            'source_id': source_id,
-            'id': source_id,
-            'customer': customer,
-            'customer_name': customer,
-            'product_text': item.get('product_text') or (row or {}).get('product_text') or '',
-            'material': item.get('material') or (row or {}).get('material') or '',
-            'pieces': pieces,
-            'warehouse_key': cell_key(zone, band, row_name, slot),
-            'sort_order': idx,
-        }
-        ref_key = (source_table, source_id) if source_table and source_id else None
-        if ref_key:
-            if ref_key in seen_refs:
-                old_idx = seen_refs[ref_key]
-                normalized[old_idx].update(payload)
-                normalized[old_idx]['sort_order'] = min(normalized[old_idx].get('sort_order', idx), idx)
-                continue
-            seen_refs[ref_key] = len(normalized)
-        normalized.append(payload)
-    for i, item in enumerate(normalized):
-        item['sort_order'] = i
-    return normalized
-
-
-def sync_cell_links(zone, band, row_name, slot, old_items, new_items):
-    """Keep warehouse_cells/items and item.warehouse_key in sync.
-
-    This makes 未錄入倉庫圖 count, product search, and shipping location consistent.
-    """
-    key = cell_key(zone, band, row_name, slot)
-    old_refs = set()
-    for item in old_items or []:
-        source_table = table_from_source(item.get('source') or source_name_from_table(item.get('source_table')))
-        source_id = safe_int(item.get('id') or item.get('source_id'), 0)
-        if source_table and source_id:
-            old_refs.add((source_table, source_id))
-    new_refs = set()
-    normalized = normalize_warehouse_items(new_items, zone, band, row_name, slot)
-    cell = db.safe_fetchone("SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    cell_id = safe_int((cell or {}).get('id'), 0)
-    db.safe_execute("DELETE FROM warehouse_items WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    for item in normalized:
-        source_table = item.get('source_table') or ''
-        source_id = safe_int(item.get('source_id'), 0)
-        if source_table and source_id:
-            new_refs.add((source_table, source_id))
-            db.safe_execute(f"UPDATE {source_table} SET warehouse_key=?, updated_at=? WHERE id=?", [key, db.now(), source_id])
-        db.safe_execute(
-            """INSERT INTO warehouse_items(cell_id, zone, band, row_name, slot, source_table, source_id,
-                   customer_name, product_text, material, pieces, sort_order, created_at, updated_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            [cell_id, zone, band, row_name, slot, source_table, source_id, item.get('customer_name',''),
-             item.get('product_text',''), item.get('material',''), item.get('pieces') or 0, item.get('sort_order') or 0,
-             db.now(), db.now()],
-        )
-    for source_table, source_id in old_refs - new_refs:
-        db.safe_execute(f"UPDATE {source_table} SET warehouse_key='', updated_at=? WHERE id=? AND warehouse_key=?", [db.now(), source_id, key])
-    return normalized
-
-
-def refs_from_items(items):
-    refs = set()
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-        source_table = table_from_source(item.get('source') or source_name_from_table(item.get('source_table')))
-        source_id = safe_int(item.get('source_id') or item.get('id'), 0)
-        if source_table and source_id:
-            refs.add((source_table, source_id))
-    return refs
-
-
-def dedupe_refs_from_other_cells(target_zone, target_band, target_row_name, target_slot, items):
-    """Remove source-linked products from all cells except the target cell.
-
-    This prevents the same inventory/order/master row from being displayed in two warehouse slots
-    after drag/drop, merge, or moving between inventory → order → master.
-    """
-    refs = refs_from_items(items)
-    if not refs:
-        return
-    cells = db.safe_fetchall("SELECT * FROM warehouse_cells")
-    for c in cells:
-        zone = c.get('zone') or 'A'
-        band = safe_int(c.get('band'), 1)
-        row_name = c.get('row_name') or 'front'
-        slot = safe_int(c.get('slot'), 1)
-        if zone == target_zone and band == safe_int(target_band, 1) and row_name == target_row_name and slot == safe_int(target_slot, 1):
-            continue
-        old_items = parse_items_json(c.get('items_json'))
-        new_items = []
-        changed = False
-        for it in old_items:
-            source_table = table_from_source(it.get('source') or source_name_from_table(it.get('source_table')))
-            source_id = safe_int(it.get('source_id') or it.get('id'), 0)
-            if source_table and source_id and (source_table, source_id) in refs:
-                changed = True
-                continue
-            new_items.append(it)
-        if changed:
-            normalized = normalize_warehouse_items(new_items, zone, band, row_name, slot)
-            dedupe_refs_from_other_cells(zone, band, row_name, slot, normalized)
-            db.safe_execute("UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?", [json.dumps(normalized, ensure_ascii=False), db.now(), c.get('id')])
-            sync_cell_links(zone, band, row_name, slot, old_items, normalized)
-
-
-def _is_ref(item, table, source_id):
-    source_table = table_from_source(item.get('source') or source_name_from_table(item.get('source_table')))
-    sid = safe_int(item.get('source_id') or item.get('id'), 0)
-    return source_table == table and sid == safe_int(source_id, 0)
-
-
-def refresh_warehouse_ref(table, source_id, row=None, remove=False):
-    """Update or remove a product reference inside warehouse cell JSON.
-
-    Keeps warehouse_cells.items_json, warehouse_items, and source table warehouse_key consistent
-    after editing, deleting, shipping, or moving inventory/order/master rows.
-    """
-    source_id = safe_int(source_id, 0)
-    if not table or not source_id:
-        return
-    if row is None and not remove:
-        row = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [source_id])
-    changed_any = False
-    cells = db.safe_fetchall("SELECT * FROM warehouse_cells")
-    for c in cells:
-        zone = c.get('zone') or 'A'
-        band = safe_int(c.get('band'), 1)
-        row_name = c.get('row_name') or 'front'
-        slot = safe_int(c.get('slot'), 1)
-        old_items = parse_items_json(c.get('items_json'))
-        new_items = []
-        changed = False
-        for it in old_items:
-            if _is_ref(it, table, source_id):
-                changed = True
-                if remove:
-                    continue
-                r = row or {}
-                it = dict(it)
-                it.update({
-                    'source': module_from_table(table),
-                    'source_table': table,
-                    'source_id': source_id,
-                    'id': source_id,
-                    'customer': r.get('customer_name') or it.get('customer') or it.get('customer_name') or '庫存',
-                    'customer_name': r.get('customer_name') or it.get('customer_name') or it.get('customer') or '庫存',
-                    'product_text': r.get('product_text') or it.get('product_text') or '',
-                    'material': r.get('material') or it.get('material') or '',
-                    'pieces': safe_int(r.get('pieces'), safe_int(it.get('pieces'), 0)),
-                })
-            new_items.append(it)
-        if changed:
-            normalized = normalize_warehouse_items(new_items, zone, band, row_name, slot)
-            dedupe_refs_from_other_cells(zone, band, row_name, slot, normalized)
-            db.safe_execute("UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?", [json.dumps(normalized, ensure_ascii=False), db.now(), c.get('id')])
-            sync_cell_links(zone, band, row_name, slot, old_items, normalized)
-            changed_any = True
-    if remove:
-        db.safe_execute("DELETE FROM warehouse_items WHERE source_table=? AND source_id=?", [table, source_id])
-    return changed_any
-
-
-def move_warehouse_ref(old_table, old_id, new_table, new_id, take_pieces=0, remain_pieces=0):
-    old_id = safe_int(old_id, 0)
-    new_id = safe_int(new_id, 0)
-    take_pieces = safe_int(take_pieces, 0)
-    remain_pieces = safe_int(remain_pieces, 0)
-    if not old_table or not old_id or not new_table or not new_id:
-        return
-    new_row = db.safe_fetchone(f"SELECT * FROM {new_table} WHERE id=?", [new_id]) or {}
-    old_row = db.safe_fetchone(f"SELECT * FROM {old_table} WHERE id=?", [old_id]) or {}
-    cells = db.safe_fetchall("SELECT * FROM warehouse_cells")
-    for c in cells:
-        zone = c.get('zone') or 'A'
-        band = safe_int(c.get('band'), 1)
-        row_name = c.get('row_name') or 'front'
-        slot = safe_int(c.get('slot'), 1)
-        old_items = parse_items_json(c.get('items_json'))
-        new_items = []
-        changed = False
-        for it in old_items:
-            if _is_ref(it, old_table, old_id):
-                changed = True
-                if remain_pieces > 0:
-                    old_it = dict(it)
-                    old_it['pieces'] = remain_pieces
-                    old_it['customer'] = old_row.get('customer_name') or old_it.get('customer') or old_it.get('customer_name') or '庫存'
-                    old_it['customer_name'] = old_row.get('customer_name') or old_it.get('customer_name') or old_it.get('customer') or '庫存'
-                    new_items.append(old_it)
-                    new_items.insert(max(0, len(new_items)-1), {
-                        'source': module_from_table(new_table),
-                        'source_table': new_table,
-                        'source_id': new_id,
-                        'id': new_id,
-                        'customer': new_row.get('customer_name') or '庫存',
-                        'customer_name': new_row.get('customer_name') or '庫存',
-                        'product_text': new_row.get('product_text') or it.get('product_text') or '',
-                        'material': new_row.get('material') or it.get('material') or '',
-                        'pieces': take_pieces,
-                    })
-                else:
-                    new_items.append({
-                        'source': module_from_table(new_table),
-                        'source_table': new_table,
-                        'source_id': new_id,
-                        'id': new_id,
-                        'customer': new_row.get('customer_name') or '庫存',
-                        'customer_name': new_row.get('customer_name') or '庫存',
-                        'product_text': new_row.get('product_text') or it.get('product_text') or '',
-                        'material': new_row.get('material') or it.get('material') or '',
-                        'pieces': take_pieces or safe_int(new_row.get('pieces'), safe_int(it.get('pieces'), 0)),
-                    })
-            else:
-                new_items.append(it)
-        if changed:
-            normalized = normalize_warehouse_items(new_items, zone, band, row_name, slot)
-            db.safe_execute("UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?", [json.dumps(normalized, ensure_ascii=False), db.now(), c.get('id')])
-            sync_cell_links(zone, band, row_name, slot, old_items, normalized)
-
-
-def rename_customer_in_warehouse(old_name, new_name):
-    if not old_name or not new_name or old_name == new_name:
-        return
-    cells = db.safe_fetchall("SELECT * FROM warehouse_cells")
-    for c in cells:
-        zone = c.get('zone') or 'A'
-        band = safe_int(c.get('band'), 1)
-        row_name = c.get('row_name') or 'front'
-        slot = safe_int(c.get('slot'), 1)
-        old_items = parse_items_json(c.get('items_json'))
-        changed = False
-        for it in old_items:
-            if (it.get('customer') == old_name) or (it.get('customer_name') == old_name):
-                it['customer'] = new_name
-                it['customer_name'] = new_name
-                changed = True
-        if changed:
-            normalized = normalize_warehouse_items(old_items, zone, band, row_name, slot)
-            db.safe_execute("UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?", [json.dumps(normalized, ensure_ascii=False), db.now(), c.get('id')])
-            sync_cell_links(zone, band, row_name, slot, old_items, normalized)
-    db.safe_execute("UPDATE warehouse_items SET customer_name=? WHERE customer_name=?", [new_name, old_name])
-
-
-def parse_items_json(value):
+def safe_list_todos(fallback_item=None):
     try:
-        data = json.loads(value or '[]')
-        return data if isinstance(data, list) else []
+        return list_todo_items()
+    except Exception as e:
+        log_error('safe_list_todos', str(e))
+        return [fallback_item] if fallback_item else []
+
+
+def export_rows_to_xlsx(sheet_name, rows, columns):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name[:31] or 'Sheet1'
+    ws.append([header for header, _ in columns])
+    for row in rows:
+        ws.append([row.get(key, '') if isinstance(row, dict) else '' for _, key in columns])
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(40, max(10, max_len + 2))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+def require_login():
+    return bool(current_username())
+
+def login_required_json(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not require_login():
+            return jsonify(success=False, error="請先登入"), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+@app.after_request
+def add_cache_headers(response):
+    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
+    # HTML / API 仍維持 no-store，資料不會吃舊。
+    path = request.path or ''
+    response.headers['Vary'] = 'Cookie'
+    if path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+        return response
+    if path == '/sw.js':
+        response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+        return response
+    response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+@app.before_request
+def protect_pages():
+    path = request.path
+    # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
+    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+        ensure_daily_backup()
+    if path.startswith("/static/") or path in ("/health",):
+        return None
+    public = [
+        "/login", "/api/login", "/api/health", "/api/native-shell/config",
+        "/sw.js", "/manifest.webmanifest"
+    ]
+    if path in public:
+        return None
+    if not require_login() and path not in ("/",):
+        # Let / redirect to login
+        if path.startswith("/api/"):
+            return jsonify(success=False, error="請先登入"), 401
+        return redirect(url_for("login_page"))
+    return None
+
+
+@app.route("/sw.js")
+def serve_root_service_worker():
+    resp = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def error_response(msg, code=400):
+    return jsonify({"success": False, "error": msg}), code
+
+def compress_image(path):
+    try:
+        img = Image.open(path)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        if img.width > 1800:
+            ratio = 1800 / float(img.width)
+            img = img.resize((1800, int(img.height * ratio)))
+        img.save(path, "JPEG", quality=78, optimize=True)
+    except Exception as e:
+        log_error("compress_image", str(e))
+
+def parse_lines_to_items(text):
+    parsed = parse_ocr_text(text)
+    return parsed["items"], parsed["text"]
+
+
+
+def normalize_item_quantity(product_text, qty=0):
+    return effective_product_qty(product_text, qty)
+
+
+def normalize_item_for_save(item):
+    product_text = format_product_text_height2((item.get('product_text') or item.get('product') or '').strip())
+    material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+    product_code = material
+    qty = normalize_item_quantity(product_text, item.get('qty') or 0)
+    return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+
+
+def aggregate_customer_items(items):
+    """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
+    buckets = {}
+    for row in items or []:
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        if not product_text:
+            continue
+        source = row.get('source') or ''
+        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+        size = product_display_size(product_text)
+        qty = normalize_item_quantity(product_text, row.get('qty') or 0)
+        support = product_support_text(product_text)
+        # If the right side is only 支數, append x件數 for display. 括號備註會保留。
+        if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
+            support = f"{support}x{qty}"
+        elif not support:
+            support = str(qty)
+        key = (source, size, material)
+        if key not in buckets:
+            out = dict(row)
+            out['qty'] = qty
+            out['product_text'] = f"{size}={support}" if support else size
+            out['material'] = material
+            out['product_code'] = material
+            out['size_text'] = size
+            out['support_text'] = support
+            buckets[key] = out
+        else:
+            buckets[key]['qty'] = int(buckets[key].get('qty') or 0) + qty
+            old_support = (buckets[key].get('support_text') or '').strip()
+            if support:
+                supports = [x for x in old_support.split('+') if x] if old_support else []
+                if support not in supports:
+                    supports.append(support)
+                buckets[key]['support_text'] = '+'.join(supports)
+                buckets[key]['product_text'] = f"{size}={buckets[key]['support_text']}"
+    rows = list(buckets.values())
+    rows.sort(key=lambda r: (product_sort_tuple(r.get('product_text') or ''), r.get('source') or '', r.get('id') or 0))
+    return rows
+
+
+def warehouse_item_size_key(text):
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    left = (raw.split('=', 1)[0].strip() or raw).lower()
+    parts = [p for p in left.split('x') if p != '']
+    if len(parts) >= 3 and all(part.strip().isdigit() for part in parts[:3]):
+        return 'x'.join(str(int(part.strip())) for part in parts[:3])
+    return left
+
+def safe_cell_items(cell):
+    try:
+        return json.loads(cell.get('items_json') or '[]')
     except Exception:
         return []
 
-
-def sync_row_after_slot_change(zone, band, row_name):
-    rows = db.safe_fetchall("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? ORDER BY slot", [zone, band, row_name])
-    for row in rows:
-        items = parse_items_json(row.get('items_json'))
-        sync_cell_links(zone, safe_int(row.get('band'), band), row.get('row_name') or row_name, safe_int(row.get('slot'), 0), items, items)
-
-
-def serialize_item(row, source=''):
-    row = dict(row)
-    row['source'] = source
-    row['pieces'] = safe_int(row.get('pieces'), 0)
-    return row
-
-
-def item_sort_key(row):
-    # General rule: height → width → length ascending; blank/non-numeric values go last.
-    def n(v):
-        m = re.search(r'\d+', str(v or ''))
-        return int(m.group(0)) if m else 999999
-    # Simple month prefix support, e.g. 4月 / 04月.
-    text = str(row.get('product_text') or '')
-    mm = re.search(r'(\d{1,2})\s*月', text)
-    month = int(mm.group(1)) if mm else 99
-    return (month, n(row.get('height_text')), n(row.get('width_text')), n(row.get('length_text')), str(row.get('updated_at') or ''))
-
-
-def add_product_to_table(table, customer_name, product, material='', operator='', warehouse_key=''):
-    cols = "customer_name, product_text, material, length_text, width_text, height_text, qty_expr, pieces, warehouse_key, operator, created_at, updated_at"
-    vals = [customer_name or '', product.get('product_text',''), material or '', product.get('length_text',''), product.get('width_text',''),
-            product.get('height_text',''), product.get('qty_expr',''), safe_int(product.get('pieces'), 0), warehouse_key or '', operator, db.now(), db.now()]
-    if db.IS_PG:
-        return db.insert_and_get_id(
-            f"""INSERT INTO {table}({cols}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id""",
-            vals,
-        )
-    return db.insert_and_get_id(
-        f"""INSERT INTO {table}({cols}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-        vals,
-    )
-
-
-def update_product_table(table, item_id, data, operator):
-    fields = []
-    params = []
-    allowed = ['customer_name', 'product_text', 'material', 'length_text', 'width_text', 'height_text', 'qty_expr', 'pieces', 'warehouse_key', 'status']
-    explicit_pieces = 'pieces' in data
-    explicit_pieces_value = data.get('pieces')
-    if 'product_text' in data and data.get('product_text'):
-        parsed = parse_product_text(data.get('product_text'))
-        if parsed:
-            p = parsed[0]
-            data.update(p)
-    if explicit_pieces:
-        data['pieces'] = safe_int(explicit_pieces_value, safe_int(data.get('pieces'), 0))
-    elif 'pieces' in data:
-        data['pieces'] = safe_int(data.get('pieces'), 0)
-    for k in allowed:
-        if k in data:
-            fields.append(f"{k}=?")
-            params.append(data[k])
-    if not fields:
-        return
-    fields.append('updated_at=?')
-    params.append(db.now())
-    params.append(item_id)
-    db.execute(f"UPDATE {table} SET {', '.join(fields)} WHERE id=?", params)
-
-
-def ensure_db_ready():
-    # 每個 API 進來都會走這裡：自動建表、自動補欄位、舊資料轉換。
-    # db.ensure_api_ready() 第一次會完整 migration；之後是輕量保護。
-    db.ensure_api_ready()
-
-
-@app.before_request
-def boot_db():
-    # Render 的 HEAD / 只能證明 worker 活著；GET / 仍可能因舊 session 或 DB schema 出錯。
-    if request.endpoint == 'static' or request.path in ['/static/manifest.webmanifest', '/favicon.ico']:
-        return
-    if request.method == 'OPTIONS':
-        return
-    try:
-        if request.path.startswith('/api/'):
-            ensure_db_ready()
-        elif request.path != '/login':
-            db.ensure_api_ready()
-    except Exception as exc:
-        g.boot_error = str(exc)[:500]
-        if request.path.startswith('/api/'):
-            return jsonify({'ok': False, 'error': '資料庫初始化失敗，請稍後再試', 'detail': g.boot_error}), 500
-        return None
-@app.after_request
-def after_request(resp):
-    # Commercial hardening: keep API responses private and add basic browser safety headers.
-    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
-    resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
-    resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
-    if request.path.startswith('/api/'):
-        resp.headers['Cache-Control'] = 'no-store, max-age=0'
-    request_key = getattr(g, 'request_key_started', '')
-    if request_key:
-        try:
-            if 200 <= resp.status_code < 400:
-                db.mark_request_key_success(request_key, {'status_code': resp.status_code})
-            else:
-                db.mark_request_key_failed(request_key, f'HTTP {resp.status_code}')
-        except Exception:
-            pass
-    return resp
-
-
-@app.route('/healthz', methods=['GET', 'HEAD'])
-def healthz():
-    """Public lightweight deployment health check for Render.
-
-    It does not require login, but still verifies that the schema guard can run.
-    """
-    ok = True
-    detail = ''
-    try:
-        db.ensure_api_ready()
-    except Exception as exc:
-        ok = False
-        detail = str(exc)[:200]
-    status = 200 if ok else 503
-    return jsonify({'ok': ok, 'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED', 'database': 'postgres' if db.IS_PG else 'sqlite', 'detail': detail}), status
-
-
-@app.route('/login')
-def login_page():
-    return render_template('login.html')
-
-
-@app.route('/', methods=['GET', 'HEAD'])
-@login_required
-def home():
-    # HEAD / 是 Render 健康檢查；GET / 才會真正渲染畫面。
-    if request.method == 'HEAD':
-        return ('', 200)
-    return render_template('home.html', page='home', title='沅興木業', user=current_user())
-@app.route('/<page>')
-@login_required
-def page_view(page):
-    if page not in PAGE_TITLES or page == 'home':
-        return redirect(url_for('home'))
-    return render_template('page.html', page=page, title=PAGE_TITLES[page], user=current_user())
-
-
-@app.post('/api/register')
-def api_register():
-    data = body_json()
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
-    if not username or not password:
-        return api_error('請輸入姓名與密碼')
-    first_user = not db.fetchone("SELECT id FROM users LIMIT 1")
-    role = 'admin' if (first_user or username == ADMIN_NAME) else 'user'
-    try:
-        db.execute(
-            "INSERT INTO users(username, password_hash, role, is_blocked, created_at) VALUES(?,?,?,?,?)",
-            [username, generate_password_hash(password), role, db.flag(False), db.now()],
-        )
-    except Exception:
-        return api_error('此姓名已註冊，請直接登入')
-    session['username'] = username
-    session['role'] = role
-    db.add_activity('註冊', username, '', '使用者註冊', username)
-    return jsonify({'ok': True, 'username': username})
-
-
-@app.post('/api/login')
-def api_login():
-    data = body_json()
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
-    user = db.fetchone("SELECT * FROM users WHERE username=?", [username])
-    if not user:
-        return api_error('帳號或密碼錯誤', 401)
-    password_ok = False
-    stored_hash = user.get('password_hash') or ''
-    legacy_password = user.get('password') or ''
-    if stored_hash:
-        try:
-            password_ok = check_password_hash(stored_hash, password)
-        except Exception:
-            password_ok = False
-    if not password_ok and legacy_password:
-        try:
-            password_ok = check_password_hash(legacy_password, password)
-        except Exception:
-            password_ok = (legacy_password == password)
-        if password_ok:
-            db.execute("UPDATE users SET password_hash=?, password='' WHERE username=?", [generate_password_hash(password), username])
-    if not password_ok:
-        return api_error('帳號或密碼錯誤', 401)
-    if db_truthy(user.get('is_blocked')):
-        return api_error('此帳號已被封鎖，請聯絡管理員', 403)
-    if stored_hash and legacy_password:
-        db.safe_execute("UPDATE users SET password='' WHERE username=?", [username])
-    session['username'] = username
-    session['role'] = user.get('role') or 'user'
-    return jsonify({'ok': True, 'username': username})
-
-
-@app.post('/api/logout')
-@login_required
-def api_logout():
-    session.clear()
-    return jsonify({'ok': True})
-
-
-@app.get('/api/session')
-def api_session():
-    if current_user() and is_current_user_blocked():
-        session.clear()
-        return jsonify({'ok': True, 'logged_in': False, 'username': None, 'admin': False, 'blocked': True})
-    return jsonify({'ok': True, 'logged_in': bool(current_user()), 'username': current_user(), 'admin': is_admin()})
-
-
-@app.get('/api/customers')
-@login_required
-def api_customers():
-    archived = request.args.get('archived') == '1'
-    rows = db.fetchall("""
-        SELECT c.*,
-               COALESCE((SELECT SUM(COALESCE(pieces,0)) FROM inventory WHERE customer_name=c.name),0)
-             + COALESCE((SELECT SUM(COALESCE(pieces,0)) FROM orders WHERE customer_name=c.name AND status='open'),0)
-             + COALESCE((SELECT SUM(COALESCE(pieces,0)) FROM master_orders WHERE customer_name=c.name),0) AS total_pieces,
-               COALESCE((SELECT COUNT(1) FROM inventory WHERE customer_name=c.name),0)
-             + COALESCE((SELECT COUNT(1) FROM orders WHERE customer_name=c.name AND status='open'),0)
-             + COALESCE((SELECT COUNT(1) FROM master_orders WHERE customer_name=c.name),0) AS total_records
-        FROM customers c
-        WHERE c.archived=?
-        ORDER BY c.region, c.sort_order, c.name
-    """, [db.flag(archived)])
-    return jsonify({'ok': True, 'customers': rows})
-
-
-@app.get('/api/customer-suggest')
-@login_required
-def api_customer_suggest():
-    q = (request.args.get('q') or '').strip()
-    like = q + '%'
-    rows = db.fetchall("SELECT name, region FROM customers WHERE archived=? AND name LIKE ? ORDER BY name LIMIT 20", [db.flag(False), like])
-    return jsonify({'ok': True, 'customers': rows})
-
-
-@app.post('/api/customers')
-@login_required
-@transactional
-def api_customers_post():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    name = (data.get('name') or '').strip()
-    if not name:
-        return api_error('請輸入客戶名稱')
-    db.ensure_customer(name, data.get('region') or 'north', current_user())
-    db.execute("UPDATE customers SET region=?, common_material=?, common_size=?, updated_at=? WHERE name=?",
-               [data.get('region') or 'north', data.get('common_material') or '', data.get('common_size') or '', db.now(), name])
-    db.upsert_customer_profile(name, data.get('common_material') or '', data.get('common_size') or '', data.get('note') or '')
-    db.add_activity('客戶更新', name, '', '新增/更新客戶資料', current_user())
-    return jsonify({'ok': True})
-
-
-@app.get('/api/customers/<path:name>/profile')
-@login_required
-def api_customer_profile(name):
-    row = db.safe_fetchone("SELECT * FROM customers WHERE name=?", [name])
-    if not row:
-        matched = fuzzy_customer_name(name)
-        if matched and matched != name:
-            row = db.safe_fetchone("SELECT * FROM customers WHERE name=?", [matched])
-    if not row:
-        return api_error('找不到客戶', 404)
-    profile = db.safe_fetchone("SELECT * FROM customer_profiles WHERE customer_name=?", [row.get('name')]) or {}
-    data = dict(row)
-    data.update({
-        'profile_common_material': profile.get('common_material') or data.get('common_material') or '',
-        'profile_common_size': profile.get('common_size') or data.get('common_size') or '',
-        'note': profile.get('note') or data.get('note') or '',
-    })
-    return jsonify({'ok': True, 'customer': data})
-
-
-@app.patch('/api/customers/<path:name>')
-@login_required
-@transactional
-def api_customer_patch(name):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    new_name = (data.get('name') or name).strip()
-    region = data.get('region')
-    common_material = data.get('common_material')
-    common_size = data.get('common_size')
-    old = db.fetchone("SELECT * FROM customers WHERE name=?", [name])
-    if not old:
-        return api_error('找不到客戶')
-    if new_name != name:
-        db.execute("UPDATE customers SET name=?, updated_at=? WHERE name=?", [new_name, db.now(), name])
-        for table in ['inventory', 'orders', 'master_orders', 'shipping_records']:
-            db.execute(f"UPDATE {table} SET customer_name=? WHERE customer_name=?", [new_name, name])
-        db.safe_execute("UPDATE customer_profiles SET customer_name=? WHERE customer_name=?", [new_name, name])
-        db.safe_execute("UPDATE archived_customers SET name=? WHERE name=?", [new_name, name])
-        rename_customer_in_warehouse(name, new_name)
-    if region is not None or common_material is not None or common_size is not None:
-        row = db.fetchone("SELECT * FROM customers WHERE name=?", [new_name])
-        db.execute("UPDATE customers SET region=?, common_material=?, common_size=?, updated_at=? WHERE name=?",
-                   [region or row.get('region') or 'north', common_material if common_material is not None else row.get('common_material',''), common_size if common_size is not None else row.get('common_size',''), db.now(), new_name])
-        db.upsert_customer_profile(new_name, common_material if common_material is not None else row.get('common_material',''), common_size if common_size is not None else row.get('common_size',''), row.get('note',''))
-    db.add_activity('客戶更新', new_name, '', '編輯客戶資料', current_user())
-    return jsonify({'ok': True})
-
-
-@app.delete('/api/customers/<path:name>')
-@login_required
-@transactional
-def api_customer_delete(name):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    db.execute("UPDATE customers SET archived=?, updated_at=? WHERE name=?", [db.flag(True), db.now(), name])
-    row = db.safe_fetchone("SELECT * FROM customers WHERE name=?", [name]) or {}
-    if db.IS_PG:
-        db.safe_execute("""INSERT INTO archived_customers(name, region, common_material, common_size, archived_at, operator)
-                         VALUES(?,?,?,?,?,?)
-                         ON CONFLICT (name) DO UPDATE SET region=EXCLUDED.region, common_material=EXCLUDED.common_material,
-                         common_size=EXCLUDED.common_size, archived_at=EXCLUDED.archived_at, operator=EXCLUDED.operator""",
-                        [name, row.get('region',''), row.get('common_material',''), row.get('common_size',''), db.now(), current_user()])
-    else:
-        db.safe_execute("INSERT OR REPLACE INTO archived_customers(name, region, common_material, common_size, archived_at, operator) VALUES(?,?,?,?,?,?)",
-                        [name, row.get('region',''), row.get('common_material',''), row.get('common_size',''), db.now(), current_user()])
-    db.add_activity('封存客戶', name, '', '客戶已封存', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/customers/<path:name>/restore')
-@login_required
-@transactional
-def api_customer_restore(name):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    db.execute("UPDATE customers SET archived=?, updated_at=? WHERE name=?", [db.flag(False), db.now(), name])
-    db.safe_execute("DELETE FROM archived_customers WHERE name=?", [name])
-    db.add_activity('還原客戶', name, '', '客戶已還原', current_user())
-    return jsonify({'ok': True})
-
-
-@app.delete('/api/customers-hard-delete/<path:name>')
-@app.delete('/api/customers/<path:name>/hard-delete')
-@login_required
-@transactional
-def api_customer_hard_delete(name):
-    """Delete only the customer profile row while preserving inventory/order/master/shipping data.
-
-    商品歷史資料仍保留原客戶名稱；若之後又從訂單/總單/入庫使用該名稱，系統會自動重建客戶資料。
-    """
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    existed = db.safe_fetchone("SELECT * FROM customers WHERE name=?", [name])
-    if not existed:
-        return api_error('找不到客戶資料', 404)
-    db.execute("DELETE FROM customers WHERE name=?", [name])
-    db.safe_execute("DELETE FROM customer_profiles WHERE customer_name=?", [name])
-    db.safe_execute("DELETE FROM archived_customers WHERE name=?", [name])
-    db.add_activity('刪除客戶資料', name, '', '僅刪除客戶名片資料，商品與出貨紀錄保留', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/customers/reorder')
-@login_required
-@transactional
-def api_customers_reorder():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    region = data.get('region') or 'north'
-    names = data.get('names') or []
-    if region not in ['north','center','south'] or not isinstance(names, list):
-        return api_error('排序資料錯誤')
-    for idx, name in enumerate(names):
-        if isinstance(name, str) and name.strip():
-            db.execute("UPDATE customers SET region=?, sort_order=?, updated_at=? WHERE name=?", [region, idx, db.now(), name.strip()])
-    db.add_activity('客戶排序', '', '', f'{region} 客戶排序已更新', current_user())
-    return jsonify({'ok': True})
-
-
-@app.get('/api/items/<module>')
-@login_required
-def api_items(module):
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    customer = (request.args.get('customer') or '').strip()
-    q = (request.args.get('q') or '').strip()
-    where = []
-    params = []
-    if customer:
-        where.append('customer_name=?')
-        params.append(customer)
-    if q:
-        where.append('(product_text LIKE ? OR material LIKE ? OR customer_name LIKE ?)')
-        params += [f'%{q}%', f'%{q}%', f'%{q}%']
-    if module == 'orders':
-        where.append("status='open'")
-    sql = f"SELECT * FROM {table}"
-    if where:
-        sql += ' WHERE ' + ' AND '.join(where)
-    sql += ' ORDER BY updated_at DESC LIMIT 500'
-    rows = [serialize_item(r, module) for r in db.fetchall(sql, params)]
-    rows.sort(key=item_sort_key)
-    return jsonify({'ok': True, 'items': rows})
-
-
-@app.get('/api/items/<module>/<int:item_id>')
-@login_required
-def api_item_get(module, item_id):
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    row = db.fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-    if not row:
-        return api_error('找不到商品', 404)
-    return jsonify({'ok': True, 'item': serialize_item(row, module)})
-
-
-@app.get('/api/item-customers/<module>')
-@login_required
-def api_item_customers(module):
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    status_sql = " AND i.status='open'" if module == 'orders' else ''
-    rows = db.fetchall(
-        f"""SELECT c.*,
-                    COALESCE((SELECT SUM(COALESCE(i.pieces,0)) FROM {table} i WHERE i.customer_name=c.name {status_sql}),0) AS total_pieces,
-                    COALESCE((SELECT COUNT(1) FROM {table} i WHERE i.customer_name=c.name {status_sql}),0) AS total_records
-             FROM customers c
-             WHERE c.archived=?
-             AND EXISTS (
-               SELECT 1 FROM {table} i
-               WHERE i.customer_name=c.name
-               {status_sql}
-             )
-             ORDER BY c.region, c.sort_order, c.name""",
-        [db.flag(False)],
-    )
-    return jsonify({'ok': True, 'customers': rows})
-
-
-@app.post('/api/items/<module>')
-@login_required
-@transactional
-def api_items_post(module):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    text = data.get('text') or data.get('product_text') or ''
-    rows = parse_product_text(text)
-    if not rows:
-        return api_error('沒有可加入的商品格式')
-    customer = fuzzy_customer_name((data.get('customer_name') or '').strip())
-    material = data.get('material') or ''
-    if module != 'inventory' and not customer:
-        return api_error('請輸入客戶名稱')
-    if customer:
-        db.ensure_customer(customer, operator=current_user())
-    for p in rows:
-        add_product_to_table(table, customer, p, material, current_user())
-        db.add_activity('新增商品', customer or '庫存', p['product_text'], f'加入{PAGE_TITLES.get(module, module)}', current_user())
-    return jsonify({'ok': True, 'count': len(rows)})
-
-
-@app.patch('/api/items/<module>/<int:item_id>')
-@login_required
-@transactional
-def api_item_patch(module, item_id):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    update_product_table(table, item_id, data, current_user())
-    row = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-    if row:
-        refresh_warehouse_ref(table, item_id, row=row, remove=False)
-    db.add_activity('編輯商品', (row or data).get('customer_name',''), (row or data).get('product_text',''), f'更新{PAGE_TITLES.get(module,module)}商品', current_user())
-    return jsonify({'ok': True})
-
-
-@app.delete('/api/items/<module>/<int:item_id>')
-@login_required
-@transactional
-def api_item_delete(module, item_id):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    row = db.fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-    if not row:
-        return api_error('找不到商品')
-    refresh_warehouse_ref(table, item_id, row=row, remove=True)
-    db.execute(f"DELETE FROM {table} WHERE id=?", [item_id])
-    db.add_activity('刪除商品', row.get('customer_name',''), row.get('product_text',''), f'刪除{PAGE_TITLES.get(module,module)}商品', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/items/add-to-order')
-@login_required
-@transactional
-def api_add_to_order():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    inv_id = safe_int(data.get('inventory_id'), 0)
-    customer = fuzzy_customer_name((data.get('customer_name') or '').strip())
-    pieces = safe_int(data.get('pieces'), 0)
-    if not customer:
-        return api_error('請輸入客戶名稱')
-    inv = db.fetchone("SELECT * FROM inventory WHERE id=?", [inv_id])
-    if not inv:
-        return api_error('找不到庫存商品')
-    pieces = pieces or safe_int(inv.get('pieces'), 0)
-    if pieces > safe_int(inv.get('pieces'), 0):
-        return api_error('庫存不足，不能超賣')
-    db.ensure_customer(customer, operator=current_user())
-    p = dict(inv); p['pieces'] = pieces
-    new_order_id = add_product_to_table('orders', customer, p, inv.get('material',''), current_user(), inv.get('warehouse_key') or '')
-    remain = safe_int(inv.get('pieces'), 0) - pieces
-    if remain <= 0:
-        move_warehouse_ref('inventory', inv_id, 'orders', new_order_id, pieces, 0)
-        db.execute("DELETE FROM inventory WHERE id=?", [inv_id])
-    else:
-        db.execute("UPDATE inventory SET pieces=?, updated_at=? WHERE id=?", [remain, db.now(), inv_id])
-        move_warehouse_ref('inventory', inv_id, 'orders', new_order_id, pieces, remain)
-        inv_after = db.safe_fetchone("SELECT * FROM inventory WHERE id=?", [inv_id])
-        if inv_after:
-            refresh_warehouse_ref('inventory', inv_id, row=inv_after, remove=False)
-    db.add_activity('加入訂單', customer, inv.get('product_text',''), f'從庫存加入訂單 {pieces} 件', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/items/cancel-order')
-@login_required
-@transactional
-def api_cancel_order():
-    """Cancel an open order and return its remaining pieces to inventory.
-
-    This implements the commercial requirement that 訂單 can be cancelled without losing stock.
-    Warehouse location is transferred from orders -> inventory when applicable, and the original
-    order is marked cancelled so shipping/order customer lists stay clean.
-    """
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    order_id = safe_int(data.get('order_id') or data.get('id'), 0)
-    row = db.fetchone("SELECT * FROM orders WHERE id=?", [order_id])
-    if not row:
-        return api_error('找不到訂單')
-    if (row.get('status') or 'open') != 'open':
-        return api_error('此訂單已不是開啟狀態，不能取消')
-    pieces = safe_int(row.get('pieces'), 0)
-    if pieces <= 0:
-        db.execute("UPDATE orders SET status='cancelled', warehouse_key='', updated_at=? WHERE id=?", [db.now(), order_id])
-        refresh_warehouse_ref('orders', order_id, row=row, remove=True)
-        return jsonify({'ok': True, 'cancelled': True})
-    p = dict(row)
-    p['pieces'] = pieces
-    new_inventory_id = add_product_to_table('inventory', '', p, row.get('material',''), current_user(), row.get('warehouse_key') or '')
-    move_warehouse_ref('orders', order_id, 'inventory', new_inventory_id, pieces, 0)
-    db.execute("UPDATE orders SET pieces=0, status='cancelled', warehouse_key='', updated_at=? WHERE id=?", [db.now(), order_id])
-    db.add_activity('取消訂單', row.get('customer_name',''), row.get('product_text',''), f'取消訂單並退回庫存 {pieces} 件', current_user())
-    return jsonify({'ok': True, 'inventory_id': new_inventory_id, 'pieces': pieces})
-
-
-
-@app.get('/api/items/master-merge-preview')
-@login_required
-def api_master_merge_preview():
-    source = request.args.get('source') or 'inventory'
-    source_id = safe_int(request.args.get('id'), 0)
-    customer = fuzzy_customer_name((request.args.get('customer_name') or '').strip())
-    pieces = safe_int(request.args.get('pieces'), 0)
-    if not customer:
-        return api_error('請輸入客戶名稱')
-    try:
-        table = db.table_for_module(source)
-    except ValueError:
-        return api_error('來源模組錯誤')
-    row = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [source_id])
-    if not row:
-        return api_error('找不到來源商品', 404)
-    take = pieces or safe_int(row.get('pieces'), 0)
-    existing = db.safe_fetchone("SELECT * FROM master_orders WHERE customer_name=? AND product_text=? AND material=?",
-                                [customer, row.get('product_text',''), row.get('material','')])
-    before = safe_int((existing or {}).get('pieces'), 0)
-    return jsonify({'ok': True, 'source_item': serialize_item(row, source), 'existing': serialize_item(existing, 'master') if existing else None,
-                    'take': take, 'before': before, 'after': before + take,
-                    'merge_possible': bool(existing)})
-
-@app.post('/api/items/add-to-master')
-@login_required
-@transactional
-def api_add_to_master():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    source = data.get('source') or 'inventory'
-    source_id = safe_int(data.get('id') or data.get('source_id'), 0)
-    customer = fuzzy_customer_name((data.get('customer_name') or '').strip())
-    if not customer:
-        return api_error('請輸入客戶名稱')
-    try:
-        table = db.table_for_module(source)
-    except ValueError:
-        return api_error('來源模組錯誤')
-    row = db.fetchone(f"SELECT * FROM {table} WHERE id=?", [source_id])
-    if not row:
-        return api_error('找不到商品')
-    take = safe_int(data.get('pieces'), 0) or safe_int(row.get('pieces'), 0)
-    before = safe_int(row.get('pieces'), 0)
-    if take <= 0 or take > before:
-        return api_error('加入總單件數錯誤或來源數量不足')
-    db.ensure_customer(customer, operator=current_user())
-
-    p = dict(row)
-    p['pieces'] = take
-    existing = None
-    new_master_id = None
-    # Merge confirmation is driven by frontend; backend supports safe merging when requested.
-    if data.get('merge'):
-        existing = db.fetchone("SELECT * FROM master_orders WHERE customer_name=? AND product_text=? AND material=?",
-                               [customer, row.get('product_text',''), row.get('material','')])
-    if existing:
-        new_master_id = existing['id']
-        new_pieces = safe_int(existing.get('pieces'), 0) + take
-        db.execute("UPDATE master_orders SET pieces=?, updated_at=? WHERE id=?", [new_pieces, db.now(), new_master_id])
-        master_row = db.safe_fetchone("SELECT * FROM master_orders WHERE id=?", [new_master_id])
-        if master_row:
-            refresh_warehouse_ref('master_orders', new_master_id, row=master_row, remove=False)
-    else:
-        new_master_id = add_product_to_table('master_orders', customer, p, row.get('material',''), current_user(), row.get('warehouse_key') or '')
-
-    # 加到總單代表來源數量轉入總單，避免庫存/訂單/總單三邊重複計算。
-    if table in ['inventory', 'orders']:
-        remain = before - take
-        if remain <= 0:
-            move_warehouse_ref(table, source_id, 'master_orders', new_master_id, take, 0)
-            if table == 'orders':
-                db.execute("UPDATE orders SET pieces=0, status='moved_to_master', warehouse_key='', updated_at=? WHERE id=?", [db.now(), source_id])
-            else:
-                db.execute("DELETE FROM inventory WHERE id=?", [source_id])
-        else:
-            db.execute(f"UPDATE {table} SET pieces=?, updated_at=? WHERE id=?", [remain, db.now(), source_id])
-            move_warehouse_ref(table, source_id, 'master_orders', new_master_id, take, remain)
-            source_after = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [source_id])
-            if source_after:
-                refresh_warehouse_ref(table, source_id, row=source_after, remove=False)
-
-    db.add_activity('加入總單', customer, row.get('product_text',''), f'從{source}加入總單 {take} 件', current_user())
-    return jsonify({'ok': True})
-
-
-
-
-def parse_grouped_inbound_text(text):
-    """Parse pasted whiteboard text where a customer name owns following product lines."""
-    groups = []
-    current_customer = ''
-    last_wh = ('', '')
-    for raw in (text or '').splitlines():
-        line = (raw or '').strip()
-        if not line:
+def warehouse_source_totals():
+    totals = {}
+    details = {}
+    source_rows = []
+    for row in list_inventory():
+        source_rows.append(('庫存', row))
+    for row in get_orders():
+        source_rows.append(('訂單', row))
+    for row in get_master_orders():
+        source_rows.append(('總單', row))
+    for source_label, row in source_rows:
+        product = (row.get('product_text') or row.get('product') or '').strip()
+        size = warehouse_item_size_key(product)
+        if not size:
             continue
-        parsed, last_wh = normalize_line(line, last_wh)
-        if parsed:
-            groups.append((current_customer, parsed))
-        else:
-            # A non-product line is treated as a customer heading.
-            clean = re.sub(r'[：:]+$', '', line).strip()
-            if clean and len(clean) <= 30:
-                current_customer = fuzzy_customer_name(clean)
-    return groups
-
-
-@app.post('/api/items/bulk-material')
-@login_required
-@transactional
-def api_items_bulk_material():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    module = data.get('module') or ''
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    ids = [safe_int(x, 0) for x in (data.get('ids') or [])]
-    ids = [x for x in ids if x > 0]
-    material = (data.get('material') or '').strip()
-    if not ids or not material:
-        return api_error('請先選取商品並輸入材質')
-    updated = 0
-    for item_id in ids:
-        db.execute(f"UPDATE {table} SET material=?, updated_at=? WHERE id=?", [material, db.now(), item_id])
-        row = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-        if row:
-            refresh_warehouse_ref(table, item_id, row=row, remove=False)
-            updated += 1
-    db.add_activity('批量材質', '', '', f'{PAGE_TITLES.get(module,module)} 批量更新 {updated} 筆材質為 {material}', current_user())
-    return jsonify({'ok': True, 'updated': updated})
-
-
-@app.post('/api/items/bulk-delete')
-@login_required
-@transactional
-def api_items_bulk_delete():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    module = data.get('module') or ''
-    try:
-        table = db.table_for_module(module)
-    except ValueError:
-        return api_error('模組錯誤')
-    ids = [safe_int(x, 0) for x in (data.get('ids') or [])]
-    ids = [x for x in ids if x > 0]
-    if not ids:
-        return api_error('請先選取商品')
-    deleted = 0
-    for item_id in ids:
-        row = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-        if not row:
+        customer = (row.get('customer_name') or '').strip()
+        try:
+            qty = int(row.get('qty') or 0)
+        except Exception:
+            qty = 0
+        if qty <= 0:
             continue
-        refresh_warehouse_ref(table, item_id, row=row, remove=True)
-        db.execute(f"DELETE FROM {table} WHERE id=?", [item_id])
-        deleted += 1
-    db.add_activity('批量刪除', '', '', f'{PAGE_TITLES.get(module,module)} 批量刪除 {deleted} 筆商品', current_user())
-    return jsonify({'ok': True, 'deleted': deleted})
+        key = (size, customer)
+        totals[key] = totals.get(key, 0) + qty
+        details.setdefault(key, []).append({
+            'source': source_label,
+            'id': row.get('id'),
+            'product_text': product,
+            'qty': qty,
+            'customer_name': customer,
+        })
+    return totals, details
 
+def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
+    placed = {}
+    exclude_cell = exclude_cell or None
+    for cell in warehouse_get_cells():
+        cell_key = (str(cell.get('zone')), int(cell.get('column_index') or 0), int(cell.get('slot_number') or 0))
+        if exclude_cell and cell_key == exclude_cell:
+            items = proposed_items or []
+        else:
+            items = safe_cell_items(cell)
+        for it in items:
+            size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+            if not size:
+                continue
+            customer = (it.get('customer_name') or '').strip()
+            try:
+                qty = int(it.get('qty') or 0)
+            except Exception:
+                qty = 0
+            if qty <= 0:
+                continue
+            key = (size, customer)
+            placed[key] = placed.get(key, 0) + qty
+    return placed
 
-@app.post('/api/inbound')
-@login_required
-@transactional
-def api_inbound():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    customer = fuzzy_customer_name((data.get('customer_name') or '').strip())
-    material = data.get('material') or ''
-    raw_text = data.get('text') or ''
-    count = 0
-    targets = set()
-    if customer:
-        rows = parse_product_text(raw_text)
-        if not rows:
-            return api_error('沒有可入庫的商品格式')
-        db.ensure_customer(customer, operator=current_user())
-        for p in rows:
-            add_product_to_table('master_orders', customer, p, material, current_user())
-            db.add_activity('入庫', customer, p['product_text'], '入庫到總單', current_user())
-            count += 1
-            targets.add('總單')
-    else:
-        grouped = parse_grouped_inbound_text(raw_text)
-        if not grouped:
-            return api_error('沒有可入庫的商品格式')
-        for group_customer, p in grouped:
-            if group_customer:
-                db.ensure_customer(group_customer, operator=current_user())
-                add_product_to_table('master_orders', group_customer, p, material, current_user())
-                db.add_activity('入庫', group_customer, p['product_text'], '白板分組入庫到總單', current_user())
-                targets.add('總單')
-            else:
-                add_product_to_table('inventory', '', p, material, current_user())
-                db.add_activity('入庫', '庫存', p['product_text'], '入庫到庫存', current_user())
-                targets.add('庫存')
-            count += 1
-    return jsonify({'ok': True, 'count': count, 'target': ' / '.join(sorted(targets))})
-
-
-@app.get('/api/customer-items')
-@login_required
-def api_customer_items():
-    customer = (request.args.get('customer') or '').strip()
-    variant_raw = (request.args.get('variants') or '').strip()
-    names = []
-    if customer and customer != '庫存':
-        names.append(customer)
-    if variant_raw:
-        for n in variant_raw.split(','):
-            n = n.strip()
-            if n and n != '庫存' and n not in names:
-                names.append(n)
-    rows = []
-    fallback = ''
-    if names:
-        placeholders = ','.join(['?'] * len(names))
-        rows += [serialize_item(r, 'master') for r in db.fetchall(f"SELECT * FROM master_orders WHERE customer_name IN ({placeholders}) ORDER BY updated_at DESC", names)]
-        rows += [serialize_item(r, 'orders') for r in db.fetchall(f"SELECT * FROM orders WHERE customer_name IN ({placeholders}) AND status='open' ORDER BY updated_at DESC", names)]
-        # Requirement: if the selected customer has no master/order goods, open full inventory as fallback.
-        if not rows:
-            fallback = 'inventory'
-            rows += [serialize_item(r, 'inventory') for r in db.fetchall("SELECT * FROM inventory ORDER BY updated_at DESC LIMIT 500")]
-    else:
-        rows += [serialize_item(r, 'inventory') for r in db.fetchall("SELECT * FROM inventory ORDER BY updated_at DESC LIMIT 500")]
-    return jsonify({'ok': True, 'items': rows, 'fallback': fallback})
-
-
-def merge_requested_items(items):
-    """Combine duplicated selected shipping rows before preview/confirm.
-
-    Prevents double-click or duplicated checkbox payload from previewing/confirming the same row twice.
-    """
+def normalize_warehouse_payload_items(items):
     merged = {}
-    for it in items or []:
-        if not isinstance(it, dict):
+    for raw in (items or []):
+        if not isinstance(raw, dict):
             continue
-        source = it.get('source')
-        item_id = safe_int(it.get('id'), 0)
-        if not source or not item_id:
+        product = (raw.get('product_text') or raw.get('product') or '').strip()
+        if not product:
             continue
-        key = (source, item_id)
-        pieces = safe_int(it.get('pieces'), 0)
+        try:
+            qty = int(raw.get('qty') or 0)
+        except Exception:
+            qty = 0
+        if qty <= 0:
+            continue
+        customer = (raw.get('customer_name') or '').strip()
+        key = (warehouse_item_size_key(product), customer)
         if key not in merged:
-            merged[key] = {'source': source, 'id': item_id, 'pieces': 0}
-        merged[key]['pieces'] += max(0, pieces)
+            item = dict(raw)
+            item['product_text'] = product
+            item['product_code'] = (raw.get('product_code') or product)
+            item['customer_name'] = customer
+            item['qty'] = qty
+            merged[key] = item
+        else:
+            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
+            if not merged[key].get('source_summary') and raw.get('source_summary'):
+                merged[key]['source_summary'] = raw.get('source_summary')
     return list(merged.values())
 
+def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
+    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
+    source_totals, _details = warehouse_source_totals()
+    exclude_key = (str(zone), int(column_index), int(slot_number))
+    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
+    for it in items:
+        size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+        customer = (it.get('customer_name') or '').strip()
+        key = (size, customer)
+        source_total = int(source_totals.get(key, 0) or 0)
+        if source_total <= 0:
+            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
+            source_total = max(size_matches) if size_matches else 0
+        placed_total = int(placed.get(key, 0) or 0)
+        if placed_total <= 0 and size:
+            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
+        if source_total > 0 and placed_total > source_total:
+            return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
+        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
+    return True, ''
 
-@app.post('/api/shipping/preview')
-@login_required
-def api_shipping_preview():
-    data = body_json()
-    items = merge_requested_items(data.get('items') or [])
-    ship_customer = (data.get('customer_name') or '').strip()
-    weight_unit = safe_float(data.get('weight_unit'), 0.0)
-    preview = []
-    total_volume = 0.0
-    borrow_warnings = []
-    for req_item in items:
-        source = req_item.get('source')
-        item_id = safe_int(req_item.get('id'), 0)
+def grouped_inventory():
+    return inventory_summary()
+
+
+def resolve_customer_identity(customer_name='', customer_uid='', include_archived=True):
+    uid = (customer_uid or '').strip()
+    name = (customer_name or '').strip()
+    row = None
+    if uid:
+        row = get_customer_by_uid(uid, include_archived=include_archived)
+    if not row and name:
+        row = get_customer(name, include_archived=include_archived)
+    resolved_name = (row.get('name') if row else name) or ''
+    resolved_uid = (row.get('customer_uid') if row else uid) or ''
+    return row, resolved_name, resolved_uid
+
+
+def customer_groups():
+    customers = get_customers()
+    groups = {"北區": [], "中區": [], "南區": [], "未分區": []}
+    for c in customers:
+        region = (c.get("region") or '').strip()
+        if region not in groups:
+            region = "未分區"
+        groups[region].append(c)
+    return groups
+
+@app.route("/")
+def home():
+    if not require_login():
+        return redirect(url_for("login_page"))
+    return render_template("index.html", username=current_username(), title="沅興木業", today=datetime.now().strftime('%Y-%m-%d'))
+
+@app.route("/login")
+def login_page():
+    if require_login():
+        return redirect(url_for("home"))
+    return render_template("login.html", title="登入")
+
+@app.route("/settings")
+def settings_page():
+    is_admin = current_username() == '陳韋廷'
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=(str(get_setting('native_ocr_mode', '1')) == '1'))
+
+@app.route("/inventory")
+def inventory_page():
+    return render_template("module.html", module_key="inventory", title="庫存", username=current_username())
+
+@app.route("/orders")
+def orders_page():
+    return render_template("module.html", module_key="orders", title="訂單", username=current_username())
+
+@app.route("/master-order")
+def master_order_page():
+    return render_template("module.html", module_key="master_order", title="總單", username=current_username())
+
+@app.route("/ship")
+def ship_page():
+    return render_template("module.html", module_key="ship", title="出貨", username=current_username())
+
+@app.route("/shipping-query")
+def shipping_query_page():
+    return render_template("module.html", module_key="shipping_query", title="出貨查詢", username=current_username())
+
+@app.route("/warehouse")
+def warehouse_page():
+    return render_template("module.html", module_key="warehouse", title="倉庫圖", username=current_username())
+
+@app.route("/customers")
+def customers_page():
+    return render_template("module.html", module_key="customers", title="客戶資料", username=current_username())
+
+@app.route("/todos")
+def todos_page():
+    return render_template("module.html", module_key="todos", title="代辦事項", username=current_username())
+
+@app.route("/today-changes")
+def today_changes_page():
+    return render_template("today_changes.html", username=current_username(), title="今日異動")
+
+@app.route('/todo-image/<path:filename>')
+def todo_image(filename):
+    if not require_login():
+        return redirect(url_for('login_page'))
+    safe_name = os.path.basename(filename)
+    return send_from_directory(TODO_UPLOAD_FOLDER, safe_name)
+
+
+
+@app.route('/api/todos', methods=['GET', 'POST'])
+@login_required_json
+def api_todos():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=safe_list_todos())
+        files = []
+        for key in ('images', 'image'):
+            files.extend([f for f in request.files.getlist(key) if f and (f.filename or '').strip()])
+        if not files:
+            return error_response('請先選擇照片')
+        save_names = []
+        for file in files:
+            if not allowed_file(file.filename):
+                return error_response('圖片格式不支援')
+            filename = secure_filename(file.filename or '')
+            ext = (filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpg') or 'jpg'
+            save_name = f"todo_{int(time.time()*1000)}_{hashlib.md5((filename+str(time.time())).encode('utf-8')).hexdigest()[:10]}.{ext}"
+            save_path = os.path.join(TODO_UPLOAD_FOLDER, save_name)
+            file.save(save_path)
+            compress_image(save_path)
+            save_names.append(save_name)
+        note = (request.form.get('note') or '').strip()
+        due_date = (request.form.get('due_date') or '').strip()
+        created_by = current_username()
+        image_payload = json.dumps(save_names, ensure_ascii=False)
+        create_todo_item(note=note, due_date=due_date, image_filename=image_payload, created_by=created_by)
+        fallback = {'note': note, 'due_date': due_date, 'image_filename': image_payload, 'created_by': created_by, 'created_at': now()}
+        log_action(created_by, f"新增代辦 {note or ','.join(save_names)}")
+        add_audit_trail(created_by, 'create', 'todo_items', note or 'todo', before_json={}, after_json={'note': note, 'due_date': due_date, 'images': save_names})
+        return jsonify(success=True, items=safe_list_todos(fallback_item=fallback))
+    except Exception as e:
+        log_error('api_todos', str(e))
+        return error_response('代辦事項儲存失敗')
+
+
+@app.route('/api/todos/<int:todo_id>/complete', methods=['POST'])
+@login_required_json
+def api_todo_complete(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        complete_todo_item(todo_id)
+        log_action(current_username(), f"完成代辦 {todo_id}")
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_complete', str(e))
+        return error_response('代辦事項完成失敗')
+
+@app.route('/api/todos/<int:todo_id>/restore', methods=['POST'])
+@login_required_json
+def api_todo_restore(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        restore_todo_item(todo_id)
+        log_action(current_username(), f"還原代辦 {todo_id}")
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_restore', str(e))
+        return error_response('代辦事項還原失敗')
+
+@app.route('/api/todos/reorder', methods=['POST'])
+@login_required_json
+def api_todo_reorder():
+    try:
+        data = request.get_json(silent=True) or {}
+        reorder_todo_items(data.get('ids') or [], done_flag=int(data.get('done_flag') or 0))
+        log_action(current_username(), '拖拉排序代辦')
+        return jsonify(success=True, items=safe_list_todos())
+    except Exception as e:
+        log_error('api_todo_reorder', str(e))
+        return error_response('代辦排序失敗')
+
+@app.route('/api/todos/<int:todo_id>', methods=['DELETE'])
+@login_required_json
+def api_todo_delete(todo_id):
+    try:
+        item = get_todo_item(todo_id)
+        if not item:
+            return error_response('找不到代辦事項', 404)
+        delete_todo_item(todo_id)
+        image_raw = item.get('image_filename') or ''
         try:
-            table = db.table_for_module(source)
-        except ValueError:
-            continue
-        row = db.fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-        if not row:
-            continue
-        owner = (row.get('customer_name') or '庫存').strip() or '庫存'
-        if ship_customer and ship_customer not in ['庫存', owner] and owner != '庫存':
-            borrow_warnings.append({
-                'from_customer': owner,
-                'to_customer': ship_customer,
-                'product_text': row.get('product_text',''),
-                'pieces': safe_int(req_item.get('pieces'), safe_int(row.get('pieces'), 0)),
-            })
-        original_pieces = safe_int(row.get('pieces'), 0)
-        take_pieces = safe_int(req_item.get('pieces'), original_pieces)
-        if take_pieces <= 0 or take_pieces > original_pieces:
-            preview.append({
-                'id': item_id,
-                'source': source,
-                'customer_name': owner,
-                'ship_customer': ship_customer or owner,
-                'product_text': row.get('product_text'),
-                'material': row.get('material'),
-                'pieces': take_pieces,
-                'before': original_pieces,
-                'after': original_pieces,
-                'volume': 0,
-                'formula': '件數錯誤或數量不足',
-                'deduct_label': '不可出貨',
-                'warehouse_key': row.get('warehouse_key') or '未錄入倉庫圖',
-                'error': '件數錯誤或數量不足',
-            })
-            continue
-        volume, formula = calc_volume_for_item(row)
-        # Scale simple volume by piece ratio when partial shipment.
-        if original_pieces and take_pieces != original_pieces:
-            volume = round(volume * take_pieces / original_pieces, 4)
-        total_volume += volume
-        preview.append({
-            'id': item_id,
-            'source': source,
-            'customer_name': owner,
-            'ship_customer': ship_customer or owner,
-            'product_text': row.get('product_text'),
-            'material': row.get('material'),
-            'pieces': take_pieces,
-            'before': original_pieces,
-            'after': max(0, original_pieces - take_pieces),
-            'volume': volume,
-            'formula': formula,
-            'deduct_label': {'master': '扣除總單', 'orders': '扣除訂單', 'inventory': '扣除庫存'}.get(source, '扣除資料'),
-            'warehouse_key': row.get('warehouse_key') or '未錄入倉庫圖',
-        })
-    return jsonify({
-        'ok': True,
-        'items': preview,
-        'total_volume': round(total_volume,4),
-        'total_weight': round(total_volume * weight_unit,4),
-        'borrow_required': bool(borrow_warnings),
-        'borrow_warnings': borrow_warnings,
-    })
-
-
-@app.post('/api/shipping/confirm')
-@login_required
-@transactional
-def api_shipping_confirm():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    items = merge_requested_items(data.get('items') or [])
-    ship_customer = (data.get('customer_name') or '').strip()
-    allow_borrow = bool(data.get('allow_borrow'))
-    weight_unit = safe_float(data.get('weight_unit'), 0.0)
-    results = []
-    for req_item in items:
-        source = req_item.get('source')
-        item_id = safe_int(req_item.get('id'), 0)
-        try:
-            table = db.table_for_module(source)
-        except ValueError:
-            continue
-        row = db.fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-        if not row:
-            continue
-        owner = (row.get('customer_name') or '庫存').strip() or '庫存'
-        if ship_customer and ship_customer not in ['庫存', owner] and owner != '庫存' and not allow_borrow:
-            return api_error(f"該客戶沒有這筆商品，是否向 {owner} 借：{row.get('product_text')} = {req_item.get('pieces') or row.get('pieces')} 件", 409, borrow_required=True)
-        take = safe_int(req_item.get('pieces'), safe_int(row.get('pieces'), 0))
-        before = safe_int(row.get('pieces'), 0)
-        if take <= 0 or take > before:
-            return api_error(f"{row.get('product_text')} 數量不足")
-        volume, _ = calc_volume_for_item(row)
-        if before:
-            volume = round(volume * take / before, 4)
-        after = before - take
-        if after <= 0:
-            refresh_warehouse_ref(table, item_id, row=row, remove=True)
-            db.execute(f"DELETE FROM {table} WHERE id=?", [item_id])
-        else:
-            db.execute(f"UPDATE {table} SET pieces=?, updated_at=? WHERE id=?", [after, db.now(), item_id])
-            row_after = db.safe_fetchone(f"SELECT * FROM {table} WHERE id=?", [item_id])
-            if row_after:
-                refresh_warehouse_ref(table, item_id, row=row_after, remove=False)
-        record_customer = ship_customer or owner
-        if record_customer and record_customer != '庫存':
-            db.ensure_customer(record_customer, operator=current_user())
-        db.execute("""INSERT INTO shipping_records(customer_name, source_table, source_id, product_text, material, pieces,
-            volume, weight_unit, total_weight, operator, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-            [record_customer, source, item_id, row.get('product_text',''), row.get('material',''), take,
-             volume, weight_unit, round(volume*weight_unit,4), current_user(), db.now()])
-        label = {'master': '扣除總單', 'orders': '扣除訂單', 'inventory': '扣除庫存'}.get(source, '扣除資料')
-        borrow_text = f'；{record_customer} 向 {owner} 借貨' if record_customer and owner != record_customer and owner != '庫存' else ''
-        db.add_activity('出貨', record_customer, row.get('product_text',''), f'{label}：{before} → {after}{borrow_text}', current_user())
-        results.append({'source': source, 'id': item_id, 'before': before, 'after': after, 'pieces': take, 'label': label, 'borrow': borrow_text})
-    return jsonify({'ok': True, 'results': results})
-
-
-
-
-@app.get('/api/master/text')
-@login_required
-def api_master_text():
-    customer = (request.args.get('customer') or '').strip()
-    where = []
-    params = []
-    if customer:
-        where.append('customer_name=?')
-        params.append(customer)
-    sql = "SELECT * FROM master_orders"
-    if where:
-        sql += ' WHERE ' + ' AND '.join(where)
-    sql += " ORDER BY customer_name, updated_at DESC"
-    rows = db.safe_fetchall(sql, params)
-    groups = {}
-    for r in rows:
-        groups.setdefault(r.get('customer_name') or '未指定客戶', []).append(r.get('product_text') or '')
-    text_blocks = []
-    for name in sorted(groups.keys()):
-        lines = [name] + [x for x in groups[name] if x]
-        text_blocks.append('\n'.join(lines))
-    return jsonify({'ok': True, 'text': '\n\n'.join(text_blocks)})
-
-@app.get('/api/shipping-records')
-@login_required
-def api_shipping_records():
-    q = (request.args.get('q') or '').strip()
-    date_from = (request.args.get('from') or '').strip()
-    date_to = (request.args.get('to') or '').strip()
-    where = []
-    params = []
-    if q:
-        where.append('(customer_name LIKE ? OR product_text LIKE ? OR material LIKE ? OR source_table LIKE ?)')
-        params += [f'%{q}%', f'%{q}%', f'%{q}%', f'%{q}%']
-    if date_from:
-        where.append('created_at>=?')
-        params.append(date_from + ' 00:00:00' if len(date_from) == 10 else date_from)
-    if date_to:
-        where.append('created_at<=?')
-        params.append(date_to + ' 23:59:59' if len(date_to) == 10 else date_to)
-    sql = "SELECT * FROM shipping_records"
-    if where:
-        sql += ' WHERE ' + ' AND '.join(where)
-    sql += ' ORDER BY created_at DESC LIMIT 500'
-    rows = db.fetchall(sql, params)
-    return jsonify({'ok': True, 'records': rows})
-
-
-
-
-def snapshot_warehouse_row(zone, band, row_name):
-    rows = db.safe_fetchall("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? ORDER BY slot", [zone, band, row_name])
-    return [{
-        'zone': r.get('zone'), 'band': safe_int(r.get('band'), 1), 'row_name': r.get('row_name'),
-        'slot': safe_int(r.get('slot'), 1), 'items_json': r.get('items_json') or '[]', 'updated_at': r.get('updated_at') or ''
-    } for r in rows]
-
-
-def save_warehouse_undo(action, zone, band, row_name):
-    snap = snapshot_warehouse_row(zone, band, row_name)
-    db.safe_execute("INSERT INTO warehouse_undo(username, action, payload_json, created_at) VALUES(?,?,?,?)",
-                    [current_user() or '', action or '', json.dumps({'zone': zone, 'band': band, 'row_name': row_name, 'cells': snap}, ensure_ascii=False), db.now()])
-
-
-def save_warehouse_undo_multi(action, rows):
-    """Save a single undo record for operations that touch multiple warehouse rows.
-
-    Dragging a whole cell from one row to another changes both rows.  Older versions saved only
-    the last row, so 「撤回上一步」 could restore the source but leave duplicates in the target.
-    This stores all affected row snapshots in one atomic undo payload.
-    """
-    seen = set()
-    payload_rows = []
-    for row in rows or []:
-        zone = clean_zone(row.get('zone'))
-        band = clean_band(row.get('band'))
-        row_name = clean_row_name(row.get('row_name'))
-        key = (zone, band, row_name)
-        if key in seen:
-            continue
-        seen.add(key)
-        payload_rows.append({'zone': zone, 'band': band, 'row_name': row_name, 'cells': snapshot_warehouse_row(zone, band, row_name)})
-    if payload_rows:
-        db.safe_execute("INSERT INTO warehouse_undo(username, action, payload_json, created_at) VALUES(?,?,?,?)",
-                        [current_user() or '', action or '', json.dumps({'rows': payload_rows}, ensure_ascii=False), db.now()])
-
-
-def _restore_single_warehouse_row(payload):
-    zone = payload.get('zone')
-    band = safe_int(payload.get('band'), 1)
-    row_name = payload.get('row_name')
-    cells = payload.get('cells') or []
-    current = db.safe_fetchall("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=?", [zone, band, row_name])
-    for c in current:
-        sync_cell_links(zone, band, row_name, safe_int(c.get('slot'), 1), parse_items_json(c.get('items_json')), [])
-    db.safe_execute("DELETE FROM warehouse_cells WHERE zone=? AND band=? AND row_name=?", [zone, band, row_name])
-    for c in cells:
-        db.safe_execute("INSERT INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at) VALUES(?,?,?,?,?,?)",
-                        [zone, band, row_name, safe_int(c.get('slot'), 1), c.get('items_json') or '[]', db.now()])
-        sync_cell_links(zone, band, row_name, safe_int(c.get('slot'), 1), [], parse_items_json(c.get('items_json')))
-    sync_row_after_slot_change(zone, band, row_name)
-
-
-def restore_warehouse_snapshot(payload):
-    if payload.get('rows'):
-        for row_payload in payload.get('rows') or []:
-            _restore_single_warehouse_row(row_payload)
-        return
-    _restore_single_warehouse_row(payload)
-
-@app.get('/api/warehouse')
-@login_required
-def api_warehouse():
-    zone = (request.args.get('zone') or '').strip()
-    params = []
-    sql = "SELECT * FROM warehouse_cells"
-    if zone in ['A','B']:
-        sql += " WHERE zone=?"
-        params.append(zone)
-    sql += " ORDER BY zone, band, row_name, slot"
-    rows = db.fetchall(sql, params)
-    by_key = {}
-    max_slot = {}
-    for r in rows:
-        try:
-            r['items'] = json.loads(r.get('items_json') or '[]')
+            image_names = json.loads(image_raw) if str(image_raw).strip().startswith('[') else [image_raw]
         except Exception:
-            r['items'] = []
-        k = (r.get('zone'), safe_int(r.get('band'), 0), r.get('row_name'), safe_int(r.get('slot'), 0))
-        by_key[k] = r
-        rk = (r.get('zone'), safe_int(r.get('band'), 0), r.get('row_name'))
-        max_slot[rk] = max(max_slot.get(rk, 10), safe_int(r.get('slot'), 0))
-    zones = [zone] if zone in ['A','B'] else ['A','B']
-    cells = []
-    for z in zones:
-        for band in range(1, 7):
-            for row_name in ['front', 'back']:
-                row_max = max(10, max_slot.get((z, band, row_name), 10))
-                for slot in range(1, row_max + 1):
-                    k = (z, band, row_name, slot)
-                    cells.append(by_key.get(k) or {'id': 0, 'zone': z, 'band': band, 'row_name': row_name, 'slot': slot, 'items_json': '[]', 'items': [], 'updated_at': ''})
-    return jsonify({'ok': True, 'cells': cells})
+            image_names = [image_raw]
+        for image_filename in [os.path.basename(v or '') for v in image_names if v]:
+            if image_filename:
+                path = os.path.join(TODO_UPLOAD_FOLDER, image_filename)
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+        log_action(current_username(), f"刪除代辦 {todo_id}")
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('api_todo_delete', str(e))
+        return error_response('代辦事項刪除失敗')
 
-
-@app.get('/api/warehouse/unlisted-items')
-@login_required
-def api_warehouse_unlisted_items():
-    items = []
-    for module, table in [('inventory', 'inventory'), ('orders', 'orders'), ('master', 'master_orders')]:
-        status = " AND status='open'" if module == 'orders' else ''
-        rows = db.fetchall(f"SELECT * FROM {table} WHERE COALESCE(warehouse_key,'')='' {status} ORDER BY updated_at DESC LIMIT 200")
-        items += [serialize_item(r, module) for r in rows]
-    return jsonify({'ok': True, 'items': items})
-
-
-def _set_warehouse_cell_items(zone, band, row_name, slot, incoming):
-    existing = db.fetchone("SELECT id, items_json FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    old_items = parse_items_json((existing or {}).get('items_json'))
-    normalized = normalize_warehouse_items(incoming or [], zone, band, row_name, slot)
-    dedupe_refs_from_other_cells(zone, band, row_name, slot, normalized)
-    payload = json.dumps(normalized, ensure_ascii=False)
-    if existing:
-        db.execute("UPDATE warehouse_cells SET items_json=?, updated_at=? WHERE id=?", [payload, db.now(), existing['id']])
-    else:
-        db.execute("INSERT INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at) VALUES(?,?,?,?,?,?)", [zone, band, row_name, slot, payload, db.now()])
-    sync_cell_links(zone, band, row_name, slot, old_items, normalized)
-    return normalized
-
-
-@app.post('/api/warehouse/cell')
-@login_required
-@transactional
-def api_warehouse_cell():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    zone = clean_zone(data.get('zone'))
-    band = clean_band(data.get('band'))
-    row_name = clean_row_name(data.get('row_name'))
-    slot = clean_slot(data.get('slot'))
-    incoming = data.get('items') or []
-    save_warehouse_undo('更新格子', zone, band, row_name)
-    normalized = _set_warehouse_cell_items(zone, band, row_name, slot, incoming)
-    db.add_activity('倉庫更新', '', f'{zone}-{band}-{row_name}-{slot}', '更新倉庫格子並同步商品位置', current_user())
-    return jsonify({'ok': True, 'warehouse_key': cell_key(zone, band, row_name, slot), 'items': normalized})
-
-
-
-@app.post('/api/warehouse/move-cell')
-@login_required
-@transactional
-def api_warehouse_move_cell():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    src = data.get('from') or {}
-    dst = data.get('to') or {}
-    szone, sband, srow, sslot = clean_zone(src.get('zone')), clean_band(src.get('band')), clean_row_name(src.get('row_name')), clean_slot(src.get('slot'))
-    dzone, dband, drow, dslot = clean_zone(dst.get('zone')), clean_band(dst.get('band')), clean_row_name(dst.get('row_name')), clean_slot(dst.get('slot'))
-    if (szone, sband, srow, sslot) == (dzone, dband, drow, dslot):
-        return jsonify({'ok': True, 'same_cell': True})
-    source_cell = db.safe_fetchone("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [szone, sband, srow, sslot]) or {}
-    target_cell = db.safe_fetchone("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [dzone, dband, drow, dslot]) or {}
-    source_items = parse_items_json(source_cell.get('items_json'))
-    target_items = parse_items_json(target_cell.get('items_json'))
-    if not source_items:
-        return api_error('來源格沒有商品可移動')
-    save_warehouse_undo_multi('移動格子', [
-        {'zone': szone, 'band': sband, 'row_name': srow},
-        {'zone': dzone, 'band': dband, 'row_name': drow},
-    ])
-    moved = _set_warehouse_cell_items(dzone, dband, drow, dslot, source_items + target_items)
-    _set_warehouse_cell_items(szone, sband, srow, sslot, [])
-    db.add_activity('倉庫移動', '', f'{szone}-{sband}-{srow}-{sslot} → {dzone}-{dband}-{drow}-{dslot}', '拖拉移動整格商品並同步來源/目標格', current_user())
-    return jsonify({'ok': True, 'from': {'zone': szone, 'band': sband, 'row_name': srow, 'slot': sslot, 'items': []}, 'to': {'zone': dzone, 'band': dband, 'row_name': drow, 'slot': dslot, 'items': moved}})
-
-
-@app.post('/api/warehouse/insert-slot')
-@login_required
-@transactional
-def api_warehouse_insert_slot():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    zone = clean_zone(data.get('zone'))
-    band = clean_band(data.get('band'))
-    row_name = clean_row_name(data.get('row_name'))
-    after_slot = clean_slot(data.get('slot') or 10)
-    save_warehouse_undo('插入格子', zone, band, row_name)
-    rows = db.fetchall("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot>? ORDER BY slot DESC", [zone, band, row_name, after_slot])
-    for r in rows:
-        db.execute("UPDATE warehouse_cells SET slot=? WHERE id=?", [safe_int(r.get('slot'), 0)+1, r['id']])
-    db.execute("INSERT INTO warehouse_cells(zone, band, row_name, slot, items_json, updated_at) VALUES(?,?,?,?,?,?)", [zone, band, row_name, after_slot+1, '[]', db.now()])
-    sync_row_after_slot_change(zone, band, row_name)
-    db.add_activity('倉庫插入格子', '', f'{zone}-{band}-{row_name}-{after_slot+1}', '長按插入格子', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/warehouse/delete-slot')
-@login_required
-@transactional
-def api_warehouse_delete_slot():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    zone = clean_zone(data.get('zone'))
-    band = clean_band(data.get('band'))
-    row_name = clean_row_name(data.get('row_name'))
-    slot = clean_slot(data.get('slot'))
-    save_warehouse_undo('刪除格子', zone, band, row_name)
-    doomed = db.fetchone("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    if doomed:
-        old_items = parse_items_json(doomed.get('items_json'))
-        sync_cell_links(zone, band, row_name, slot, old_items, [])
-    db.execute("DELETE FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    rows = db.fetchall("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot>? ORDER BY slot", [zone, band, row_name, slot])
-    for r in rows:
-        db.execute("UPDATE warehouse_cells SET slot=? WHERE id=?", [max(1, safe_int(r.get('slot'), 1)-1), r['id']])
-    sync_row_after_slot_change(zone, band, row_name)
-    db.add_activity('倉庫刪除格子', '', f'{zone}-{band}-{row_name}-{slot}', '長按刪除格子', current_user())
-    return jsonify({'ok': True})
-
-
-
-
-@app.get('/api/warehouse/cell')
-@login_required
-def api_warehouse_cell_get():
-    zone = clean_zone(request.args.get('zone'))
-    band = clean_band(request.args.get('band'))
-    row_name = clean_row_name(request.args.get('row_name'))
-    slot = clean_slot(request.args.get('slot'))
-    row = db.safe_fetchone("SELECT * FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?", [zone, band, row_name, slot])
-    items = parse_items_json((row or {}).get('items_json'))
-    return jsonify({'ok': True, 'cell': {'zone': zone, 'band': band, 'row_name': row_name, 'slot': slot, 'items': items, 'items_json': json.dumps(items, ensure_ascii=False), 'updated_at': (row or {}).get('updated_at','')}})
-
-
-@app.get('/api/warehouse/search')
-@login_required
-def api_warehouse_search():
-    q = (request.args.get('q') or '').strip()
-    if not q:
-        return jsonify({'ok': True, 'matches': []})
-    like = f'%{q}%'
-    rows = db.safe_fetchall("""SELECT zone, band, row_name, slot, customer_name, product_text, material, pieces
-                              FROM warehouse_items
-                              WHERE customer_name LIKE ? OR product_text LIKE ? OR material LIKE ?
-                              ORDER BY zone, band, row_name, slot LIMIT 80""", [like, like, like])
-    return jsonify({'ok': True, 'matches': rows})
-
-
-@app.post('/api/warehouse/undo')
-@login_required
-@transactional
-def api_warehouse_undo():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    row = db.safe_fetchone("SELECT * FROM warehouse_undo WHERE username=? ORDER BY created_at DESC, id DESC LIMIT 1", [current_user() or ''])
-    if not row:
-        return api_error('沒有可撤回的倉庫操作', 404)
-    payload = json.loads(row.get('payload_json') or '{}')
-    restore_warehouse_snapshot(payload)
-    db.safe_execute("DELETE FROM warehouse_undo WHERE id=?", [row.get('id')])
-    db.add_activity('倉庫撤回', '', '', f"撤回{row.get('action') or '上一步'}", current_user())
-    return jsonify({'ok': True, 'restored': {'zone': payload.get('zone'), 'band': payload.get('band'), 'row_name': payload.get('row_name')}})
-
-
-@app.get('/api/sync-state')
-@login_required
-def api_sync_state():
-    latest = db.safe_fetchone("SELECT id, action, customer_name, product_text, detail, created_at FROM activity_logs ORDER BY id DESC LIMIT 1") or {}
-    return jsonify({'ok': True, 'unread': activity_unread_count(), 'latest': latest, 'server_time': db.now()})
-
-@app.get('/api/activity')
-@login_required
-def api_activity():
-    # 今日異動 default = Taiwan app-date today. Use ?all=1 for full history.
-    if request.args.get('all') == '1':
-        rows = db.fetchall("SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT 500")
-    else:
-        today_prefix = db.now().split(' ')[0] + '%'
-        rows = db.fetchall("SELECT * FROM activity_logs WHERE created_at LIKE ? ORDER BY created_at DESC LIMIT 200", [today_prefix])
-    return jsonify({'ok': True, 'items': rows, 'unread': activity_unread_count()})
-
-
-@app.post('/api/activity/read')
-@login_required
-def api_activity_read():
-    mark_activity_read()
-    return jsonify({'ok': True})
-
-
-@app.delete('/api/activity/<int:log_id>')
-@login_required
-@transactional
-def api_activity_delete(log_id):
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    db.execute("DELETE FROM activity_logs WHERE id=?", [log_id])
-    return jsonify({'ok': True})
-
-
-@app.get('/api/activity/unlisted')
-@login_required
-def api_activity_unlisted():
-    counts = {}
-    items = []
-    for name, table, module in [('庫存', 'inventory', 'inventory'), ('訂單', 'orders', 'orders'), ('總單', 'master_orders', 'master')]:
-        status = " AND status='open'" if table == 'orders' else ""
-        row = db.fetchone(f"SELECT COALESCE(SUM(pieces),0) AS c FROM {table} WHERE COALESCE(warehouse_key,'')=''" + status)
-        counts[name] = safe_int((row or {}).get('c'), 0)
-        rows = db.safe_fetchall(f"SELECT id, customer_name, product_text, material, pieces, updated_at FROM {table} WHERE COALESCE(warehouse_key,'')='' {status} ORDER BY updated_at DESC LIMIT 80")
-        for r in rows:
-            r['source'] = module
-            r['source_label'] = name
-            items.append(r)
-    return jsonify({'ok': True, 'counts': counts, 'total': sum(counts.values()), 'items': items[:160]})
-
-
-@app.get('/api/search')
-@login_required
-def api_global_search():
-    q = (request.args.get('q') or '').strip()
-    if not q:
-        return jsonify({'ok': True, 'results': []})
-    like = f'%{q}%'
-    results = []
-    configs = [
-        ('inventory','inventory','庫存',""),
-        ('orders','orders','訂單'," AND status='open'"),
-        ('master','master_orders','總單',""),
-    ]
-    for source, table, label, extra in configs:
-        rows = db.safe_fetchall(f"SELECT id, customer_name, product_text, material, pieces, warehouse_key, updated_at FROM {table} WHERE (customer_name LIKE ? OR product_text LIKE ? OR material LIKE ? OR warehouse_key LIKE ?) {extra} ORDER BY updated_at DESC LIMIT 80", [like, like, like, like])
-        for r in rows:
-            r.update({'source': source, 'source_label': label, 'record_type': '商品'})
-            results.append(r)
-    wh = db.safe_fetchall("""SELECT 0 AS id, zone, band, row_name, slot, customer_name, product_text, material, pieces, updated_at
-                              FROM warehouse_items
-                              WHERE customer_name LIKE ? OR product_text LIKE ? OR material LIKE ?
-                              ORDER BY updated_at DESC LIMIT 80""", [like, like, like])
-    for r in wh:
-        r['warehouse_key'] = f"{r.get('zone','')}-{r.get('band','')}-{r.get('row_name','')}-{r.get('slot','')}"
-        r.update({'source': 'warehouse', 'source_label': '倉庫圖', 'record_type': '倉庫位置'})
-        results.append(r)
-    ship = db.safe_fetchall("SELECT id, customer_name, product_text, material, pieces, source_table AS warehouse_key, created_at AS updated_at FROM shipping_records WHERE customer_name LIKE ? OR product_text LIKE ? OR material LIKE ? ORDER BY created_at DESC LIMIT 80", [like, like, like])
-    for r in ship:
-        r.update({'source': 'records', 'source_label': '出貨紀錄', 'record_type': '出貨'})
-        results.append(r)
-    return jsonify({'ok': True, 'results': results[:200]})
-
-
-@app.get('/api/backups')
-@login_required
-def api_backups_list():
-    rows = db.safe_fetchall("SELECT id, filename, db_type, operator, detail, created_at FROM backups ORDER BY created_at DESC, id DESC LIMIT 200")
-    return jsonify({'ok': True, 'backups': rows})
-
-
-@app.get('/api/settings/users')
-@login_required
-def api_settings_users():
-    if not is_admin():
-        return api_error('只有管理員可查看使用者', 403)
-    users = db.fetchall("SELECT id, username, role, is_blocked, created_at FROM users ORDER BY created_at DESC")
-    return jsonify({'ok': True, 'users': users})
-
-
-@app.post('/api/settings/users/<int:user_id>/block')
-@login_required
-@transactional
-def api_block_user(user_id):
-    if not is_admin():
-        return api_error('只有管理員可封鎖使用者', 403)
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    target = db.fetchone("SELECT id, username, role, is_blocked FROM users WHERE id=?", [user_id])
-    if not target:
-        return api_error('找不到使用者', 404)
-    wants_block = db_truthy(data.get('blocked', True))
-    if wants_block and target.get('username') == current_user():
-        return api_error('不能封鎖目前登入中的自己，避免管理員被鎖出系統', 400)
-    if wants_block and (target.get('role') == 'admin' or target.get('username') == ADMIN_NAME):
-        active_admins = db.safe_fetchone("SELECT COUNT(*) AS c FROM users WHERE (role='admin' OR username=?) AND is_blocked=? AND id<>?", [ADMIN_NAME, db.flag(False), user_id]) or {}
-        if safe_int(active_admins.get('c'), 0) <= 0:
-            return api_error('至少要保留一個未封鎖管理員', 400)
-    blocked = db.flag(wants_block)
-    db.execute("UPDATE users SET is_blocked=? WHERE id=?", [blocked, user_id])
-    db.add_activity('帳號管理', target.get('username',''), '', '封鎖使用者' if wants_block else '解除封鎖使用者', current_user())
-    return jsonify({'ok': True})
-
-
-@app.post('/api/settings/password')
-@login_required
-@transactional
-def api_change_password():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    password = data.get('password') or ''
-    if len(password) < 3:
-        return api_error('密碼至少 3 碼')
-    db.execute("UPDATE users SET password_hash=?, password='' WHERE username=?", [generate_password_hash(password), current_user()])
-    db.add_activity('修改密碼', current_user(), '', '使用者更新登入密碼', current_user())
-    return jsonify({'ok': True})
-
-
-@app.get('/api/backup')
-@login_required
-def api_backup():
-    os.makedirs('backups', exist_ok=True)
-    # Requirement: SQLite local test can download raw .db; PostgreSQL/normal mode downloads JSON.
-    if request.args.get('format') == 'db' and not db.IS_PG:
-        db.safe_execute("INSERT INTO backups(filename, db_type, operator, detail, created_at) VALUES(?,?,?,?,?)", [db.SQLITE_PATH, 'sqlite', current_user(), '下載 SQLite .db 備份', db.now()])
-        db.add_activity('下載備份', '', '', '下載 SQLite .db 備份', current_user())
-        return send_file(db.SQLITE_PATH, as_attachment=True, download_name=f"yuanxing_sqlite_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
-    payload = {'created_at': db.now(), 'schema_version': db.SCHEMA_VERSION, 'tables': {}}
-    for table in ['users','customers','customer_profiles','inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs','activity_reads','logs','request_keys','corrections','image_hashes','backups','archived_customers','warehouse_undo']:
-        payload['tables'][table] = db.fetchall(f"SELECT * FROM {table}")
-    path = os.path.join('backups', f"yuanxing_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-    db.safe_execute("INSERT INTO backups(filename, db_type, operator, detail, created_at) VALUES(?,?,?,?,?)", [path, 'postgres' if db.IS_PG else 'sqlite', current_user(), '手動下載 JSON 備份', db.now()])
-    db.add_activity('下載備份', '', '', '手動下載 JSON 備份', current_user())
-    return send_file(path, as_attachment=True, download_name=f"yuanxing_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-
-
-@app.post('/api/restore')
-@login_required
-def api_restore():
-    if not is_admin():
-        return api_error('只有管理員可還原備份', 403)
-    form_key = (request.form.get('request_key') or '').strip()
-    if form_key and request_key_duplicate({'request_key': form_key}, request.path):
-        return jsonify({'ok': True, 'duplicate': True})
-    file = request.files.get('file')
-    if not file:
-        return api_error('請選擇備份檔')
+@app.route("/api/login", methods=["POST"])
+def api_login():
     try:
-        payload = json.loads(file.read().decode('utf-8'))
-    except Exception:
-        return api_error('備份檔格式錯誤')
-    tables = payload.get('tables') or {}
-    restoring_admin = current_user() or ''
-    restoring_admin_row = db.safe_fetchone("SELECT * FROM users WHERE username=?", [restoring_admin]) if restoring_admin else None
-    allowed = ['users','customers','customer_profiles','inventory','orders','master_orders','shipping_records',
-               'warehouse_cells','warehouse_items','activity_logs','activity_reads','logs','corrections','image_hashes',
-               'backups','archived_customers','warehouse_undo']
+        data = request.get_json(silent=True) or {}
+        username = (data.get("username") or data.get("name") or "").strip()
+        password = (data.get("password") or "").strip()
+        if not username or not password:
+            return error_response("帳號密碼不可空白")
+        user = get_user(username)
+        if user and int(user.get('is_blocked') or 0) == 1:
+            try:
+                log_action(username or 'unknown', '黑名單登入攔截')
+            except Exception:
+                pass
+            return error_response("此帳號已被停用", 403)
+        if not user:
+            create_user(username, password)
+            log_action(username, "建立帳號")
+            user = get_user(username) or {}
+        else:
+            if not verify_password(user.get('password'), password):
+                return error_response("密碼錯誤", 403)
+            # 舊明碼資料第一次成功登入後自動升級為 hash
+            if user.get('password') == password:
+                update_password(username, password)
+                user = get_user(username) or user
+        session.permanent = True
+        session["user"] = username
+        session["role"] = user.get('role') or ("admin" if username == "陳韋廷" else "user")
+        log_action(username, "登入系統")
+        return jsonify(success=True, username=username, role=session.get("role"))
+    except Exception as e:
+        log_error("api_login", str(e))
+        return error_response("登入失敗")
+
+@app.route("/api/logout", methods=["POST"])
+@login_required_json
+def api_logout():
+    user = current_username()
+    session.clear()
     try:
-        # Commercial safety: write an automatic restore-point before replacing tables.
-        os.makedirs('backups', exist_ok=True)
-        restore_point = {'created_at': db.now(), 'reason': 'pre_restore_snapshot', 'tables': {}}
-        for table in allowed:
-            restore_point['tables'][table] = db.safe_fetchall(f"SELECT * FROM {table}")
-        restore_path = os.path.join('backups', f"pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-        with open(restore_path, 'w', encoding='utf-8') as f:
-            json.dump(restore_point, f, ensure_ascii=False, indent=2)
-        cols_by_table = {table: db.table_columns(table) for table in allowed}
-        with db.get_conn() as conn:
-            cur = conn.cursor()
-            for table in allowed:
-                if table not in tables:
-                    continue
-                cur.execute(db._convert_sql(f"DELETE FROM {table}"))
-                cols_available = cols_by_table.get(table) or set()
-                for row in tables.get(table) or []:
-                    if not isinstance(row, dict):
-                        continue
-                    cols = [c for c in row.keys() if c in cols_available]
-                    if not cols:
-                        continue
-                    placeholders = ','.join(['?'] * len(cols))
-                    sql = f"INSERT INTO {table}({','.join(cols)}) VALUES({placeholders})"
-                    cur.execute(db._convert_sql(sql), [row.get(c) for c in cols])
-        db.init_db(force=True)
-        # Avoid restore lockout: the admin who performed restore must remain present, admin, and unblocked.
-        if restoring_admin:
-            restored_admin = db.safe_fetchone("SELECT * FROM users WHERE username=?", [restoring_admin])
-            if not restored_admin and restoring_admin_row:
-                db.execute("INSERT INTO users(username, password_hash, password, role, is_blocked, created_at) VALUES(?,?,?,?,?,?)",
-                           [restoring_admin, restoring_admin_row.get('password_hash',''), restoring_admin_row.get('password',''), 'admin', db.flag(False), restoring_admin_row.get('created_at') or db.now()])
-            elif restored_admin:
-                db.execute("UPDATE users SET role='admin', is_blocked=? WHERE username=?", [db.flag(False), restoring_admin])
-                session['role'] = 'admin'
-        db.add_activity('還原備份', '', '', f'已匯入備份檔；還原前快照：{restore_path}', current_user())
-        return jsonify({'ok': True, 'restore_point': restore_path})
-    except Exception as exc:
-        return api_error('還原失敗，資料庫交易已回復或保留原狀', 500, detail=str(exc)[:300])
-
-
-@app.get('/api/audit-trails')
-@login_required
-def api_audit_trails():
-    today_only = request.args.get('all') not in ('1', 'true', 'yes')
-    where = []
-    params = []
-    if today_only:
-        where.append("substr(created_at,1,10)=?")
-        params.append(db.today_date())
-    sql = "SELECT id, action, customer_name, product_text, detail, operator, created_at FROM activity_logs"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY id DESC LIMIT 300"
-    rows = db.safe_fetchall(sql, params)
-    records = []
-    for r in rows:
-        records.append({
-            'id': r.get('id'),
-            'module': '系統',
-            'action': r.get('action') or '',
-            'customer_name': r.get('customer_name') or '',
-            'product_text': r.get('product_text') or '',
-            'detail': r.get('detail') or '',
-            'operator': r.get('operator') or '',
-            'created_at': r.get('created_at') or '',
-        })
-    return jsonify({'ok': True, 'records': records})
-
-
-@app.post('/api/recover/customers-from-relations')
-@login_required
-def api_recover_customers_from_relations():
-    data = body_json()
-    if request_key_duplicate(data, request.path):
-        return jsonify({'ok': True, 'duplicate': True, 'count': 0})
-    count = 0
-    for table in ['inventory', 'orders', 'master_orders', 'shipping_records']:
-        if not db.table_exists(table):
-            continue
-        rows = db.safe_fetchall(f"SELECT DISTINCT customer_name FROM {table} WHERE COALESCE(customer_name,'')<>''")
-        for r in rows:
-            name = (r.get('customer_name') or '').strip()
-            if name and not db.safe_fetchone("SELECT id FROM customers WHERE name=?", [name]):
-                db.safe_execute("INSERT INTO customers(name, region, archived, created_at, updated_at) VALUES(?,?,?,?,?)",
-                                [name, 'north', db.flag(False), db.now(), db.now()])
-                count += 1
-    db.add_activity('客戶資料救援', '', '', f'從關聯資料表救援 {count} 個客戶', current_user())
-    return jsonify({'ok': True, 'count': count})
-
-
-@app.get('/api/requirements/status')
-@login_required
-def api_requirement_status():
-    """Return the full 32-section text-file alignment matrix.
-
-    This is a commercial release gate: all sections must stay locked before deployment.
-    """
-    return jsonify({
-        'ok': True,
-        'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED',
-        'schema_version': db.SCHEMA_VERSION,
-        'text_file_alignment': 'full_32_section_matrix',
-        'old_fix_loaded': False,
-        'sections_total': len(REQUIREMENT_FULL_ALIGNMENT),
-        'sections_locked': sum(1 for x in REQUIREMENT_FULL_ALIGNMENT if x.get('status') == 'locked'),
-        'items': REQUIREMENT_FULL_ALIGNMENT,
-    })
-
-
-@app.get('/api/health')
-@login_required
-def api_health():
-    payload = {
-        'ok': True,
-        'version': 'YUANXING_COMMERCIAL_V10_RENDER_500_SAFE_LOCKED',
-        'schema_version': db.SCHEMA_VERSION,
-        'page_scripts': 'single-page-only',
-        'old_fix_loaded': False,
-        'shipping_records_page': True,
-        'order_cancel_restore_inventory': True,
-        'per_user_activity_unread': True,
-        'restore_lockout_protection': True,
-        'global_search': True,
-        'activity_unlisted_drilldown': True,
-        'customer_hard_delete_profile_only': True,
-        'customer_drag_sort_order': True,
-        'volume_qty_sum_fixed': True,
-        'commercial_locked': True,
-        'commercial_grade': True,
-        'requirement_full_match_v9': True,
-        'requirement_sections_total': len(REQUIREMENT_FULL_ALIGNMENT),
-        'requirement_sections_locked': sum(1 for x in REQUIREMENT_FULL_ALIGNMENT if x.get('status') == 'locked'),
-        'backup_records_page': True,
-        'shipping_item_dropdown': True,
-        'ocr_region_blue_text_preprocess': True,
-        'warehouse_cell_aggregated_display': True,
-        'timezone': os.environ.get('APP_TIMEZONE', 'Asia/Taipei'),
-        'database': 'postgres' if db.IS_PG else 'sqlite',
-        'api_schema_guard': True,
-    }
-    if request.args.get('schema') == '1':
-        payload['tables'] = db.list_core_tables_status()
-    return jsonify(payload)
-
-
-@app.errorhandler(HTTPException)
-def handle_http_exception(e):
-    if request.path.startswith('/api/'):
-        return jsonify({'ok': False, 'error': getattr(e, 'description', '請求錯誤'), 'status': e.code}), e.code
-    if e.code == 404:
-        return redirect(url_for('home'))
-    return (
-        '<!doctype html><meta charset="utf-8">'
-        '<title>沅興木業系統提示</title>'
-        '<body style="font-family:Arial, sans-serif;background:#f7f3ec;padding:28px;">'
-        '<section style="max-width:720px;margin:auto;background:#fff;border-radius:18px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.08);">'
-        '<h1 style="color:#6b3f22;margin-top:0;">沅興木業系統提示</h1>'
-        '<p>' + str(getattr(e, 'description', '請求錯誤')) + '</p>'
-        '<p><a href="/login">回登入頁</a>　<a href="/healthz">系統健康檢查</a></p>'
-        '</section></body>'
-    ), e.code
-
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-    detail = str(getattr(e, 'original_exception', e))[:800] or '未知錯誤'
-    try:
-        db.mark_request_key_failed(getattr(g, 'request_key_started', ''), detail)
+        log_action(user, "登出系統")
     except Exception:
         pass
-    if request.path.startswith('/api/'):
-        return jsonify({'ok': False, 'error': '系統錯誤，請稍後再試', 'detail': detail}), 500
-    safe_detail = detail.replace('<', '&lt;').replace('>', '&gt;')
-    return (
-        '<!doctype html><meta charset="utf-8">'
-        '<title>沅興木業系統啟動錯誤</title>'
-        '<body style="font-family:Arial, sans-serif;background:#f7f3ec;padding:28px;">'
-        '<section style="max-width:820px;margin:auto;background:#fff;border-radius:18px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,.08);">'
-        '<h1 style="color:#6b3f22;margin-top:0;">沅興木業系統啟動錯誤</h1>'
-        '<p>不是 build 失敗；Render 顯示 live 只代表 worker 啟動，實際 GET /、模板或資料庫初始化仍可能發生錯誤。</p>'
-        '<pre style="white-space:pre-wrap;background:#f8f4ed;padding:16px;border-radius:12px;overflow:auto;">' + safe_detail + '</pre>'
-        '<p><a href="/login">回登入頁</a>　<a href="/healthz">系統健康檢查</a></p>'
-        '</section></body>'
-    ), 500
-if __name__ == '__main__':
-    db.init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    return jsonify(success=True)
+
+@app.route("/api/change_password", methods=["POST"])
+@login_required_json
+def api_change_password():
+    try:
+        data = request.get_json(silent=True) or {}
+        old_password = (data.get("old_password") or "").strip()
+        new_password = (data.get("new_password") or "").strip()
+        confirm_password = (data.get("confirm_password") or "").strip()
+        user = get_user(current_username())
+        if not user or not verify_password(user.get('password'), old_password):
+            return error_response("舊密碼錯誤")
+        if not new_password or len(new_password) < 4:
+            return error_response("新密碼至少 4 碼")
+        if new_password != confirm_password:
+            return error_response("兩次密碼不一致")
+        update_password(current_username(), new_password)
+        log_action(current_username(), "修改密碼")
+        return jsonify(success=True)
+    except Exception as e:
+        log_error("change_password", str(e))
+        return error_response("修改失敗")
+
+@app.route("/api/native-ocr/parse", methods=["POST"])
+@login_required_json
+def api_native_ocr_parse():
+    try:
+        data = request.get_json(silent=True) or {}
+        raw_text = (data.get("raw_text") or data.get("text") or "").strip()
+        customer_hint = (data.get("customer_hint") or data.get("customer_name") or "").strip()
+        native_confidence = int(data.get("confidence") or data.get("ocr_confidence") or 0)
+        blocks = data.get("blocks") or data.get("positions") or []
+        ocr_mode = (data.get("ocr_mode") or data.get("mode") or 'blue').strip() or 'blue'
+        roi = data.get("roi") or None
+        if not raw_text and not customer_hint and not blocks:
+            return error_response("沒有可解析的辨識文字")
+        result = process_native_ocr_text(
+            raw_text,
+            customer_hint=customer_hint,
+            native_confidence=native_confidence,
+            blocks=blocks,
+            ocr_mode=ocr_mode,
+            roi=roi,
+        )
+        items = result.get('items') or []
+        normalized_text = result.get('text') or ''
+        customer_guess = result.get('customer_guess') or ''
+        partial = bool((normalized_text or raw_text) and (not normalized_text or not customer_guess))
+        log_action(current_username(), f"原生OCR辨識[{','.join(result.get('engines', []))}]")
+        return jsonify(
+            success=True,
+            text=normalized_text or raw_text,
+            raw_text=result.get('raw_text') or raw_text,
+            items=items,
+            confidence=int(result.get('confidence') or 0),
+            ocr_confidence=int(result.get('ocr_confidence') or native_confidence or 0),
+            parse_confidence=int(result.get('parse_confidence') or 0),
+            warning=result.get('warning') or '',
+            engines=result.get('engines', []),
+            customer_guess=customer_guess,
+            cleaned_text=result.get('cleaned_text') or '',
+            suggested_roi=result.get('suggested_roi'),
+            partial=partial,
+            line_map=result.get('line_map', []),
+            ocr_mode=ocr_mode,
+        )
+    except Exception as e:
+        log_error("native_ocr_parse", str(e))
+        return error_response("原生 OCR 文字解析失敗")
+
+@app.route("/api/save_correction", methods=["POST"])
+@login_required_json
+def api_save_correction():
+    try:
+        data = request.get_json(silent=True) or {}
+        wrong = (data.get("wrong_text") or "").strip()
+        correct = (data.get("correct_text") or "").strip()
+        if wrong and correct and wrong != correct:
+            save_correction(wrong, correct)
+            log_action(current_username(), f"修正OCR {wrong}->{correct}")
+            add_audit_trail(current_username(), 'upsert', 'corrections', wrong, before_json={}, after_json={'wrong_text': wrong, 'correct_text': correct})
+            notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞庫已更新', extra={'wrong_text': wrong})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error("save_correction", str(e))
+        return error_response("儲存失敗")
+
+def _parse_items_from_request(data):
+    items = data.get("items") or []
+    payload_material = (data.get("material") or "").strip().upper()
+    if items:
+        cleaned = []
+        for it in items:
+            if payload_material and not (it.get("material") or "").strip():
+                it = {**it, "material": payload_material, "product_code": payload_material}
+            fixed = normalize_item_for_save(it)
+            # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
+                if isinstance(it, dict) and it.get(_k) not in (None, ''):
+                    fixed[_k] = it.get(_k)
+            if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
+                continue
+            cleaned.append(fixed)
+        return cleaned
+    text = data.get("ocr_text") or data.get("text") or ""
+    parsed_items, _ = parse_lines_to_items(text)
+    cleaned = []
+    for it in parsed_items:
+        if payload_material:
+            it = {**it, "material": payload_material, "product_code": payload_material}
+        fixed = normalize_item_for_save(it)
+        if fixed.get("product_text") and int(fixed.get("qty") or 0) > 0:
+            cleaned.append(fixed)
+    return cleaned
+
+
+# FIX76：送出前檢查相同「尺寸 + 材質」並列出將被合併的資料。
+def _dup_size_key(product_text):
+    return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
+
+
+def _dup_material_key(material='', product_text=''):
+    return clean_material_value(material or '', product_text or '').replace(' ', '').upper()
+
+
+def _duplicate_check_table(module):
+    mod = (module or '').strip()
+    if mod == 'inventory':
+        return 'inventory', '庫存'
+    if mod == 'orders':
+        return 'orders', '訂單'
+    if mod in ('master_order', 'master_orders'):
+        return 'master_orders', '總單'
+    return '', ''
+
+
+@app.route('/api/duplicate-check', methods=['POST'])
+@login_required_json
+def api_duplicate_check():
+    try:
+        data = request.get_json(silent=True) or {}
+        module = (data.get('module') or data.get('source') or '').strip()
+        table, label = _duplicate_check_table(module)
+        if not table:
+            return jsonify(success=True, has_duplicates=False, duplicates=[])
+        customer_name = (data.get('customer_name') or '').strip()
+        items = _parse_items_from_request(data)
+        if not items:
+            return jsonify(success=True, has_duplicates=False, duplicates=[])
+
+        incoming = {}
+        order = []
+        for it in items:
+            product_text = format_product_text_height2(it.get('product_text') or '')
+            material = clean_material_value(it.get('material') or it.get('product_code') or '', product_text)
+            key = (_dup_size_key(product_text), _dup_material_key(material, product_text))
+            if not key[0]:
+                continue
+            if key not in incoming:
+                incoming[key] = {'size': product_display_size(product_text), 'material': material, 'new_qty': 0, 'incoming_count': 0, 'new_items': []}
+                order.append(key)
+            incoming[key]['new_qty'] += int(it.get('qty') or 0)
+            incoming[key]['incoming_count'] += 1
+            incoming[key]['new_items'].append({'product_text': product_text, 'qty': int(it.get('qty') or 0), 'material': material})
+
+        conn = get_db(); cur = conn.cursor()
+        try:
+            params = []
+            query = f"SELECT id, customer_name, product_text, product_code, material, qty FROM {table} WHERE qty > 0"
+            if table in ('orders', 'master_orders'):
+                query += " AND customer_name = ?"
+                params.append(customer_name)
+            cur.execute(sql(query), tuple(params))
+            rows = rows_to_dict(cur)
+        finally:
+            conn.close()
+
+        existing_by_key = {}
+        for r in rows:
+            product_text = format_product_text_height2(r.get('product_text') or '')
+            material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
+            key = (_dup_size_key(product_text), _dup_material_key(material, product_text))
+            if key not in existing_by_key:
+                existing_by_key[key] = []
+            existing_by_key[key].append({
+                'id': r.get('id'),
+                'customer_name': r.get('customer_name') or '',
+                'product_text': product_text,
+                'material': material,
+                'qty': int(r.get('qty') or 0),
+                'source': label,
+            })
+
+        duplicates = []
+        for key in order:
+            inc = incoming[key]
+            exists = existing_by_key.get(key, [])
+            is_dup_inside = inc.get('incoming_count', 0) > 1
+            if exists or is_dup_inside:
+                duplicates.append({
+                    'source': label,
+                    'customer_name': customer_name,
+                    'size': inc.get('size') or key[0],
+                    'material': inc.get('material') or '未填材質',
+                    'new_qty': inc.get('new_qty') or 0,
+                    'incoming_count': inc.get('incoming_count') or 0,
+                    'existing_qty': sum(int(x.get('qty') or 0) for x in exists),
+                    'existing_rows': exists,
+                    'new_items': inc.get('new_items') or [],
+                })
+        return jsonify(success=True, has_duplicates=bool(duplicates), duplicates=duplicates)
+    except Exception as e:
+        log_error('duplicate_check', str(e))
+        return error_response('合併檢查失敗')
+
+@app.route("/api/inventory", methods=["GET", "POST"])
+@login_required_json
+def api_inventory():
+    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=grouped_inventory())
+        data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/inventory'):
+            return duplicate_success('相同庫存送出已忽略')
+        items = _parse_items_from_request(data)
+        if not items:
+            return error_response("請輸入商品資料")
+        operator = current_username()
+        location = (data.get("location") or "").strip()
+        customer_name = (data.get("customer_name") or "").strip()
+        if customer_name:
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        for it in items:
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""))
+        log_action(operator, "建立庫存")
+        add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
+        notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
+        return jsonify(success=True, items=grouped_inventory(), **snap)
+    except Exception as e:
+        log_error("inventory", str(e))
+        return error_response("建立失敗")
+
+
+@app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
+@login_required_json
+def api_inventory_item(item_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
+        row = fetchone_dict(cur)
+        if not row:
+            conn.close()
+            return error_response("找不到庫存商品", 404)
+        if request.method == "GET":
+            conn.close()
+            return jsonify(success=True, item=row)
+        if request.method == "DELETE":
+            before = dict(row)
+            cur.execute(sql("DELETE FROM inventory WHERE id = ?"), (item_id,))
+            conn.commit()
+            conn.close()
+            log_action(current_username(), f"刪除庫存商品 #{item_id}")
+            add_audit_trail(current_username(), 'delete', 'inventory', str(item_id), before_json=before, after_json={})
+            notify_sync_event(kind='refresh', module='inventory', message='庫存商品已刪除', extra={'id': item_id})
+            return jsonify(success=True, items=grouped_inventory())
+        data = request.get_json(silent=True) or {}
+        product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
+        material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
+        product_code = material
+        qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
+        if not product_text:
+            conn.close()
+            return error_response('請輸入商品資料')
+        if qty < 0:
+            qty = 0
+        before = dict(row)
+        cur.execute(sql("""
+            UPDATE inventory
+            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            WHERE id = ?
+        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
+        conn.commit()
+        conn.close()
+        log_action(current_username(), f"編輯庫存商品 #{item_id}")
+        add_audit_trail(current_username(), 'update', 'inventory', str(item_id), before_json=before, after_json={'product_text': product_text, 'qty': qty, 'location': location, 'customer_name': customer_name})
+        notify_sync_event(kind='refresh', module='inventory', message='庫存商品已更新', extra={'id': item_id})
+        return jsonify(success=True, items=grouped_inventory())
+    except Exception as e:
+        log_error('inventory_item', str(e))
+        return error_response('庫存商品操作失敗')
+
+@app.route("/api/inventory/<int:item_id>/move", methods=["POST"])
+@login_required_json
+def api_inventory_item_move(item_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        target = (data.get('target') or '').strip()
+        customer_name = (data.get('customer_name') or '').strip()
+        if target not in ('orders', 'master_order', 'master_orders'):
+            return error_response('請選擇要移到訂單或總單')
+        if not customer_name:
+            return error_response('請選擇客戶')
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
+        row = fetchone_dict(cur)
+        if not row:
+            conn.close()
+            return error_response('找不到庫存商品', 404)
+        current_qty = int(row.get('qty') or 0)
+        move_qty = int(data.get('qty') or current_qty or 0)
+        if move_qty <= 0:
+            conn.close()
+            return error_response('移動數量必須大於 0')
+        if move_qty > current_qty:
+            move_qty = current_qty
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
+        conn.close()
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
+        if target == 'orders':
+            save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '訂單'
+            module = 'orders'
+        else:
+            save_master_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '總單'
+            module = 'master_order'
+        conn = get_db()
+        cur = conn.cursor()
+        if move_qty >= current_qty:
+            cur.execute(sql("DELETE FROM inventory WHERE id = ?"), (item_id,))
+        else:
+            cur.execute(sql("UPDATE inventory SET qty = qty - ?, operator = ?, updated_at = ? WHERE id = ?"), (move_qty, current_username(), now(), item_id))
+        conn.commit()
+        conn.close()
+        log_action(current_username(), f"庫存移到{target_label}：{customer_name}")
+        add_audit_trail(current_username(), 'move', 'inventory', str(item_id), before_json={'id': item_id, 'qty': current_qty, 'product_text': product_text}, after_json={'target': target_label, 'customer_name': customer_name, 'qty': move_qty, 'product_text': product_text})
+        notify_sync_event(kind='refresh', module='inventory', message=f'庫存已移到{target_label}', extra={'id': item_id, 'customer_name': customer_name, 'qty': move_qty})
+        notify_sync_event(kind='refresh', module=module, message=f'{target_label}已更新', extra={'customer_name': customer_name, 'qty': move_qty})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=grouped_inventory(), customer_name=customer_name, target=target_label, **snap)
+    except Exception as e:
+        log_error('inventory_item_move', str(e))
+        return error_response('庫存移動失敗')
+@app.route("/api/orders", methods=["GET", "POST"])
+@login_required_json
+def api_orders():
+    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=get_orders())
+        data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/orders'):
+            return duplicate_success('相同訂單送出已忽略')
+        items = _parse_items_from_request(data)
+        if not items:
+            return error_response("請輸入商品資料")
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        log_action(current_username(), "建立訂單")
+        add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_orders(), **snap)
+    except Exception as e:
+        log_error("orders", str(e))
+        return error_response("訂單建立失敗")
+
+@app.route("/api/master_orders", methods=["GET", "POST"])
+@login_required_json
+def api_master_orders():
+    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=get_master_orders())
+        data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/master_orders'):
+            return duplicate_success('相同總單送出已忽略')
+        items = _parse_items_from_request(data)
+        if not items:
+            return error_response("請輸入商品資料")
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        log_action(current_username(), "更新總單")
+        add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_master_orders(), **snap)
+    except Exception as e:
+        log_error("master_orders", str(e))
+        return error_response("總單失敗")
+
+@app.route("/api/ship", methods=["POST"])
+@login_required_json
+def api_ship():
+    try:
+        data = request.get_json(silent=True) or {}
+        if not request_key_from_payload(data, endpoint='/api/ship'):
+            return duplicate_success('相同出貨送出已忽略')
+        items = _parse_items_from_request(data)
+        if not items:
+            return error_response("請輸入商品資料")
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
+        result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
+        if result.get("success"):
+            log_action(current_username(), "完成出貨")
+            add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
+            notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        if isinstance(result, dict) and customer_name:
+            result.update(build_customer_payload_snapshot(customer_name))
+        return jsonify(result)
+    except Exception as e:
+        log_error("ship", str(e))
+        return error_response("出貨失敗")
+
+@app.route("/api/shipping_records", methods=["GET"])
+@login_required_json
+def api_shipping_records():
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+    q = (request.args.get("q") or '').strip()
+    rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
+    return jsonify(success=True, items=rows, records=rows)
+
+@app.route("/api/ship-preview", methods=["POST"])
+@login_required_json
+def api_ship_preview():
+    try:
+        data = request.get_json(silent=True) or {}
+        items = _parse_items_from_request(data)
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        if not items:
+            return error_response("沒有可預覽的商品")
+        preview = preview_ship_order(customer_name, items)
+        if preview.get('master_exceeded'):
+            return error_response(preview.get('message') or '超過總單，禁止出貨')
+        return jsonify(preview)
+    except Exception as e:
+        log_error("ship_preview", str(e))
+        return error_response("出貨預覽失敗")
+
+@app.route("/api/customers", methods=["GET", "POST"])
+@login_required_json
+def api_customers():
+    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=get_customers())
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
+        name = name or resolved_name
+        if resolved_name and resolved_name != name and not (data.get('force_new') or False):
+            name = resolved_name
+        if not name:
+            return error_response("請輸入客戶名稱")
+        item = upsert_customer(
+            name,
+            phone=(data.get("phone") or "").strip(),
+            address=(data.get("address") or "").strip(),
+            notes=(data.get("notes") or "").strip(),
+            common_materials=(data.get("common_materials") or "").strip(),
+            common_sizes=(data.get("common_sizes") or "").strip(),
+            region=resolve_customer_region(name, data.get("region")),
+            preserve_existing=bool(data.get('preserve_existing', False))
+        )
+        log_action(current_username(), f"儲存客戶 {name}")
+        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=data)
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
+        return jsonify(success=True, items=get_customers(), item=item)
+    except Exception as e:
+        log_error("customers", str(e))
+        return error_response("客戶儲存失敗")
+
+
+@app.route("/api/customers/archived", methods=["GET"])
+@login_required_json
+def api_customers_archived():
+    try:
+        items = [c for c in get_customers(active_only=False) if int(c.get('is_archived') or 0) == 1]
+        return jsonify(success=True, items=items)
+    except Exception as e:
+        log_error("customers_archived", str(e))
+        return error_response("封存客戶讀取失敗")
+
+@app.route("/api/customers/<name>/restore", methods=["POST"])
+@login_required_json
+def api_customer_restore(name):
+    try:
+        data = request.get_json(silent=True) or {}
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
+        target_name = resolved_name or name
+        item = restore_customer(target_name)
+        log_action(current_username(), f"復原客戶 {target_name}")
+        add_audit_trail(current_username(), 'restore', 'customer_profiles', target_name, before_json={'name': target_name}, after_json={'name': target_name, 'restored': True})
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已復原：{target_name}', extra={'customer_name': target_name})
+        return jsonify(success=True, item=item, items=get_customers())
+    except Exception as e:
+        log_error("restore_customer", str(e))
+        return error_response(f"客戶復原失敗：{str(e)}")
+
+@app.route("/api/customers/move", methods=["POST"])
+@login_required_json
+def api_customers_move():
+    try:
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        region = (data.get("region") or "").strip()
+        if region not in ["北區", "中區", "南區"]:
+            return error_response("缺少客戶或區域")
+        row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or '', include_archived=True)
+        name = resolved_name or name
+        if not name or not row:
+            return error_response("找不到客戶資料")
+        before_region = (row.get("region") or "").strip()
+        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
+        log_action(current_username(), f"移動客戶 {name} 到 {region}")
+        add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
+        notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
+        return jsonify(success=True, items=get_customers(), item=item)
+    except Exception as e:
+        log_error("move_customer", str(e))
+        return error_response("移動客戶失敗")
+
+
+@app.route("/api/customers/<name>", methods=["GET", "DELETE", "PUT"])
+@login_required_json
+def api_customer_detail(name):
+    if request.method == "PUT":
+        try:
+            data = request.get_json(silent=True) or {}
+            new_name = (data.get("new_name") or "").strip()
+            if not new_name:
+                return error_response("請輸入新的客戶名稱")
+            source, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
+            name = resolved_name or name
+            if not source:
+                return error_response("找不到原客戶資料")
+            if new_name == name:
+                return jsonify(success=True, item=source, counts=get_customer_relation_counts(name))
+            existed = get_customer(new_name, include_archived=True)
+            if existed:
+                return error_response("新的客戶名稱已存在，請換一個名稱")
+            conn = get_db()
+            cur = conn.cursor()
+            try:
+                cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE inventory SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE master_orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
+                cur.execute(sql("UPDATE shipping_records SET customer_name = ?, customer_uid = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', name))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+            item = get_customer(new_name, include_archived=True)
+            log_action(current_username(), f"修改客戶名稱 {name} -> {new_name}")
+            add_audit_trail(current_username(), 'rename', 'customer_profiles', name, before_json={'name': name}, after_json={'name': new_name})
+            notify_sync_event(kind="refresh", module="customers", message=f"客戶已改名：{name} -> {new_name}", extra={"customer_name": new_name})
+            return jsonify(success=True, item=item, counts=get_customer_relation_counts(new_name))
+        except Exception as e:
+            log_error("rename_customer", str(e))
+            return error_response(f"客戶名稱更新失敗：{str(e)}")
+    if request.method == "DELETE":
+        try:
+            data = request.get_json(silent=True) or {}
+            _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
+            name = resolved_name or name
+            result = delete_customer(name)
+            mode = result.get('mode') or 'deleted'
+            counts = result.get('counts') or {}
+            log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
+            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
+            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            return jsonify(success=True, mode=mode, counts=counts, message=message)
+        except Exception as e:
+            log_error("delete_customer", str(e))
+            return error_response(f"客戶刪除失敗：{str(e)}")
+    row, resolved_name, _resolved_uid = resolve_customer_identity(name, request.args.get('customer_uid') or '', include_archived=True)
+    name = resolved_name or name
+    if not row:
+        return error_response("找不到客戶", 404)
+    return jsonify(success=True, item=row, counts=get_customer_relation_counts(name))
+
+@app.route("/api/warehouse", methods=["GET"])
+@login_required_json
+def api_warehouse():
+    try:
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("api_warehouse", str(e))
+        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
+
+
+@app.route("/api/warehouse/cell", methods=["POST"])
+@login_required_json
+def api_warehouse_cell():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index") or 0)
+        slot_type = 'direct'
+        slot_number = int(data.get("slot_number") or 0)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        # 防止手動輸入不存在的格位（例如 A-1-99）造成倉庫圖被拉出異常超長格數。
+        existing_cells = warehouse_get_cells()
+        if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
+            return error_response("格位不存在，請先在格子內點「插入格子」")
+        previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
+        items = normalize_warehouse_payload_items(data.get("items") or [])
+        ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
+        if not ok:
+            return error_response(msg)
+        note = data.get("note") or ""
+        warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
+        if items:
+            top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
+            record_recent_slot(current_username(), top_customer, zone, column_index, slot_number)
+        log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
+        add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        return jsonify(success=True, zones=warehouse_summary())
+    except Exception as e:
+        log_error("warehouse_cell", str(e))
+        return error_response("格位更新失敗")
+
+@app.route("/api/warehouse/move", methods=["POST"])
+@login_required_json
+def api_warehouse_move():
+    try:
+        data = request.get_json(silent=True) or {}
+        from_key = data.get("from_key")
+        to_key = data.get("to_key")
+        product_text = format_product_text_height2(data.get("product_text"))
+        customer_name = (data.get("customer_name") or "").strip()
+        placement_label = (data.get("placement_label") or data.get("layer_label") or "前排").strip() or "前排"
+        qty = int(data.get("qty", 1))
+        if not (from_key and to_key and product_text):
+            return error_response("缺少參數")
+        result = warehouse_move_item(tuple(from_key), tuple(to_key), product_text, qty, customer_name=customer_name, placement_label=placement_label)
+        if result.get("success"):
+            log_action(current_username(), f"拖曳商品 {product_text}")
+            try:
+                to_slot = int(to_key[3] if len(to_key) >= 4 else to_key[2])
+                record_recent_slot(current_username(), customer_name, to_key[0], int(to_key[1]), to_slot)
+            except Exception:
+                pass
+            add_audit_trail(current_username(), 'move', 'warehouse_cells', product_text, before_json={'from_key': from_key, 'customer_name': customer_name}, after_json={'to_key': to_key, 'qty': qty, 'product_text': product_text, 'customer_name': customer_name, 'placement_label': placement_label})
+            notify_sync_event(kind='refresh', module='warehouse', message='倉庫位置已移動', extra={'product_text': product_text, 'qty': qty, 'customer_name': customer_name})
+        return jsonify(result)
+    except Exception as e:
+        log_error("warehouse_move", str(e))
+        return error_response("拖曳失敗")
+
+@app.route("/api/warehouse/add-column", methods=["POST"])
+@login_required_json
+def api_warehouse_add_column():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        if zone not in ("A", "B"):
+            return error_response("區域錯誤")
+        column_index = warehouse_add_column(zone)
+        log_action(current_username(), f"新增格子欄 {zone}{column_index}")
+        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'action': '新增欄位'})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增欄位', extra={'zone': zone, 'column_index': column_index})
+        return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_add_column", str(e))
+        return error_response("新增格子失敗")
+
+@app.route("/api/warehouse/search")
+@login_required_json
+def api_warehouse_search():
+    q = (request.args.get("q") or "").strip()
+    cells = warehouse_get_cells()
+    matched = []
+    for cell in cells:
+        try:
+            items = json.loads(cell.get("items_json") or "[]")
+        except Exception:
+            items = []
+        for it in items:
+            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')}"
+            if not q or q.lower() in hay.lower():
+                matched.append({"cell": cell, "item": it})
+                break
+    return jsonify(success=True, items=matched)
+
+@app.route("/api/warehouse/available-items", methods=["GET"])
+@login_required_json
+def api_warehouse_available_items():
+    """列出尚未放入倉庫圖的商品。
+
+    來源包含：庫存、訂單、總單。相同尺寸會合併；不同客戶分開，避免客戶貨物混在一起。
+    """
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
+        items = []
+        for key, total_qty in source_totals.items():
+            size, customer = key
+            placed_qty = int(placed.get(key, 0) or 0)
+            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if unplaced_qty <= 0:
+                continue
+            source_qty = {}
+            for detail in source_details.get(key, []):
+                source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
+            items.append({
+                'product_text': size,
+                'product_size': size,
+                'customer_name': customer,
+                'total_qty': int(total_qty or 0),
+                'placed_qty': placed_qty,
+                'unplaced_qty': unplaced_qty,
+                'qty': unplaced_qty,
+                'source_qty': source_qty,
+                'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
+                'source_details': source_details.get(key, []),
+                'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
+                'needs_red': True,
+            })
+        items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
+        return jsonify(success=True, items=items)
+    except Exception as e:
+        log_error("api_warehouse_available_items", str(e))
+        return jsonify(success=True, items=[])
+
+
+@app.route("/api/customer-items", methods=["GET"])
+@login_required_json
+def api_customer_items():
+    """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
+    name = (request.args.get("name") or "").strip()
+    uid = (request.args.get("customer_uid") or "").strip()
+    row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
+    name = resolved_name or name
+    uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
+    items = []
+    if not name and not uid:
+        return jsonify(success=True, items=[])
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        def pull(table, source_label):
+            if uid and name:
+                cur.execute(sql(f"""
+                    SELECT * FROM {table}
+                    WHERE customer_uid = ? OR (COALESCE(customer_uid, '') = '' AND customer_name = ?)
+                    ORDER BY id DESC
+                """), (uid, name))
+            elif uid:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_uid = ? ORDER BY id DESC"), (uid,))
+            else:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE customer_name = ? ORDER BY id DESC"), (name,))
+            for r in rows_to_dict(cur):
+                r['source'] = source_label
+                items.append(r)
+        pull('orders', '訂單')
+        pull('master_orders', '總單')
+        pull('inventory', '庫存')
+    finally:
+        conn.close()
+    return jsonify(success=True, items=aggregate_customer_items(items))
+
+
+@app.route("/api/customer-item", methods=["POST", "DELETE"])
+@login_required_json
+def api_customer_item_modify():
+    try:
+        data = request.get_json(silent=True) or {}
+        source = (data.get("source") or "").strip()
+        item_id = int(data.get("id") or 0)
+        if not source or not item_id:
+            return error_response("缺少商品參數")
+        if request.method == "DELETE":
+            delete_customer_item(source, item_id)
+            log_action(current_username(), f"刪除客戶商品 {source}#{item_id}")
+            notify_sync_event(kind='refresh', module='customers', message='客戶商品已刪除', extra={'source': source, 'id': item_id})
+            return jsonify(success=True)
+        product_text = format_product_text_height2((data.get("product_text") or "").strip())
+        qty = int(data.get("qty") or 0)
+        if not product_text:
+            return error_response("請輸入商品資料")
+        material = data.get("material") if "material" in data else None
+        update_customer_item(source, item_id, product_text, qty, current_username(), material=material)
+        log_action(current_username(), f"更新客戶商品 {source}#{item_id}")
+        notify_sync_event(kind='refresh', module='customers', message='客戶商品已更新', extra={'source': source, 'id': item_id})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error("customer_item_modify", str(e))
+        return error_response("客戶商品修改失敗")
+
+
+@app.route("/api/customer-items/batch-material", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_material():
+    try:
+        data = request.get_json(silent=True) or {}
+        material = (data.get("material") or "").strip().upper()
+        items = data.get("items") or []
+        if not material:
+            return error_response("請選擇材質")
+        if not items:
+            return error_response("請先勾選要套用材質的商品")
+        count = update_items_material(items, material, current_username())
+        # FIX113：批量材質屬於庫存 / 訂單 / 總單實際變更，不再只記成 customer_items 雜訊。
+        source_map = {'inventory':'inventory', '庫存':'inventory', 'orders':'orders', '訂單':'orders', 'master_order':'master_orders', 'master_orders':'master_orders', '總單':'master_orders'}
+        grouped_sources = {}
+        for it in items:
+            entity = source_map.get((it.get('source') or '').strip())
+            if entity:
+                grouped_sources.setdefault(entity, []).append(it)
+        for entity, source_items in grouped_sources.items():
+            add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json={}, after_json={'material': material, 'count': len(source_items), 'items': source_items})
+        if not grouped_sources:
+            add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json={}, after_json={'material': material, 'count': count, 'items': items})
+        log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
+        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
+        return jsonify(success=True, count=count, material=material)
+    except Exception as e:
+        log_error("customer_items_batch_material", str(e))
+        return error_response(str(e) or "批量材質更新失敗")
+
+
+
+@app.route("/api/customer-items/batch-delete", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_delete():
+    """FIX56：庫存 / 訂單 / 總單共用批量刪除。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get("items") or []
+        if not items:
+            return error_response("請先勾選要刪除的商品")
+        table_map = {
+            "庫存": "inventory", "inventory": "inventory",
+            "訂單": "orders", "orders": "orders",
+            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
+        }
+        conn = get_db()
+        cur = conn.cursor()
+        deleted = 0
+        before_items = []
+        try:
+            for it in items:
+                source = (it.get("source") or "").strip()
+                table = table_map.get(source)
+                item_id = int(it.get("id") or 0)
+                if not table or item_id <= 0:
+                    continue
+                cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+                row = fetchone_dict(cur)
+                if not row:
+                    continue
+                before_items.append({"source": source, "table": table, "id": item_id, "row": row})
+                cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (item_id,))
+                deleted += cur.rowcount or 0
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        # FIX113：批量刪除依實際資料表寫入差異紀錄，避免顯示 customer_items。
+        grouped_sources = {}
+        for before in before_items:
+            entity = before.get('table')
+            if entity in ('inventory', 'orders', 'master_orders'):
+                grouped_sources.setdefault(entity, []).append(before)
+        for entity, rows in grouped_sources.items():
+            add_audit_trail(current_username(), "delete", entity, "batch_delete", before_json=rows, after_json={"count": len(rows)})
+        if not grouped_sources:
+            add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
+        log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
+        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted})
+        return jsonify(success=True, count=deleted)
+    except Exception as e:
+        log_error("customer_items_batch_delete", str(e))
+        return error_response(str(e) or "批量刪除失敗")
+
+@app.route("/api/backup", methods=["POST", "GET"])
+@login_required_json
+def api_backup():
+    return jsonify(run_daily_backup())
+
+@app.route("/api/backups", methods=["GET"])
+@login_required_json
+def api_backups():
+    return jsonify(list_backups())
+
+
+@app.route("/api/admin/users", methods=["GET"])
+@login_required_json
+def api_admin_users():
+    """FIX113：管理員名單相容讀取。
+    舊資料庫若缺少 is_blocked/role 欄位，不再回 500，先補 schema 再用安全 SQL 讀取。"""
+    if current_username() != '陳韋廷':
+        return error_response("權限不足", 403)
+    try:
+        try:
+            init_db()
+        except Exception as e:
+            log_error('admin_users_init_db', str(e))
+        return jsonify(success=True, items=list_users())
+    except Exception as e:
+        log_error('admin_users_list_users', str(e))
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql("SELECT * FROM users ORDER BY username ASC"))
+            raw_rows = rows_to_dict(cur)
+            conn.close()
+            rows = []
+            for r in raw_rows:
+                rows.append({
+                    'username': r.get('username') or '',
+                    'role': r.get('role') or 'user',
+                    'is_blocked': int(r.get('is_blocked') or 0),
+                    'created_at': r.get('created_at') or '',
+                    'updated_at': r.get('updated_at') or '',
+                })
+            return jsonify(success=True, items=rows, warning='已用相容模式讀取管理員名單')
+        except Exception as e2:
+            log_error('admin_users_fallback', str(e2))
+            return jsonify(success=True, items=[], warning='管理員名單讀取失敗，請重新整理或稍後再試')
+
+@app.route("/api/admin/block", methods=["POST"])
+@login_required_json
+def api_admin_block():
+    if current_username() != '陳韋廷':
+        return error_response("權限不足", 403)
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    blocked = bool(data.get('blocked'))
+    if not username or username == '陳韋廷':
+        return error_response("不可操作此帳號")
+    try:
+        try:
+            init_db()
+        except Exception as e:
+            log_error('admin_block_init_db', str(e))
+        set_user_blocked(username, blocked)
+        log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
+        notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
+        try:
+            items = list_users()
+        except Exception as e:
+            log_error('admin_block_list_users', str(e))
+            items = []
+        return jsonify(success=True, items=items)
+    except Exception as e:
+        log_error('admin_block', str(e))
+        return error_response('帳號黑名單更新失敗')
+
+
+
+@app.route("/api/warehouse/return-unplaced", methods=["POST"])
+@login_required_json
+def api_warehouse_return_unplaced():
+    """FIX75：把某格已放入的商品清回未錄入倉庫圖狀態。
+
+    倉庫圖的「未錄入」是由來源總量 - 已放入格位數量即時計算，
+    所以這裡只要清空該格商品，商品就會自動回到尚未添加倉庫圖清單。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index") or 0)
+        slot_number = int(data.get("slot_number") or 0)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        cells = warehouse_get_cells()
+        cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
+        if not cell:
+            return error_response("找不到格位")
+        items = safe_cell_items(cell)
+        note = cell.get('note') or ''
+        warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
+        log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
+        return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_return_unplaced", str(e))
+        return error_response("返回上一步失敗")
+
+@app.route("/api/warehouse/add-slot", methods=["POST"])
+@login_required_json
+def api_warehouse_add_slot():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index") or 0)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6:
+            return error_response("格位參數錯誤")
+        slot_type = 'direct'
+        insert_after = data.get("insert_after", None)
+        if insert_after is None and data.get("slot_number") not in (None, ""):
+            insert_after = max(0, int(data.get("slot_number")) - 1)
+        slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
+        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
+        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_add_slot", str(e))
+        return error_response("新增格子失敗")
+
+@app.route("/api/warehouse/remove-slot", methods=["POST"])
+@login_required_json
+def api_warehouse_remove_slot():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get("zone") or "A").strip().upper()
+        column_index = int(data.get("column_index") or 0)
+        slot_number = int(data.get("slot_number") or 0)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        slot_type = 'direct'
+        result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
+        if not result.get('success'):
+            return error_response(result.get('error') or '刪除格子失敗')
+        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_remove_slot", str(e))
+        return error_response("刪除格子失敗")
+
+
+@app.route("/api/orders/to-master", methods=["POST"])
+@login_required_json
+def api_orders_to_master():
+    try:
+        data = request.get_json(silent=True) or {}
+        customer_name = (data.get("customer_name") or "").strip()
+        product_text = format_product_text_height2((data.get("product_text") or "").strip())
+        product_code = (data.get("product_code") or "").strip()
+        qty = int(data.get("qty") or 0)
+        if not customer_name or not product_text or qty <= 0:
+            return error_response("參數不足")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
+        log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
+        notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        return jsonify(success=True, items=get_master_orders())
+    except Exception as e:
+        log_error("orders_to_master", str(e))
+        return error_response("加入總單失敗")
+
+
+def _today_key():
+    return datetime.now().strftime('%Y-%m-%d')
+
+def _aggregate_customer_products(rows):
+    out = {}
+    for r in rows:
+        key = ((r.get('customer_name') or '').strip(), (r.get('product_text') or '').strip())
+        out[key] = out.get(key, 0) + int(r.get('qty') or 0)
+    return out
+
+def _aggregate_inventory_products(rows):
+    out = {}
+    for r in rows:
+        key = (r.get('product_text') or '').strip()
+        out[key] = out.get(key, 0) + int(r.get('qty') or 0)
+    return out
+
+
+def _build_anomalies(inv_rows, order_rows, master_rows):
+    anomalies = {
+        'negative_inventory': [],
+        'orders_over_master': [],
+        'master_over_inventory': [],
+        'unplaced': [],
+        'duplicate_products': [],
+        'shipping_deduction': [],
+        'ocr_errors': [],
+        'blocked_logins': [],
+    }
+    inv_by_product = _aggregate_inventory_products(inv_rows)
+    ord_by_cp = _aggregate_customer_products(order_rows)
+    mst_by_cp = _aggregate_customer_products(master_rows)
+
+    for r in inv_rows:
+        if int(r.get('qty') or 0) < 0:
+            anomalies['negative_inventory'].append({'type':'negative_inventory','message':f"庫存負數：{r.get('product_text')} ({r.get('qty')})",'product_text':r.get('product_text') or ''})
+        if int(r.get('unplaced_qty') or 0) > 0:
+            anomalies['unplaced'].append({'type':'unplaced','message':f"未錄入倉庫圖：{r.get('product_text')} ({r.get('unplaced_qty')})",'product_text':r.get('product_text') or '', 'qty':int(r.get('unplaced_qty') or 0)})
+
+    for key, oq in ord_by_cp.items():
+        mq = int(mst_by_cp.get(key) or 0)
+        if oq > mq:
+            customer_name, product_text = key
+            anomalies['orders_over_master'].append({'type':'orders_over_master','message':f"{customer_name}｜訂單大於總單：{product_text} ({oq}>{mq})",'customer_name':customer_name,'product_text':product_text,'order_qty':oq,'master_qty':mq})
+
+    product_master_total = {}
+    for (_, product_text), qty in mst_by_cp.items():
+        product_master_total[product_text] = product_master_total.get(product_text, 0) + int(qty or 0)
+    for product_text, mq in product_master_total.items():
+        iq = int(inv_by_product.get(product_text) or 0)
+        if mq > iq:
+            anomalies['master_over_inventory'].append({'type':'master_over_inventory','message':f"總單大於庫存：{product_text} ({mq}>{iq})",'product_text':product_text,'master_qty':mq,'inventory_qty':iq})
+
+    def _dups(rows, source_name):
+        seen = {}
+        for r in rows:
+            key = ((r.get('customer_name') or '').strip(), (r.get('product_text') or '').strip())
+            if not all(key):
+                continue
+            seen.setdefault(key, []).append(r)
+        for key, vals in seen.items():
+            if len(vals) > 1:
+                anomalies['duplicate_products'].append({'type':'duplicate_products','message':f"{source_name}重複商品：{key[0]}｜{key[1]}（{len(vals)}筆）",'customer_name':key[0],'product_text':key[1],'source':source_name})
+    _dups(order_rows, '訂單')
+    _dups(master_rows, '總單')
+
+    try:
+        conn = get_db(); cur = conn.cursor(); today = _today_key()
+        cur.execute(sql("SELECT customer_name, product_text, note, shipped_at FROM shipping_records WHERE substr(shipped_at,1,10)=? ORDER BY shipped_at DESC"), (today,))
+        for r in rows_to_dict(cur):
+            note = r.get('note') or ''
+            if '補扣' in note:
+                anomalies['shipping_deduction'].append({'type':'shipping_deduction','message':f"出貨補扣：{r.get('customer_name')}｜{r.get('product_text')}｜{note}"})
+        cur.execute(sql("SELECT source, message, created_at FROM errors WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 50"), (today,))
+        for r in rows_to_dict(cur):
+            src = (r.get('source') or '')
+            if 'ocr' in src.lower():
+                anomalies['ocr_errors'].append({'type':'ocr_errors','message':f"OCR異常：{src}｜{r.get('message') or ''}"})
+        cur.execute(sql("SELECT username, action, created_at FROM logs WHERE substr(created_at,1,10)=? AND action LIKE ? ORDER BY created_at DESC LIMIT 50"), (today, '%黑名單登入攔截%'))
+        for r in rows_to_dict(cur):
+            anomalies['blocked_logins'].append({'type':'blocked_logins','message':f"黑名單登入異常：{r.get('username') or ''}"})
+        conn.close()
+    except Exception:
+        pass
+
+    return anomalies
+
+
+def _format_24h(ts):
+    """固定回傳 24 小時制 YYYY-MM-DD HH:MM:SS，避免前端或瀏覽器轉成 AM/PM。"""
+    raw = str(ts or '').strip()
+    if not raw:
+        return ''
+    try:
+        return datetime.fromisoformat(raw.replace('T', ' ')[:19]).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return raw[:19]
+
+
+def _today_unplaced_all_sources():
+    """FIX80：未錄入倉庫圖要統計 訂單 + 總單 + 庫存 的所有尚未加入數量。"""
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
+    except Exception as e:
+        log_error('today_unplaced_all_sources', str(e))
+        return []
+    out = []
+    for key, total_qty in source_totals.items():
+        size, customer = key
+        total_qty = int(total_qty or 0)
+        placed_qty = int(placed.get(key, 0) or 0)
+        unplaced_qty = max(0, total_qty - placed_qty)
+        if unplaced_qty <= 0:
+            continue
+        source_qty = {}
+        product_text = size
+        for detail in source_details.get(key, []):
+            src = detail.get('source') or '來源'
+            source_qty[src] = int(source_qty.get(src, 0) or 0) + int(detail.get('qty') or 0)
+            product_text = detail.get('product_text') or product_text
+        source_summary = '、'.join(f'{k}{v}' for k, v in source_qty.items())
+        label = f"尚未加入倉庫圖：{customer + '｜' if customer else ''}{product_text}｜未錄入 {unplaced_qty} 件"
+        if source_summary:
+            label += f"｜來源：{source_summary}"
+        out.append({
+            'type': 'unplaced',
+            'message': label,
+            'customer_name': customer,
+            'product_text': product_text,
+            'qty': unplaced_qty,
+            'unplaced_qty': unplaced_qty,
+            'total_qty': total_qty,
+            'placed_qty': placed_qty,
+            'source_qty': source_qty,
+            'source_summary': source_summary,
+        })
+    out.sort(key=lambda r: (r.get('customer_name') or '', product_sort_tuple(r.get('product_text') or '')))
+    return out
+
+
+def _today_changes_payload():
+    conn = get_db()
+    cur = conn.cursor()
+    today = _today_key()
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
+    logs = rows_to_dict(cur)
+    conn.close()
+
+    inbound = []
+    outbound = []
+    new_orders = []
+    for r in logs:
+        r['created_at'] = _format_24h(r.get('created_at'))
+        action = r.get('action') or ''
+        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
+        if action == '完成出貨' or action.startswith('完成出貨'):
+            outbound.append(r)
+        elif action == '建立訂單' or action.startswith('建立訂單'):
+            new_orders.append(r)
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
+            inbound.append(r)
+
+    unplaced = _today_unplaced_all_sources()
+    read_at = get_setting('today_changes_read_at', '') or ''
+    visible_logs = inbound + outbound + new_orders
+    unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
+    unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
+
+    return {
+        'summary': {
+            'inbound_count': len(inbound),
+            'outbound_count': len(outbound),
+            'new_order_count': len(new_orders),
+            'unplaced_count': unplaced_total_qty,
+            'unplaced_row_count': len(unplaced),
+            'anomaly_count': 0,
+            'unread_count': unread_count,
+        },
+        'feed': {
+            'inbound': inbound[:60],
+            'outbound': outbound[:60],
+            'new_orders': new_orders[:60],
+            'others': [],
+        },
+        'unplaced_items': unplaced[:200],
+        'anomalies': [],
+        'anomaly_groups': {'unplaced': unplaced},
+        'read_at': read_at,
+    }
+
+@app.route('/api/today-changes', methods=['GET'])
+@login_required_json
+def api_today_changes():
+    return jsonify(success=True, **_today_changes_payload())
+
+@app.route('/api/today-changes/read', methods=['POST'])
+@login_required_json
+def api_today_changes_mark_read():
+    try:
+        set_setting('today_changes_read_at', now())
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已讀已更新')
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('today_changes_mark_read', str(e))
+        return error_response('清除已讀失敗')
+
+@app.route('/api/today-changes/<int:log_id>', methods=['DELETE'])
+@login_required_json
+def api_today_change_delete(log_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql('DELETE FROM logs WHERE id = ?'), (log_id,))
+        conn.commit()
+        conn.close()
+        notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
+        return jsonify(success=True, **_today_changes_payload())
+    except Exception as e:
+        log_error('today_change_delete', str(e))
+        return error_response('刪除異動失敗')
+
+@app.route('/api/anomalies', methods=['GET'])
+@login_required_json
+def api_anomalies():
+    payload = _today_changes_payload()
+    return jsonify(success=True, groups=payload.get('anomaly_groups', {}), items=payload.get('anomalies', []), unplaced_items=payload.get('unplaced_items', []))
+
+
+@app.route('/api/sync/stream')
+@login_required_json
+def api_sync_stream():
+    def generate():
+        last_seen = ''
+        while True:
+            payload = get_setting(SYNC_SETTINGS_KEY, '') or ''
+            if payload and payload != last_seen:
+                last_seen = payload
+                yield f"data: {payload}\n\n"
+            else:
+                yield ': keepalive\n\n'
+            time.sleep(1.5)
+    return Response(stream_with_context(generate()), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+@app.route('/api/corrections', methods=['GET', 'POST', 'DELETE'])
+@login_required_json
+def api_corrections_manage():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=list_corrections_rows())
+        data = request.get_json(silent=True) or {}
+        wrong_text = (data.get('wrong_text') or '').strip()
+        if request.method == 'DELETE':
+            delete_correction(wrong_text)
+            notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞已刪除', extra={'wrong_text': wrong_text})
+            return jsonify(success=True, items=list_corrections_rows())
+        correct_text = (data.get('correct_text') or '').strip()
+        if not wrong_text or not correct_text:
+            return error_response('請輸入錯字與正確字')
+        save_correction(wrong_text, correct_text)
+        add_audit_trail(current_username(), 'upsert', 'corrections', wrong_text, before_json={}, after_json={'wrong_text': wrong_text, 'correct_text': correct_text})
+        notify_sync_event(kind='refresh', module='settings', message='OCR 修正詞已更新', extra={'wrong_text': wrong_text})
+        return jsonify(success=True, items=list_corrections_rows())
+    except Exception as e:
+        log_error('api_corrections_manage', str(e))
+        return error_response('修正詞管理失敗')
+
+@app.route('/api/customer-aliases', methods=['GET', 'POST', 'DELETE'])
+@login_required_json
+def api_customer_aliases_manage():
+    try:
+        if request.method == 'GET':
+            return jsonify(success=True, items=list_customer_aliases())
+        data = request.get_json(silent=True) or {}
+        alias = (data.get('alias') or '').strip()
+        if request.method == 'DELETE':
+            delete_customer_alias(alias)
+            notify_sync_event(kind='refresh', module='settings', message='客戶別名已刪除', extra={'alias': alias})
+            return jsonify(success=True, items=list_customer_aliases())
+        target_name = (data.get('target_name') or '').strip()
+        if not alias or not target_name:
+            return error_response('請輸入別名與正式客戶名稱')
+        save_customer_alias(alias, target_name)
+        add_audit_trail(current_username(), 'upsert', 'customer_aliases', alias, before_json={}, after_json={'alias': alias, 'target_name': target_name})
+        notify_sync_event(kind='refresh', module='settings', message='客戶別名已更新', extra={'alias': alias})
+        return jsonify(success=True, items=list_customer_aliases())
+    except Exception as e:
+        log_error('api_customer_aliases_manage', str(e))
+        return error_response('客戶別名管理失敗')
+
+@app.route('/api/recent-slots', methods=['GET'])
+@login_required_json
+def api_recent_slots():
+    customer_name = (request.args.get('customer_name') or '').strip()
+    return jsonify(success=True, items=get_recent_slots(current_username(), customer_name=customer_name, limit=8))
+
+
+# ==== FIX30：操作紀錄中文化 / 陳韋廷權限 / 批量刪除 ====
+def _is_admin_user():
+    return current_username() == '陳韋廷'
+
+def _parse_maybe_json(value):
+    if isinstance(value, (dict, list)):
+        return value
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+def _audit_action_label(action_type=''):
+    action_type = (action_type or '').strip()
+    return {
+        'create': '新增', 'update': '修改', 'delete': '刪除', 'move': '搬移',
+        'ship': '出貨', 'transfer': '互通移動', 'upsert': '儲存 / 更新',
+        'undo': '還原', 'restore': '還原', 'archive': '封存'
+    }.get(action_type, action_type or '操作')
+
+def _audit_entity_label(entity_type=''):
+    entity_type = (entity_type or '').strip()
+    return {
+        'inventory': '庫存 / 進貨', 'orders': '訂單', 'master_orders': '總單',
+        'shipping_records': '出貨', 'warehouse_cells': '倉庫圖',
+        'customer_profiles': '客戶資料', 'customer_aliases': '客戶別名',
+        'corrections': 'OCR修正詞', 'todo_items': '代辦事項', 'undo': '還原紀錄'
+    }.get(entity_type, entity_type or '資料')
+
+def _audit_field_label(key=''):
+    return {
+        'customer_name': '客戶', 'name': '客戶名稱', 'new_name': '新客戶名稱',
+        'product_text': '商品資料', 'product_code': '材質 / 代碼', 'qty': '數量',
+        'quantity': '數量', 'location': '倉庫位置', 'operator': '操作人',
+        'target': '目標', 'source': '來源', 'source_label': '來源', 'target_label': '目標',
+        'zone': '區域', 'column_index': '欄位', 'slot_number': '格號',
+        'from_key': '原格位', 'to_key': '新格位', 'note': '備註',
+        'items': '商品', 'breakdown': '出貨扣除明細', 'message': '訊息',
+        'region': '區域', 'phone': '電話', 'address': '地址', 'notes': '特殊要求',
+        'wrong_text': '錯誤字', 'correct_text': '正確字', 'alias': '別名', 'target_name': '正式客戶'
+    }.get(key, key)
+
+def _fmt_audit_value(value):
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                parts.append(_audit_dict_to_text(item).replace('\n', '，'))
+            else:
+                parts.append(str(item))
+        return '；'.join([p for p in parts if p]) or '無'
+    if isinstance(value, dict):
+        return _audit_dict_to_text(value).replace('\n', '，') or '無'
+    if value is None or value == '':
+        return '無'
+    return str(value)
+
+def _audit_dict_to_text(data):
+    data = _parse_maybe_json(data)
+    if not data:
+        return '無資料'
+    if isinstance(data, list):
+        return _fmt_audit_value(data)
+    if not isinstance(data, dict):
+        return str(data)
+    preferred = ['source', 'target', 'customer_name', 'name', 'product_text', 'qty', 'location', 'zone', 'column_index', 'slot_number', 'from_key', 'to_key', 'message', 'note']
+    lines = []
+    used = set()
+    for key in preferred:
+        if key in data:
+            lines.append(f"{_audit_field_label(key)}：{_fmt_audit_value(data.get(key))}")
+            used.add(key)
+    for key, value in data.items():
+        if key in used or key in ('id', 'created_at', 'updated_at', 'customer_uid'):
+            continue
+        lines.append(f"{_audit_field_label(key)}：{_fmt_audit_value(value)}")
+    return '\n'.join(lines) if lines else '無資料'
+
+def _audit_summary_text(item):
+    action = _audit_action_label(item.get('action_type'))
+    entity = _audit_entity_label(item.get('entity_type'))
+    after = _parse_maybe_json(item.get('after_json'))
+    before = _parse_maybe_json(item.get('before_json'))
+    data = after if isinstance(after, dict) and after else before if isinstance(before, dict) else {}
+    customer = (data.get('customer_name') or data.get('name') or '') if isinstance(data, dict) else ''
+    product = (data.get('product_text') or '') if isinstance(data, dict) else ''
+    qty = (data.get('qty') or data.get('quantity') or '') if isinstance(data, dict) else ''
+    target = (data.get('target') or '') if isinstance(data, dict) else ''
+    bits = [f"{action}{entity}"]
+    if target:
+        bits.append(f"目標：{target}")
+    if customer:
+        bits.append(f"客戶：{customer}")
+    if product:
+        bits.append(f"商品：{product}")
+    if qty != '':
+        bits.append(f"數量：{qty}")
+    if len(bits) == 1 and item.get('entity_key'):
+        bits.append(f"編號：{item.get('entity_key')}")
+    return '｜'.join(bits)
+
+def _decorate_audit_item(item):
+    before = _parse_maybe_json(item.get('before_json'))
+    after = _parse_maybe_json(item.get('after_json'))
+    out = dict(item)
+    out['action_label'] = _audit_action_label(item.get('action_type'))
+    out['entity_label'] = _audit_entity_label(item.get('entity_type'))
+    out['summary_text'] = _audit_summary_text(item)
+    out['before_text'] = _audit_dict_to_text(before)
+    out['after_text'] = _audit_dict_to_text(after)
+    return out
+
+def _delete_rows_by_ids(table, ids):
+    ids = [int(x) for x in (ids or []) if str(x).isdigit()]
+    if not ids:
+        return 0
+    conn = get_db(); cur = conn.cursor()
+    holders = ','.join(['?'] * len(ids))
+    cur.execute(sql(f'DELETE FROM {table} WHERE id IN ({holders})'), tuple(ids))
+    count = cur.rowcount if cur.rowcount is not None else len(ids)
+    conn.commit(); conn.close()
+    return count
+
+AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells'}
+AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert', 'undo'}
+
+@app.route('/api/audit-trails', methods=['GET'])
+@login_required_json
+def api_audit_trails():
+    """FIX113：差異紀錄只顯示當天：訂單 / 總單 / 庫存進貨 / 出貨 / 倉庫圖。
+    客戶資料、OCR 修正、登入、代辦、customer_items 等舊雜訊一律不顯示。"""
+    if not _is_admin_user():
+        return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
+    limit = int(request.args.get('limit') or 200)
+    username = (request.args.get('username') or '').strip()
+    entity_type = (request.args.get('entity_type') or '').strip()
+    keyword = (request.args.get('q') or '').strip().lower()
+    today = _today_key()
+    start_date = (request.args.get('start_date') or today).strip() or today
+    end_date = (request.args.get('end_date') or today).strip() or today
+    items = list_audit_trails(limit=max(limit * 6, 500))
+    filtered = []
+    for item in items:
+        raw_entity = (item.get('entity_type') or '').strip()
+        raw_action = (item.get('action_type') or '').strip()
+        if raw_entity not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
+            continue
+        if raw_action and raw_action not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
+            continue
+        item = _decorate_audit_item(item)
+        item['created_at'] = _format_24h(item.get('created_at'))
+        if username and username not in (item.get('username') or ''):
+            continue
+        if entity_type and entity_type not in (item.get('entity_type') or '') and entity_type not in (item.get('entity_label') or ''):
+            continue
+        created = (item.get('created_at') or '')[:10]
+        if start_date and created and created < start_date:
+            continue
+        if end_date and created and created > end_date:
+            continue
+        hay = json.dumps(item, ensure_ascii=False).lower()
+        if keyword and keyword not in hay:
+            continue
+        filtered.append(item)
+        if len(filtered) >= limit:
+            break
+    return jsonify(success=True, items=filtered, scope='today_orders_inventory_inbound_outbound_warehouse_fix113', start_date=start_date, end_date=end_date)
+
+@app.route('/api/audit-trails/bulk-delete', methods=['POST'])
+@login_required_json
+def api_audit_trails_bulk_delete():
+    if not _is_admin_user():
+        return error_response('只有陳韋廷可以批量刪除操作紀錄', 403)
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    count = _delete_rows_by_ids('audit_trails', ids)
+    notify_sync_event(kind='refresh', module='today_changes', message='操作紀錄已批量刪除', extra={'count': count})
+    return jsonify(success=True, deleted=count)
+
+@app.route('/api/today-changes/bulk-delete', methods=['POST'])
+@login_required_json
+def api_today_changes_bulk_delete():
+    if not _is_admin_user():
+        return error_response('只有陳韋廷可以批量刪除今日異動', 403)
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    count = _delete_rows_by_ids('logs', ids)
+    notify_sync_event(kind='refresh', module='today_changes', message='今日異動已批量刪除', extra={'count': count})
+    return jsonify(success=True, deleted=count, **_today_changes_payload())
+
+@app.route('/api/customer-specs', methods=['GET'])
+@login_required_json
+def api_customer_specs():
+    name = (request.args.get('name') or '').strip()
+    return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
+
+@app.route('/api/reports/export', methods=['GET'])
+@login_required_json
+def api_reports_export():
+    report_type = (request.args.get('type') or 'inventory').strip()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
+    q = (request.args.get('q') or '').strip()
+
+    if report_type == 'inventory':
+        rows = inventory_summary()
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('總數量', 'qty'), ('已放倉庫', 'placed_qty'), ('未放倉庫', 'unplaced_qty'), ('位置', 'location'), ('操作人員', 'operator'), ('更新時間', 'updated_at')]
+        name = '庫存總表.xlsx'
+    elif report_type == 'orders':
+        rows = get_orders()
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('狀態', 'status'), ('操作人員', 'operator'), ('建立時間', 'created_at'), ('更新時間', 'updated_at')]
+        name = '訂單總表.xlsx'
+    elif report_type == 'shipping':
+        rows = get_shipping_records(start_date or None, end_date or None, q)
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('出貨時間', 'shipped_at'), ('備註', 'note')]
+        name = '出貨紀錄.xlsx'
+    elif report_type == 'master_orders':
+        rows = get_master_orders()
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('操作人員', 'operator'), ('建立時間', 'created_at'), ('更新時間', 'updated_at')]
+        name = '客戶總單.xlsx'
+    elif report_type == 'unplaced':
+        rows = [r for r in inventory_summary() if int(r.get('unplaced_qty') or 0) > 0]
+        columns = [('客戶', 'customer_name'), ('商品', 'product_text'), ('未放倉庫數量', 'unplaced_qty'), ('總數量', 'qty'), ('位置', 'location'), ('更新時間', 'updated_at')]
+        name = '未入倉商品.xlsx'
+    elif report_type == 'warehouse':
+        rows = []
+        for cell in warehouse_get_cells():
+            try:
+                items = json.loads(cell.get('items_json') or '[]')
+            except Exception:
+                items = []
+            if not items:
+                rows.append({**cell, 'location': f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}", 'customer_name': '', 'product_text': '', 'qty': 0})
+            else:
+                for it in items:
+                    rows.append({**cell, 'location': f"{cell.get('zone')}-{cell.get('column_index')}-{str(cell.get('slot_number')).zfill(2)}", 'customer_name': it.get('customer_name') or '', 'product_text': it.get('product_text') or it.get('product') or '', 'qty': it.get('qty') or 0})
+        columns = [('格位', 'location'), ('區域', 'zone'), ('欄', 'column_index'), ('格號', 'slot_number'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('備註', 'note'), ('更新時間', 'updated_at')]
+        name = '倉庫位置表.xlsx'
+    elif report_type == 'audit_trails':
+        if current_username() != '陳韋廷':
+            return error_response('操作紀錄僅陳韋廷可以匯出', 403)
+        rows = []
+        today = _today_key()
+        for item in list_audit_trails(limit=5000):
+            if (item.get('entity_type') or '').strip() not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
+                continue
+            if (item.get('action_type') or '').strip() and (item.get('action_type') or '').strip() not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
+                continue
+            decorated = _decorate_audit_item(item)
+            decorated['created_at'] = _format_24h(decorated.get('created_at'))
+            created = (decorated.get('created_at') or '')[:10]
+            if start_date or end_date:
+                if start_date and created and created < start_date:
+                    continue
+                if end_date and created and created > end_date:
+                    continue
+            elif created != today:
+                continue
+            rows.append(decorated)
+        columns = [('時間', 'created_at'), ('操作者', 'username'), ('操作', 'action_label'), ('資料類型', 'entity_label'), ('資料鍵值', 'entity_key'), ('摘要', 'summary_text'), ('變更前', 'before_text'), ('變更後', 'after_text')]
+        name = '操作紀錄.xlsx'
+    elif report_type == 'customers':
+        rows = get_customers(active_only=False)
+        columns = [('客戶UID', 'customer_uid'), ('客戶名稱', 'name'), ('電話', 'phone'), ('地址', 'address'), ('區域', 'region'), ('特殊要求', 'notes'), ('封存', 'is_archived'), ('更新時間', 'updated_at')]
+        name = '客戶資料.xlsx'
+    else:
+        return error_response('報表類型不存在')
+
+    buf = export_rows_to_xlsx(report_type, rows, columns)
+    return send_file(buf, as_attachment=True, download_name=name, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+
+@app.route('/api/backups/download/<path:filename>', methods=['GET'])
+@login_required_json
+def api_backup_download(filename):
+    safe_name = os.path.basename(filename)
+    path = os.path.join('backups', safe_name)
+    if not os.path.isfile(path):
+        return error_response('找不到備份檔', 404)
+    return send_file(path, as_attachment=True, download_name=safe_name)
+
+@app.route('/api/backups/restore', methods=['POST'])
+@login_required_json
+def api_backup_restore():
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    data = request.get_json(silent=True) or {}
+    filename = os.path.basename((data.get('filename') or '').strip())
+    if not filename:
+        return error_response('請選擇備份檔')
+    path = os.path.join('backups', filename)
+    if not os.path.isfile(path):
+        return error_response('找不到備份檔', 404)
+    if filename.endswith('.json'):
+        payload = json.load(open(path, 'r', encoding='utf-8'))
+        conn = get_db(); cur = conn.cursor()
+        tables = ['users','inventory','orders','master_orders','shipping_records','corrections','image_hashes','logs','errors','warehouse_cells','customer_profiles','app_settings','customer_aliases','warehouse_recent_slots','audit_trails','todo_items']
+        try:
+            for table in tables:
+                if table not in payload:
+                    continue
+                cur.execute(sql(f'DELETE FROM {table}'))
+                rows = payload.get(table) or []
+                for row in rows:
+                    keys = list(row.keys())
+                    if not keys:
+                        continue
+                    cols = ','.join(keys)
+                    holders = ','.join(['?'] * len(keys))
+                    cur.execute(sql(f'INSERT INTO {table}({cols}) VALUES ({holders})'), tuple(row[k] for k in keys))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            log_error('backup_restore', str(e))
+            return error_response('還原失敗')
+        finally:
+            conn.close()
+        notify_sync_event(kind='refresh', module='all', message='已還原備份')
+        return jsonify(success=True)
+    return error_response('目前只支援 JSON 備份還原')
+
+
+@app.route('/api/undo-last', methods=['POST'])
+@login_required_json
+def api_undo_last():
+    try:
+        trails = list_audit_trails(limit=120)
+        target = None
+        for item in trails:
+            if (item.get('username') or '') != current_username():
+                continue
+            if item.get('entity_type') == 'undo':
+                continue
+            if item.get('action_type') not in ('create','ship','move'):
+                continue
+            target = item
+            break
+        if not target:
+            return error_response('目前沒有可還原的最近操作')
+        conn = get_db()
+        cur = conn.cursor()
+        action_type = target.get('action_type')
+        entity_type = target.get('entity_type')
+        after_json = target.get('after_json') or {}
+        entity_key = target.get('entity_key') or ''
+        summary = ''
+        if action_type == 'create' and entity_type == 'inventory':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id, qty FROM inventory WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM inventory WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立庫存'
+        elif action_type == 'create' and entity_type == 'orders':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id FROM orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM orders WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立訂單'
+        elif action_type == 'create' and entity_type == 'master_orders':
+            for it in after_json.get('items') or []:
+                cur.execute(sql('SELECT id FROM master_orders WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (it.get('product_text') or '').strip()))
+                row = fetchone_dict(cur)
+                if row:
+                    cur.execute(sql('DELETE FROM master_orders WHERE id = ?'), (row.get('id'),))
+            summary = '已還原最近一次建立總單'
+        elif action_type == 'ship':
+            for item in after_json.get('breakdown') or []:
+                for d in item.get('master_details') or []:
+                    cur.execute(sql('UPDATE master_orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                for d in item.get('order_details') or []:
+                    cur.execute(sql('UPDATE orders SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                for d in item.get('inventory_details') or []:
+                    cur.execute(sql('UPDATE inventory SET qty = qty + ?, updated_at = ? WHERE id = ?'), (int(d.get('qty') or 0), now(), int(d.get('id'))))
+                cur.execute(sql('SELECT id FROM shipping_records WHERE customer_name = ? AND product_text = ? ORDER BY id DESC'), ((after_json.get('customer_name') or '').strip(), (item.get('product_text') or '').strip()))
+                ship_row = fetchone_dict(cur)
+                if ship_row:
+                    cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (int(ship_row.get('id')),))
+            summary = '已還原最近一次出貨'
+        elif action_type == 'move' and entity_type == 'warehouse_cells':
+            before_key = tuple((target.get('before_json') or {}).get('from_key') or [])
+            to_key = tuple((target.get('after_json') or {}).get('to_key') or [])
+            product_text = (target.get('after_json') or {}).get('product_text') or entity_key
+            qty = int((target.get('after_json') or {}).get('qty') or 1)
+            customer_name = (target.get('after_json') or {}).get('customer_name') or ''
+            result = warehouse_move_item(to_key, before_key, product_text, qty, customer_name=customer_name)
+            if not result.get('success'):
+                conn.close()
+                return error_response(result.get('error') or '還原倉庫移動失敗')
+            summary = '已還原最近一次倉庫搬移'
+        else:
+            conn.close()
+            return error_response('這筆操作暫不支援還原')
+        conn.commit()
+        conn.close()
+        add_audit_trail(current_username(), 'undo', 'undo', entity_type, before_json=target, after_json={'message': summary})
+        notify_sync_event(kind='refresh', module='all', message=summary)
+        log_action(current_username(), summary)
+        return jsonify(success=True, message=summary)
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        log_error('undo_last', str(e))
+        return error_response('還原上一筆失敗')
+
+
+@app.route('/api/session/config', methods=['GET'])
+@login_required_json
+def api_session_config():
+    return jsonify(success=True, idle_timeout_seconds=1800, startup_checks=STARTUP_CHECKS)
+
+@app.route("/health")
+@app.route("/api/health")
+def health():
+    return jsonify(success=True, status="ok", service="yuanxing", mode="native_device_only")
+
+@app.route("/api/native-shell/config", methods=["GET"])
+def api_native_shell_config():
+    return jsonify(success=True, backend_url=request.host_url.rstrip("/"), allowed_origins=["capacitor://localhost", "http://localhost", "https://localhost", "ionic://localhost", "app://localhost", "null"], app_name="沅興木業")
+
+
+# ==== FIX28：庫存 / 訂單 / 總單 / 出貨互通 API ====
+def _fix28_table_for_source(source):
+    s = (source or '').strip()
+    mapping = {
+        'inventory': ('inventory', '庫存'), '庫存': ('inventory', '庫存'),
+        'orders': ('orders', '訂單'), 'order': ('orders', '訂單'), '訂單': ('orders', '訂單'),
+        'master_order': ('master_orders', '總單'), 'master_orders': ('master_orders', '總單'), '總單': ('master_orders', '總單'),
+    }
+    return mapping.get(s)
+
+def _fix28_get_row(table, item_id):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (int(item_id),))
+    row = fetchone_dict(cur)
+    conn.close()
+    return row
+
+def _fix28_update_or_delete_source(table, item_id, move_qty):
+    row = _fix28_get_row(table, item_id)
+    if not row:
+        return False, '找不到來源資料'
+    current_qty = int(row.get('qty') or 0)
+    move_qty = max(1, min(int(move_qty or current_qty), current_qty))
+    conn = get_db(); cur = conn.cursor()
+    if move_qty >= current_qty:
+        cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (int(item_id),))
+    else:
+        cur.execute(sql(f"UPDATE {table} SET qty = qty - ?, updated_at = ? WHERE id = ?"), (move_qty, now(), int(item_id)))
+    conn.commit(); conn.close()
+    return True, move_qty
+
+def _fix28_update_item_api(table, item_id):
+    try:
+        row = _fix28_get_row(table, item_id)
+        if not row:
+            return error_response('找不到資料', 404)
+        if request.method == 'GET':
+            return jsonify(success=True, item=row)
+        if request.method == 'DELETE':
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (int(item_id),))
+            conn.commit(); conn.close()
+            add_audit_trail(current_username(), 'delete', table, str(item_id), before_json=row, after_json={})
+            log_action(current_username(), f"刪除{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
+            notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已刪除', extra={'id': item_id})
+            return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
+        data = request.get_json(silent=True) or {}
+        product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
+        material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
+        product_code = clean_material_value(data.get('product_code') or material or '', product_text)
+        customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
+        qty = int(data.get('qty') if data.get('qty') is not None else row.get('qty') or 0)
+        if not product_text or not customer_name:
+            return error_response('請輸入客戶與商品資料')
+        if qty < 0:
+            qty = 0
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
+        conn.commit(); conn.close()
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty})
+        log_action(current_username(), f"修改{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
+        notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已更新', extra={'id': item_id})
+        return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
+    except Exception as e:
+        log_error('fix28_update_item_api', str(e))
+        return error_response('商品操作失敗')
+
+@app.route('/api/orders/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required_json
+def api_fix28_order_item(item_id):
+    return _fix28_update_item_api('orders', item_id)
+
+@app.route('/api/master_orders/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required_json
+def api_fix28_master_item(item_id):
+    return _fix28_update_item_api('master_orders', item_id)
+
+@app.route('/api/items/transfer', methods=['POST'])
+@login_required_json
+def api_fix28_items_transfer():
+    try:
+        data = request.get_json(silent=True) or {}
+        source_info = _fix28_table_for_source(data.get('source'))
+        if not source_info:
+            return error_response('來源類型錯誤')
+        source_table, source_label = source_info
+        item_id = int(data.get('id') or 0)
+        row = _fix28_get_row(source_table, item_id)
+        if not row:
+            return error_response('找不到來源商品', 404)
+        current_qty = int(row.get('qty') or 0)
+        qty = int(data.get('qty') or current_qty or 0)
+        if qty <= 0:
+            return error_response('數量必須大於 0')
+        qty = min(qty, current_qty)
+        target = (data.get('target') or '').strip()
+        product_text = format_product_text_height2((row.get('product_text') or '').strip())
+        material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+        product_code = clean_material_value(row.get('product_code') or material or '', product_text)
+        customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
+        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+        target_label = ''
+        result_payload = {}
+        if target == 'inventory':
+            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}', material)
+            target_label = '庫存'
+            ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
+            if not ok: return error_response(moved)
+            result_payload['items'] = grouped_inventory()
+        elif target == 'orders':
+            if not customer_name: return error_response('請選擇客戶')
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '訂單'
+            ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
+            if not ok: return error_response(moved)
+            result_payload['items'] = get_orders()
+        elif target in ('master_order', 'master_orders'):
+            if not customer_name: return error_response('請選擇客戶')
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            save_master_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+            target_label = '總單'
+            ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
+            if not ok: return error_response(moved)
+            result_payload['items'] = get_master_orders()
+        elif target == 'ship':
+            if not customer_name: return error_response('請選擇客戶')
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            ship_result = ship_order(customer_name, [item], current_username(), allow_inventory_fallback=bool(data.get('allow_inventory_fallback')))
+            if not ship_result.get('success'):
+                return jsonify(ship_result), 400
+            target_label = '出貨'
+            result_payload.update(ship_result)
+        else:
+            return error_response('目標類型錯誤')
+        add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, **row}, after_json={'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        log_action(current_username(), f"{source_label}移到{target_label}：{customer_name} {product_text}x{qty}")
+        notify_sync_event(kind='refresh', module='all', message=f'{source_label}已移到{target_label}', extra={'source': source_label, 'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        return jsonify(success=True, message=f'已從{source_label}移到{target_label}', customer_name=customer_name, target=target_label, **result_payload)
+    except Exception as e:
+        log_error('fix28_items_transfer', str(e))
+        return error_response('互通操作失敗')
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
