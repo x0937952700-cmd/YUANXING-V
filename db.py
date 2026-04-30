@@ -2,7 +2,7 @@ import json
 import os
 import sqlite3
 import uuid
-import time
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -40,8 +40,11 @@ else:
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
 PG_POOL = None
 PG_POOL_MIN = int(os.environ.get('YX_PG_POOL_MIN', '1'))
-PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '12'))
-PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '3500'))
+PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '16'))
+PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '5000'))
+PG_POOL_WAIT_SECONDS = float(os.environ.get('YX_PG_POOL_WAIT_SECONDS', '8'))
+PG_POOL_SEM = None
+PG_POOL_LOCK = threading.RLock()
 # 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
 # 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
 ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '0') == '1'
@@ -71,22 +74,30 @@ def _postgres_url():
 
 
 class _PooledPgConn:
-    def __init__(self, pool, conn):
+    def __init__(self, pool, conn, sem=None):
         self._pool = pool
         self._conn = conn
+        self._sem = sem
+        self._closed = False
     def cursor(self, *args, **kwargs):
         cur = self._conn.cursor(*args, **kwargs)
         try:
             if PG_STATEMENT_TIMEOUT_MS > 0:
                 cur.execute('SET statement_timeout = %s', (PG_STATEMENT_TIMEOUT_MS,))
         except Exception:
-            pass
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
         return cur
     def commit(self):
         return self._conn.commit()
     def rollback(self):
         return self._conn.rollback()
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         try:
             try:
                 self._conn.rollback()
@@ -98,35 +109,73 @@ class _PooledPgConn:
                 self._conn.close()
             except Exception:
                 pass
+        finally:
+            if self._sem is not None:
+                try:
+                    self._sem.release()
+                except Exception:
+                    pass
+
+
+def _reset_pg_pool():
+    global PG_POOL, PG_POOL_SEM
+    with PG_POOL_LOCK:
+        old = PG_POOL
+        PG_POOL = None
+        PG_POOL_SEM = None
+        if old is not None:
+            try:
+                old.closeall()
+            except Exception:
+                pass
 
 
 def _get_pg_conn_from_pool():
-    global PG_POOL
+    global PG_POOL, PG_POOL_SEM
     if os.environ.get('YX_DISABLE_PG_POOL', '0') == '1':
         conn = psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
         conn.autocommit = True
         return conn
-    if PG_POOL is None:
-        PG_POOL = psycopg2.pool.ThreadedConnectionPool(
-            PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
-            cursor_factory=psycopg2.extras.RealDictCursor,
-        )
-    # 不再在 pool exhausted 時另外開新連線；那會把 Render PostgreSQL 打爆，最後 502。
-    # 改成短暫等待可用連線，仍失敗才拋錯，讓前端節流後重試。
-    last_exc = None
-    wait_until = time.time() + float(os.environ.get('YX_PG_POOL_WAIT_SECONDS', '4'))
-    while True:
+    with PG_POOL_LOCK:
+        if PG_POOL is None:
+            PG_POOL = psycopg2.pool.ThreadedConnectionPool(
+                PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
+                cursor_factory=psycopg2.extras.RealDictCursor,
+            )
+            PG_POOL_SEM = threading.BoundedSemaphore(PG_POOL_MAX)
+    sem = PG_POOL_SEM
+    acquired = sem.acquire(timeout=PG_POOL_WAIT_SECONDS) if sem is not None else True
+    if not acquired:
+        raise RuntimeError(f'PostgreSQL 連線忙碌，等待 {PG_POOL_WAIT_SECONDS:g} 秒仍無可用連線，請稍後再試')
+    try:
+        conn = PG_POOL.getconn()
+        conn.autocommit = True
         try:
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1')
+        except Exception:
+            try:
+                PG_POOL.putconn(conn, close=True)
+            except Exception:
+                pass
+            _reset_pg_pool()
+            with PG_POOL_LOCK:
+                if PG_POOL is None:
+                    PG_POOL = psycopg2.pool.ThreadedConnectionPool(
+                        PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
+                        cursor_factory=psycopg2.extras.RealDictCursor,
+                    )
+                    PG_POOL_SEM = sem = threading.BoundedSemaphore(PG_POOL_MAX)
             conn = PG_POOL.getconn()
             conn.autocommit = True
-            return _PooledPgConn(PG_POOL, conn)
-        except Exception as exc:
-            last_exc = exc
-            text = str(exc).lower()
-            if ("exhausted" in text or "connection pool" in text) and time.time() < wait_until:
-                time.sleep(0.08)
-                continue
-            raise last_exc
+        return _PooledPgConn(PG_POOL, conn, sem)
+    except Exception:
+        try:
+            if sem is not None:
+                sem.release()
+        except Exception:
+            pass
+        raise
 
 def get_conn():
     global USE_POSTGRES

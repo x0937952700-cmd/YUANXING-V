@@ -39,6 +39,7 @@ STARTUP_DB_ERROR = None
 DB_INITIALIZED = False
 LAST_DB_INIT_ATTEMPT = 0.0
 DB_INIT_RETRY_SECONDS = int(os.environ.get('YX_DB_INIT_RETRY_SECONDS', '15'))
+DB_INIT_LOCK = threading.RLock()
 # Ensure local folders exist before backup/upload endpoints use them.
 (Path(app.root_path) / 'uploads').mkdir(parents=True, exist_ok=True)
 (Path(app.root_path) / 'backups').mkdir(parents=True, exist_ok=True)
@@ -63,24 +64,26 @@ def ensure_db_ready(force=False):
     global STARTUP_DB_ERROR, DB_INITIALIZED, LAST_DB_INIT_ATTEMPT
     if DB_INITIALIZED and not force:
         return
-    import time
-    now = time.time()
-    if STARTUP_DB_ERROR and not force and (now - LAST_DB_INIT_ATTEMPT) < DB_INIT_RETRY_SECONDS:
-        raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
-    LAST_DB_INIT_ATTEMPT = now
-    try:
-        init_db()
-        if force:
-            try:
-                sync_customers_from_item_tables()
-            except Exception:
-                pass
-        STARTUP_DB_ERROR = None
-        DB_INITIALIZED = True
-    except Exception as exc:
-        STARTUP_DB_ERROR = str(exc)
-        DB_INITIALIZED = False
-        raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
+    with DB_INIT_LOCK:
+        if DB_INITIALIZED and not force:
+            return
+        now = time.time()
+        if STARTUP_DB_ERROR and not force and (now - LAST_DB_INIT_ATTEMPT) < DB_INIT_RETRY_SECONDS:
+            raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
+        LAST_DB_INIT_ATTEMPT = now
+        try:
+            init_db()
+            if force:
+                try:
+                    sync_customers_from_item_tables()
+                except Exception:
+                    pass
+            STARTUP_DB_ERROR = None
+            DB_INITIALIZED = True
+        except Exception as exc:
+            STARTUP_DB_ERROR = str(exc)
+            DB_INITIALIZED = False
+            raise RuntimeError(f'資料庫初始化失敗：{STARTUP_DB_ERROR}')
 
 
 @app.before_request

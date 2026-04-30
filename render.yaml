@@ -31,8 +31,8 @@ services:
       - key: YX_PG_POOL_MAX
         value: "12"
       - key: YX_PG_POOL_WAIT_SECONDS
-        value: "4"
+        value: "8"
       - key: YX_PG_STATEMENT_TIMEOUT_MS
-        value: "3500"
+        value: "8000"
       - key: DATABASE_URL
         value: postgresql://warehouse_ocr_d_user:5xOpnPjCU02QZdlMnICbRQOOKSRTyR3o@dpg-d7h1lumgvqtc73es1mjg-a.oregon-postgres.render.com/warehouse_ocr_d
