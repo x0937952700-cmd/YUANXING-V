@@ -219,6 +219,15 @@ def execute(sql, params=()):
         raw_sql = sql.strip()
         upper = raw_sql.upper()
     with db_cursor(commit=True) as cur:
+        if USE_POSTGRES and upper.startswith('INSERT INTO WAREHOUSE_CELLS') and 'BAND' not in upper:
+            try:
+                p = tuple(_params(params))
+                if len(p) >= 7:
+                    sql, params = _warehouse_insert_sql_params(cur, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
+                    raw_sql = sql.strip()
+                    upper = raw_sql.upper()
+            except Exception:
+                pass
         cur.execute(_sql(sql), _params(params))
         if USE_POSTGRES:
             try:
@@ -445,15 +454,14 @@ def _init_db_inner():
             cur.execute(_sql(stmt))
         _ensure_migrations_with_cursor(cur)
         # Seed empty warehouse cells: A/B, 6 columns, 10 slots each.
-        # 不使用 PostgreSQL ON CONFLICT，避免舊資料表沒有 unique index 時啟動失敗。
+        # Compatible with old PostgreSQL schemas that still have band/row_name/slot.
+        _repair_legacy_warehouse_columns(cur)
         for zone in ('A', 'B'):
             for col in range(1, 7):
                 for slot in range(1, 11):
-                    cur.execute(_sql('SELECT id FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?'), (zone, col, slot))
-                    exists = cur.fetchone()
-                    if not exists:
-                        cur.execute(_sql('''INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at)
-                                            VALUES(?,?,?,?,?,?,?)'''), (zone, col, 'direct', slot, '[]', '', now_iso()))
+                    if not _warehouse_exists(cur, zone, col, slot):
+                        sql_ins, params_ins = _warehouse_insert_sql_params(cur, zone, col, 'direct', slot, '[]', '', now_iso())
+                        cur.execute(_sql(sql_ins), params_ins)
         _repair_product_qty_with_cursor(cur)
 
 
@@ -491,6 +499,42 @@ def _add_column_if_missing(cur, table: str, column: str, definition: str):
     if not _column_exists(cur, table, column):
         cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
 
+
+
+
+def _warehouse_insert_sql_params(cur, zone, column_index, slot_type, slot_number, items_json, note, updated_at):
+    cols = ['zone', 'column_index', 'slot_type', 'slot_number', 'items_json', 'note', 'updated_at']
+    vals = [zone, column_index, slot_type or 'direct', slot_number, items_json or '[]', note or '', updated_at or now_iso()]
+    if _column_exists(cur, 'warehouse_cells', 'band'):
+        cols.append('band'); vals.append(column_index)
+    if _column_exists(cur, 'warehouse_cells', 'row_name'):
+        cols.append('row_name'); vals.append('direct')
+    if _column_exists(cur, 'warehouse_cells', 'slot'):
+        cols.append('slot'); vals.append(slot_number)
+    placeholders = ','.join(['?'] * len(cols))
+    return f"INSERT INTO warehouse_cells({','.join(cols)}) VALUES({placeholders})", tuple(vals)
+
+
+def _warehouse_exists(cur, zone, column_index, slot_number):
+    clauses = ['(zone=? AND column_index=? AND slot_number=?)']
+    params = [zone, column_index, slot_number]
+    if _column_exists(cur, 'warehouse_cells', 'band') and _column_exists(cur, 'warehouse_cells', 'row_name') and _column_exists(cur, 'warehouse_cells', 'slot'):
+        clauses.append('(zone=? AND band=? AND row_name=? AND slot=?)')
+        params.extend([zone, column_index, 'direct', slot_number])
+    cur.execute(_sql('SELECT id FROM warehouse_cells WHERE ' + ' OR '.join(clauses) + ' LIMIT 1'), tuple(params))
+    return cur.fetchone() is not None
+
+
+def _repair_legacy_warehouse_columns(cur):
+    try:
+        if _column_exists(cur, 'warehouse_cells', 'band'):
+            cur.execute(_sql('UPDATE warehouse_cells SET band=column_index WHERE band IS NULL OR band=0'))
+        if _column_exists(cur, 'warehouse_cells', 'row_name'):
+            cur.execute(_sql("UPDATE warehouse_cells SET row_name=? WHERE row_name IS NULL OR row_name=''"), ('direct',))
+        if _column_exists(cur, 'warehouse_cells', 'slot'):
+            cur.execute(_sql('UPDATE warehouse_cells SET slot=slot_number WHERE slot IS NULL OR slot=0'))
+    except Exception:
+        pass
 
 
 def _table_exists(cur, table: str) -> bool:
@@ -776,6 +820,7 @@ def _ensure_migrations_with_cursor(cur):
         if USE_POSTGRES:
             cur.execute("ALTER TABLE warehouse_cells ALTER COLUMN slot_type SET DEFAULT 'direct'")
         cur.execute(_sql("UPDATE warehouse_cells SET slot_type=? WHERE slot_type IS NULL OR slot_type=''"), ('direct',))
+        _repair_legacy_warehouse_columns(cur)
     except Exception:
         pass
     today_cols = {
