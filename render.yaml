@@ -1,18 +1,16 @@
 services:
   - type: web
-    name: yuanxing
+    name: yuanxing-final-stable
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --access-logfile - --error-logfile -
-    healthCheckPath: /health
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn -w 1 --threads 8 app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.10
-      - key: WEB_CONCURRENCY
-        value: 1
-      - key: GUNICORN_TIMEOUT
-        value: 120
-      - key: YX_AUTO_DAILY_BACKUP
-        value: 0
-      - key: YX_DISABLE_BACKGROUND_INIT
-        value: 1
+        value: 3.11.11
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: SOCKETIO_ASYNC_MODE
+        value: threading

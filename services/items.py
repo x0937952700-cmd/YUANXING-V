@@ -1,0 +1,124 @@
+from db import execute, fetch_all, fetch_one, now_iso
+from services.products import normalize_product_text, total_qty_from_text, deduct_qty_from_product_text
+
+TABLES = {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master_orders'}
+
+
+def normalize_table(source: str) -> str:
+    table = TABLES.get(source)
+    if not table:
+        raise ValueError('未知資料來源')
+    return table
+
+
+def create_item(table: str, customer_uid='', customer_name='', product_text='', material='', zone='', operator='', note='') -> int:
+    table = normalize_table(table)
+    normalized = normalize_product_text(product_text)
+    if not normalized:
+        raise ValueError('商品資料不可空白')
+    qty = total_qty_from_text(normalized) or 1
+    t = now_iso()
+    return execute(f'''INSERT INTO {table}(customer_uid,customer_name,product_text,material,qty,zone,operator,note,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)''', (
+        customer_uid or '', customer_name or '', normalized, material or '', qty, zone or '', operator or '', note or '', t, t
+    ))
+
+
+def list_items(table: str, customer_uid='', customer_name='', zone='', search='') -> list[dict]:
+    table = normalize_table(table)
+    where = []
+    params = []
+    if customer_uid:
+        where.append('customer_uid=?')
+        params.append(customer_uid)
+    if customer_name:
+        where.append('customer_name=?')
+        params.append(customer_name)
+    if zone in ('A', 'B'):
+        where.append('zone=?')
+        params.append(zone)
+    if search:
+        where.append('(product_text LIKE ? OR material LIKE ? OR customer_name LIKE ? OR zone LIKE ?)')
+        like = f'%{search}%'
+        params += [like, like, like, like]
+    sql = f'SELECT * FROM {table}' + ((' WHERE ' + ' AND '.join(where)) if where else '') + ' ORDER BY updated_at DESC, id DESC'
+    return fetch_all(sql, params)
+
+
+def get_item(table: str, item_id: int) -> dict | None:
+    table = normalize_table(table)
+    return fetch_one(f'SELECT * FROM {table} WHERE id=?', (item_id,))
+
+
+def update_item(table: str, item_id: int, **fields) -> dict | None:
+    table = normalize_table(table)
+    allowed = {'customer_uid','customer_name','product_text','material','qty','zone','location','operator','note'}
+    data = {k:v for k,v in fields.items() if k in allowed}
+    if 'product_text' in data:
+        data['product_text'] = normalize_product_text(data['product_text'])
+        data['qty'] = total_qty_from_text(data['product_text']) or int(data.get('qty') or 1)
+    data['updated_at'] = now_iso()
+    if not data:
+        return get_item(table, item_id)
+    sets = ','.join([f'{k}=?' for k in data])
+    params = list(data.values()) + [item_id]
+    execute(f'UPDATE {table} SET {sets} WHERE id=?', params)
+    return get_item(table, item_id)
+
+
+def delete_item(table: str, item_id: int):
+    table = normalize_table(table)
+    execute(f'DELETE FROM {table} WHERE id=?', (item_id,))
+
+
+def deduct_item(table: str, item_id: int, qty: int) -> tuple[dict, int, int]:
+    row = get_item(table, item_id)
+    if not row:
+        raise ValueError('找不到商品')
+    qty = int(qty or 0)
+    if qty <= 0:
+        raise ValueError('出貨數量必須大於 0')
+    split = deduct_qty_from_product_text(row.get('product_text') or '', qty)
+    before = int(row.get('qty') or split['before_qty'] or 0)
+    if before < qty:
+        raise ValueError(f'數量不足：目前 {before} 件，要扣 {qty} 件')
+    after = before - qty
+    # Preserve the exact item row before mutation for shipping_records and audit.
+    original = dict(row)
+    original['deducted_product_text'] = split.get('deducted_text') or row.get('product_text')
+    if after == 0 or not split.get('remaining_text'):
+        delete_item(table, item_id)
+        after = 0
+    else:
+        execute(f'UPDATE {table} SET qty=?, product_text=?, updated_at=? WHERE id=?', (after, split['remaining_text'], now_iso(), item_id))
+    return original, before, after
+
+
+def find_duplicate_items(table: str, customer_uid: str = '', customer_name: str = '', product_text: str = '', material: str = '') -> list[dict]:
+    table = normalize_table(table)
+    normalized = normalize_product_text(product_text)
+    where = ['product_text=?']
+    params = [normalized]
+    if material:
+        where.append('material=?')
+        params.append(material)
+    if customer_uid:
+        where.append('customer_uid=?')
+        params.append(customer_uid)
+    elif customer_name:
+        where.append('customer_name=?')
+        params.append(customer_name)
+    clause = ' AND '.join(where)
+    return fetch_all(f'SELECT * FROM {table} WHERE {clause} ORDER BY updated_at DESC, id DESC', params)
+
+
+def merge_item_qty(table: str, item_id: int, add_product_text: str, add_qty: int | None = None, operator: str = '') -> dict:
+    table = normalize_table(table)
+    row = get_item(table, item_id)
+    if not row:
+        raise ValueError('找不到要合併的商品')
+    normalized = normalize_product_text(add_product_text or row.get('product_text') or '')
+    qty = int(add_qty if add_qty is not None else (total_qty_from_text(normalized) or 1))
+    new_qty = int(row.get('qty') or 0) + qty
+    execute(f'UPDATE {table} SET qty=?, operator=?, updated_at=? WHERE id=?', (new_qty, operator or row.get('operator') or '', now_iso(), item_id))
+    return get_item(table, item_id)
