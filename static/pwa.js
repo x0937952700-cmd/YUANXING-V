@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'fix138-final-master-warehouse-ship-hardlock';
+  const PWA_VERSION = 'fix131-table-only-master-hardlock';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -26,11 +26,6 @@
         if(!last || now - last > 6 * 60 * 60 * 1000){
           localStorage.setItem(key, String(now));
           reg.update().catch(()=>{});
-        }
-        const clearKey = `YX_CLEAR_CACHE_DONE_${PWA_VERSION}`;
-        if(!localStorage.getItem(clearKey)){
-          try { (reg.active || reg.waiting || reg.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); } catch(_){}
-          localStorage.setItem(clearKey, '1');
         }
         if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
         reg.addEventListener('updatefound',()=>{

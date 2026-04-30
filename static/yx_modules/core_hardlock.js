@@ -2,7 +2,7 @@
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix138-final-master-warehouse-ship-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'fix131-table-only-master-hardlock') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -46,17 +46,7 @@
     return data;
   }
   function hardAssign(name, value, opts={}){
-    // FIX135：硬鎖要可重複安裝。若同名屬性已是 non-configurable，
-    // 直接尊重既有母版，不再 fallback 指派，避免 readonly / __yx113HardLock 紅色錯誤。
     try {
-      const desc = Object.getOwnPropertyDescriptor(window, name);
-      if (desc && desc.configurable === false) {
-        try {
-          const current = ('value' in desc) ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined);
-          if (current && current.__yx113HardLock) return current;
-        } catch(_e0) {}
-        return ('value' in desc) ? desc.value : value;
-      }
       Object.defineProperty(window, name, {
         configurable: opts.configurable !== false,
         enumerable: false,
@@ -66,9 +56,8 @@
         }
       });
     } catch(_e) {
-      // 不做 window[name] = value；舊版唯讀 getter/setter 會在這裡噴錯。
+      try { window[name] = value; } catch(_e2) {}
     }
-    return value;
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
@@ -107,7 +96,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix138-final-master-warehouse-ship-hardlock',
+    version: 'fix131-table-only-master-hardlock',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };

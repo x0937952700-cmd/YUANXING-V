@@ -9,7 +9,7 @@
   function renderAudit(rows){
     const box = $('audit-trails-list'); if (!box) return;
     box.classList.add('yx113-audit-list');
-    box.innerHTML = rows.length ? rows.map(r => { const id = Number(r.id || 0); const undo = id ? `<button type="button" class="ghost-btn tiny-btn yx137-audit-undo" data-yx137-undo-audit="${id}">還原</button>` : ''; return `<div class="deduct-card yx113-audit-card" data-audit-id="${id}"><div class="yx113-audit-head"><strong>${YX.esc(r.entity_label || r.entity_type || '資料')}</strong><span>${YX.esc(r.action_label || r.action_type || '操作')}</span>${undo}</div><div class="yx113-audit-main">${YX.esc(r.summary_text || r.entity_key || '')}</div><div class="small-note">${YX.esc(r.created_at || '')}｜${YX.esc(r.username || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">今天還沒有訂單、庫存/進貨、出貨或倉庫圖異動。</div>';
+    box.innerHTML = rows.length ? rows.map(r => `<div class="deduct-card yx113-audit-card"><div class="yx113-audit-head"><strong>${YX.esc(r.entity_label || r.entity_type || '資料')}</strong><span>${YX.esc(r.action_label || r.action_type || '操作')}</span></div><div class="yx113-audit-main">${YX.esc(r.summary_text || r.entity_key || '')}</div><div class="small-note">${YX.esc(r.created_at || '')}｜${YX.esc(r.username || '')}</div></div>`).join('') : '<div class="empty-state-card compact-empty">今天還沒有訂單、庫存/進貨、出貨或倉庫圖異動。</div>';
   }
   async function loadAuditTrails(){
     const box = $('audit-trails-list'); if (!box) return;
@@ -51,15 +51,6 @@
   function bind(){
     if (window.__YX113_SETTINGS_EVENTS__) return; window.__YX113_SETTINGS_EVENTS__ = true;
     document.addEventListener('click', async ev => {
-      const undo = ev.target?.closest?.('[data-yx137-undo-audit]');
-      if (undo) {
-        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-        const audit_id = Number(undo.dataset.yx137UndoAudit || 0);
-        if (!audit_id || !confirm('確定還原這一筆操作？')) return;
-        try { await YX.api('/api/undo-last', {method:'POST', body:JSON.stringify({audit_id})}); YX.toast('已還原這一筆操作', 'ok'); await loadAuditTrails(); }
-        catch(e) { YX.toast(e.message || '還原失敗', 'error'); }
-        return;
-      }
       const block = ev.target?.closest?.('[data-yx113-block-user]');
       if (!block) return;
       ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();

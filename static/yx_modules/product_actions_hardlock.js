@@ -1,11 +1,11 @@
-/* FIX135 商品母版最終硬鎖：直列表格全顯示、操作上移、AB區、移除小卡、不讓舊版覆蓋 */
+/* FIX131 商品母版硬鎖：清單直列全顯示、移除小卡、操作移到表格、修復唯讀硬鎖衝突 */
 (function(){
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
 
   const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, loading:null, bound:false, observer:null, repairTimer:null };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -68,8 +68,7 @@
     const product_text = productTextFromParts(parts.size, support);
     const material = YX.clean(parts.material || '').toUpperCase();
     const customer_name = YX.clean(parts.customer_name ?? customerOf(row));
-    const zone = YX.clean(parts.zone || row?.location || row?.zone || '');
-    return {product_text, material, product_code:material, qty:qtyFromText(product_text, parts.qty || 1) || 1, customer_name, location:zone};
+    return {product_text, material, product_code:material, qty:qtyFromText(product_text, parts.qty || 1) || 1, customer_name};
   }
   function materialOptions(value){
     value = YX.clean(value || '');
@@ -85,20 +84,6 @@
     return raw;
   }
   function customerOf(r){ return YX.clean(r?.customer_name || selectedCustomer() || ''); }
-  function customerTagFor(source, rows){
-    const cust = selectedCustomer();
-    if (cust) return cust;
-    if (source === 'inventory') return '庫存';
-    const names = Array.from(new Set((rows || []).map(r => customerOf(r)).filter(Boolean)));
-    return names.length === 1 ? names[0] : '';
-  }
-  function zoneOf(r){
-    const raw = YX.clean(r?.zone || r?.warehouse_zone || r?.location || '');
-    if (/^B(?:區)?$/i.test(raw) || /^B[-_]/i.test(raw) || raw.includes('B區')) return 'B';
-    if (/^A(?:區)?$/i.test(raw) || /^A[-_]/i.test(raw) || raw.includes('A區')) return 'A';
-    return '';
-  }
-  function zoneLabel(r){ return zoneOf(r) ? zoneOf(r) + '區' : '未分區'; }
   function customerMergeKey(v){
     const raw = YX.clean(v || '');
     const tags = [];
@@ -134,9 +119,7 @@
     if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => sameCustomerName(r.customer_name || '', cust));
     if (source === 'master_order' && !cust) rows = [];
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
-    if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''} ${zoneLabel(r)}`.toLowerCase().includes(q));
-    const z = state.zoneFilter[source] || 'ALL';
-    if (z === 'A' || z === 'B') rows = rows.filter(r => zoneOf(r) === z);
+    if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''}`.toLowerCase().includes(q));
     const sorter = window.YX118ProductSort && typeof window.YX118ProductSort.compareRows === 'function'
       ? window.YX118ProductSort.compareRows
       : (a,b) => `${materialOf(a)} ${splitProduct(a.product_text).size}`.localeCompare(`${materialOf(b)} ${splitProduct(b.product_text).size}`, 'zh-Hant', {numeric:true});
@@ -169,7 +152,7 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"><button class="ghost-btn small-btn" type="button" data-yx113-selectall="${source}">全選目前清單</button><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"></div><div class="yx114-batch-actions"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"><button class="ghost-btn small-btn" type="button" data-yx113-selectall="${source}">全選目前清單</button><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質"></div><div class="yx114-batch-actions"><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
       $(`yx113-${source}-search`)?.addEventListener('input', () => { renderSummary(source); renderCards(source); });
@@ -205,20 +188,14 @@
     const count = selectedIds(source).size;
     btn.textContent = count ? `已選 ${count} 筆｜清除/全選` : '全選目前清單';
   }
-  function syncZoneButtons(source){
-    const z = state.zoneFilter[source] || 'ALL';
-    document.querySelectorAll(`[data-yx132-zone-filter][data-source="${source}"]`).forEach(btn => {
-      btn.classList.toggle('is-active', (btn.dataset.yx132ZoneFilter || 'ALL') === z);
-    });
-  }
   function rowActionsHTML(source, id){
     const commonEdit = `<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="edit" data-source="${source}" data-id="${id}">編輯</button>`;
     const del = `<button class="ghost-btn tiny-btn danger-btn" type="button" data-yx131-row-action="delete" data-source="${source}" data-id="${id}">刪除</button>`;
     if (source === 'inventory') {
-      return `<div class="yx131-row-action-group"><span class="small-note">勾選後用上方加到訂單 / 總單</span></div>`;
+      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-orders" data-source="${source}" data-id="${id}">加到訂單</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${source}" data-id="${id}">加到總單</button>${del}</div>`;
     }
     if (source === 'orders') {
-      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button>${del}</div>`;
+      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${source}" data-id="${id}">加到總單</button>${del}</div>`;
     }
     return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button>${del}</div>`;
   }
@@ -243,33 +220,6 @@
       return moveInventory(pseudo, 'master_order');
     }
   }
-  async function batchTransfer(source, target){
-    const ids = Array.from(selectedIds(source));
-    if (!ids.length) return YX.toast('請先勾選要移動的商品', 'warn');
-    let customer = selectedCustomer();
-    if (!customer && (target === 'orders' || target === 'master_order' || target === 'master_orders')) customer = prompt(`要加入${target === 'orders' ? '訂單' : '總單'}的客戶名稱`) || '';
-    customer = YX.clean(customer);
-    if (!customer && source !== 'inventory') customer = customerOf(rowsStore(source).find(r => String(r.id || '') === String(ids[0])));
-    if (!customer && (target === 'orders' || target === 'master_order' || target === 'master_orders')) return YX.toast('請先輸入或點選客戶', 'warn');
-    let ok = 0;
-    for (const id of ids){
-      const row = rowsStore(source).find(r => String(r.id || '') === String(id));
-      const body = {source:apiSource(source), id, target, customer_name: customer || customerOf(row), allow_inventory_fallback:true};
-      try { await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify(body)}); ok += 1; }
-      catch(e){ YX.toast(e.message || '部分商品移動失敗', 'error'); }
-    }
-    clearSelected(source);
-    YX.toast(`已移動 ${ok} 筆商品`, ok ? 'ok' : 'warn');
-    await loadSource(source);
-  }
-  async function batchMoveZone(source, zone){
-    const ids = Array.from(selectedIds(source));
-    if (!ids.length) return YX.toast('請先勾選要移到 A/B 區的商品', 'warn');
-    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items:selectedItems(source)})});
-    clearSelected(source);
-    YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
-    await loadSource(source);
-  }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
@@ -279,34 +229,29 @@
       return;
     }
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
+    const showCustomer = true;
     const editing = !!state.editAll[source];
-    const custTag = customerTagFor(source, rows);
-    const moveButtons = source === 'inventory'
-      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
-      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
-    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
     const controls = editing
       ? `<div class="yx128-summary-controls"><button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}">儲存全部</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}">取消</button></div>`
-      : `<div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">編輯全部</button>${moveButtons}${zoneMoveButtons}</div>`;
+      : `<div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">編輯全部</button></div>`;
     const body = rows.length ? rows.map(r => {
       const p = splitProduct(r.product_text || '');
       const id = Number(r.id || 0);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td class="support">${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td><td class="yx131-action-cell">${rowActionsHTML(source, id)}</td></tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}" hidden>${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td>${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty">${qtyOf(r)}</td>${showCustomer ? `<td>${YX.esc(customerOf(r) || '庫存')}</td>` : ''}<td class="yx131-action-cell">${rowActionsHTML(source, id)}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><input class="text-input small yx128-field" data-yx128-field="material" value="${YX.esc(materialOf(r) === '未填材質' ? '' : materialOf(r))}" list="yx128-material-list-${source}" placeholder="材質"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="size" value="${YX.esc(p.size || r.product_text || '')}" placeholder="尺寸"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
-        <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="總數量"></td>
-        <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td><td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
+        <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="數量"></td>
+        ${showCustomer ? `<td><input class="text-input small yx128-field" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}" placeholder="客戶名"></td>` : ''}<td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }).join('') : `<tr><td colspan="${showCustomer ? 6 : 5}">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div><strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>數量</th>${showCustomer ? '<th>客戶</th>' : ''}<th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
-    syncZoneButtons(source);
   }
   function ensureFilterNote(source, n){
     let note = $(`yx113-${source}-filter-note`);
@@ -422,7 +367,7 @@
       const row = rowsStore(source).find(r => String(r.id || '') === String(id));
       if (!row) continue;
       const val = f => tr.querySelector(`[data-yx128-field="${f}"]`)?.value || '';
-      const payload = payloadFromParts(source, row, {material:val('material'), size:val('size'), support:val('support'), qty:val('qty'), customer_name:val('customer_name'), zone:val('zone')});
+      const payload = payloadFromParts(source, row, {material:val('material'), size:val('size'), support:val('support'), qty:val('qty'), customer_name:val('customer_name')});
       if (!payload.product_text) continue;
       if ((source === 'orders' || source === 'master_order') && !payload.customer_name) continue;
       await YX.api(urlFor(source, id), {method:'PUT', body:JSON.stringify(payload)});
@@ -452,12 +397,6 @@
     if (state.bound) return; state.bound = true;
     document.addEventListener('click', async ev => {
       const source = sourceFromModule();
-      const zf = ev.target?.closest?.('[data-yx132-zone-filter]');
-      if (zf) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = zf.dataset.source || source; state.zoneFilter[s] = zf.dataset.yx132ZoneFilter || 'ALL'; syncZoneButtons(s); renderSummary(s); renderCards(s); return; }
-      const bt = ev.target?.closest?.('[data-yx132-batch-transfer]');
-      if (bt) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await batchTransfer(bt.dataset.source || source, bt.dataset.yx132BatchTransfer); }catch(e){ YX.toast(e.message || '批量移動失敗','error'); } return; }
-      const bz = ev.target?.closest?.('[data-yx132-batch-zone]');
-      if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
       const editAll = ev.target?.closest?.('[data-yx128-edit-all]');
       if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = editAll.dataset.yx128EditAll; state.editAll[s] = true; clearSelected(s); renderSummary(s); renderCards(s); return; }
       const cancelAll = ev.target?.closest?.('[data-yx128-cancel-all]');
@@ -538,16 +477,10 @@
     window.YX121ProductActions = window.YX113ProductActions;
     window.YX128ProductActions = window.YX113ProductActions;
     window.YX129ProductActions = window.YX113ProductActions;
-    window.YX132ProductActions = window.YX113ProductActions;
-    window.YX135ProductActions = window.YX113ProductActions;
     const refreshFn = YX.mark((source, _silent) => loadSource(source), 'product_refresh_121');
     const renderRows = source => rows => { rowsStore(source, rows || []); pruneSelected(source); renderSummary(source); renderCards(source); };
     const bridges = {
-      loadSource: YX.mark((source, opts) => loadSource(source, opts || {}), 'load_source_134'),
       refreshSource: refreshFn,
-      refreshCurrent: YX.mark(() => refreshCurrent(), 'refresh_current_134'),
-      renderSummary: YX.mark((source) => renderSummary(source || sourceFromModule()), 'render_summary_134'),
-      renderCards: YX.mark((source) => renderCards(source || sourceFromModule()), 'render_cards_134'),
       loadInventory: YX.mark(() => loadSource('inventory'), 'load_inventory_121'),
       loadOrdersList: YX.mark(() => loadSource('orders'), 'load_orders_121'),
       loadMasterList: YX.mark(() => loadSource('master_order'), 'load_master_121'),
@@ -555,8 +488,8 @@
       renderOrdersRows: YX.mark(renderRows('orders'), 'render_orders_121'),
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
-    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix138-final-master-warehouse-ship-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) { try { window[name]=fn; } catch(_e2){} } });
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix131-table-only-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
@@ -593,16 +526,9 @@
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
     document.documentElement.dataset.yx114Products = 'locked';
-    document.documentElement.dataset.yx132Products = 'locked';
-    document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
     ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
-    if (state.installedSource === source && rowsStore(source).length) {
-      renderSummary(source); renderCards(source);
-    } else {
-      state.installedSource = source;
-      loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
-    }
+    loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
     [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});

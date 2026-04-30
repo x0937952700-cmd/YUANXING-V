@@ -34,7 +34,6 @@
     if (m === 'warehouse') safeInstall('warehouse');
     if (['orders','master_order','ship','customers'].includes(m)) safeInstall('customer_regions');
     if (m === 'ship') safeInstall('ship_picker');
-    if (m === 'ship') safeInstall('ship_text_validate');
     if (['inventory','orders','master_order'].includes(m)) safeInstall('product_sort');
     if (['inventory','orders','master_order'].includes(m)) safeInstall('product_actions');
     if (['inventory','orders','master_order','ship'].includes(m)) safeInstall('product_source_bridge');
@@ -43,11 +42,11 @@
     safeInstall('legacy_isolation');
     safeInstall('ornate_label');
 
-    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix138-final-master-warehouse-ship-hardlock'}})); } catch(_e) {}
+    try { document.dispatchEvent(new CustomEvent('yx:master-installed', {detail:{module:m, version:'fix131-table-only-master-hardlock'}})); } catch(_e) {}
   }
 
   window.__YX_MASTER_REINSTALL__ = install;
-  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix138-final-master-warehouse-ship-hardlock', install});
+  window.YX_MASTER_BRIDGE = Object.freeze({version:'fix131-table-only-master-hardlock', install});
 
   // FIX124：圓型標籤也屬於母版；每次重裝都重新鎖一次，避免舊版黑標籤回彈。
   install();

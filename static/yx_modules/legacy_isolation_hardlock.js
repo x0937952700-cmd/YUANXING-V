@@ -40,9 +40,7 @@
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
     document.querySelectorAll('.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow').forEach(hide);
-    // FIX134：舊版客戶卡判定要同時不具新版 class 才算舊版。
-    // 原本用兩個 :not() 逗號選擇器會把新版卡誤判成舊版，造成北中南區反覆刷新。
-    const bad = document.querySelector('.customer-region-card:not(.yx114-customer-card):not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow');
+    const bad = document.querySelector('.customer-region-card:not(.yx114-customer-card),.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow');
     if (bad && window.YX116CustomerRegions?.loadCustomerBlocks) {
       try { window.YX116CustomerRegions.loadCustomerBlocks(true); } catch(_e) {}
     } else if (bad && window.YX115CustomerRegions?.loadCustomerBlocks) {
