@@ -68,8 +68,33 @@ def run_startup_self_check():
             pass
     return checks
 
-init_db()
-STARTUP_CHECKS = run_startup_self_check()
+# Render fast boot fix:
+# 原本在 import app 時直接 init_db() + startup self check，資料庫較大或 PostgreSQL 連線較慢時，
+# Gunicorn 還沒打開 $PORT 就會被 Render 判定 no open ports / Exited status 1。
+# 這裡改成先讓 Flask app 立即啟動；需要背景初始化時可把 YX_DISABLE_BACKGROUND_INIT 設為 0。
+STARTUP_CHECKS = {"fast_boot": True, "db_init_started": False, "db_init_ok": False, "db_init_error": "", "uploads": False, "todo_uploads": False, "backups": False, "todos": False}
+
+def _background_startup_init():
+    global STARTUP_CHECKS
+    try:
+        STARTUP_CHECKS["db_init_started"] = True
+        init_db()
+        checks = run_startup_self_check()
+        checks.update({"fast_boot": True, "db_init_started": True, "db_init_ok": True, "db_init_error": ""})
+        STARTUP_CHECKS = checks
+    except Exception as e:
+        STARTUP_CHECKS["db_init_error"] = str(e)
+        try:
+            log_error("background_startup_init", str(e))
+        except Exception:
+            pass
+
+if os.getenv("YX_DISABLE_BACKGROUND_INIT", "1") != "1":
+    try:
+        import threading
+        threading.Thread(target=_background_startup_init, daemon=True).start()
+    except Exception as e:
+        STARTUP_CHECKS["db_init_error"] = str(e)
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
