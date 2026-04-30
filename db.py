@@ -39,8 +39,8 @@ else:
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
 PG_POOL = None
 PG_POOL_MIN = int(os.environ.get('YX_PG_POOL_MIN', '1'))
-PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '16'))
-PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '5000'))
+PG_POOL_MAX = int(os.environ.get('YX_PG_POOL_MAX', '4'))
+PG_STATEMENT_TIMEOUT_MS = int(os.environ.get('YX_PG_STATEMENT_TIMEOUT_MS', '8000'))
 # 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
 # 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
 ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '0') == '1'
@@ -87,10 +87,6 @@ class _PooledPgConn:
         return self._conn.rollback()
     def close(self):
         try:
-            try:
-                self._conn.rollback()
-            except Exception:
-                pass
             self._pool.putconn(self._conn)
         except Exception:
             try:
@@ -106,20 +102,13 @@ def _get_pg_conn_from_pool():
         conn.autocommit = True
         return conn
     if PG_POOL is None:
-        PG_POOL = psycopg2.pool.ThreadedConnectionPool(
+        PG_POOL = psycopg2.pool.SimpleConnectionPool(
             PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
-    try:
-        conn = PG_POOL.getconn()
-        conn.autocommit = True
-        return _PooledPgConn(PG_POOL, conn)
-    except Exception as exc:
-        if "exhausted" in str(exc).lower() or "connection pool" in str(exc).lower():
-            conn = psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
-            conn.autocommit = True
-            return conn
-        raise
+    conn = PG_POOL.getconn()
+    conn.autocommit = True
+    return _PooledPgConn(PG_POOL, conn)
 
 def get_conn():
     global USE_POSTGRES

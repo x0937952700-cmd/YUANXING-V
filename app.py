@@ -1175,26 +1175,13 @@ def api_find_locations_compat():
 @app.get('/api/warehouse/search')
 @require_login
 def api_warehouse_search():
-    q = (request.args.get("q") or request.args.get("search") or "").strip().lower()
+    q = (request.args.get('q') or request.args.get('search') or '').strip()
     results = []
-    for cell in list_cells(request.args.get("zone","")):
-        try:
-            import json
-            items = cell.get("items_json") if isinstance(cell.get("items_json"), list) else json.loads(cell.get("items_json") or "[]")
-        except Exception:
-            items = []
-        base_hay = " ".join([str(cell.get("zone","")), str(cell.get("column_index","")), str(cell.get("slot_number",""))]).lower()
-        if not items and ((not q) or q in base_hay):
-            results.append({"cell": cell, "item": {}, "zone": cell.get("zone"), "column_index": cell.get("column_index"), "slot_number": cell.get("slot_number")})
-        for it in items:
-            hay = (base_hay + " " + str(it.get("customer_name","")) + " " + str(it.get("product_text","")) + " " + str(it.get("material",""))).lower()
-            if (not q) or q in hay:
-                results.append({"cell": cell, "item": it, "zone": cell.get("zone"), "column_index": cell.get("column_index"), "slot_number": cell.get("slot_number")})
-            if len(results) >= 200:
-                break
-        if len(results) >= 200:
-            break
-    return ok(items=results[:200])
+    for cell in list_cells(request.args.get('zone','')):
+        hay = ' '.join([str(cell.get('zone','')), str(cell.get('column_index','')), str(cell.get('slot_number','')), cell.get('items_json','')])
+        if (not q) or q in hay:
+            results.append(cell)
+    return ok(items=results[:100])
 
 
 @app.get('/api/recent-slots')
