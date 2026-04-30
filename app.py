@@ -17,7 +17,7 @@ else:
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import db as db_module
-from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, DATABASE_URL
+from db import init_db, fetch_all, fetch_one, execute, now_iso, json_dumps, ADMIN_NAME, DB_PATH, DATABASE_URL, masked_database_url
 from services.products import parse_product_text, normalize_product_text, total_qty_from_text
 from services.customers import ensure_customer, customer_suggestions, find_customer_by_uid_or_name, VALID_REGIONS
 from services.items import create_item, list_items, get_item, update_item, delete_item, normalize_table, find_duplicate_items, merge_item_qty
@@ -267,7 +267,7 @@ def api_logout():
 @app.get('/api/session/config')
 def api_session():
     user = current_user()
-    return ok(user=user, app_name='沅興木業', clean_version='full_fixed_qty15_v4_no_md')
+    return ok(user=user, app_name='沅興木業', clean_version='postgres-connected-v1')
 
 
 @app.post('/api/change_password')
@@ -787,7 +787,7 @@ def api_items_merge():
 @require_login
 def api_customer_items():
     cuid = request.args.get('customer_uid','')
-    cname = request.args.get('customer_name','')
+    cname = request.args.get('customer_name','') or request.args.get('name','') or request.args.get('customer','')
     zone = request.args.get('zone','')
     search = request.args.get('search','')
     out = []
@@ -809,22 +809,115 @@ def api_customer_items():
     return ok(items=out)
 
 
+def _resolve_ship_items_for_text(customer_uid='', customer_name='', items=None):
+    """FIX98 出貨相容層：把 textarea 的 product_text 自動對應到資料庫 source/id。"""
+    raw_items = items or []
+    resolved = []
+    problems = []
+
+    def norm(v):
+        try:
+            return normalize_product_text(v or '')
+        except Exception:
+            return str(v or '').strip()
+
+    def qty_of(entry, product_text):
+        try:
+            return max(1, int(entry.get('qty') or entry.get('need_qty') or total_qty_from_text(product_text) or 1))
+        except Exception:
+            return 1
+
+    def score_row(row, product_text):
+        row_text = norm(row.get('product_text') or '')
+        product_text = norm(product_text)
+        if row_text == product_text:
+            return 100
+        left = product_text.split('=')[0]
+        row_left = row_text.split('=')[0]
+        if left and row_left and left == row_left:
+            return 70
+        if product_text and (product_text in row_text or row_text in product_text):
+            return 50
+        return 0
+
+    candidates = []
+    for source, label, customer_limited in [('master_orders', '總單', True), ('orders', '訂單', True), ('inventory', '庫存', False)]:
+        try:
+            rows = list_items(source, customer_uid or '', customer_name or '', '', '') if customer_limited else list_items(source, '', '', '', '')
+            for row in rows:
+                if source == 'inventory' and customer_name and row.get('customer_name') and row.get('customer_name') != customer_name:
+                    continue
+                candidates.append((source, label, row))
+        except Exception as exc:
+            problems.append(f'{label}讀取失敗：{exc}')
+
+    for entry in raw_items:
+        entry = dict(entry or {})
+        src = entry.get('source') or entry.get('table')
+        sid = entry.get('id') or entry.get('source_id')
+        if src and sid:
+            resolved.append({'source': src, 'id': int(sid), 'qty': max(1, int(entry.get('qty') or 1))})
+            continue
+        product_text = norm(entry.get('product_text') or entry.get('product') or entry.get('text') or '')
+        if not product_text:
+            continue
+        need_qty = qty_of(entry, product_text)
+        best = None
+        best_score = 0
+        for source, label, row in candidates:
+            available = int(row.get('qty') or 0)
+            if available <= 0:
+                continue
+            sc = score_row(row, product_text)
+            if sc <= 0:
+                continue
+            if available >= need_qty:
+                sc += 8
+            if source == 'master_orders':
+                sc += 3
+            elif source == 'orders':
+                sc += 2
+            if sc > best_score:
+                best_score = sc
+                best = (source, row)
+        if best:
+            source, row = best
+            resolved.append({'source': source, 'id': int(row.get('id') or 0), 'qty': need_qty})
+        else:
+            resolved.append({'source': entry.get('source') or '', 'id': int(entry.get('id') or 0), 'qty': need_qty, 'product_text': product_text})
+            problems.append(f'找不到可扣來源：{product_text}')
+    return resolved, problems
+
+
 @app.post('/api/ship-preview')
 @require_login
 def api_ship_preview():
     data = body()
-    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), data.get('customer_name',''))
-    return ok(preview=build_preview(customer['uid'] if customer else data.get('customer_uid',''), customer['name'] if customer else data.get('customer_name',''), data.get('items') or [], data.get('weight_input') or 0))
+    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), data.get('customer_name','') or data.get('name',''))
+    customer_uid = customer['uid'] if customer else data.get('customer_uid','')
+    customer_name = customer['name'] if customer else (data.get('customer_name','') or data.get('name',''))
+    resolved_items, resolve_problems = _resolve_ship_items_for_text(customer_uid, customer_name, data.get('items') or [])
+    preview = build_preview(customer_uid, customer_name, resolved_items, data.get('weight_input') or 0)
+    if resolve_problems:
+        preview['resolve_problems'] = resolve_problems
+        preview['problems'] = list(dict.fromkeys((preview.get('problems') or []) + resolve_problems))
+        preview['can_submit'] = preview.get('can_submit') and not resolve_problems
+    # 同時回傳 preview 物件與展平欄位，兼容 FIX98 / FIX142 / 新母版三種前端。
+    return ok(preview=preview, **preview)
 
 
 @app.post('/api/ship')
 @require_login
 def api_ship():
     data = body()
-    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), data.get('customer_name',''))
-    result = confirm_shipping(username(), customer['uid'] if customer else data.get('customer_uid',''), customer['name'] if customer else data.get('customer_name',''), data.get('items') or [], data.get('weight_input') or 0, data.get('note') or '')
+    customer = find_customer_by_uid_or_name(data.get('customer_uid',''), data.get('customer_name','') or data.get('name',''))
+    customer_uid = customer['uid'] if customer else data.get('customer_uid','')
+    customer_name = customer['name'] if customer else (data.get('customer_name','') or data.get('name',''))
+    resolved_items, _resolve_problems = _resolve_ship_items_for_text(customer_uid, customer_name, data.get('items') or [])
+    result = confirm_shipping(username(), customer_uid, customer_name, resolved_items, data.get('weight_input') or 0, data.get('note') or '')
     emit_update('shipping', result)
-    return ok(result=result, message='出貨完成')
+    preview = result.get('preview') or {}
+    return ok(result=result, preview=preview, shipped=result.get('shipped') or [], items=preview.get('items') or [], message='出貨完成')
 
 
 @app.get('/api/shipping_records')
@@ -857,7 +950,14 @@ def api_shipping_records():
 @app.get('/api/warehouse')
 @require_login
 def api_warehouse():
-    return ok(items=list_cells(request.args.get('zone','')))
+    cells = list_cells(request.args.get('zone',''))
+    zones = {'A': {}, 'B': {}}
+    for cell in cells:
+        zone = (cell.get('zone') or 'A').upper()
+        col = str(int(cell.get('column_index') or 1))
+        zones.setdefault(zone, {}).setdefault(col, []).append(cell)
+    # 同時回傳 cells / zones / items，兼容 FIX98、FIX142 與新版倉庫渲染器。
+    return ok(cells=cells, zones=zones, items=cells)
 
 
 @app.post('/api/warehouse/cell')
@@ -1314,12 +1414,41 @@ def api_backups_list():
 
 @app.get('/health')
 def health_page():
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), socketio_enabled=bool(socketio))
+    counts = {}
+    try:
+        ensure_db_ready()
+        counts = {
+            'inventory': (fetch_one('SELECT COUNT(*) AS c FROM inventory') or {}).get('c', 0),
+            'orders': (fetch_one('SELECT COUNT(*) AS c FROM orders') or {}).get('c', 0),
+            'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
+            'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
+            'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
+        }
+    except Exception as exc:
+        counts = {'error': str(exc)}
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), counts=counts, socketio_enabled=bool(socketio))
 
 
 @app.get('/api/health')
 def api_health():
-    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), socketio_enabled=bool(socketio))
+    counts = {}
+    try:
+        ensure_db_ready()
+        counts = {
+            'inventory': (fetch_one('SELECT COUNT(*) AS c FROM inventory') or {}).get('c', 0),
+            'orders': (fetch_one('SELECT COUNT(*) AS c FROM orders') or {}).get('c', 0),
+            'master_orders': (fetch_one('SELECT COUNT(*) AS c FROM master_orders') or {}).get('c', 0),
+            'shipping_records': (fetch_one('SELECT COUNT(*) AS c FROM shipping_records') or {}).get('c', 0),
+            'warehouse_cells': (fetch_one('SELECT COUNT(*) AS c FROM warehouse_cells') or {}).get('c', 0),
+        }
+    except Exception as exc:
+        counts = {'error': str(exc)}
+    return ok(status='ok' if not STARTUP_DB_ERROR else 'degraded', db_path=str(DB_PATH), db_error=STARTUP_DB_ERROR or '', use_postgres=using_postgres(), database=masked_database_url(), counts=counts, socketio_enabled=bool(socketio))
+
+
+@app.get('/api/db-status')
+def api_db_status():
+    return api_health()
 
 
 if __name__ == '__main__':
@@ -1345,7 +1474,11 @@ def api_save_correction_compat():
     correct = (data.get('correct_text') or data.get('correct') or '').strip()
     if not wrong or not correct:
         return fail('請輸入修正前與修正後文字')
-    execute('INSERT OR REPLACE INTO corrections(wrong_text,correct_text,created_at) VALUES(?,?,?)', (wrong, correct, now_iso()))
+    existing = fetch_one('SELECT id FROM corrections WHERE wrong_text=?', (wrong,))
+    if existing:
+        execute('UPDATE corrections SET correct_text=?, created_at=? WHERE id=?', (correct, now_iso(), existing['id']))
+    else:
+        execute('INSERT INTO corrections(wrong_text,correct_text,created_at) VALUES(?,?,?)', (wrong, correct, now_iso()))
     return ok(message='修正詞已儲存')
 
 @app.post('/api/customer-item')
@@ -1359,7 +1492,7 @@ def api_customer_item_post_compat():
     payload = {k: data.get(k) for k in ('product_text','material','qty','zone','location','customer_name','customer_uid') if k in data}
     if not payload:
         return ok(message='沒有需要更新的欄位')
-    update_item(source, item_id, payload, username())
+    update_item(source, item_id, **payload, operator=username())
     return ok(message='商品已更新')
 
 @app.delete('/api/customer-item')
@@ -1370,7 +1503,7 @@ def api_customer_item_delete_compat():
     item_id = int(data.get('id') or data.get('item_id') or 0)
     if not item_id:
         return fail('缺少商品 ID')
-    delete_item(source, item_id, username())
+    delete_item(source, item_id)
     return ok(message='商品已刪除')
 
 @app.post('/api/warehouse/add-column')
@@ -1397,8 +1530,8 @@ def api_orders_to_master_compat():
             item = get_item('orders', item_id)
             if not item:
                 continue
-            create_item('master_orders', item, username())
-            delete_item('orders', item_id, username())
+            create_item('master_orders', item.get('customer_uid') or '', item.get('customer_name') or '', item.get('product_text') or '', item.get('material') or '', item.get('zone') or '', username(), '由訂單轉入總單')
+            delete_item('orders', item_id)
             moved += 1
         except Exception:
             continue

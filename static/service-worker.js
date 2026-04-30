@@ -1,76 +1,36 @@
-/* 沅興木業 PWA Service Worker - fix142-speed-ship-master-hardlock */
-const YX_PWA_VERSION='fix142-speed-ship-master-hardlock';
-const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
-const PRECACHE_ASSETS=[
-  '/static/manifest.webmanifest',
-  '/static/favicon.png',
-  '/static/style.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/ornate_label_hardlock.css?v=fix142-speed-ship-master-hardlock',
-    '/static/yx_modules/fix135_master_final_hardlock.css?v=fix142-speed-ship-master-hardlock',
-
-  '/static/yx_modules/fix136_label_text_repair.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix138_final_master_hardlock.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix140_readme_master_hardlock.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix142_speed_ship_hardlock.css?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_assets/home_cloud_background.jpg?v=fix142-speed-ship-master-hardlock',
-  '/static/app.js?v=fix142-speed-ship-master-hardlock',
-  '/static/pwa.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/core_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/ornate_label_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/today_changes_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/warehouse_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/settings_audit_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/customer_regions_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/product_sort_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/product_actions_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/product_source_bridge_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/ship_picker_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/ship_text_validate_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/inline_edit_full_list_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/legacy_isolation_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/apple_ui_hardlock.js?v=fix142-speed-ship-master-hardlock',
-    '/static/yx_modules/fix135_master_final_hardlock.js?v=fix142-speed-ship-master-hardlock',
-
-  '/static/yx_modules/fix136_label_text_repair.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix138_final_master_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix140_readme_master_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/yx_modules/fix142_speed_ship_hardlock.js?v=fix142-speed-ship-master-hardlock',
-  '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
-];
-self.addEventListener('install',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k))))
-    .then(()=>caches.open(STATIC_CACHE)).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
+/* 沅興木業 PWA Service Worker - stability-v6 */
+const YX_PWA_VERSION = 'stability-v6';
+const STATIC_CACHE = `yuanxing-pwa-static-${YX_PWA_VERSION}`;
+self.addEventListener('install', event => {
+  self.skipWaiting();
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('yuanxing-pwa-static-') && k !== STATIC_CACHE).map(k => caches.delete(k)))));
 });
-self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k.startsWith('yuanxing-pwa-static-') && k !== STATIC_CACHE).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
-self.addEventListener('message',event=>{
-  if(event.data&&event.data.type==='SKIP_WAITING') self.skipWaiting();
-  if(event.data&&event.data.type==='CLEAR_YX_CACHES') event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k)))));
-});
-self.addEventListener('fetch',event=>{
-  const req=event.request;
-  if(req.method!=='GET') return;
-  const url=new URL(req.url);
-  if(url.origin!==self.location.origin) return;
-  if(url.pathname.startsWith('/api/') || url.pathname==='/api/sync/stream'){
-    event.respondWith(fetch(req,{cache:'no-store'}));
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== 'GET') return;
+  if (url.pathname.startsWith('/api/') || url.pathname.includes('/sync/stream')) {
+    event.respondWith(fetch(req, {cache:'no-store'}));
     return;
   }
-  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
-    event.respondWith(fetch(req,{cache:'no-store'}));
-    return;
-  }
-  if(url.pathname.startsWith('/static/')){
-    // FIX136：有版本號的靜態檔先走網路，拿不到才回快取，避免舊母版覆蓋新版。
-    event.respondWith(fetch(req,{cache:'no-store'}).then(res=>{
-      if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
-      return res;
-    }).catch(()=>caches.match(req)));
-    return;
-  }
-  event.respondWith(fetch(req).catch(()=>caches.match(req)));
+  event.respondWith((async () => {
+    try {
+      const fresh = await fetch(req, {cache:'no-store'});
+      const cache = await caches.open(STATIC_CACHE);
+      if (fresh.ok && (url.pathname.startsWith('/static/') || url.pathname === '/' || url.pathname.endsWith('.webmanifest'))) {
+        cache.put(req, fresh.clone()).catch(()=>{});
+      }
+      return fresh;
+    } catch (_e) {
+      const cached = await caches.match(req);
+      return cached || new Response('離線狀態，請重新整理。', {status:503, headers:{'Content-Type':'text/plain; charset=utf-8'}});
+    }
+  })());
 });

@@ -14,11 +14,26 @@ except Exception:
     psycopg2 = None
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+# Render 正式資料庫。
+# 優先順序：Render 環境變數 DATABASE_URL -> WAREHOUSE_DATABASE_URL -> 這次你指定的 Render PostgreSQL。
+# 這樣即使 render.yaml 的 DATABASE_URL sync:false 尚未手動填，也不會默默掉回 SQLite 看不到舊資料。
+DEFAULT_RENDER_DATABASE_URL = (
+    'postgresql://warehouse_ocr_d_user:5xOpnPjCU02QZdlMnICbRQOOKSRTyR3o'
+    '@dpg-d7h1lumgvqtc73es1mjg-a.oregon-postgres.render.com/warehouse_ocr_d'
+)
+if os.environ.get('YX_USE_SQLITE', '0') == '1':
+    DATABASE_URL = ''
+else:
+    DATABASE_URL = (
+        os.environ.get('DATABASE_URL')
+        or os.environ.get('WAREHOUSE_DATABASE_URL')
+        or DEFAULT_RENDER_DATABASE_URL
+        or ''
+    ).strip()
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')) and psycopg2)
-# Render 有時 DATABASE_URL 設錯、資料庫暫停、或 schema 初始化失敗會讓整個服務開不起來。
-# 預設允許先降級 SQLite，確保網頁一定能打開；正式要強制 PostgreSQL 時可設 ALLOW_SQLITE_FALLBACK=0。
-ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '1') != '0'
+# 這次要「確實接上 PostgreSQL」，預設不再靜默降級 SQLite。
+# 只有本機測試或臨時救援時，才手動設定 ALLOW_SQLITE_FALLBACK=1 或 YX_USE_SQLITE=1。
+ALLOW_SQLITE_FALLBACK = os.environ.get('ALLOW_SQLITE_FALLBACK', '0') == '1'
 DB_PATH = os.environ.get('SQLITE_PATH', str(BASE_DIR / 'warehouse.db'))
 ADMIN_NAME = '陳韋廷'
 
@@ -45,18 +60,35 @@ def _postgres_url():
 
 def get_conn():
     global USE_POSTGRES
-    if USE_POSTGRES:
-        try:
-            return psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
-        except Exception:
+    if DATABASE_URL and DATABASE_URL.startswith(('postgres://', 'postgresql://')):
+        if not psycopg2:
             if not ALLOW_SQLITE_FALLBACK:
-                raise
-            # 讓 Render 即使 PostgreSQL 暫時不可用也能先啟動頁面。
-            USE_POSTGRES = False
+                raise RuntimeError('psycopg2-binary 未安裝，無法連接 PostgreSQL')
+        elif USE_POSTGRES:
+            try:
+                return psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+            except Exception as exc:
+                if not ALLOW_SQLITE_FALLBACK:
+                    raise RuntimeError(f'PostgreSQL 連線失敗，已阻止降級 SQLite：{exc}') from exc
+                USE_POSTGRES = False
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA foreign_keys=ON')
     return conn
+
+
+def masked_database_url() -> str:
+    if not DATABASE_URL:
+        return 'sqlite'
+    try:
+        parsed = urlparse(DATABASE_URL)
+        host = parsed.hostname or ''
+        dbname = (parsed.path or '').lstrip('/')
+        user = parsed.username or ''
+        scheme = parsed.scheme or 'postgresql'
+        return f'{scheme}://{user}:***@{host}/{dbname}'
+    except Exception:
+        return 'postgresql://***'
 
 
 def _sql(q: str) -> str:
@@ -411,6 +443,194 @@ def _add_column_if_missing(cur, table: str, column: str, definition: str):
         cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
 
 
+
+def _table_exists(cur, table: str) -> bool:
+    if USE_POSTGRES:
+        cur.execute("SELECT to_regclass(%s) AS name", (table,))
+        row = cur.fetchone()
+        if isinstance(row, dict):
+            return bool(row.get('name'))
+        return bool(row and row[0])
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+    return cur.fetchone() is not None
+
+
+def _row_get(row, key, default=None):
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        return row[key]
+    except Exception:
+        return default
+
+
+def _to_int(value, default=0):
+    try:
+        if value is None or value == '':
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _select_existing(cur, table: str, candidates: list[str]) -> list[str]:
+    return [c for c in candidates if _column_exists(cur, table, c)]
+
+
+def _backfill_legacy_item_table(cur, table: str):
+    """把舊版 product/customer/quantity 欄位搬到新版 product_text/customer_name/qty。"""
+    if not _table_exists(cur, table):
+        return
+    from services.products import normalize_product_text, total_qty_from_text
+    cols = _select_existing(cur, table, [
+        'id', 'customer_uid', 'customer_name', 'customer', 'client', 'name',
+        'product_text', 'product', 'item', 'item_name', 'material', 'qty', 'quantity',
+        'zone', 'location', 'operator', 'note', 'created_at', 'updated_at'
+    ])
+    if 'id' not in cols:
+        return
+    cur.execute(_sql(f"SELECT {', '.join(cols)} FROM {table}"))
+    rows = cur.fetchall()
+    for row in rows:
+        item_id = _row_get(row, 'id')
+        current_text = (_row_get(row, 'product_text') or '').strip()
+        legacy_text = (_row_get(row, 'product') or _row_get(row, 'item') or _row_get(row, 'item_name') or '')
+        final_text = normalize_product_text(current_text or legacy_text or '')
+        current_customer = (_row_get(row, 'customer_name') or '').strip()
+        legacy_customer = (_row_get(row, 'customer') or _row_get(row, 'client') or _row_get(row, 'name') or '')
+        final_customer = (current_customer or legacy_customer or '').strip()
+        current_qty = _to_int(_row_get(row, 'qty'), 0)
+        legacy_qty = _to_int(_row_get(row, 'quantity'), 0)
+        final_qty = total_qty_from_text(final_text) or legacy_qty or current_qty or 1
+        updates = []
+        params = []
+        if final_text and final_text != current_text:
+            updates.append('product_text=?')
+            params.append(final_text)
+        if final_customer and final_customer != current_customer:
+            updates.append('customer_name=?')
+            params.append(final_customer)
+        if final_qty and final_qty != current_qty:
+            updates.append('qty=?')
+            params.append(final_qty)
+        if _column_exists(cur, table, 'updated_at'):
+            updates.append('updated_at=?')
+            params.append(now_iso())
+        if updates:
+            params.append(item_id)
+            cur.execute(_sql(f"UPDATE {table} SET {', '.join(updates)} WHERE id=?"), tuple(params))
+
+
+def _backfill_legacy_shipping(cur):
+    if not _table_exists(cur, 'shipping_records'):
+        return
+    from services.products import normalize_product_text, total_qty_from_text
+    cols = _select_existing(cur, 'shipping_records', [
+        'id', 'customer_uid', 'customer_name', 'customer', 'client', 'name',
+        'product_text', 'product', 'item', 'item_name', 'material', 'qty', 'quantity',
+        'source', 'source_id', 'operator', 'shipped_at', 'created_at', 'note'
+    ])
+    if 'id' not in cols:
+        return
+    cur.execute(_sql(f"SELECT {', '.join(cols)} FROM shipping_records"))
+    for row in cur.fetchall():
+        rid = _row_get(row, 'id')
+        current_text = (_row_get(row, 'product_text') or '').strip()
+        legacy_text = _row_get(row, 'product') or _row_get(row, 'item') or _row_get(row, 'item_name') or ''
+        final_text = normalize_product_text(current_text or legacy_text or '')
+        current_customer = (_row_get(row, 'customer_name') or '').strip()
+        legacy_customer = _row_get(row, 'customer') or _row_get(row, 'client') or _row_get(row, 'name') or ''
+        final_customer = (current_customer or legacy_customer or '').strip()
+        current_qty = _to_int(_row_get(row, 'qty'), 0)
+        legacy_qty = _to_int(_row_get(row, 'quantity'), 0)
+        final_qty = total_qty_from_text(final_text) or legacy_qty or current_qty or 1
+        shipped_at = (_row_get(row, 'shipped_at') or _row_get(row, 'created_at') or now_iso())
+        updates = []
+        params = []
+        if final_text and final_text != current_text:
+            updates.append('product_text=?'); params.append(final_text)
+        if final_customer and final_customer != current_customer:
+            updates.append('customer_name=?'); params.append(final_customer)
+        if final_qty and final_qty != current_qty:
+            updates.append('qty=?'); params.append(final_qty)
+        if not (_row_get(row, 'shipped_at') or '').strip():
+            updates.append('shipped_at=?'); params.append(shipped_at)
+        if updates:
+            params.append(rid)
+            cur.execute(_sql(f"UPDATE shipping_records SET {', '.join(updates)} WHERE id=?"), tuple(params))
+
+
+def _copy_legacy_master_order_table(cur):
+    """部分舊版用 master_order 單數表；新版用 master_orders。啟動時複製一次。"""
+    if not _table_exists(cur, 'master_order') or not _table_exists(cur, 'master_orders'):
+        return
+    from services.products import normalize_product_text, total_qty_from_text
+    cols = _select_existing(cur, 'master_order', [
+        'id', 'customer_uid', 'customer_name', 'customer', 'client', 'name',
+        'product_text', 'product', 'item', 'item_name', 'material', 'qty', 'quantity',
+        'zone', 'location', 'operator', 'note', 'created_at', 'updated_at'
+    ])
+    if 'id' not in cols:
+        return
+    cur.execute(_sql(f"SELECT {', '.join(cols)} FROM master_order"))
+    for row in cur.fetchall():
+        product_text = normalize_product_text((_row_get(row, 'product_text') or _row_get(row, 'product') or _row_get(row, 'item') or _row_get(row, 'item_name') or '').strip())
+        if not product_text:
+            continue
+        customer_name = (_row_get(row, 'customer_name') or _row_get(row, 'customer') or _row_get(row, 'client') or _row_get(row, 'name') or '').strip()
+        material = (_row_get(row, 'material') or '').strip()
+        cur.execute(_sql('SELECT id FROM master_orders WHERE product_text=? AND customer_name=? AND material=? LIMIT 1'), (product_text, customer_name, material))
+        if cur.fetchone():
+            continue
+        qty = total_qty_from_text(product_text) or _to_int(_row_get(row, 'qty'), 0) or _to_int(_row_get(row, 'quantity'), 0) or 1
+        t = _row_get(row, 'updated_at') or _row_get(row, 'created_at') or now_iso()
+        cur.execute(_sql('''INSERT INTO master_orders(customer_uid,customer_name,product_text,material,qty,zone,location,operator,note,created_at,updated_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?)'''), (
+            _row_get(row, 'customer_uid') or '', customer_name, product_text, material, qty,
+            _row_get(row, 'zone') or '', _row_get(row, 'location') or '', _row_get(row, 'operator') or '', _row_get(row, 'note') or '',
+            _row_get(row, 'created_at') or t, t
+        ))
+
+
+def _ensure_customer_profiles_from_items(cur):
+    """從庫存/訂單/總單/出貨舊資料反建客戶資料與 customer_uid。"""
+    if not _table_exists(cur, 'customer_profiles'):
+        return
+    names = []
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        if not _table_exists(cur, table) or not _column_exists(cur, table, 'customer_name'):
+            continue
+        cur.execute(_sql(f"SELECT DISTINCT customer_name FROM {table} WHERE customer_name IS NOT NULL AND customer_name<>''"))
+        for row in cur.fetchall():
+            name = (_row_get(row, 'customer_name') or '').strip()
+            if name and name not in names and name != '未指定客戶':
+                names.append(name)
+    for name in names:
+        cur.execute(_sql('SELECT uid FROM customer_profiles WHERE name=? LIMIT 1'), (name,))
+        found = cur.fetchone()
+        if isinstance(found, dict):
+            uid = found.get('uid')
+        elif found:
+            uid = found[0]
+        else:
+            uid = new_uid('CUST')
+            t = now_iso()
+            cur.execute(_sql('''INSERT INTO customer_profiles(uid,name,phone,address,special_notes,common_materials,common_sizes,region,trade_type,is_archived,created_at,updated_at)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)'''), (uid, name, '', '', '', '', '', '北區', '', 0, t, t))
+        for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+            if _table_exists(cur, table) and _column_exists(cur, table, 'customer_uid') and _column_exists(cur, table, 'customer_name'):
+                cur.execute(_sql(f"UPDATE {table} SET customer_uid=? WHERE customer_name=? AND (customer_uid IS NULL OR customer_uid='')"), (uid, name))
+
+
+def _backfill_legacy_data_with_cursor(cur):
+    _copy_legacy_master_order_table(cur)
+    for table in ('inventory', 'orders', 'master_orders'):
+        _backfill_legacy_item_table(cur, table)
+    _backfill_legacy_shipping(cur)
+    _ensure_customer_profiles_from_items(cur)
+
 def _ensure_migrations_with_cursor(cur):
     """補齊舊資料庫缺欄，避免 Render 上舊 PostgreSQL/SQLite 因 UndefinedColumn 直接 500。"""
     user_cols = {
@@ -496,6 +716,13 @@ def _ensure_migrations_with_cursor(cur):
                 _add_column_if_missing(cur, table, col, definition)
             except Exception:
                 pass
+    # 把舊版 PostgreSQL 欄位 product/customer/quantity 轉回新版欄位，避免 UI 看不到既有資料。
+    try:
+        _backfill_legacy_data_with_cursor(cur)
+    except Exception:
+        # 舊資料回填失敗不能中斷啟動；/api/health 仍可檢查連線狀態。
+        pass
+
     # 低風險索引：加速常用查詢。舊表有重複資料也不會失敗，因為不是 unique index。
     for stmt in (
         'CREATE INDEX IF NOT EXISTS idx_inventory_customer ON inventory(customer_uid, customer_name)',

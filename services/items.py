@@ -1,7 +1,11 @@
 from db import execute, fetch_all, fetch_one, now_iso
 from services.products import normalize_product_text, total_qty_from_text, deduct_qty_from_product_text, merge_product_texts, product_dimension_key, product_sort_key
 
-TABLES = {'inventory': 'inventory', 'orders': 'orders', 'master_orders': 'master_orders'}
+TABLES = {
+    'inventory': 'inventory', 'stock': 'inventory', 'stocks': 'inventory',
+    'orders': 'orders', 'order': 'orders',
+    'master_orders': 'master_orders', 'master_order': 'master_orders', 'master': 'master_orders',
+}
 
 
 def normalize_table(source: str) -> str:
