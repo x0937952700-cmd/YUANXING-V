@@ -10,7 +10,7 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return 1;
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return 1;
     const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);

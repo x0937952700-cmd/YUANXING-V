@@ -29,7 +29,7 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
     if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
     const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
@@ -556,7 +556,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix137-undo-layout-warehouse-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';

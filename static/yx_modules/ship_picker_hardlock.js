@@ -3,12 +3,17 @@
   'use strict';
   const YX = window.YXHardLock;
   if (!YX) return;
-  const state = {timer:null, loading:null, lastKey:'', items:[], bound:false, selectedIndex:-1};
+  const state = {timer:null, loading:null, lastKey:'', items:[], bound:false, selectedIndex:-1, cache:new Map(), req:0};
   const $ = id => document.getElementById(id);
   const isShip = () => YX.moduleKey() === 'ship' || !!$('ship-customer-picker');
   const clean = v => YX.clean(v);
   const esc = v => YX.esc(v);
   function customer(){ return clean($('customer-name')?.value || window.__YX_SELECTED_CUSTOMER__ || ''); }
+  function variantsQuery(name){
+    let arr = Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__) ? window.__YX_SELECTED_CUSTOMER_VARIANTS__.filter(Boolean) : [name].filter(Boolean);
+    if (name && !arr.includes(name)) arr.unshift(name);
+    return '&variants=' + encodeURIComponent(JSON.stringify(Array.from(new Set(arr))));
+  }
   function qtyOf(it){
     const text = String(it?.product_text || it?.support || '');
     const fallback = Number(it?.qty ?? it?.effective_qty ?? it?.total_qty ?? 0);
@@ -20,7 +25,7 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
     if (right) {
       const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-      if (right.replace(/\s+/g,'').toLowerCase() === canonical) return 10;
+      if (right.replace(/\s+/g,'').toLowerCase() === canonical) return 15;
       const parts = right.split('+').map(x => x.trim()).filter(Boolean);
       let total = 0;
       parts.forEach(seg => { const m = seg.match(/x\s*(\d+)$/i); total += m ? Number(m[1] || 0) : (/\d/.test(seg) ? 1 : 0); });
@@ -100,15 +105,19 @@
     name = clean(name || customer());
     ensureList();
     if (!name) { renderFullList([], ''); return []; }
-    const key = `${name}|${Date.now()}`;
-    state.lastKey = key;
+    const cacheKey = name + '|' + (Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__) ? window.__YX_SELECTED_CUSTOMER_VARIANTS__.join('|') : '');
+    const cached = state.cache.get(cacheKey);
+    if (cached && Date.now() - cached.at < 8000) { renderFullList(cached.items, name); return cached.items; }
+    const req = ++state.req;
+    state.lastKey = cacheKey;
     const list = $('ship-customer-item-list');
     if (list) list.innerHTML = `<div class="empty-state-card compact-empty">載入 ${esc(name)} 商品中…</div>`;
     const p = (async () => {
       try {
-        const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&yx128_ship_full_list=1&ts=${Date.now()}`, {method:'GET'});
-        if (state.lastKey !== key) return state.items;
+        const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&fast=1&yx128_ship_full_list=1${variantsQuery(name)}`, {method:'GET'});
+        if (req !== state.req) return state.items;
         const items = Array.isArray(d.items) ? d.items : [];
+        state.cache.set(cacheKey, {items, at:Date.now()});
         state.selectedIndex = items.length ? 0 : -1;
         renderFullList(items, name);
         return items;
@@ -124,7 +133,7 @@
   function scheduleLoad(){
     if (!isShip()) return;
     clearTimeout(state.timer);
-    state.timer = setTimeout(() => loadShipCustomerItems(customer()), 120);
+    state.timer = setTimeout(() => loadShipCustomerItems(customer()), 25);
   }
   function appendToText(items){
     const box = $('ocr-text');
@@ -183,8 +192,8 @@
     document.documentElement.dataset.yx116ShipPicker = 'locked';
     document.documentElement.dataset.yx128ShipPicker = 'locked';
     bind(); lockGlobals(); ensureList();
-    if (customer()) scheduleLoad(); else renderFullList([], '');
-    [80, 240, 700, 1400].forEach(ms => setTimeout(() => { lockGlobals(); ensureList(); if (customer()) scheduleLoad(); }, ms));
+    if (customer()) loadShipCustomerItems(customer()).catch(()=>{}); else renderFullList([], '');
+    [180, 700].forEach(ms => setTimeout(() => { lockGlobals(); ensureList(); }, ms));
   }
   YX.register('ship_picker', {install, load:loadShipCustomerItems});
 })();

@@ -1,7 +1,7 @@
 /* FIX138 最終母版：舊版隔離、倉庫A/B未入倉篩選、出貨修復、按鈕文字修復 */
 (function(){
   'use strict';
-  const V='fix138-final-master-warehouse-ship-hardlock';
+  const V='fix142-speed-ship-master-hardlock';
   const YX=window.YXHardLock;
   const $=id=>document.getElementById(id);
   const clean=v=>String(v??'').replace(/\s+/g,' ').trim();

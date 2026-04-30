@@ -1442,3 +1442,23 @@ def todo_image_compat(filename):
         return send_file(path)
     return fail('找不到圖片', 404)
 # ==== end FIX101 UI shell compatibility endpoints ====
+
+# ==== FIX142 UI database bridge endpoints ====
+@app.get('/api/sync/stream')
+@require_login
+def api_sync_stream_compat():
+    """FIX142 前端可能會建立同步 SSE；這裡提供輕量心跳，避免 404/500。"""
+    from flask import Response
+    def gen():
+        yield 'event: ping\n'
+        yield f'data: {{"success": true, "at": "{now_iso()}"}}\n\n'
+    return Response(gen(), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache'})
+
+@app.get('/api/native-shell/config')
+def api_native_shell_config_compat():
+    return ok(app_name='沅興木業', native_ocr_mode=True, user=username() or ADMIN_NAME, version='fix142-ui-db-bridge-qty15-v1')
+
+@app.get('/manifest.webmanifest')
+def manifest_root_compat():
+    return send_file(Path(app.static_folder) / 'manifest.webmanifest', mimetype='application/manifest+json')
+# ==== end FIX142 UI database bridge endpoints ====

@@ -2,7 +2,7 @@
    只接外觀母版：不改功能、不覆蓋 onclick/href/API。 */
 (function(){
   'use strict';
-  const VERSION = 'fix137-undo-layout-warehouse-master-hardlock';
+  const VERSION = 'fix142-speed-ship-master-hardlock';
   const SELECTOR = [
     '.menu-btn','a.menu-btn','.home-mini-btn','a.home-mini-btn','.user-cell',
     '.primary-btn','button.primary-btn','.ghost-btn','button.ghost-btn','.back-btn','a.back-btn',
