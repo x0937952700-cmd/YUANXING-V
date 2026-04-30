@@ -64,9 +64,9 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
     if customer_uid:
         where.append('customer_uid=?')
         params.append(customer_uid)
-    if customer_name:
-        where.append('customer_name=?')
-        params.append(customer_name)
+    filter_customer_name = (customer_name or '').strip()
+    # 不直接用 SQL customer_name=?，因舊資料可能在 customer/client/name 欄位。
+    # 先讀出來用 _repair_row_if_needed 合併欄位後再篩選，避免總單客戶點了沒商品。
     if zone in ('A', 'B'):
         where.append('zone=?')
         params.append(zone)
@@ -88,6 +88,8 @@ def list_items(table: str, customer_uid='', customer_name='', zone='', search=''
         params += [limit_val, offset_val]
     rows = [_repair_row_if_needed(table, row) for row in fetch_all(sql, params)]
     rows = [row for row in rows if row]
+    if filter_customer_name:
+        rows = [row for row in rows if (row.get('customer_name') or '').strip() == filter_customer_name]
     # UI/business sort: material -> month -> height -> width -> length.
     # This keeps inventory/order/master lists from jumping by updated_at only.
     return sorted(rows, key=lambda row: product_sort_key(row.get('product_text') or '', row.get('material') or '', row.get('qty') or 0))

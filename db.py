@@ -98,13 +98,17 @@ class _PooledPgConn:
 def _get_pg_conn_from_pool():
     global PG_POOL
     if os.environ.get('YX_DISABLE_PG_POOL', '0') == '1':
-        return psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg2.connect(_postgres_url(), cursor_factory=psycopg2.extras.RealDictCursor)
+        conn.autocommit = True
+        return conn
     if PG_POOL is None:
         PG_POOL = psycopg2.pool.SimpleConnectionPool(
             PG_POOL_MIN, PG_POOL_MAX, _postgres_url(),
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
-    return _PooledPgConn(PG_POOL, PG_POOL.getconn())
+    conn = PG_POOL.getconn()
+    conn.autocommit = True
+    return _PooledPgConn(PG_POOL, conn)
 
 def get_conn():
     global USE_POSTGRES
@@ -262,6 +266,92 @@ def json_loads(value, default=None):
         return default
 
 
+
+def _qident(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _safe_pg_execute(cur, sql: str, params=()):
+    """PostgreSQL migration helper: one failed DDL must not poison the whole request."""
+    try:
+        cur.execute(sql, params)
+        return True
+    except Exception:
+        try:
+            cur.connection.rollback()
+        except Exception:
+            pass
+        return False
+
+
+def _unlock_postgres_constraints(cur):
+    """移除會阻擋舊資料讀寫的舊版 UNIQUE / NOT NULL / CHECK / FK 限制。
+
+    保留 PRIMARY KEY，因為 id 主鍵是程式更新、刪除、出貨扣除必需的定位欄位。
+    其他唯一限制、NOT NULL、舊倉庫唯一索引都取消，讓舊資料先能被讀出來。
+    """
+    if not USE_POSTGRES:
+        return
+    tables = [
+        'users','customer_profiles','inventory','orders','master_orders','shipping_records',
+        'warehouse_cells','today_changes','audit_trails','errors','corrections','customer_aliases',
+        'warehouse_recent_slots','submit_requests','todo_items','app_settings','image_hashes','backups','undo_events'
+    ]
+    for table in tables:
+        _safe_pg_execute(cur, """
+            SELECT conname
+            FROM pg_constraint
+            WHERE conrelid = %s::regclass AND contype <> 'p'
+        """, (table,))
+        try:
+            constraints = cur.fetchall() or []
+        except Exception:
+            constraints = []
+        for row in constraints:
+            cname = row.get('conname') if isinstance(row, dict) else row[0]
+            if cname:
+                _safe_pg_execute(cur, f'ALTER TABLE {_qident(table)} DROP CONSTRAINT IF EXISTS {_qident(cname)}')
+
+        _safe_pg_execute(cur, """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname='public' AND tablename=%s
+              AND indexdef ILIKE 'CREATE UNIQUE INDEX%%'
+              AND indexname NOT LIKE '%%pkey'
+        """, (table,))
+        try:
+            indexes = cur.fetchall() or []
+        except Exception:
+            indexes = []
+        for row in indexes:
+            iname = row.get('indexname') if isinstance(row, dict) else row[0]
+            if iname:
+                _safe_pg_execute(cur, f'DROP INDEX IF EXISTS {_qident(iname)}')
+
+        _safe_pg_execute(cur, """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=%s
+              AND is_nullable='NO' AND column_name <> 'id'
+        """, (table,))
+        try:
+            cols = cur.fetchall() or []
+        except Exception:
+            cols = []
+        for row in cols:
+            col = row.get('column_name') if isinstance(row, dict) else row[0]
+            if col:
+                _safe_pg_execute(cur, f'ALTER TABLE {_qident(table)} ALTER COLUMN {_qident(col)} DROP NOT NULL')
+
+    for name in (
+        'ux_warehouse_cells_zone_band_row_name_slot',
+        'warehouse_cells_zone_column_index_slot_number_key',
+        'warehouse_cells_zone_column_index_slot_key',
+        'customer_profiles_name_key', 'customer_profiles_uid_key',
+        'corrections_wrong_text_key', 'customer_aliases_alias_key',
+        'submit_requests_request_key', 'image_hashes_image_hash_key',
+    ):
+        _safe_pg_execute(cur, f'DROP INDEX IF EXISTS {_qident(name)}')
 def _init_db_inner():
     schema = [
         '''CREATE TABLE IF NOT EXISTS users (
@@ -451,7 +541,11 @@ def _init_db_inner():
     ]
     with db_cursor(commit=True) as cur:
         for stmt in schema:
-            cur.execute(_sql(stmt))
+            if USE_POSTGRES:
+                _safe_pg_execute(cur, _sql(stmt))
+            else:
+                cur.execute(_sql(stmt))
+        _unlock_postgres_constraints(cur)
         _ensure_migrations_with_cursor(cur)
         # Seed empty warehouse cells: A/B, 6 columns, 10 slots each.
         # Compatible with old PostgreSQL schemas that still have band/row_name/slot.
@@ -497,7 +591,11 @@ def _column_exists(cur, table: str, column: str) -> bool:
 
 def _add_column_if_missing(cur, table: str, column: str, definition: str):
     if not _column_exists(cur, table, column):
-        cur.execute(f'ALTER TABLE {table} ADD COLUMN {column} {definition}')
+        sql = f'ALTER TABLE {table} ADD COLUMN {column} {definition}'
+        if USE_POSTGRES:
+            _safe_pg_execute(cur, sql)
+        else:
+            cur.execute(sql)
 
 
 
