@@ -526,6 +526,17 @@ def _warehouse_exists(cur, zone, column_index, slot_number):
 
 
 def _repair_legacy_warehouse_columns(cur):
+    # FIX v12: 舊版 PostgreSQL 有唯一限制 ux_warehouse_cells_zone_band_row_name_slot(zone, band, row_name, slot)。
+    # 新版倉庫改用 zone + column_index + slot_number；先移除舊唯一限制，避免全部撞到 (A,0,'',0)。
+    if USE_POSTGRES:
+        try:
+            cur.execute('ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS ux_warehouse_cells_zone_band_row_name_slot')
+        except Exception:
+            pass
+        try:
+            cur.execute('DROP INDEX IF EXISTS ux_warehouse_cells_zone_band_row_name_slot')
+        except Exception:
+            pass
     try:
         if _column_exists(cur, 'warehouse_cells', 'band'):
             cur.execute(_sql('UPDATE warehouse_cells SET band=column_index WHERE band IS NULL OR band=0'))
