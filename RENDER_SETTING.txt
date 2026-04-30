@@ -1,0 +1,27 @@
+Render 設定：
+Build Command:
+pip install -r requirements.txt
+
+Start Command:
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --access-logfile - --error-logfile -
+
+Health Check Path:
+/health
+
+Root Directory:
+留空
+
+必要 Environment Variables:
+PYTHON_VERSION=3.11.10
+SECRET_KEY=任意長字串
+WEB_CONCURRENCY=1
+GUNICORN_TIMEOUT=120
+YX_AUTO_DAILY_BACKUP=0
+YX_DISABLE_BACKGROUND_INIT=1
+
+覆蓋 GitHub 後請按：
+Manual Deploy → Clear build cache & deploy
+
+若網站成功部署但頁面顯示啟動診斷，請打開：
+/api/startup-error
+把 trace 貼回來。
