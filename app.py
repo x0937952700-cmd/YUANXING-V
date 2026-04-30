@@ -70,6 +70,11 @@ def ensure_db_ready(force=False):
     LAST_DB_INIT_ATTEMPT = now
     try:
         init_db()
+        if force:
+            try:
+                sync_customers_from_item_tables()
+            except Exception:
+                pass
         STARTUP_DB_ERROR = None
         DB_INITIALIZED = True
     except Exception as exc:
@@ -147,6 +152,43 @@ def body():
 
 def username():
     return session.get('username', '')
+
+
+def sync_customers_from_item_tables(limit_per_table: int = 500) -> dict:
+    """Bridge old item-table customer names into customer_profiles and customer_uid."""
+    created = 0
+    linked = 0
+    seen = set()
+    for table in ('master_orders', 'orders', 'inventory'):
+        try:
+            rows = fetch_all(f"""SELECT customer_name, customer_uid, COUNT(*) AS c
+                                 FROM {table}
+                                 WHERE COALESCE(customer_name,'')!=''
+                                 GROUP BY customer_name, customer_uid
+                                 ORDER BY MAX(id) DESC
+                                 LIMIT ?""", (limit_per_table,))
+        except Exception:
+            continue
+        for r in rows:
+            name = (r.get('customer_name') or '').strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            try:
+                prof = find_customer_by_uid_or_name(uid=(r.get('customer_uid') or ''), name=name)
+                if not prof:
+                    prof = ensure_customer(name, region='北區', trade_type='')
+                    created += 1
+                uid = (prof or {}).get('uid') or (r.get('customer_uid') or '')
+                if uid:
+                    execute(f"""UPDATE {table}
+                                SET customer_uid=?
+                                WHERE COALESCE(customer_name,'')=?
+                                  AND (customer_uid IS NULL OR customer_uid='')""", (uid, name))
+                    linked += 1
+            except Exception:
+                continue
+    return {'created': created, 'linked_groups': linked, 'scanned_customers': len(seen)}
 
 
 
@@ -402,8 +444,48 @@ def api_region_customers():
 @require_login
 def api_customers():
     archived = request.args.get('archived') == '1'
+    if not archived and request.args.get('sync', '1') != '0':
+        try:
+            sync_customers_from_item_tables(limit_per_table=300)
+        except Exception:
+            pass
     rows = fetch_all('SELECT * FROM customer_profiles WHERE is_archived=? ORDER BY region, name', (1 if archived else 0,))
+    if not archived:
+        seen = {str(r.get('name') or '') for r in rows}
+        extras = []
+        try:
+            for table in ('master_orders', 'orders'):
+                for g in fetch_all(f"""SELECT customer_name, customer_uid, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum
+                                      FROM {table}
+                                      WHERE COALESCE(customer_name,'')!=''
+                                      GROUP BY customer_name, customer_uid
+                                      ORDER BY customer_name"""):
+                    name = (g.get('customer_name') or '').strip()
+                    if not name or name in seen:
+                        continue
+                    seen.add(name)
+                    extras.append({
+                        'uid': g.get('customer_uid') or ('VIRTUAL-' + str(abs(hash(name)))),
+                        'name': name,
+                        'region': '北區',
+                        'trade_type': '',
+                        'phone': '',
+                        'address': '',
+                        'special_notes': '',
+                        'common_materials': '',
+                        'common_sizes': '',
+                        'is_archived': 0,
+                    })
+        except Exception:
+            pass
+        rows = list(rows) + extras
     return ok(items=_attach_customer_counts(rows))
+
+
+@app.post('/api/customers/sync-from-items')
+@require_login
+def api_customers_sync_from_items():
+    return ok(item=sync_customers_from_item_tables(limit_per_table=1000), message='已同步總單/訂單/庫存客戶到客戶資料')
 
 
 @app.get('/api/customers/archived')
@@ -1494,7 +1576,9 @@ def api_health():
     counts = {}
     samples = {}
     try:
-        ensure_db_ready(force=request.args.get('force') == '1')
+        force = request.args.get('force') == '1'
+        ensure_db_ready(force=force)
+        bridge = sync_customers_from_item_tables() if force else {}
         for table in ('inventory','orders','master_orders','shipping_records','warehouse_cells','customer_profiles','today_changes'):
             counts[table] = (fetch_one(f'SELECT COUNT(*) AS c FROM {table}') or {}).get('c', 0)
         samples = {
@@ -1512,6 +1596,7 @@ def api_health():
         database=masked_database_url(),
         forced_database=os.environ.get('YX_FORCE_PROVIDED_DATABASE_URL','1') != '0',
         counts=counts,
+        customer_bridge=locals().get('bridge', {}),
         samples=samples,
         socketio_enabled=bool(socketio)
     )

@@ -21,7 +21,7 @@
   }
   function install(){
     cleanup();
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', inlineEdit:true, fullList:true}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix139-readme-unified-master-hardlock', inlineEdit:true, fullList:true}); } catch(_e) {}
     [80, 220, 650, 1400, 2600].forEach(ms => setTimeout(cleanup, ms));
   }
   YX.register('inline_edit_full_list', {install, cleanup});

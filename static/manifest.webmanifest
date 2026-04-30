@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "postgres-connected-v1"
+  "version": "fix139-ui-pg-customer-bridge-v13"
 }
