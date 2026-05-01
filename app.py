@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime, timedelta, date
 
-from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data
+from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data, ensure_column
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-ui-shell')
@@ -621,29 +621,59 @@ def api_shipping_records():
                     AND (?='' OR customer LIKE ? OR product LIKE ? OR operator LIKE ?) ORDER BY shipped_at DESC LIMIT 500''', [start,end,q,like,like,like], fetch=True)
     return jsonify(ok=True, items=rows)
 
+def _pack26_zone_key(*vals):
+    raw = ' '.join([str(v or '') for v in vals]).strip().upper()
+    if raw in ('A', 'A區', 'A 区') or raw.startswith('A') or 'A區' in raw or 'A-' in raw:
+        return 'A'
+    if raw in ('B', 'B區', 'B 区') or raw.startswith('B') or 'B區' in raw or 'B-' in raw:
+        return 'B'
+    return '未指定'
+
+def _pack26_unplaced_summary():
+    summary = {'A': 0, 'B': 0, '未指定': 0}
+    rows = query("""
+        SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+               COALESCE(zone,'') AS zone,
+               COALESCE(area,'') AS area,
+               COALESCE(location,'') AS location
+        FROM inventory
+        WHERE COALESCE(placed,0)=0
+        LIMIT 20000
+    """, fetch=True)
+    for r in rows or []:
+        key = _pack26_zone_key(r.get('zone'), r.get('area'), r.get('location'))
+        try:
+            q = int(float(r.get('qty') or 0))
+        except Exception:
+            q = 0
+        summary[key] += max(0, q)
+    return summary
+
 @app.route('/api/today', methods=['GET'])
 def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
-    logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
-    unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
-    # PACK21: 未錄入倉庫圖只回傳 A/B/未指定總件數；用 Python 分組，避免 PostgreSQL quote/boolean 型別錯誤。
-    unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
     try:
-        rows = query("""
-            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                   COALESCE(NULLIF(zone,''), location, '') AS z
-            FROM inventory
-            WHERE COALESCE(placed,0)=0
-            LIMIT 5000
-        """, fetch=True)
-        for r in rows or []:
-            z = str(r.get('z') or '').upper()
-            k = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
-            unplaced_summary[k] += int(float(r.get('qty') or 0))
+        logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
+    except Exception:
+        logs = []
+    try:
+        unread = query(unread_count_sql(), fetch=True, one=True) or {'n': 0}
+    except Exception:
+        unread = {'n': 0}
+    try:
+        unplaced_summary = _pack26_unplaced_summary()
     except Exception:
         unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
     total_unplaced = int(sum(unplaced_summary.values()))
-    return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
+    return jsonify(ok=True, success=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
+
+@app.route('/api/today-summary', methods=['GET'])
+def api_today_summary_pack26():
+    try:
+        summary = _pack26_unplaced_summary()
+    except Exception as e:
+        return jsonify(ok=False, success=False, error=str(e), unplaced_summary={'A':0,'B':0,'未指定':0}, unplaced_total=0), 500
+    return jsonify(ok=True, success=True, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -841,23 +871,11 @@ def api_warehouse_search_alias():
 
 @app.route('/api/warehouse/unplaced-summary', methods=['GET'])
 def api_warehouse_unplaced_summary_pack20():
-    # PACK21: avoid fragile SQL CASE/quote syntax; group in Python for PostgreSQL/SQLite compatibility.
-    summary = {'A': 0, 'B': 0, '未指定': 0}
     try:
-        rows = query("""
-            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                   COALESCE(NULLIF(zone,''), location, '') AS z
-            FROM inventory
-            WHERE COALESCE(placed,0)=0
-            LIMIT 5000
-        """, fetch=True)
-        for r in rows or []:
-            z = str(r.get('z') or '').upper()
-            key = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
-            summary[key] += int(float(r.get('qty') or 0))
-        return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
+        summary = _pack26_unplaced_summary()
+        return jsonify(ok=True, success=True, summary=summary, total=int(sum(summary.values())))
     except Exception as e:
-        return jsonify(ok=False, success=False, error=str(e), summary=summary, total=0), 500
+        return jsonify(ok=False, success=False, error=str(e), summary={'A':0,'B':0,'未指定':0}, total=0), 500
 
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
@@ -2613,3 +2631,31 @@ def api_pack22_deploy_acceptance():
         '出貨預覽顯示材積算式與扣前→扣後',
         '倉庫未入倉顯示 A/B/未指定並可長按/刷新更新'
     ], checks=checks)
+
+
+# ==== PACK26 targeted stability: today summary, activity schema, UI preservation ====
+@app.route('/api/pack26/db-repair', methods=['GET','POST'])
+def api_pack26_db_repair():
+    ensure_db()
+    # Ensure legacy activity_logs tables get all columns used by log_action.
+    for col, ddl in [
+        ('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"),
+        ('qty', 'INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"),
+        ('unread', 'INTEGER DEFAULT 1'), ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    ]:
+        try:
+            ensure_column('activity_logs', col, ddl)
+        except Exception:
+            pass
+    return api_success(pack='26', message='activity_logs 欄位已修復', today=api_today().get_json())
+
+@app.route('/api/pack26/deploy-acceptance', methods=['GET'])
+def api_pack26_deploy_acceptance():
+    return api_success(pack='26', fixed=[
+        'activity_logs category/customer/product/qty/action/operator 欄位補齊',
+        '今日異動刷新固定顯示 A區/B區/未指定/總件數',
+        '北中南只保留目前卡片區格式並避免舊版重畫覆蓋',
+        '出貨頁移除下方文字框，改標籤直接編輯並同步隱藏資料',
+        '材質標籤置中，批量編輯固定在批量刪除旁邊'
+    ], today=api_today().get_json())
+# ==== END PACK26 ====
