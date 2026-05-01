@@ -737,19 +737,34 @@ def api_ship_alias():
 def api_ship_preview_alias():
     d = request.get_json(silent=True) or {}
     customer = clean_text(d.get('customer') or d.get('customer_name'))
-    items = d.get('items') if isinstance(d.get('items'), list) else parse_lines(d.get('text') or d.get('ocr_text') or d.get('product') or '', customer, d.get('material') or '')
+    raw_items = d.get('items') if isinstance(d.get('items'), list) else parse_lines(d.get('text') or d.get('ocr_text') or d.get('product') or '', customer, d.get('material') or '')
+    items = []
+    for it in raw_items or []:
+        p = normalize_product_text(clean_text(it.get('product') or it.get('product_text') or ''))
+        if not p:
+            continue
+        items.append({
+            'customer': clean_text(it.get('customer') or it.get('customer_name') or customer),
+            'product': p,
+            'material': clean_text(it.get('material') or d.get('material') or ''),
+            'qty': int(it.get('qty') or it.get('quantity') or parse_qty_from_product(p) or 1),
+            'source': clean_text(it.get('source') or it.get('source_table') or ''),
+        })
     preview = []
     for item in items:
         p = clean_text(item.get('product'))
         c = clean_text(item.get('customer') or customer)
-        qty = int(item.get('qty') or parse_qty_from_product(p))
+        qty = int(item.get('qty') or parse_qty_from_product(p) or 1)
         sources = []
-        for table in ('master_orders','orders','inventory'):
+        preferred = item.get('source')
+        tables = [preferred] if preferred in ('master_orders','orders','inventory') else ['master_orders','orders','inventory']
+        for table in tables:
             rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM {table} WHERE (?='' OR customer=?) AND product=? AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id LIMIT 20", [c,c,p], fetch=True)
             for r in rows:
                 r['source'] = table
                 sources.append(r)
-        preview.append({'customer': c, 'product': p, 'qty': qty, 'sources': normalize_item_rows(sources)})
+        before = int((sources[0].get('qty') if sources else 0) or 0)
+        preview.append({'customer': c, 'product': p, 'material': item.get('material') or (sources[0].get('material') if sources else ''), 'qty': qty, 'before_qty': before, 'after_qty': max(0, before-qty) if before else None, 'sources': normalize_item_rows(sources)})
     return jsonify(ok=True, items=preview, calc=calc_items_summary(items))
 
 @app.route('/api/today-changes', methods=['GET'])
@@ -2578,3 +2593,23 @@ def api_pack19_deploy_acceptance():
             '今日異動刷新只局部刷新今日異動區塊'
         ]
     )
+
+
+@app.route('/api/pack22/deploy-acceptance', methods=['GET'])
+def api_pack22_deploy_acceptance():
+    checks = {}
+    try:
+        checks['today'] = api_today().get_json()
+    except Exception as e:
+        checks['today'] = {'ok': False, 'error': str(e)}
+    try:
+        checks['unplaced_summary'] = api_warehouse_unplaced_summary_pack20().get_json()
+    except Exception as e:
+        checks['unplaced_summary'] = {'ok': False, 'error': str(e)}
+    return jsonify(ok=True, pack='22', fixed=[
+        '今日異動刷新只顯示 A/B/未指定總件數',
+        '庫存訂單總單工具列收斂同排並移除搜尋/全選',
+        '出貨商品資料只保留尺寸，材質改標籤顯示',
+        '出貨預覽顯示材積算式與扣前→扣後',
+        '倉庫未入倉顯示 A/B/未指定並可長按/刷新更新'
+    ], checks=checks)
