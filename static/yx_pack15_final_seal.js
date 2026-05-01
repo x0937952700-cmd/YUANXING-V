@@ -129,5 +129,5 @@
   function fixCustomerCardsOneLine(){ qsa('.customer-card,.customer-chip,.region-customer,.client-card').forEach(el=>{ el.classList.add('yx15-customer-one-line'); }); }
   function install(){ document.documentElement.dataset.yxPack15Final='sealed'; patchMaterialSelects(); fixCustomerCardsOneLine(); if(isWarehousePage()) setTimeout(()=>renderWarehouse(true),80); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
-  new MutationObserver(()=>{ patchMaterialSelects(); fixCustomerCardsOneLine(); }).observe(document.documentElement,{childList:true,subtree:true});
+  /* pack19: disabled broad MutationObserver to avoid all-page lag; pack19 final layer handles refresh explicitly */
 })();

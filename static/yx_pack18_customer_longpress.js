@@ -138,7 +138,7 @@
     });
   }
 
-  const mo=new MutationObserver(()=>bindCustomerButtons());
+  let _yx18t=null; const mo=new MutationObserver(()=>{clearTimeout(_yx18t); _yx18t=setTimeout(bindCustomerButtons,180);});
   document.addEventListener('DOMContentLoaded',()=>{
     bindCustomerButtons();
     const rg=$('region-picker-section'); if(rg) mo.observe(rg,{childList:true,subtree:true});

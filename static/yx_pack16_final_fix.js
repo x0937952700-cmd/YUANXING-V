@@ -181,5 +181,5 @@
 
   function install(){ patchMaterialOptions(); hideDuplicateInventory(); cleanTables(); installCustomerAutocomplete(); patchCustomerCards(); patchShipDropdown(); bindTodayRefresh(); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
-  new MutationObserver(()=>{ patchMaterialOptions(); hideDuplicateInventory(); cleanTables(); installCustomerAutocomplete(); patchCustomerCards(); patchShipDropdown(); }).observe(document.documentElement,{childList:true,subtree:true});
+  /* pack19: disabled broad MutationObserver to avoid all-page lag; explicit bind only */
 })();

@@ -20,5 +20,5 @@
   window.addEventListener('unhandledrejection',e=>{const host=$('main')||$('.page-shell')||document.body; const d=document.createElement('div'); d.className='yx-pack12-error'; d.textContent='錯誤：'+(e.reason?.message||e.reason||'未知錯誤'); host.prepend(d); setTimeout(()=>d.remove(),6000);});
   function boot(){bindShipDropdown();hideShipTables();markTradeTags();noDouble();mobilePatch();}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot();
-  document.addEventListener('yx:pagechange',boot); setInterval(boot,5000);
+  document.addEventListener('yx:pagechange',boot); /* pack19: no repeated full-page boot to avoid lag */
 })();

@@ -47,7 +47,7 @@ def unread_count_sql():
     return "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread::text,'') IN ('1','t','true','True','TRUE')" if USE_POSTGRES else "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread,0)=1"
 
 def unread_clear_sql():
-    return "UPDATE activity_logs SET unread='0'"
+    return "UPDATE activity_logs SET unread=FALSE" if USE_POSTGRES else "UPDATE activity_logs SET unread=0"
 
 def clean_text(v):
     return (v or '').strip()
@@ -625,10 +625,35 @@ def api_shipping_records():
 @app.route('/api/today', methods=['GET'])
 def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
-    logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 300', [today], fetch=True)
+    logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
     unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
-    unplaced = query('SELECT * FROM inventory WHERE COALESCE(placed,0)=0 ORDER BY id DESC LIMIT 200', fetch=True)
-    return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=unplaced)
+    # PACK19: 未錄入倉庫圖只回傳 A/B/未指定總件數，不回傳大量明細，避免今日異動與全站卡住。
+    unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
+    try:
+        rows = query("""
+            SELECT
+              CASE
+                WHEN UPPER(COALESCE(zone, area, location, '')) LIKE '%A%' THEN 'A'
+                WHEN UPPER(COALESCE(zone, area, location, '')) LIKE '%B%' THEN 'B'
+                ELSE '未指定'
+              END AS zone_group,
+              SUM(COALESCE(NULLIF(qty,0), quantity, 0)) AS qty
+            FROM inventory
+            WHERE COALESCE(placed,0)=0
+            GROUP BY zone_group
+        """, fetch=True)
+        for r in rows or []:
+            k = r.get('zone_group') or '未指定'
+            unplaced_summary[k] = int(r.get('qty') or 0)
+    except Exception:
+        # fallback for very old schemas
+        rows = query('SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty, COALESCE(zone, area, location, '') AS z FROM inventory WHERE COALESCE(placed,0)=0 LIMIT 2000', fetch=True)
+        for r in rows or []:
+            z = str(r.get('z') or '').upper()
+            k = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
+            unplaced_summary[k] += int(r.get('qty') or 0)
+    total_unplaced = int(sum(unplaced_summary.values()))
+    return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -2493,3 +2518,18 @@ def api_pack18_deploy_acceptance():
         'delete_customer_refresh_immediately': True
     }, message='第十八包客戶長按操作已載入')
 # ==== END PACK18 ====
+
+
+# ==== PACK 19: today summary only + performance acceptance ====
+@app.route('/api/pack19/deploy-acceptance', methods=['GET'])
+def api_pack19_deploy_acceptance():
+    return api_success(
+        pack='19',
+        fixed=[
+            '今日異動未錄入倉庫圖只顯示 A/B/未指定總件數',
+            '不再回傳大量未入倉明細避免頁面卡住',
+            '修正 unread boolean 清除語法',
+            '停用 pack12/15/16/17 的全站重複掃描與定時重算',
+            '今日異動刷新只局部刷新今日異動區塊'
+        ]
+    )

@@ -59,5 +59,5 @@
   function removeBottomDuplicates(){if(!isWarehouse())return;qsa('body > .warehouse-zone-wrap, body > #yx15-warehouse-wrap, body > .yx15-warehouse-wrap, body > .warehouse-zone-nav').forEach(el=>el.remove());qsa('.warehouse-zone-wrap,.warehouse-zone-nav,#yx15-warehouse-wrap,.yx15-warehouse-wrap,.yx-warehouse-final13,.yx105-warehouse-grid').forEach(el=>{if(!el.closest('#yx17-warehouse-root')){el.style.display='none';el.setAttribute('aria-hidden','true')}});}
   async function install(){document.documentElement.dataset.yxPack17Warehouse='locked';document.body.classList.toggle('warehouse-page',isWarehouse());if(isWarehouse()){ensureRoot();removeBottomDuplicates();await refresh();await loadAvailable(false);} }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
-  setInterval(removeBottomDuplicates,1200);
+  /* pack19: no repeated duplicate removal interval */
 })();
