@@ -1,0 +1,32 @@
+/* CURRENT TARGETED FIX: do not change page style, only enforce requested behavior */
+.yx-current-hidden{display:none!important}
+/* 北中南只保留 region-picker-section 這一套卡片 */
+.module-screen[data-module="orders"] .category-grid:not(#region-picker-section .category-grid),
+.module-screen[data-module="master_order"] .category-grid:not(#region-picker-section .category-grid),
+.module-screen[data-module="ship"] .category-grid:not(#region-picker-section .category-grid),
+.module-screen[data-module="orders"] .customer-board:not(#region-picker-section .customer-board),
+.module-screen[data-module="master_order"] .customer-board:not(#region-picker-section .customer-board),
+.module-screen[data-module="ship"] .customer-board:not(#region-picker-section .customer-board){display:none!important}
+#region-picker-section .customer-list .customer-chip,
+#region-picker-section .customer-list .customer-card,
+#region-picker-section .customer-list .yx-current-region-card{display:grid!important;grid-template-columns:minmax(90px,1fr) auto auto!important;align-items:center!important;gap:12px!important;width:100%!important;text-align:left!important;min-height:48px!important}
+#region-picker-section .cust-name,#region-picker-section .yx-cust-main{justify-self:start!important;font-weight:900!important}
+#region-picker-section .cust-term,#region-picker-section .yx-term-label{justify-self:center!important;color:#059669!important;background:#dcfce7!important;border:1px solid #86efac!important;border-radius:999px!important;padding:2px 14px!important;font-weight:800!important;white-space:nowrap!important}
+#region-picker-section .cust-count,#region-picker-section .yx-cust-count{justify-self:end!important;white-space:nowrap!important;color:#344054!important;font-weight:800!important}
+/* 未入倉只留 A/B/總計，刪除未指定 */
+.yx-current-unplaced-line{display:inline-flex!important;align-items:center!important;gap:8px!important;white-space:nowrap!important;font-weight:800!important}
+.yx-current-unplaced-line .count{color:#2563eb!important;font-weight:900!important}
+.yx-current-unplaced-line .sep{color:#94a3b8!important}
+.yx-current-unplaced-duplicate{display:none!important}
+#today-unplaced-list .yx-current-unplaced-line{padding:12px 14px;border:1px solid #bfdbfe;border-radius:16px;background:#f8fbff;box-shadow:0 8px 20px rgba(15,23,42,.04)}
+/* 批量工具列同排，不動原本按鈕造型 */
+.yx-table-tools.yx-current-tools{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:10px!important}
+.yx-current-batch-edit,.yx-current-save-edit{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:42px!important}
+.yx-current-hide-extra-edit{display:none!important}
+/* 表格列可點選，材質格置中 */
+.yx-product-table tbody tr{cursor:pointer}
+.yx-product-table td.yx-material,.yx-product-table td:nth-child(2){text-align:center!important;vertical-align:middle!important}
+.yx-current-mat-pill,.yx30-mat-pill,.yx28-mat-pill{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:70px!important;min-height:34px!important;border-radius:999px!important;background:#dcfce7!important;border:1px solid #86efac!important;color:#047857!important;font-weight:800!important;margin:auto!important;white-space:nowrap!important}
+.yx-current-edit-input,.yx-current-edit-select{width:100%;min-width:86px;border:1px solid #cbd5e1;border-radius:10px;padding:8px 10px;background:#fff;font:inherit;text-align:center}
+/* 刪除重複未入倉標籤 */
+#yx22-unplaced-summary{display:none!important}
