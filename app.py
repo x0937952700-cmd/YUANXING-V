@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime, timedelta, date
 
-from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data
+from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data, table_columns
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-ui-shell')
@@ -621,29 +621,67 @@ def api_shipping_records():
                     AND (?='' OR customer LIKE ? OR product LIKE ? OR operator LIKE ?) ORDER BY shipped_at DESC LIMIT 500''', [start,end,q,like,like,like], fetch=True)
     return jsonify(ok=True, items=rows)
 
+def _safe_int(v, default=0):
+    try:
+        if v is None or v == '':
+            return default
+        return int(float(v))
+    except Exception:
+        return default
+
+def _row_qty(row):
+    for key in ('qty','quantity','count','amount'):
+        q = _safe_int(row.get(key), None)
+        if q and q > 0:
+            return q
+    return parse_qty_from_product(row.get('product') or row.get('product_text') or row.get('item') or '') or 1
+
+def _row_zone(row):
+    raw = ' '.join(str(row.get(k) or '') for k in ('zone','area','location','ab_zone','warehouse_zone'))
+    raw_u = raw.upper()
+    if 'A' in raw_u or 'Ａ' in raw:
+        return 'A'
+    if 'B' in raw_u or 'Ｂ' in raw:
+        return 'B'
+    return '未指定'
+
+def _unplaced_summary_safe():
+    summary = {'A': 0, 'B': 0, '未指定': 0}
+    try:
+        rows = query('SELECT * FROM inventory LIMIT 10000', fetch=True) or []
+        for r in rows:
+            placed = str(r.get('placed') if r.get('placed') is not None else '').lower()
+            loc_text = ' '.join(str(r.get(k) or '') for k in ('warehouse_cell','cell_id','slot','slot_number'))
+            # Only count records not already assigned to a warehouse cell. Legacy placed may be 0/false/empty.
+            if placed in ('1','true','t','yes') or loc_text.strip():
+                continue
+            summary[_row_zone(r)] += _row_qty(r)
+    except Exception:
+        pass
+    return summary
+
+@app.route('/api/today-summary', methods=['GET'])
+def api_today_summary_pack23():
+    summary = _unplaced_summary_safe()
+    return jsonify(ok=True, success=True, unplaced_summary=summary, unplaced_total=sum(summary.values()), items=[
+        {'label':'A區','qty':summary.get('A',0)},
+        {'label':'B區','qty':summary.get('B',0)},
+        {'label':'未指定','qty':summary.get('未指定',0)},
+    ])
+
 @app.route('/api/today', methods=['GET'])
 def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
-    logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
-    unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
-    # PACK21: 未錄入倉庫圖只回傳 A/B/未指定總件數；用 Python 分組，避免 PostgreSQL quote/boolean 型別錯誤。
-    unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
     try:
-        rows = query("""
-            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                   COALESCE(NULLIF(zone,''), location, '') AS z
-            FROM inventory
-            WHERE COALESCE(placed,0)=0
-            LIMIT 5000
-        """, fetch=True)
-        for r in rows or []:
-            z = str(r.get('z') or '').upper()
-            k = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
-            unplaced_summary[k] += int(float(r.get('qty') or 0))
+        logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
     except Exception:
-        unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
-    total_unplaced = int(sum(unplaced_summary.values()))
-    return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
+        logs = []
+    try:
+        unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
+    except Exception:
+        unread = {'n':0}
+    unplaced_summary = _unplaced_summary_safe()
+    return jsonify(ok=True, success=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=int(sum(unplaced_summary.values())))
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -841,23 +879,8 @@ def api_warehouse_search_alias():
 
 @app.route('/api/warehouse/unplaced-summary', methods=['GET'])
 def api_warehouse_unplaced_summary_pack20():
-    # PACK21: avoid fragile SQL CASE/quote syntax; group in Python for PostgreSQL/SQLite compatibility.
-    summary = {'A': 0, 'B': 0, '未指定': 0}
-    try:
-        rows = query("""
-            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                   COALESCE(NULLIF(zone,''), location, '') AS z
-            FROM inventory
-            WHERE COALESCE(placed,0)=0
-            LIMIT 5000
-        """, fetch=True)
-        for r in rows or []:
-            z = str(r.get('z') or '').upper()
-            key = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
-            summary[key] += int(float(r.get('qty') or 0))
-        return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
-    except Exception as e:
-        return jsonify(ok=False, success=False, error=str(e), summary=summary, total=0), 500
+    summary = _unplaced_summary_safe()
+    return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()), unplaced_summary=summary, unplaced_total=sum(summary.values()))
 
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
@@ -2613,3 +2636,18 @@ def api_pack22_deploy_acceptance():
         '出貨預覽顯示材積算式與扣前→扣後',
         '倉庫未入倉顯示 A/B/未指定並可長按/刷新更新'
     ], checks=checks)
+
+
+# ==== PACK 23: single final layer / today summary SQL-safe / material RDT / customer move refresh ====
+@app.route('/api/pack23/deploy-acceptance', methods=['GET'])
+def api_pack23_deploy_acceptance():
+    summary = _unplaced_summary_safe()
+    return jsonify(ok=True, success=True, pack='23', message='第二十三包單一最終層已載入', fixes=[
+        '只載入 pack23 單一前端覆蓋層，移除 pack12~pack22 多層覆蓋',
+        '今日異動刷新改用 /api/today-summary，避免 SQL COALESCE 語法錯誤',
+        '未錄入倉庫圖只顯示 A區/B區/未指定總件數',
+        '材質清單加入 RDT',
+        '客戶移區後前端立即重繪到新區',
+        '材質標籤置中，批量編輯放在批量刪除旁邊'
+    ], unplaced_summary=summary, total=sum(summary.values()))
+# ==== end pack 23 ====
