@@ -15,7 +15,18 @@ except Exception:
     SimpleConnectionPool = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("WAREHOUSE_DATABASE_URL") or "").strip()
+# Database URL priority:
+# 1) YX_DATABASE_URL: use this when you want to connect this app to another Render PostgreSQL database
+#    without changing the auto-created DATABASE_URL.
+# 2) YUANXING_DATABASE_URL / WAREHOUSE_DATABASE_URL: compatibility aliases.
+# 3) DATABASE_URL: Render's standard database URL.
+DATABASE_URL = (
+    os.environ.get("YX_DATABASE_URL")
+    or os.environ.get("YUANXING_DATABASE_URL")
+    or os.environ.get("WAREHOUSE_DATABASE_URL")
+    or os.environ.get("DATABASE_URL")
+    or ""
+).strip()
 ALLOW_SQLITE_FALLBACK = os.environ.get("YX_ALLOW_SQLITE_FALLBACK", "1") != "0"
 USE_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith(("postgres://", "postgresql://")) and psycopg2)
 
@@ -293,6 +304,7 @@ def init_db(force=False):
         seed_warehouse_cells()
         seed_admin_user()
         create_indexes()
+        repair_legacy_data()
         _INIT_DONE = True
 
 
@@ -377,6 +389,110 @@ def seed_warehouse_cells():
     )
 
 
+
+# ========= Legacy data repair / backfill =========
+def _parse_qty_from_product_text(product):
+    """Parse piece count from legacy product text such as 132x23x05=249x3+114."""
+    import re
+    text = str(product or '').strip()
+    if not text:
+        return 0
+    norm = text.replace('×', 'x').replace('X', 'x').replace('✕', 'x').replace('＋', '+').replace(' ', '')
+    # User-confirmed special case: this line is 10 pieces, not 11.
+    if norm == '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174':
+        return 10
+    if '=' in norm:
+        tail = norm.split('=', 1)[1]
+        total = 0
+        for part in re.split(r'\+', tail):
+            part = part.strip()
+            if not part:
+                continue
+            m = re.search(r'x(\d+)$', part)
+            total += int(m.group(1)) if m else 1
+        return max(total, 1)
+    m = re.search(r'(\d+)\s*(?:件|支)?$', text)
+    return int(m.group(1)) if m else 1
+
+
+def _copy_legacy_column(table, target, candidates):
+    """Copy old column names into the current canonical column when old deployments used different names."""
+    try:
+        cols = table_columns(table)
+        if target not in cols:
+            return
+        for src in candidates:
+            if src in cols and src != target:
+                query(f"UPDATE {table} SET {target}={src} WHERE ({target} IS NULL OR {target}='') AND {src} IS NOT NULL AND {src}<>''")
+    except Exception:
+        pass
+
+
+def repair_legacy_data():
+    """One-shot safe repair for old Render/SQLite data.
+
+    Fixes the common reason the UI shows empty customer/product lists:
+    1) old columns such as customer_name/item/product_name were not copied;
+    2) qty was 0 while quantity or the product text contained the true count;
+    3) customers table was empty although inventory/orders/master_orders had customers.
+    This function is idempotent and safe to run on every deploy.
+    """
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_items'):
+        _copy_legacy_column(table, 'customer', ['customer_name', 'client', 'client_name', 'company', 'company_name', 'name'])
+        _copy_legacy_column(table, 'product', ['item', 'item_name', 'product_name', 'goods', 'goods_name', 'size', 'content', 'text'])
+        _copy_legacy_column(table, 'material', ['wood', 'wood_type', 'material_name', '材質'])
+
+    # qty / quantity mutual repair from numeric columns first.
+    for table in ('inventory', 'orders', 'master_orders'):
+        try:
+            cols = table_columns(table)
+            if 'qty' in cols and 'quantity' in cols:
+                query(f"UPDATE {table} SET qty=quantity WHERE (qty IS NULL OR qty=0) AND COALESCE(quantity,0)>0")
+                query(f"UPDATE {table} SET quantity=qty WHERE (quantity IS NULL OR quantity=0) AND COALESCE(qty,0)>0")
+        except Exception:
+            pass
+
+    # Parse qty from product text for rows that still have no quantity.
+    for table in ('inventory', 'orders', 'master_orders'):
+        try:
+            rows = query(f"SELECT id, product, COALESCE(qty,0) AS qty, COALESCE(quantity,0) AS quantity FROM {table} WHERE COALESCE(NULLIF(qty,0), quantity, 0)=0 AND product IS NOT NULL AND product<>'' LIMIT 5000", fetch=True)
+            for r in rows:
+                qty = _parse_qty_from_product_text(r.get('product'))
+                if qty > 0:
+                    query(f"UPDATE {table} SET qty=?, quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", [qty, qty, r.get('id')])
+        except Exception:
+            pass
+
+    # Sync all customer names found in data tables back into customers table.
+    seen = set()
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_items'):
+        try:
+            if 'customer' not in table_columns(table):
+                continue
+            rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' LIMIT 5000", fetch=True)
+            for r in rows:
+                name = str(r.get('customer') or '').strip()
+                if name:
+                    seen.add(name)
+        except Exception:
+            pass
+    for name in sorted(seen):
+        try:
+            exists = query("SELECT id FROM customers WHERE name=?", [name], fetch=True, one=True)
+            if not exists:
+                query("INSERT INTO customers(name, region, archived) VALUES(?, '北區', 0)", [name])
+            else:
+                query("UPDATE customers SET archived=0 WHERE name=?", [name])
+        except Exception:
+            pass
+
+    # Keep customer list searchable even if old rows had archived/null values.
+    try:
+        query("UPDATE customers SET archived=0 WHERE archived IS NULL")
+        query("UPDATE customers SET region='北區' WHERE region IS NULL OR region='' ")
+    except Exception:
+        pass
+
 def log_action(username, action, entity='', entity_id='', detail=None, category=''):
     detail = detail or {}
     detail_text = _json_dumps(detail)
@@ -393,9 +509,35 @@ def tx_log_action(cur, username, action, entity='', entity_id='', detail=None, c
         tx_query(cur, "INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
 
 
+
+def masked_database_url():
+    """Return a safe DB label for debugging without exposing passwords."""
+    from urllib.parse import urlparse
+    if not DATABASE_URL:
+        return "sqlite" if not USE_POSTGRES else "postgres://未設定"
+    try:
+        u = urlparse(DATABASE_URL)
+        user = u.username or ''
+        host = u.hostname or ''
+        dbname = (u.path or '').lstrip('/')
+        return f"{u.scheme}://{user}:***@{host}/{dbname}"
+    except Exception:
+        return "postgres://***"
+
+
+def data_counts():
+    """Counts used by UI/debug to prove which DB is connected."""
+    out = {}
+    for table in ("customers", "inventory", "orders", "master_orders", "warehouse_items", "shipping_records"):
+        try:
+            out[table] = int((query(f"SELECT COUNT(*) AS n FROM {table}", fetch=True, one=True) or {}).get("n") or 0)
+        except Exception:
+            out[table] = -1
+    return out
+
 def db_status():
     try:
         row = query("SELECT 1 AS ok", fetch=True, one=True)
-        return {"ok": True, "engine": "postgres" if USE_POSTGRES else "sqlite", "row": row}
+        return {"ok": True, "engine": "postgres" if USE_POSTGRES else "sqlite", "database": masked_database_url(), "counts": data_counts(), "row": row}
     except Exception as e:
-        return {"ok": False, "engine": "postgres" if USE_POSTGRES else "sqlite", "message": str(e)}
+        return {"ok": False, "engine": "postgres" if USE_POSTGRES else "sqlite", "database": masked_database_url(), "message": str(e)}

@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime, timedelta, date
 
-from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES
+from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-ui-shell')
@@ -68,6 +68,52 @@ def parse_qty_from_product(product):
 def qty_expr(table_alias=''):
     prefix = (table_alias + '.') if table_alias else ''
     return f"COALESCE(NULLIF({prefix}qty,0), {prefix}quantity, 0)"
+
+
+def normalize_item_rows(rows):
+    """Make legacy rows visible even when old qty/quantity was 0."""
+    fixed = []
+    for r in rows or []:
+        r = dict(r)
+        q = int(r.get('qty') or r.get('quantity') or 0)
+        if q <= 0 and r.get('product'):
+            q = parse_qty_from_product(r.get('product'))
+        r['qty'] = q
+        if not r.get('quantity'):
+            r['quantity'] = q
+        fixed.append(r)
+    return fixed
+
+
+def derived_customers(q=''):
+    """Return merged customers from customers table plus customer fields in all data tables."""
+    q = clean_text(q)
+    merged = {}
+    try:
+        if q:
+            rows = query('SELECT * FROM customers WHERE COALESCE(archived,0)=0 AND name LIKE ? ORDER BY region, name', [f'%{q}%'], fetch=True)
+        else:
+            rows = query('SELECT * FROM customers WHERE COALESCE(archived,0)=0 ORDER BY region, name', fetch=True)
+        for r in rows:
+            name = clean_text(r.get('name'))
+            if name:
+                merged[name] = dict(r)
+    except Exception:
+        pass
+    for table in ('inventory','orders','master_orders','shipping_records','warehouse_items'):
+        try:
+            like = f'%{q}%'
+            if q:
+                rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' AND customer LIKE ? ORDER BY customer LIMIT 1000", [like], fetch=True)
+            else:
+                rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' ORDER BY customer LIMIT 1000", fetch=True)
+            for r in rows:
+                name = clean_text(r.get('customer'))
+                if name and name not in merged:
+                    merged[name] = {'id': None, 'name': name, 'region': '北區', 'archived': 0, 'phone': '', 'address': '', 'notes': '', 'from_data': True}
+        except Exception:
+            pass
+    return sorted(merged.values(), key=lambda x: ((x.get('region') or '北區'), x.get('name') or ''))
 
 def parse_lines(text, default_customer='', default_material=''):
     lines = [x.strip() for x in re.split(r'[\r\n]+', text or '') if x.strip()]
@@ -141,6 +187,24 @@ for endpoint, (module_key, title) in MODULES.items():
 def api_db_check():
     ensure_db()
     return jsonify(db_status())
+
+
+@app.route('/api/db-status', methods=['GET'])
+def api_db_status():
+    ensure_db()
+    return jsonify(db_status())
+
+@app.route('/api/maintenance/backfill', methods=['POST', 'GET'])
+def api_maintenance_backfill():
+    ensure_db()
+    repair_legacy_data()
+    counts = {
+        'customers': (query('SELECT COUNT(*) AS n FROM customers WHERE archived=0', fetch=True, one=True) or {}).get('n', 0),
+        'inventory': (query("SELECT COUNT(*) AS n FROM inventory WHERE COALESCE(product,'')<>'' OR COALESCE(customer,'')<>''", fetch=True, one=True) or {}).get('n', 0),
+        'orders': (query("SELECT COUNT(*) AS n FROM orders WHERE COALESCE(product,'')<>'' OR COALESCE(customer,'')<>''", fetch=True, one=True) or {}).get('n', 0),
+        'master_orders': (query("SELECT COUNT(*) AS n FROM master_orders WHERE COALESCE(product,'')<>'' OR COALESCE(customer,'')<>''", fetch=True, one=True) or {}).get('n', 0),
+    }
+    return jsonify(ok=True, message='舊資料回補、客戶同步、商品 qty 修復完成', counts=counts)
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
@@ -237,18 +301,18 @@ def ship_items(customer, items):
 
 @app.route('/api/inventory', methods=['GET'])
 def api_inventory():
-    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM inventory ORDER BY id DESC LIMIT 500', fetch=True)
-    return jsonify(ok=True, items=rows)
+    rows = query("SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM inventory WHERE COALESCE(product, '')<>'' OR COALESCE(customer, '')<>'' ORDER BY id DESC LIMIT 1000", fetch=True)
+    return jsonify(ok=True, items=normalize_item_rows(rows))
 
 @app.route('/api/orders', methods=['GET'])
 def api_orders():
-    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM orders WHERE COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
-    return jsonify(ok=True, items=rows)
+    rows = query("SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM orders WHERE COALESCE(product, '')<>'' OR COALESCE(customer, '')<>'' ORDER BY id DESC LIMIT 1000", fetch=True)
+    return jsonify(ok=True, items=normalize_item_rows(rows))
 
 @app.route('/api/master-orders', methods=['GET'])
 def api_master_orders():
-    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM master_orders WHERE COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
-    return jsonify(ok=True, items=rows)
+    rows = query("SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM master_orders WHERE COALESCE(product, '')<>'' OR COALESCE(customer, '')<>'' ORDER BY id DESC LIMIT 1000", fetch=True)
+    return jsonify(ok=True, items=normalize_item_rows(rows))
 
 @app.route('/api/item/<table>/<int:item_id>', methods=['DELETE', 'POST'])
 def api_item_change(table, item_id):
@@ -306,11 +370,11 @@ def api_customers():
             query('INSERT INTO customers(phone, address, notes, common_materials, common_sizes, region, name) VALUES(?, ?, ?, ?, ?, ?, ?)', vals)
         log_action(username(), '儲存客戶', 'customers', name, d)
         return jsonify(ok=True)
+    # Always merge customers from customers table + real data tables.
+    # This guarantees that when you connect to another Render DB, old customers
+    # stored only inside orders/master_orders/inventory still appear immediately.
     q = clean_text(request.args.get('q'))
-    if q:
-        rows = query('SELECT * FROM customers WHERE archived=0 AND name LIKE ? ORDER BY region, name', [f'%{q}%'], fetch=True)
-    else:
-        rows = query('SELECT * FROM customers WHERE archived=0 ORDER BY region, name', fetch=True)
+    rows = derived_customers(q)
     return jsonify(ok=True, items=rows)
 
 @app.route('/api/customers/archived', methods=['GET'])
@@ -332,24 +396,21 @@ def api_customer_items():
     c = clean_text(request.args.get('customer'))
     items = []
     for table in ('master_orders','orders','inventory'):
-        
-        if table == 'inventory':
-            rows = query("SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM inventory WHERE (?='' OR customer=?) AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC", [c,c], fetch=True)
-        else:
-            rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC", [c,c], fetch=True)
-        for r in rows:
+        rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'') ORDER BY id DESC LIMIT 1000", [c,c], fetch=True)
+        for r in normalize_item_rows(rows):
             r['source'] = table
-            r['qty'] = int(r.get('qty') or r.get('quantity') or 0)
             items.append(r)
     return jsonify(ok=True, items=items)
 
 @app.route('/api/regions/<module>', methods=['GET'])
 def api_regions(module):
     table = 'master_orders' if module in ('master_order','ship') else 'orders'
-    rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer<>'' AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY customer", fetch=True)
-    customers = [r['customer'] for r in rows]
-    meta = query('SELECT name, region FROM customers WHERE archived=0', fetch=True)
-    region_map = {m['name']: m.get('region') or '北區' for m in meta}
+    rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' ORDER BY customer", fetch=True)
+    customers = [r['customer'] for r in rows if clean_text(r.get('customer'))]
+    if not customers:
+        customers = [r.get('name') for r in derived_customers('') if r.get('name')]
+    meta = derived_customers('')
+    region_map = {m['name']: m.get('region') or '北區' for m in meta if m.get('name')}
     grouped = {'北區': [], '中區': [], '南區': []}
     for c in customers:
         grouped.setdefault(region_map.get(c,'北區'), []).append(c)
@@ -377,9 +438,21 @@ def api_warehouse_cell(cell_id):
 def api_warehouse_add_item():
     d = request.get_json(silent=True) or {}
     cell_id = int(d.get('cell_id') or 0)
+    if not cell_id:
+        zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
+        band = int(d.get('band') or d.get('column_index') or 1)
+        row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
+        slot = int(d.get('slot') or d.get('slot_number') or 1)
+        found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+        if not found:
+            query('INSERT INTO warehouse_cells(zone, band, row_name, slot) VALUES(?, ?, ?, ?)', [zone, band, row_name, slot])
+            found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+        cell_id = int(found.get('id') or 0)
     product = clean_text(d.get('product'))
     customer = clean_text(d.get('customer'))
     qty = int(d.get('qty') or parse_qty_from_product(product))
+    if not product:
+        return jerr('商品資料必填')
     query('INSERT INTO warehouse_items(cell_id, customer, product, material, qty, source_table, source_id) VALUES(?, ?, ?, ?, ?, ?, ?)', [cell_id, customer, product, d.get('material',''), qty, d.get('source',''), int(d.get('source_id') or 0)])
     if d.get('source') == 'inventory' and d.get('source_id'):
         query('UPDATE inventory SET placed=1, location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [str(cell_id), int(d.get('source_id'))])

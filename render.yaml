@@ -9,5 +9,7 @@ services:
         value: 3.11.11
       - key: DATABASE_URL
         sync: false
+      - key: YX_DATABASE_URL
+        sync: false
       - key: SECRET_KEY
         generateValue: true
