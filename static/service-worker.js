@@ -1,25 +1,25 @@
-/* 沅興木業 PWA Service Worker - html-lock-ship-open-list-v5 */
-const YX_PWA_VERSION='html-lock-ship-open-list-v5';
+/* 沅興木業 PWA Service Worker - html-lock-ship-segment-warehouse-v6 */
+const YX_PWA_VERSION='html-lock-ship-segment-warehouse-v6';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest','/static/favicon.png',
-  '/static/style.css?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/final_mother_lock.css?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/home_background_hardlock.css?v=html-lock-ship-open-list-v5',
-  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-ship-open-list-v5',
-  '/static/pwa.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/core_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/settings_manual.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/ship_single_lock.js?v=html-lock-ship-open-list-v5',
-  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-ship-open-list-v5',
+  '/static/style.css?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/final_mother_lock.css?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/home_background_hardlock.css?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-ship-segment-warehouse-v6',
+  '/static/pwa.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/core_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/settings_manual.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/ship_single_lock.js?v=html-lock-ship-segment-warehouse-v6',
+  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-ship-segment-warehouse-v6',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{

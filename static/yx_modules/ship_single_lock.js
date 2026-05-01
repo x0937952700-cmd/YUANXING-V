@@ -47,6 +47,17 @@
     return `${parts[0].replace(/x\s*\d+$/i,'')}x${q}`;
   }
   function productForQty(it,qty){ const p=splitProduct(it.product_text||''); return `${p.size}=${withQtySupport(p.support,qty)}`; }
+  function productFromSupport(size,support){ const sp=normalizeText(support); return `${normalizeText(size)}${sp?'='+sp:''}`; }
+  function supportSegments(support){ return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).map(seg=>{ const m=seg.match(/^(.*?)(?:x\s*(\d+))?$/i); const base=clean((m&&m[1])||seg).replace(/\s+$/,''); const mult=Number((m&&m[2])||1); return {base:base||seg.replace(/x\s*\d+$/i,''), mult:Math.max(1,Number.isFinite(mult)?mult:1)}; }); }
+  function supportTotalPieces(support){ const segs=supportSegments(support); return segs.reduce((a,b)=>a+Math.max(1,Number(b.mult||1)),0); }
+  function volumeCoeffLength(v){ const n=Number(String(v||'').replace(/^0+(?=\d)/,'')); if(!Number.isFinite(n)) return 0; return n>210?n/1000:n/100; }
+  function volumeCoeffWidth(v){ const n=Number(String(v||'').replace(/^0+(?=\d)/,'')); return Number.isFinite(n)?n/10:0; }
+  function volumeCoeffHeight(v){ const raw=String(v||'').trim(); const n=Number(raw.replace(/^0+(?=\d)/,'')); if(!Number.isFinite(n)) return 0; return n>=100?n/100:n/10; }
+  function supportSticksSum(support){ return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).reduce((sum,seg)=>{ const m=seg.match(/^(\d+(?:\.\d+)?)(?:x\s*(\d+))?$/i); if(!m) return sum; return sum + Number(m[1]||0) * Number(m[2]||1); },0); }
+  function localVolumeCalc(items){
+    const rows=(items||[]).map(it=>{ const p=splitProduct(it.product_text||''); const dims=p.size.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/i); if(!dims) return null; const sticks=supportSticksSum(p.support); const lc=volumeCoeffLength(dims[1]), wc=volumeCoeffWidth(dims[2]), hc=volumeCoeffHeight(dims[3]); const volume=sticks*lc*wc*hc; return {product:p.size+(p.support?'='+p.support:''), pieces_sum:sticks, formula:`${sticks} × ${lc} × ${wc} × ${hc}`, volume:Number.isFinite(volume)?volume:0}; }).filter(Boolean);
+    return {rows,total_qty:(items||[]).reduce((a,b)=>a+Number(b.qty||qtyFromText(b.product_text)||0),0),total_volume:rows.reduce((a,b)=>a+Number(b.volume||0),0)};
+  }
   function productLabel(it){
     const p=splitProduct(it.product_text||it.product||'');
     const q=qtyFromText(it.product_text,it.qty);
@@ -133,17 +144,36 @@
   }
   function selectedCardHtml(it,i){
     const p=splitProduct(it.product_text);
-    const q=Math.max(1,Number(it.qty||qtyFromText(it.product_text)||1));
+    const q=supportTotalPieces(p.support)||Math.max(1,Number(it.qty||qtyFromText(it.product_text)||1));
+    const segs=supportSegments(p.support);
+    const segHtml=segs.map((seg,j)=>`<div class="yx-ship-segment-chip" data-segment-chip="${i}-${j}"><span class="yx-ship-segment-base">${esc(seg.base)}</span><span class="yx-ship-segment-x">x</span><input class="text-input yx-ship-segment-mult" type="number" min="1" value="${Number(seg.mult||1)}" data-support-seg-mult="${i}" data-seg-index="${j}"><button class="ghost-btn small-btn danger-btn" type="button" data-support-seg-remove="${i}" data-seg-index="${j}">刪除</button></div>`).join('');
     return `<div class="yx-ship-selected-html-card yx-ship-selected-tag-card" data-selected-card="${i}">
-      <button class="yx-ship-selected-main" type="button" data-focus-qty="${i}" title="點擊可修改件數">
+      <div class="yx-ship-selected-main yx-ship-selected-main-editable" title="可直接修改支數算式">
         <span class="yx-ship-source-pill">${esc(it.source||'自動')}</span>
         <span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span>
-        <span class="yx-ship-selected-product" data-selected-product-text="${i}">${esc(p.size)}${p.support?'='+esc(p.support):''}</span>
+        <span class="yx-ship-selected-size">${esc(p.size)}=</span>
+        <input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="例如 56x3+93x2+75x2+54x2">
         <span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span>
-      </button>
-      <label class="yx-ship-selected-qty-wrap">修改件數<input class="text-input yx-ship-selected-qty" type="number" min="1" value="${q}" data-selected-qty="${i}"></label>
-      <button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除</button>
+      </div>
+      <div class="yx-ship-segment-editor" data-segment-list="${i}">${segHtml || '<span class="small-note">尚無支數段，可直接在上方輸入。</span>'}</div>
+      <div class="yx-ship-selected-actions"><span class="small-note">修改上方 x? 或刪除支數後，總件數會自動重新計算。</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div>
     </div>`;
+  }
+  function updateSelectedProductFromSupport(i,support){
+    const row=state.selected[i]; if(!row) return;
+    const p=splitProduct(row.product_text||'');
+    const spt=normalizeText(support);
+    row.product_text=productFromSupport(p.size,spt);
+    row.qty=supportTotalPieces(spt)||qtyFromText(row.product_text,row.qty)||1;
+    const total=document.querySelector(`[data-selected-total="${i}"]`); if(total) total.textContent=`${row.qty}件`;
+    const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n');
+  }
+  function rebuildSupportFromSegments(i){
+    const p=splitProduct(state.selected[i]?.product_text||'');
+    const segs=[]; document.querySelectorAll(`[data-segment-list="${i}"] .yx-ship-segment-chip`).forEach(chip=>{ const base=clean(chip.querySelector('.yx-ship-segment-base')?.textContent||''); const mult=Math.max(1,parseInt(chip.querySelector('.yx-ship-segment-mult')?.value||1,10)||1); if(base) segs.push(`${base}x${mult}`); });
+    const support=segs.join('+');
+    const editor=document.querySelector(`[data-support-editor="${i}"]`); if(editor) editor.value=support;
+    updateSelectedProductFromSupport(i,support||p.support);
   }
   function renderSelected(){
     const box=$('ship-selected-items'); if(!box) return;
@@ -155,7 +185,7 @@
     const it=state.items[Number(i)]; if(!it) return toast('找不到商品','warn');
     const max=qtyFromText(it.product_text,it.qty)||9999;
     const qty=max || 1;
-    const product_text=productForQty(it,qty);
+    const product_text=it.product_text||productForQty(it,qty);
     const pref=sourcePreferenceOf(it);
     const row={ product_text, qty, material:materialOf(it), product_code:materialOf(it), source:sourceOf(it), source_preference:pref, id:it.id };
     state.selected.push(row);
@@ -190,7 +220,8 @@
     const panel=$('ship-preview-panel')||$('module-result'); if(!panel) return;
     const rows=Array.isArray(data.breakdown)?data.breakdown:(Array.isArray(data.items)?data.items:[]);
     const draft=payload.items||[];
-    const calc=data.calc||data.volume_calc||{};
+    const calcRaw=data.calc||data.volume_calc||{};
+    const calc=(calcRaw.rows||calcRaw.items)?calcRaw:localVolumeCalc(draft);
     const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+Number(b.qty||1),0));
     panel.classList.remove('hidden'); panel.style.display='block';
     panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(draft.length?draft:rows).map((x,i)=>previewRowHtml(x,i,rows[i]||{})).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;
@@ -208,7 +239,8 @@
       const c=e.target.closest('[data-ship-customer]'); if(c){ e.preventDefault(); loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error')); return; }
       const add=e.target.closest('[data-ship-add-index]'); if(add){ e.preventDefault(); addItem(add.dataset.shipAddIndex); return; }
       const rm=e.target.closest('[data-selected-remove]'); if(rm){ e.preventDefault(); state.selected.splice(Number(rm.dataset.selectedRemove),1); renderSelected(); return; }
-      const focus=e.target.closest('[data-focus-qty]'); if(focus){ e.preventDefault(); const inp=document.querySelector(`[data-selected-qty="${focus.dataset.focusQty}"]`); inp?.focus(); inp?.select?.(); return; }
+      const segRm=e.target.closest('[data-support-seg-remove]'); if(segRm){ e.preventDefault(); const chip=segRm.closest('.yx-ship-segment-chip'); const i=Number(segRm.dataset.supportSegRemove); chip?.remove(); rebuildSupportFromSegments(i); return; }
+      const focus=e.target.closest('[data-focus-qty]'); if(focus){ e.preventDefault(); const inp=document.querySelector(`[data-support-editor="${focus.dataset.focusQty}"]`); inp?.focus(); inp?.select?.(); return; }
     },true);
     document.addEventListener('keydown',(e)=>{
       if((e.target.id==='customer-name' || e.target.id==='ship-customer-search') && e.key==='Enter'){ e.preventDefault(); loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error')); }
@@ -222,19 +254,12 @@
         renderCustomers();
         renderItems();
       }
-      if(e.target.matches('[data-selected-qty]')){
-        const i=Number(e.target.dataset.selectedQty);
-        const q=Math.max(1,parseInt(e.target.value||1,10)||1);
-        if(state.selected[i]){
-          state.selected[i].qty=q;
-          state.selected[i].product_text=productForQty(state.selected[i],q);
-          const p=splitProduct(state.selected[i].product_text);
-          const label=document.querySelector(`[data-selected-product-text="${i}"]`);
-          if(label) label.textContent=`${p.size}${p.support?'='+p.support:''}`;
-          const total=document.querySelector(`[data-selected-total="${i}"]`);
-          if(total) total.textContent=`${q}件`;
-          const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n');
-        }
+      if(e.target.matches('[data-support-editor]')){
+        const i=Number(e.target.dataset.supportEditor);
+        updateSelectedProductFromSupport(i,e.target.value);
+      }
+      if(e.target.matches('[data-support-seg-mult]')){
+        rebuildSupportFromSegments(Number(e.target.dataset.supportSegMult));
       }
     },true);
   }
