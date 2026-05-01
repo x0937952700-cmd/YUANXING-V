@@ -1,0 +1,107 @@
+/* PACK14: material SP + FIX105 warehouse visual lock */
+html[data-yx-pack14-warehouse105="locked"] #yx-batch-material option[value="SP"],
+html[data-yx-pack14-warehouse105="locked"] #batch-material option[value="SP"]{font-weight:900}
+
+/* FIX105-like warehouse: A/B zone, 6 vertical columns, each one column 20 cells */
+.yx105-warehouse-grid,
+.zone-grid.six-grid.vertical-card-grid.yx105-warehouse-grid{
+  display:grid !important;
+  grid-template-columns:repeat(6,minmax(138px,1fr)) !important;
+  gap:12px !important;
+  align-items:start !important;
+  overflow-x:auto !important;
+  padding:10px 6px 18px !important;
+  -webkit-overflow-scrolling:touch;
+}
+.yx105-warehouse-column,
+.vertical-column-card.yx105-warehouse-column{
+  min-width:138px;
+  background:linear-gradient(180deg,#ffffff,#f7fafc);
+  border:1px solid #d9e3ec;
+  border-radius:20px;
+  padding:10px;
+  box-shadow:0 10px 28px rgba(15,23,42,.06);
+}
+.yx105-warehouse-column-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  font-weight:900;
+  color:#172033;
+  margin-bottom:8px;
+  font-size:14px;
+}
+.yx105-slot-list{display:flex;flex-direction:column;gap:7px;}
+.yx105-slot,
+.yx103-slot,
+.yx102-slot,
+.yx96-slot,
+.vertical-slot{
+  min-height:58px;
+  border:1px solid #cfdbe7;
+  background:linear-gradient(180deg,#fff,#f8fbff);
+  border-radius:16px;
+  padding:7px 8px;
+  cursor:pointer;
+  user-select:none;
+  touch-action:manipulation;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 4px 12px rgba(15,23,42,.04);
+}
+.yx105-slot:active{transform:scale(.985)}
+.yx105-slot.filled{background:linear-gradient(180deg,#fffdf8,#f7fbff);border-color:#9fb4c7;}
+.yx105-slot.drag-over{outline:3px solid rgba(59,130,246,.28);}
+.yx105-slot-head{display:flex;align-items:center;justify-content:space-between;gap:4px;font-size:12px;font-weight:900;color:#1f2937;}
+.yx105-slot-customer{color:#c62828;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:88px;text-align:right;}
+.yx105-slot-empty{color:#9aa5b1;font-weight:800;}
+.yx105-slot-qty{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-top:7px;color:#1455b8;font-weight:900;font-size:13px;}
+.yx105-slot-sum{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.yx105-slot-total{color:#0f63c7;white-space:nowrap;}
+.yx105-slot.highlight{animation:yx105Flash .8s ease-in-out 0s 5 alternate;}
+@keyframes yx105Flash{from{box-shadow:0 0 0 2px rgba(245,158,11,.2),0 0 0 rgba(245,158,11,0)}to{box-shadow:0 0 0 4px rgba(245,158,11,.65),0 0 24px rgba(245,158,11,.35)}}
+
+/* FIX105 modal: detail + batch dropdown */
+#warehouse-modal.yx105-final-cell-editor .modal-card{max-width:920px;width:min(94vw,920px);}
+#yx105-warehouse-detail-panel,
+.yx105-warehouse-detail-panel{
+  margin:12px 0;
+  border:1px solid #dbe7ef;
+  border-radius:18px;
+  padding:12px;
+  background:#f8fbff;
+}
+.yx105-detail-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px;font-weight:900;}
+.yx105-detail-row{display:grid;grid-template-columns:82px 1fr 70px 80px;gap:8px;align-items:center;border-top:1px solid #e5edf5;padding:8px 0;font-size:14px;}
+.yx105-detail-row:first-child{border-top:0;}
+.yx105-detail-customer{font-weight:900;color:#c62828;}
+.yx105-detail-product{font-weight:800;color:#1f2937;}
+.yx105-detail-qty,.yx105-detail-place{font-weight:900;color:#1455b8;text-align:right;}
+#yx105-warehouse-batch-panel,
+.yx105-warehouse-batch-panel{
+  margin:14px 0;
+  border:1px solid #cdebd8;
+  background:#f0fdf4;
+  border-radius:18px;
+  padding:12px;
+}
+.yx105-batch-row{display:grid;grid-template-columns:70px minmax(0,1fr) 88px;gap:8px;align-items:center;margin:8px 0;}
+.yx105-batch-row label{font-weight:900;color:#065f46;text-align:center;}
+.yx105-batch-select,.yx105-batch-qty{min-height:44px;border-radius:14px;border:1px solid #d7e3ec;background:#fff;padding:0 10px;}
+.yx105-hidden-legacy{display:none!important;}
+
+.yx14-slot-sheet{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.28);display:flex;align-items:flex-end;justify-content:center;padding:16px;}
+.yx14-slot-sheet.hidden{display:none!important;}
+.yx14-sheet-card{width:min(480px,100%);background:#fff;border-radius:24px 24px 18px 18px;padding:16px;box-shadow:0 18px 60px rgba(15,23,42,.24);display:grid;gap:10px;}
+.yx14-sheet-title{text-align:center;font-weight:900;color:#172033;padding:4px 0 8px;}
+.yx14-sheet-card button{min-height:46px;border-radius:18px;border:1px solid #cfdbe7;background:#f8fbff;font-weight:900;color:#172033;}
+.yx14-sheet-card button.danger{color:#dc2626;border-color:#fecaca;background:#fff7f7;}
+
+@media(max-width:900px){
+  .yx105-warehouse-grid,.zone-grid.six-grid.vertical-card-grid.yx105-warehouse-grid{grid-template-columns:repeat(3,minmax(132px,1fr)) !important;}
+}
+@media(max-width:560px){
+  .yx105-warehouse-grid,.zone-grid.six-grid.vertical-card-grid.yx105-warehouse-grid{grid-template-columns:repeat(2,minmax(132px,1fr)) !important;}
+  .yx105-batch-row{grid-template-columns:54px 1fr 72px;}
+  .yx105-detail-row{grid-template-columns:1fr 58px;}
+  .yx105-detail-product{grid-column:1/-1;}
+}

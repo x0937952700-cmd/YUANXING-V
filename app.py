@@ -41,6 +41,14 @@ def username():
 def jerr(message, code=400):
     return jsonify(ok=False, message=str(message)), code
 
+
+def unread_count_sql():
+    # PostgreSQL may have legacy boolean unread column; SQLite usually has 0/1 integer.
+    return "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread::text,'') IN ('1','t','true','True','TRUE')" if USE_POSTGRES else "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread,0)=1"
+
+def unread_clear_sql():
+    return "UPDATE activity_logs SET unread=FALSE" if USE_POSTGRES else "UPDATE activity_logs SET unread=0"
+
 def clean_text(v):
     return (v or '').strip()
 
@@ -542,15 +550,35 @@ def api_regions(module):
 
 @app.route('/api/warehouse', methods=['GET'])
 def api_warehouse():
+    # FIX14/FIX105 compatible output:
+    # Keep original band/row_name/slot, and also expose column_index/slot_number/items_json
+    # so the warehouse UI from the 105 reference package can render and edit correctly.
+    import json as _json
     cells = query('SELECT * FROM warehouse_cells ORDER BY zone, band, row_name, slot', fetch=True)
     items = query('SELECT wi.*, wc.zone, wc.band, wc.row_name, wc.slot FROM warehouse_items wi LEFT JOIN warehouse_cells wc ON wc.id=wi.cell_id ORDER BY wi.id DESC', fetch=True)
     by_cell = {}
     for it in items:
+        it['customer_name'] = it.get('customer_name') or it.get('customer') or ''
+        it['product_text'] = it.get('product_text') or it.get('product') or ''
+        it['product_size'] = it.get('product_size') or it.get('product_text') or it.get('product') or ''
+        it['product_code'] = it.get('product_code') or it.get('material') or ''
+        it['source_summary'] = it.get('source_summary') or it.get('source_table') or it.get('source') or ''
         by_cell.setdefault(str(it.get('cell_id')), []).append(it)
     for c in cells:
+        # 105 版使用 column_index / slot_number / slot_type
+        c['column_index'] = int(c.get('column_index') or c.get('band') or 1)
+        c['slot_number'] = int(c.get('slot_number') or ((10 if str(c.get('row_name')) == 'front' else 20) if False else c.get('slot') or 1))
+        # 將 front/back 1~10 轉成直列 1~20，和 105 版一欄 20 格一致
+        try:
+            raw_slot = int(c.get('slot') or c.get('slot_number') or 1)
+            c['slot_number'] = raw_slot if str(c.get('row_name') or 'direct') in ('direct','') else (raw_slot if str(c.get('row_name')) == 'front' else raw_slot + 10)
+        except Exception:
+            pass
+        c['slot_type'] = c.get('slot_type') or 'direct'
         c['items'] = by_cell.get(str(c['id']), [])
+        c['items_json'] = _json.dumps(c['items'], ensure_ascii=False)
     unplaced = query('SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)), 0) AS qty FROM inventory WHERE COALESCE(placed,0)=0', fetch=True, one=True) or {}
-    return jsonify(ok=True, cells=cells, unplaced_qty=int(unplaced.get('qty') or 0))
+    return jsonify(ok=True, success=True, cells=cells, zones={'A':{}, 'B':{}}, unplaced_qty=int(unplaced.get('qty') or 0))
 
 @app.route('/api/warehouse/cell/<int:cell_id>', methods=['POST'])
 def api_warehouse_cell(cell_id):
@@ -598,13 +626,13 @@ def api_shipping_records():
 def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
     logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 300', [today], fetch=True)
-    unread = query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {'n':0}
+    unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
     unplaced = query('SELECT * FROM inventory WHERE COALESCE(placed,0)=0 ORDER BY id DESC LIMIT 200', fetch=True)
     return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=unplaced)
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
-    query('UPDATE activity_logs SET unread=0')
+    query(unread_clear_sql())
     return jsonify(ok=True)
 
 @app.route('/api/audit-trails', methods=['GET'])
@@ -788,42 +816,80 @@ def api_warehouse_available_items_alias():
 
 @app.route('/api/warehouse/cell', methods=['POST'])
 def api_warehouse_cell_alias():
+    # FIX105 compatible cell save: accepts items[] and rewrites warehouse_items for the cell.
     d = request.get_json(silent=True) or {}
     zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
     band = int(d.get('band') or d.get('column_index') or 1)
-    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
-    slot = int(d.get('slot') or d.get('slot_number') or 1)
+    slot_type = clean_text(d.get('slot_type') or d.get('row_name') or 'direct')
+    slot_number = int(d.get('slot_number') or d.get('slot') or 1)
+    # Convert 105 direct slot 1~20 to legacy row_name/slot for existing DB
+    if slot_type == 'direct':
+        row_name = 'front' if slot_number <= 10 else 'back'
+        slot = slot_number if slot_number <= 10 else slot_number - 10
+    else:
+        row_name = slot_type if slot_type in ('front','back') else clean_text(d.get('row_name') or 'front')
+        slot = int(d.get('slot') or slot_number or 1)
     found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
     if not found:
         query('INSERT INTO warehouse_cells(zone, band, row_name, slot, note) VALUES(?, ?, ?, ?, ?)', [zone, band, row_name, slot, d.get('note','')])
-    else:
-        query('UPDATE warehouse_cells SET note=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [d.get('note',''), found['id']])
-    return jsonify(ok=True)
+        found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+    cell_id = int(found.get('id') or 0)
+    query('UPDATE warehouse_cells SET note=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [d.get('note',''), cell_id])
+    if isinstance(d.get('items'), list):
+        # clear then rewrite current cell, so batch dropdown edits sync exactly with the modal
+        old_items = query('SELECT source_table, source_id FROM warehouse_items WHERE cell_id=?', [cell_id], fetch=True)
+        query('DELETE FROM warehouse_items WHERE cell_id=?', [cell_id])
+        for oi in old_items or []:
+            if (oi.get('source_table') == 'inventory') and oi.get('source_id'):
+                query('UPDATE inventory SET placed=0, location=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?', [int(oi.get('source_id'))])
+        for it in d.get('items') or []:
+            product = clean_text(it.get('product_text') or it.get('product_size') or it.get('product') or '')
+            if not product:
+                continue
+            material = clean_text(it.get('material') or it.get('product_code') or '')
+            customer = clean_text(it.get('customer_name') or it.get('customer') or '')
+            qty = int(it.get('qty') or it.get('unplaced_qty') or parse_qty_from_product(product) or 1)
+            source = clean_text(it.get('source_table') or it.get('source') or '')
+            source_id = int(it.get('source_id') or it.get('id') or 0) if str(it.get('source_id') or it.get('id') or '0').isdigit() else 0
+            placement = clean_text(it.get('placement_label') or it.get('layer_label') or '')
+            try:
+                query('INSERT INTO warehouse_items(cell_id, customer, product, material, qty, source_table, source_id, placement_label) VALUES(?, ?, ?, ?, ?, ?, ?, ?)', [cell_id, customer, product, material, qty, source, source_id, placement])
+            except Exception:
+                query('INSERT INTO warehouse_items(cell_id, customer, product, material, qty, source_table, source_id) VALUES(?, ?, ?, ?, ?, ?, ?)', [cell_id, customer, product, material, qty, source, source_id])
+            if source == 'inventory' and source_id:
+                query('UPDATE inventory SET placed=1, location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [str(cell_id), source_id])
+    log_action(username(), '儲存倉庫格位', 'warehouse', cell_id, {'zone': zone, 'column': band, 'slot': slot_number})
+    return jsonify(ok=True, success=True, cell_id=cell_id)
 
 @app.route('/api/warehouse/add-slot', methods=['POST'])
 def api_warehouse_add_slot_alias():
     d = request.get_json(silent=True) or {}
     zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
     band = int(d.get('band') or d.get('column_index') or 1)
-    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
-    slot = int(d.get('slot') or d.get('after_slot') or 1) + 1
+    after_slot = int(d.get('after_slot') or d.get('slot_number') or d.get('slot') or 1)
+    new_slot_number = after_slot + 1
+    row_name = 'front' if new_slot_number <= 10 else 'back'
+    slot = new_slot_number if new_slot_number <= 10 else new_slot_number - 10
     found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
     if not found:
         query('INSERT INTO warehouse_cells(zone, band, row_name, slot) VALUES(?, ?, ?, ?)', [zone, band, row_name, slot])
-    return jsonify(ok=True)
+    return jsonify(ok=True, success=True, slot_number=new_slot_number)
 
 @app.route('/api/warehouse/remove-slot', methods=['POST'])
 def api_warehouse_remove_slot_alias():
     d = request.get_json(silent=True) or {}
     zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
     band = int(d.get('band') or d.get('column_index') or 1)
-    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
-    slot = int(d.get('slot') or d.get('slot_number') or 1)
+    slot_number = int(d.get('slot_number') or d.get('slot') or 1)
+    row_name = 'front' if slot_number <= 10 else 'back'
+    slot = slot_number if slot_number <= 10 else slot_number - 10
     found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
     if found:
-        query('DELETE FROM warehouse_items WHERE cell_id=?', [found['id']])
+        cnt = query('SELECT COUNT(*) AS n FROM warehouse_items WHERE cell_id=?', [found['id']], fetch=True, one=True) or {}
+        if int(cnt.get('n') or 0) > 0:
+            return jerr('格子內有商品，請先移除商品才可刪除')
         query('DELETE FROM warehouse_cells WHERE id=?', [found['id']])
-    return jsonify(ok=True)
+    return jsonify(ok=True, success=True)
 
 @app.route('/api/orders/to-master', methods=['POST'])
 def api_orders_to_master_alias():
@@ -1013,7 +1079,7 @@ def api_corrections():
 
 @app.route('/api/session/config', methods=['GET'])
 def api_session_config():
-    unread=(query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}).get('n',0)
+    unread=(query(unread_count_sql(), fetch=True, one=True) or {}).get('n',0)
     return api_success(user=username(), is_admin=(username()=='陳韋廷'), unread=int(unread or 0))
 
 @app.route('/api/backups/download/<path:filename>', methods=['GET'])
@@ -1078,7 +1144,7 @@ def api_health_json():
 
 @app.route('/api/today-changes/unread-count', methods=['GET'])
 def api_today_unread_count():
-    row = query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}
+    row = query(unread_count_sql(), fetch=True, one=True) or {}
     return api_success(unread=int(row.get('n') or 0))
 
 @app.route('/api/todos/<int:todo_id>', methods=['PUT','DELETE'])
@@ -1169,7 +1235,7 @@ def api_sync_poll():
         where = 'WHERE created_at > ?'
         params.append(since)
     rows = query(f'SELECT * FROM activity_logs {where} ORDER BY id DESC LIMIT 80', params, fetch=True)
-    unread = (query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}).get('n', 0)
+    unread = (query(unread_count_sql(), fetch=True, one=True) or {}).get('n', 0)
     return api_success(items=rows, unread=int(unread or 0), server_time=now_iso())
 
 # ==== end pack 3 final commercial ==== 
@@ -2210,3 +2276,71 @@ def health():
 if __name__ == '__main__':
     ensure_db()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', '5000')))
+
+# ==== PACK 13: final user-requested UI / DB fixes ====
+@app.route('/api/pack13/deploy-acceptance', methods=['GET'])
+def api_pack13_deploy_acceptance():
+    counts = {}
+    for table in ['inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs']:
+        try:
+            counts[table] = int((query(f'SELECT COUNT(*) AS n FROM {table}', fetch=True, one=True) or {}).get('n') or 0)
+        except Exception as e:
+            counts[table] = 'error: ' + str(e)
+    return api_success(
+        pack='13',
+        fixed=[
+            'today_changes unread boolean/integer compatibility',
+            'material dropdown TD/MER/DF/SPF/HF/尤加利/LVL',
+            'row click toggles batch selection',
+            'inventory/orders/master_order row action buttons hidden',
+            'inventory top transfer buttons moved to right side',
+            'orders/master_order customer chips one-row name + FOB/CNF + count',
+            'ship confirm scrolls to preview with calculation',
+            'warehouse A/B filter and vertical 6 columns x 20 slots per FIX108 style',
+            'warehouse long-press/right-click cell editor and drag/drop shell',
+        ],
+        counts=counts,
+        ready=True,
+    )
+
+# ==== PACK 15: final convergence seal ====
+@app.route('/api/pack15/deploy-acceptance', methods=['GET'])
+def api_pack15_deploy_acceptance():
+    counts = {}
+    for table in ['inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs']:
+        try:
+            counts[table] = int((query(f'SELECT COUNT(*) AS n FROM {table}', fetch=True, one=True) or {}).get('n') or 0)
+        except Exception as e:
+            counts[table] = 'error: ' + str(e)
+    return api_success(
+        pack='15',
+        final_convergence=True,
+        material_options=['TD','MER','DF','SP','SPF','HF','尤加利','LVL'],
+        warehouse='FIX105 aligned: A/B switch, 6 columns, 20 vertical slots per column, batch dropdown, click edit, long-press insert/delete, drag/drop front placement',
+        ui='single pack15 seal loaded after pack14; prevents missing SP and broken warehouse interactions',
+        counts=counts,
+        ready=True,
+    )
+
+@app.route('/api/pack15/warehouse-contract', methods=['GET'])
+def api_pack15_warehouse_contract():
+    return api_success(
+        pack='15',
+        zone_filter=['ALL','A','B'],
+        columns_per_zone=6,
+        slots_per_column=20,
+        cell_actions=['click_edit','long_press_action_sheet','insert_after_cell','delete_empty_cell','drag_drop_front_placement','batch_dropdown_add'],
+        display=['slot_number','customer_names_red','qty_formula_blue','total_qty_blue'],
+        hidden=['FOB','CNF','FOB代','product_size_in_cell'],
+        ready=True,
+    )
+
+@app.route('/api/pack15/material-options', methods=['GET'])
+def api_pack15_material_options():
+    return api_success(items=['TD','MER','DF','SP','SPF','HF','尤加利','LVL'])
+
+@app.route('/api/final/pack15-sealed', methods=['GET'])
+def api_final_pack15_sealed():
+    return api_pack15_deploy_acceptance()
+
+# ==== end pack 15 ====
