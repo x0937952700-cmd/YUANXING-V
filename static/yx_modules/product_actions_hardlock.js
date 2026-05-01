@@ -622,7 +622,6 @@
     state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
   }
   function observeProductPage(source){
-    if (window.__YX_HTML_ONLY_ALL_PAGES__ || window.__YX_DISABLE_DOM_OBSERVERS__) return;
     if (state.observer || !source) return;
     const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
     if (typeof NativeMO === 'undefined') return;
@@ -646,14 +645,14 @@
     document.documentElement.dataset.yx132Products = 'locked';
     document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
-    ensureBatchToolbar(source); ensureSummary(source); cleanupLegacyProductDom(source);
+    ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
     if (state.installedSource === source && rowsStore(source).length) {
       renderSummary(source); renderCards(source);
     } else {
       state.installedSource = source;
       loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
     }
-    // HTML_ONLY_ALL_PAGES：取消多次延遲重畫。
+    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
   const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };

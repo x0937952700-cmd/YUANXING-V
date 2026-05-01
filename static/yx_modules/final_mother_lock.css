@@ -38,11 +38,21 @@ html[data-yx-final-mother-warehouse="locked"] #warehouse-section,
 .module-screen[data-module="ship"] #ship-preview-panel .yx22-preview{background:#ecfdf5!important;border:1px solid #86efac!important;border-radius:22px!important;padding:18px!important;color:#065f46!important;overflow-x:auto!important}
 @media(max-width:760px){.yx-ship-selected-html-card{grid-template-columns:1fr}.yx-ship-selected-main{white-space:normal}.module-screen[data-module="ship"] #ship-customer-search{width:100%!important}}
 
-/* HTML_ALL_PAGES_LOCK_V1：全頁面 HTML 外殼鎖定；JS 只允許更新資料內容。 */
-.yx-html-direct-product-shell,.yx-html-direct-toolbar,.yx-html-direct-summary,.yx-ship-single-html,.yx-final-warehouse-root{contain:layout paint;}
-.yx-html-direct-disabled-legacy,.yx115-hidden-legacy-product,.yx63-toolbar,.yx62-toolbar,.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.yx63-summary,.yx62-summary,.fix57-summary-panel{display:none!important;visibility:hidden!important;pointer-events:none!important;}
-#ship-customer-picker .ship-customer-tag-list,#ship-customer-picker .customer-region-card,#ship-customer-picker .yx113-customer-card{display:none!important;}
-#ship-customer-item-select{width:100%;max-width:720px;}
-.yx-html-direct-toolbar .yx113-search{max-width:260px;min-width:180px;}
-.warehouse-fixed-layout .zone-grid.six-grid{grid-template-columns:repeat(6,minmax(136px,1fr))!important;}
-@media(max-width:760px){.warehouse-fixed-layout .zone-grid.six-grid{grid-template-columns:repeat(6,minmax(128px,1fr))!important;min-width:820px}.warehouse-zone-card{overflow-x:auto}}
+
+/* === HTML_LOCK_REPAIR_V3：庫存/訂單/總單工具列同一排、北中南客戶與出貨下拉固定 HTML 外殼 === */
+.module-screen[data-module="inventory"] .yx-html-direct-toolbar,
+.module-screen[data-module="orders"] .yx-html-direct-toolbar,
+.module-screen[data-module="master_order"] .yx-html-direct-toolbar{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;flex-wrap:nowrap!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;padding:8px 10px!important;}
+.module-screen[data-module="inventory"] .yx-html-direct-toolbar .yx114-toolbar-main,.module-screen[data-module="orders"] .yx-html-direct-toolbar .yx114-toolbar-main,.module-screen[data-module="master_order"] .yx-html-direct-toolbar .yx114-toolbar-main{display:none!important;}
+.yx-html-one-row-actions,.module-screen[data-module="inventory"] .yx-direct-batch-actions,.module-screen[data-module="orders"] .yx-direct-batch-actions,.module-screen[data-module="master_order"] .yx-direct-batch-actions{display:flex!important;align-items:center!important;gap:10px!important;flex-wrap:nowrap!important;width:max-content!important;min-width:100%!important;}
+.module-screen[data-module="inventory"] .yx-direct-batch-actions > *,.module-screen[data-module="orders"] .yx-direct-batch-actions > *,.module-screen[data-module="master_order"] .yx-direct-batch-actions > *{flex:0 0 auto!important;white-space:nowrap!important;}
+.module-screen[data-module="inventory"] .yx113-search,.module-screen[data-module="orders"] .yx113-search,.module-screen[data-module="master_order"] .yx113-search{width:250px!important;min-width:250px!important;height:42px!important;order:-10!important;}
+.module-screen[data-module="orders"] #region-picker-section,.module-screen[data-module="master_order"] #region-picker-section,.module-screen[data-module="ship"] #region-picker-section{display:block!important;visibility:visible!important;opacity:1!important;}
+#region-picker-section .category-grid.compact-grid{display:grid!important;grid-template-columns:repeat(3,minmax(220px,1fr))!important;gap:12px!important;}
+#region-picker-section .category-box{display:block!important;min-height:110px!important;border:1px solid rgba(148,163,184,.28)!important;border-radius:22px!important;background:rgba(255,255,255,.78)!important;padding:12px!important;box-shadow:0 10px 24px rgba(15,23,42,.05)!important;}
+#region-picker-section .customer-list,#customers-section .customer-list{display:flex!important;flex-direction:column!important;gap:10px!important;min-height:68px!important;visibility:visible!important;opacity:1!important;}
+#region-picker-section .customer-region-card,#customers-section .customer-region-card{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;width:100%!important;min-height:42px!important;padding:8px 12px!important;border-radius:999px!important;border:1px solid rgba(71,85,105,.36)!important;background:linear-gradient(180deg,#f8fbff,#e7edf5)!important;color:#111827!important;font-weight:900!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 8px 18px rgba(15,23,42,.10)!important;opacity:1!important;visibility:visible!important;}
+#region-picker-section .empty-state-card{display:block!important;color:#64748b!important;}
+.module-screen[data-module="ship"] .ship-customer-picker .ship-single-toolbar,.module-screen[data-module="ship"] #ship-customer-search,.module-screen[data-module="ship"] .yx-ship-html-locked-note{display:none!important;}
+.module-screen[data-module="ship"] #ship-customer-item-select{margin-top:0!important;}
+@media(max-width:760px){#region-picker-section .category-grid.compact-grid{grid-template-columns:1fr!important;}.module-screen[data-module="inventory"] .yx-html-direct-toolbar,.module-screen[data-module="orders"] .yx-html-direct-toolbar,.module-screen[data-module="master_order"] .yx-html-direct-toolbar{padding-bottom:10px!important;}}

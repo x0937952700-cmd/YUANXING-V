@@ -73,7 +73,7 @@
     const select=$('ship-customer-item-select');
     const box=$('ship-customer-item-list');
     if(!state.customer){
-      if(select) select.innerHTML='<option value="">請先輸入或點選客戶名稱</option>';
+      if(select) select.innerHTML='<option value="">請先點選北 / 中 / 南客戶</option>';
       if(box) box.textContent='下拉清單會顯示該客戶全部商品；點選商品後會加入下方已選商品。';
       return;
     }
@@ -199,7 +199,7 @@
   }
   function install(){
     document.documentElement.dataset.yxShipSingle='locked';
-    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; renderCustomers(); }, false); setTimeout(loadCustomers,120); renderSelected();
+    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; }, false); renderSelected();
     const name=clean($('customer-name')?.value||''); if(name) loadItems(name).catch(()=>{}); else renderItems();
     window.confirmSubmit=confirmSubmit;
   }

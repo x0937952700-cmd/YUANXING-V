@@ -17,12 +17,8 @@
     {% if module_key == 'ship' %}
     <label class="field-label">客戶商品清單</label>
     <div class="ship-customer-picker yx-ship-single-html" id="ship-customer-picker">
-      <div class="ship-single-toolbar">
-        <input class="text-input" id="ship-customer-search" placeholder="輸入或點選客戶後，直接顯示該客戶全部商品">
-        
-      </div>
-      <select id="ship-customer-item-select" class="text-input ship-customer-item-select"><option value="">請先輸入或點選客戶名稱</option></select>
-      <div id="ship-customer-item-list" class="ship-customer-item-list yx-ship-html-locked-note" data-html-lock="ship-item-note">下拉清單會顯示該客戶全部商品；點選商品後會加入下方已選商品，可直接編輯出貨件數。</div>
+      <input type="hidden" id="ship-customer-search" value="">
+      <select id="ship-customer-item-select" class="text-input ship-customer-item-select"><option value="">請先點選北 / 中 / 南客戶</option></select>
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
@@ -58,10 +54,9 @@
         <span class="muted">固定 HTML 表格：資料只更新表格內容，按鈕不再由舊 JS 重畫。</span>
       </div>
       <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
-        <div class="yx114-toolbar-main">
+        <div class="yx114-toolbar-main"></div>
+        <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
           <input id="yx113-inventory-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
-        </div>
-        <div class="yx114-batch-actions yx-direct-batch-actions">
           <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="inventory">全部區</button>
           <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="inventory">A區</button>
           <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="inventory">B區</button>
@@ -92,7 +87,7 @@
     </div>
     <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
-      <div class="yx114-batch-actions yx-direct-batch-actions">
+      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
         <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="orders">全部區</button>
@@ -120,7 +115,7 @@
     </div>
     <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
-      <div class="yx114-batch-actions yx-direct-batch-actions">
+      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
         <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="master_order">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="master_order">A區</button>
@@ -211,7 +206,7 @@
       <div class="search-row warehouse-search-toolbar">
         <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
         <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
-        <button class="ghost-btn" type="button" onclick="clearWarehouseSearchAndHighlights()">清除搜尋</button>
+        <button class="ghost-btn" type="button" onclick="renderWarehouse(true)">清除搜尋</button>
       </div>
 
       <div class="query-bar warehouse-meta-bar">

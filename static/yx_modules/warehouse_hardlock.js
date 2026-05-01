@@ -129,8 +129,7 @@
     const pill=$('warehouse-selection-pill'); if(pill) pill.textContent=`目前區域：${zone==='ALL'?'全部':zone+' 區'}`;
     if(scroll && zone!=='ALL') (zone==='A'?za:zb)?.scrollIntoView?.({behavior:'smooth',block:'start'});
   }
-  function clearWarehouseHighlights(){ state.searchKeys.clear(); $("warehouse-search-results")?.classList.add("hidden"); $("warehouse-unplaced-list-inline")?.classList.add("hidden"); state.unplacedOpen=false; updateAllSlots(); }
-  function clearWarehouseSearchAndHighlights(){ const inp=$("warehouse-search"); if(inp) inp.value=""; clearWarehouseHighlights(); }
+  function clearWarehouseHighlights(){ state.searchKeys.clear(); $('warehouse-search-results')?.classList.add('hidden'); $('warehouse-unplaced-list-inline')?.classList.add('hidden'); state.unplacedOpen=false; updateAllSlots(); }
   function highlightWarehouseCell(z,c,s){ setWarehouseZone(clean(z).toUpperCase(),false); state.searchKeys.add(key(z,c,s)); updateSlotUI(z,c,s); const el=ensureSlotElement(clean(z).toUpperCase(),c,s); if(el){ el.classList.add('highlight','flash-highlight'); el.scrollIntoView?.({behavior:'smooth',block:'center'}); setTimeout(()=>el.classList.remove('flash-highlight'),2200); } }
   async function searchWarehouse(){
     const q=clean($('warehouse-search')?.value||''); if(!q){ clearWarehouseHighlights(); return; }
@@ -202,7 +201,7 @@
   function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; bindGlobal(); bindSlots(); setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(true); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
-  window.clearWarehouseHighlights=clearWarehouseHighlights; window.clearWarehouseSearchAndHighlights=clearWarehouseSearchAndHighlights;
+  window.searchWarehouse=searchWarehouse;
   window.clearWarehouseHighlights=clearWarehouseHighlights;
   window.highlightWarehouseSameCustomer=highlightWarehouseSameCustomer;
   window.toggleWarehouseUnplacedHighlight=toggleWarehouseUnplacedHighlight;

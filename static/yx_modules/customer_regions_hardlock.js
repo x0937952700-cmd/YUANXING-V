@@ -206,7 +206,6 @@
     }, 50);
   }
   function observeCustomerBoards(){
-    if (window.__YX_HTML_ONLY_ALL_PAGES__ || window.__YX_DISABLE_DOM_OBSERVERS__) return;
     if (moduleKey() === 'ship' || state.observer || !isRegionPage()) return;
     const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
     const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
@@ -367,8 +366,8 @@
     document.documentElement.dataset.yx115Customers = 'locked';
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
-    bindEvents(); lockGlobals(); loadCustomerBlocks(true);
-    // HTML_ONLY_ALL_PAGES：取消 MutationObserver 和多次延遲重畫，避免頁面跳動/卡頓。
+    bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
+    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();
