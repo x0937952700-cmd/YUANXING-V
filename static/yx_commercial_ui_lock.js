@@ -14,7 +14,7 @@ function sourceByModule(m){return m==='inventory'?'inventory':m==='orders'?'orde
 function endpointByModule(m){return m==='inventory'?'/api/inventory':m==='orders'?'/api/orders':'/api/master-orders'}
 function titleByModule(m){return m==='inventory'?'庫存清單':m==='orders'?'訂單清單':m==='master_order'?'總單清單':'客戶商品清單'}
 function termsHtml(terms){return (terms||[]).map(t=>`<span class="yx-term-label">${esc(t)}</span>`).join('')}
-function customerButton(c){let terms=(c.terms||[]).length?c.terms:extractTerms(c.name); let dn=c.display_name||stripTerms(c.name); return `<button class="chip customer-chip yx-customer-chip-final" onclick="selectCustomer('${jsq(c.name)}')"><span class="yx-cust-main">${esc(dn)}</span>${termsHtml(terms)}<span class="yx-cust-count">${Number(c.qty||0)}件 / ${Number(c.count||0)}筆</span></button>`}
+function customerButton(c){let terms=(c.terms||[]).length?c.terms:extractTerms(c.name); let dn=c.display_name||stripTerms(c.name); return `<button class="chip customer-chip customer-card yx-customer-chip-final yx-direct-region-card" onclick="selectCustomer('${jsq(c.name)}')"><span class="yx-cust-main">${esc(dn)}</span>${termsHtml(terms)}<span class="yx-cust-count">${Number(c.qty||0)}件 / ${Number(c.count||0)}筆</span></button>`}
 function extractTerms(name){let a=[]; ['FOB代付','FOB代','FOB','CNF'].forEach(t=>{if(String(name||'').includes(t))a.push(t)}); return a}
 function stripTerms(name){let s=String(name||''); ['FOB代付','FOB代','FOB','CNF'].forEach(t=>s=s.replaceAll(t,'')); return s.replace(/[|｜/\-]/g,' ').replace(/\s+/g,' ').trim()||name}
 

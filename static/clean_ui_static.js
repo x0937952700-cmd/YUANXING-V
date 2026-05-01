@@ -15,7 +15,31 @@ window.deleteItem=async function(src,id){if(!confirm('確定刪除？'))return; 
 window.editItem=async function(src,id){let product=prompt('商品資料'); if(product===null)return; let qty=prompt('件數/數量','1'); if(qty===null)return; try{await api(`/api/item/${src}/${id}`,{method:'POST',body:JSON.stringify({product,qty})}); toast('已更新'); refreshPageData()}catch(e){toast(e.message)}}
 window.moveItem=async function(source,dest,id){try{await api('/api/item/move',{method:'POST',body:JSON.stringify({source,dest,id})}); toast('已加入'); refreshPageData()}catch(e){toast(e.message)}}
 window.shipOne=async function(id,customer,product,qty){try{await api('/api/submit/ship',{method:'POST',body:JSON.stringify({customer,items:[{customer,product,qty}]})}); toast('已出貨扣除'); refreshPageData()}catch(e){toast(e.message)}}
-async function loadRegions(m){let d=await api('/api/regions/'+m); const map={'北區':'region-north','中區':'region-center','南區':'region-south'}; Object.keys(map).forEach(r=>{let el=$(map[r]); if(el)el.innerHTML=(d.regions[r]||[]).map(n=>`<button class="chip customer-chip" onclick="selectCustomer('${jsq(n)}')">${esc(n)}</button>`).join('')||'<span class="muted">無</span>'})}
+function splitCustomerTerm(name){
+  const raw=String(name||'').trim();
+  const terms=[];
+  let display=raw.replace(/(FOB代付|FOB代|FOB|CNF)/g,(m)=>{terms.push(m); return ' ';}).replace(/\s+/g,' ').trim();
+  return {display:display||raw, terms:[...new Set(terms)]};
+}
+function directRegionCustomerCard(c){
+  const raw=typeof c==='string'?c:(c.name||c.customer||'');
+  const info=splitCustomerTerm(raw);
+  const display=(c.display_name||info.display||raw);
+  const terms=(c.terms&&c.terms.length?c.terms:info.terms);
+  const qty=Number(c.qty||0), count=Number(c.count||c.rows||0);
+  return `<button type="button" class="chip customer-chip customer-card yx-customer-chip-final yx-direct-region-card" data-customer="${esc(raw)}" data-customer-name="${esc(raw)}" onclick="selectCustomer('${jsq(raw)}')"><span class="cust-name yx-cust-main">${esc(display)}</span><span class="cust-term yx-term-label">${esc(terms[0]||'')}</span><span class="cust-count yx-cust-count">${qty}件 / ${count}筆</span></button>`;
+}
+async function loadRegions(m){
+  let d=await api('/api/regions/'+m+'?direct_html=1&ts='+Date.now());
+  const map={'北區':'region-north','中區':'region-center','南區':'region-south'};
+  Object.keys(map).forEach(r=>{
+    let el=$(map[r]); if(!el)return;
+    let arr=((d.details&&d.details[r])||[]);
+    if(!arr.length) arr=(d.regions&&d.regions[r]||[]).map(n=>({name:n,qty:0,count:0}));
+    el.innerHTML=arr.length?arr.map(directRegionCustomerCard).join(''):'<span class="muted">無</span>';
+  });
+  if(typeof window.yx18BindCustomerLongPress==='function') setTimeout(()=>window.yx18BindCustomerLongPress(),30);
+}
 window.selectCustomer=async function(name){let c=$('customer-name'); if(c)c.value=name; let d=await api('/api/customer-items?customer='+encodeURIComponent(name)); let el=$('selected-customer-items'); if(el){el.classList.remove('hidden'); el.innerHTML=`<div class="section-title">${esc(name)} 商品</div>`+d.items.map(x=>itemCard(x,x.source)).join('')}}
 async function loadShipItems(){let name=$('customer-name')?.value||''; let d=await api('/api/customer-items?customer='+encodeURIComponent(name)); let sel=$('ship-customer-item-select'); if(sel)sel.innerHTML='<option value="">選擇商品</option>'+d.items.map((x,i)=>`<option value="${i}">${esc(x.product)}｜${x.qty}件｜${x.source}</option>`).join(''); window.__shipItems=d.items||[]}
 function addShipItem(all){let items=window.__shipItems||[]; let selected=all?items:[items[Number($('ship-customer-item-select')?.value)]].filter(Boolean); let ta=$('ocr-text'); if(ta)ta.value=[ta.value.trim()].concat(selected.map(x=>x.product)).filter(Boolean).join('\n')}
