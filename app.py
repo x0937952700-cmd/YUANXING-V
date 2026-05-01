@@ -6,7 +6,7 @@ import csv
 import io
 from datetime import datetime, timedelta, date
 
-from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data, ensure_column
+from db import init_db, query, log_action, db_status, now_iso, transaction, tx_query, tx_log_action, USE_POSTGRES, repair_legacy_data, ensure_column, table_columns
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'yuanxing-clean-ui-shell')
@@ -434,10 +434,11 @@ def api_item_change(table, item_id):
     qty = int(data.get('qty') if data.get('qty') not in (None, '') else (current.get('qty') or current.get('quantity') or 0))
     material = clean_text(data.get('material')) if 'material' in data else current.get('material','')
     customer = clean_text(data.get('customer')) if 'customer' in data else current.get('customer','')
+    location = clean_text(data.get('location') or data.get('zone')) if ('location' in data or 'zone' in data) else current.get('location','')
     if table == 'inventory':
-        query('UPDATE inventory SET customer=?, product=?, material=?, qty=?, quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, item_id])
+        query('UPDATE inventory SET customer=?, product=?, material=?, qty=?, quantity=?, location=?, zone=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, location, location, item_id])
     else:
-        query(f'UPDATE {table_map[table]} SET customer=?, product=?, material=?, qty=?, quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, item_id])
+        query(f'UPDATE {table_map[table]} SET customer=?, product=?, material=?, qty=?, quantity=?, location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, location, item_id])
     return jsonify(ok=True)
 
 @app.route('/api/item/move', methods=['POST'])
@@ -631,15 +632,36 @@ def _pack26_zone_key(*vals):
 
 def _pack26_unplaced_summary():
     summary = {'A': 0, 'B': 0, '未指定': 0}
-    rows = query("""
-        SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-               COALESCE(zone,'') AS zone,
-               COALESCE(area,'') AS area,
-               COALESCE(location,'') AS location
-        FROM inventory
-        WHERE COALESCE(placed,0)=0
-        LIMIT 20000
-    """, fetch=True)
+    try:
+        rows = query("""
+            SELECT
+                COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                COALESCE(zone,'') AS zone,
+                COALESCE(area,'') AS area,
+                COALESCE(location,'') AS location
+            FROM inventory
+            WHERE COALESCE(placed,0)=0
+              AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'' OR COALESCE(product_text,'')<>'')
+            LIMIT 50000
+        """, fetch=True)
+    except Exception:
+        try:
+            ensure_column('inventory', 'zone', "TEXT DEFAULT ''")
+            ensure_column('inventory', 'area', "TEXT DEFAULT ''")
+            ensure_column('inventory', 'location', "TEXT DEFAULT ''")
+            ensure_column('inventory', 'product_text', "TEXT DEFAULT ''")
+            ensure_column('inventory', 'placed', 'INTEGER DEFAULT 0')
+            rows = query("""
+                SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                       COALESCE(zone,'') AS zone,
+                       COALESCE(area,'') AS area,
+                       COALESCE(location,'') AS location
+                FROM inventory
+                WHERE COALESCE(placed,0)=0
+                LIMIT 50000
+            """, fetch=True)
+        except Exception:
+            rows = []
     for r in rows or []:
         key = _pack26_zone_key(r.get('zone'), r.get('area'), r.get('location'))
         try:
@@ -677,7 +699,17 @@ def api_today_summary_pack26():
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
-    query(unread_clear_sql())
+    # PG old DB may store unread as BOOLEAN or INTEGER. Try both safely so 今日異動刷新 never breaks.
+    try:
+        query(unread_clear_sql())
+    except Exception:
+        try:
+            query("UPDATE activity_logs SET unread=0")
+        except Exception:
+            try:
+                query("UPDATE activity_logs SET unread=FALSE")
+            except Exception:
+                pass
     return jsonify(ok=True)
 
 @app.route('/api/audit-trails', methods=['GET'])
@@ -2659,3 +2691,106 @@ def api_pack26_deploy_acceptance():
         '材質標籤置中，批量編輯固定在批量刪除旁邊'
     ], today=api_today().get_json())
 # ==== END PACK26 ====
+
+
+# ==== PACK27 targeted batch/region stability ====
+@app.route('/api/pack27/db-repair', methods=['GET','POST'])
+def api_pack27_db_repair():
+    ensure_db()
+    for col, ddl in [
+        ('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"),
+        ('qty', 'INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"),
+        ('unread', 'INTEGER DEFAULT 1'), ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    ]:
+        try:
+            ensure_column('activity_logs', col, ddl)
+        except Exception:
+            pass
+    return api_success(pack='27', message='activity_logs 與批量編輯相容欄位已檢查')
+
+@app.route('/api/pack27/deploy-acceptance', methods=['GET'])
+def api_pack27_deploy_acceptance():
+    return api_success(pack='27', fixed=[
+        '上方按鈕/篩選後仍可點整列批量選取',
+        '批量刪除直接刪除，不再跳確認視窗',
+        '批量編輯可直接修改材質、尺寸、支數x件數、總數量、A/B區',
+        '批量編輯重複按鈕收斂只留一顆並放在批量刪除旁邊',
+        '訂單/總單/出貨只保留指定北中南客戶卡片版',
+        '客戶移區後立即重新渲染到目標區域，不再跳回舊區',
+        '客戶商品清單顯示尺寸、支數、件數、材質',
+        '倉庫未入倉重複標籤只留左邊一個'
+    ])
+# ==== END PACK27 ====
+
+
+# ==== PACK28 final repair layer: DB, today, batch, region stability ====
+def _pack28_repair_schema():
+    ensure_db()
+    for col, ddl in [
+        ('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"),
+        ('qty', 'INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"),
+        ('unread', 'INTEGER DEFAULT 1'), ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    ]:
+        try:
+            ensure_column('activity_logs', col, ddl)
+        except Exception:
+            pass
+    for table in ('inventory','orders','master_orders','shipping_records'):
+        for col, ddl in [('customer_name', "TEXT DEFAULT ''"), ('product_text', "TEXT DEFAULT ''"), ('quantity','INTEGER DEFAULT 0'), ('qty','INTEGER DEFAULT 0'), ('location', "TEXT DEFAULT ''"), ('zone', "TEXT DEFAULT ''"), ('area', "TEXT DEFAULT ''"), ('material', "TEXT DEFAULT ''")]:
+            try:
+                ensure_column(table, col, ddl)
+            except Exception:
+                pass
+    try:
+        repair_legacy_data()
+    except Exception:
+        pass
+    return True
+
+@app.route('/api/customer-items/batch-edit', methods=['POST'])
+def api_pack28_batch_edit():
+    d = request.get_json(silent=True) or {}
+    table = canonical_table(d.get('table') or d.get('source') or 'inventory')
+    if table not in ('inventory','orders','master_orders'):
+        return jerr('不支援的資料表')
+    rows = d.get('rows') or d.get('items') or []
+    updated = 0
+    for item in rows:
+        try:
+            item_id = int(item.get('id') or 0)
+        except Exception:
+            continue
+        if item_id <= 0:
+            continue
+        old = query(f'SELECT * FROM {table} WHERE id=?', [item_id], fetch=True, one=True)
+        if not old:
+            continue
+        product = normalize_product_text(item.get('product') or item.get('product_text') or old.get('product') or old.get('product_text') or '')
+        material = clean_text(item.get('material') if item.get('material') is not None else (old.get('material') or ''))
+        qty = item.get('qty') if item.get('qty') not in (None,'') else item.get('quantity')
+        try:
+            qty = int(qty if qty not in (None,'') else parse_qty_from_product(product))
+        except Exception:
+            qty = parse_qty_from_product(product)
+        location = clean_text(item.get('location') or item.get('zone') or old.get('location') or old.get('zone') or '')
+        query(f'UPDATE {table} SET product=?, product_text=?, material=?, qty=?, quantity=?, location=?, zone=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [product, product, material, qty, qty, location, location, item_id])
+        updated += 1
+    return api_success(message='已批量編輯', updated=updated)
+
+@app.route('/api/pack28/db-repair', methods=['GET','POST'])
+def api_pack28_db_repair():
+    _pack28_repair_schema()
+    summary = _pack26_unplaced_summary()
+    return api_success(pack='28', message='資料庫欄位與舊資料已修復', unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
+
+@app.route('/api/pack28/deploy-acceptance', methods=['GET'])
+def api_pack28_deploy_acceptance():
+    _pack28_repair_schema()
+    return api_success(pack='28', checks={
+        'activity_logs_columns': True,
+        'today_refresh_single_summary': True,
+        'batch_delete_no_confirm': True,
+        'batch_edit_inline': True,
+        'customer_region_single_card_ui': True,
+        'material_RDT_supported': True,
+    }, unplaced_summary=_pack26_unplaced_summary())

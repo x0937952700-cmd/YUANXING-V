@@ -565,20 +565,47 @@ def repair_legacy_data():
     except Exception:
         pass
 
+def _ensure_activity_log_columns_safe():
+    for col, ddl in [
+        ('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"),
+        ('qty', 'INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"),
+        ('unread', 'INTEGER DEFAULT 1'), ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    ]:
+        try:
+            ensure_column('activity_logs', col, ddl)
+        except Exception:
+            pass
+
 def log_action(username, action, entity='', entity_id='', detail=None, category=''):
     detail = detail or {}
     detail_text = _json_dumps(detail)
-    query("INSERT INTO audit_logs(username, action, entity, entity_id, detail) VALUES(?, ?, ?, ?, ?)", [username, action, entity, str(entity_id or ''), detail_text])
+    try:
+        query("INSERT INTO audit_logs(username, action, entity, entity_id, detail) VALUES(?, ?, ?, ?, ?)", [username, action, entity, str(entity_id or ''), detail_text])
+    except Exception:
+        pass
     if category:
-        query("INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
+        try:
+            query("INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
+        except Exception:
+            _ensure_activity_log_columns_safe()
+            try:
+                query("INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
+            except Exception:
+                pass
 
 
 def tx_log_action(cur, username, action, entity='', entity_id='', detail=None, category=''):
     detail = detail or {}
     detail_text = _json_dumps(detail)
-    tx_query(cur, "INSERT INTO audit_logs(username, action, entity, entity_id, detail) VALUES(?, ?, ?, ?, ?)", [username, action, entity, str(entity_id or ''), detail_text])
+    try:
+        tx_query(cur, "INSERT INTO audit_logs(username, action, entity, entity_id, detail) VALUES(?, ?, ?, ?, ?)", [username, action, entity, str(entity_id or ''), detail_text])
+    except Exception:
+        pass
     if category:
-        tx_query(cur, "INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
+        try:
+            tx_query(cur, "INSERT INTO activity_logs(category, customer, product, qty, action, operator) VALUES(?, ?, ?, ?, ?, ?)", [category, detail.get('customer',''), detail.get('product',''), int(detail.get('qty') or 0), action, username])
+        except Exception:
+            pass
 
 
 

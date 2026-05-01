@@ -1,0 +1,16 @@
+/* PACK27: targeted UI fixes; keep existing card/button style. */
+.yx27-row-selected{background:#eef6ff!important;box-shadow:inset 3px 0 0 #3b82f6!important;}
+.yx-product-table tbody tr{cursor:pointer;}
+.yx27-editing-row{background:#fffdf4!important;}
+.yx27-editing-row input,.yx27-editing-row select{width:100%;min-height:38px;border:1px solid #cbd5e1;border-radius:12px;padding:6px 10px;background:#fff;font-weight:800;text-align:center;}
+.yx27-save-edit{background:#ecfdf5!important;border-color:#86efac!important;color:#047857!important;}
+.yx27-batch-edit{margin-left:8px!important;}
+.yx-table-tools button:is(#yx22-batch-edit,#yx25-batch-edit,#yx26-batch-edit,#yx27-batch-edit),.yx-table-tools #yx-batch-delete{height:44px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;}
+.yx27-hide-board{display:none!important;}
+.module-screen[data-module="orders"] #region-picker-section .category-grid,
+.module-screen[data-module="master_order"] #region-picker-section .category-grid,
+.module-screen[data-module="ship"] #region-picker-section .category-grid{display:grid!important;}
+.yx27-customer-card{display:grid!important;grid-template-columns:minmax(90px,1fr) auto auto!important;align-items:center!important;gap:12px!important;}
+.yx27-hide-dup-unplaced{display:none!important;}
+.yx-product-table td.yx-material,.yx-product-table td:nth-child(2){text-align:center!important;vertical-align:middle!important;}
+.yx-product-table .yx-material .yx26-material-pill,.yx-product-table td:nth-child(2) .yx26-material-pill,.yx-product-table .mat-tag{margin-left:auto!important;margin-right:auto!important;}
