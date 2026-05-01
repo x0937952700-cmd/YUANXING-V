@@ -1,0 +1,6 @@
+PACK29 修復內容：
+1. 新增 order_customer_regions / master_customer_regions，訂單與總單各自鎖定客戶區域。
+2. /api/regions/orders 與 /api/regions/master_order 先讀各自鎖定表，再 fallback customers.region，避免移區後又跳回北區。
+3. /api/customer-action/move 會使用完整客戶名，支援前端傳入去掉 FOB/CNF 的名稱時自動對回完整名稱。
+4. 前端新增 yx_pack29_region_lock.js，攔截長按操作表的移區事件，直接寫入後端並重抓區域，不讓舊延遲重畫蓋回北區。
+5. 部署後先執行 /api/pack29/db-repair。

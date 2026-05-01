@@ -330,6 +330,16 @@ def init_db(force=False):
             created_at {text_default_now}, updated_at {text_default_now}
         )""")
         query(f"""
+        CREATE TABLE IF NOT EXISTS order_customer_regions (
+            id {idcol}, customer TEXT UNIQUE DEFAULT '', region TEXT DEFAULT '北區',
+            updated_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS master_customer_regions (
+            id {idcol}, customer TEXT UNIQUE DEFAULT '', region TEXT DEFAULT '北區',
+            updated_at {text_default_now}
+        )""")
+        query(f"""
         CREATE TABLE IF NOT EXISTS todo_items (
             id {idcol}, note TEXT DEFAULT '', due_date TEXT DEFAULT '', status TEXT DEFAULT 'open', image_names TEXT DEFAULT '',
             operator TEXT DEFAULT '', created_at {text_default_now}, updated_at {text_default_now}
@@ -346,6 +356,8 @@ def init_db(force=False):
             "shipping_records": [("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("quantity", "INTEGER DEFAULT 0"), ("note", "TEXT DEFAULT ''")],
             "warehouse_cells": [("column_index", "INTEGER DEFAULT 1"), ("slot_number", "INTEGER DEFAULT 1"), ("items_json", "TEXT DEFAULT '[]'")],
             "customer_profiles": [("customer_uid", "TEXT DEFAULT ''"), ("common_materials", "TEXT DEFAULT ''"), ("common_sizes", "TEXT DEFAULT ''"), ("archived", "INTEGER DEFAULT 0")],
+            "order_customer_regions": [("customer", "TEXT DEFAULT ''"), ("region", "TEXT DEFAULT '北區'"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
+            "master_customer_regions": [("customer", "TEXT DEFAULT ''"), ("region", "TEXT DEFAULT '北區'"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
             "todo_items": [("image_names", "TEXT DEFAULT ''"), ("operator", "TEXT DEFAULT ''"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
         }
         for table, specs in migrations.items():

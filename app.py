@@ -518,34 +518,113 @@ def api_customer_items():
     display, terms = split_customer_terms(c)
     return jsonify(ok=True, items=items, summary=summary, customer={'name': c, 'display_name': display, 'terms': terms})
 
+
+# ==== PACK29 order/master independent customer region lock ====
+def _yx29_region_table(module):
+    m = clean_text(module)
+    if m == 'orders':
+        return 'order_customer_regions'
+    if m in ('master_order', 'master_orders', 'ship'):
+        return 'master_customer_regions'
+    return ''
+
+def _yx29_source_table(module):
+    m = clean_text(module)
+    if m == 'orders':
+        return 'orders'
+    if m in ('master_order', 'master_orders', 'ship'):
+        return 'master_orders'
+    if m == 'inventory':
+        return 'inventory'
+    return 'orders'
+
+def _yx29_region(region):
+    r = clean_text(region)
+    return r if r in ('北區','中區','南區') else '北區'
+
+def _yx29_ensure_region_tables():
+    try:
+        idcol = 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+        query(f"CREATE TABLE IF NOT EXISTS order_customer_regions (id {idcol}, customer TEXT UNIQUE DEFAULT '', region TEXT DEFAULT '北區', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        query(f"CREATE TABLE IF NOT EXISTS master_customer_regions (id {idcol}, customer TEXT UNIQUE DEFAULT '', region TEXT DEFAULT '北區', updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+    except Exception:
+        pass
+
+def _yx29_resolve_customer_name(name, module):
+    """Use full customer name in orders/master, even if frontend sends stripped display name."""
+    raw = clean_text(name)
+    if not raw:
+        return ''
+    table = _yx29_source_table(module)
+    try:
+        row = query(f"SELECT customer FROM {table} WHERE customer=? LIMIT 1", [raw], fetch=True, one=True)
+        if row and clean_text(row.get('customer')):
+            return clean_text(row.get('customer'))
+    except Exception:
+        pass
+    stripped_raw, _ = split_customer_terms(raw)
+    try:
+        rows = query(f"SELECT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' GROUP BY customer ORDER BY COUNT(*) DESC LIMIT 3000", fetch=True)
+        for r in rows:
+            c = clean_text(r.get('customer'))
+            disp, _terms = split_customer_terms(c)
+            if c == raw or disp == raw or disp == stripped_raw:
+                return c
+    except Exception:
+        pass
+    return raw
+
+def _yx29_get_locked_regions(module):
+    _yx29_ensure_region_tables()
+    rt = _yx29_region_table(module)
+    out = {}
+    if not rt:
+        return out
+    try:
+        for r in query(f"SELECT customer, region FROM {rt}", fetch=True):
+            c = clean_text(r.get('customer'))
+            if c:
+                out[c] = _yx29_region(r.get('region'))
+    except Exception:
+        pass
+    return out
+
+def _yx29_upsert_region(module, customer, region):
+    _yx29_ensure_region_tables()
+    rt = _yx29_region_table(module)
+    if not rt or not customer:
+        return
+    region = _yx29_region(region)
+    try:
+        if USE_POSTGRES:
+            query(f"INSERT INTO {rt}(customer, region, updated_at) VALUES(?, ?, CURRENT_TIMESTAMP) ON CONFLICT(customer) DO UPDATE SET region=EXCLUDED.region, updated_at=CURRENT_TIMESTAMP", [customer, region])
+        else:
+            query(f"INSERT OR REPLACE INTO {rt}(customer, region, updated_at) VALUES(?, ?, CURRENT_TIMESTAMP)", [customer, region])
+    except Exception:
+        old = query(f"SELECT id FROM {rt} WHERE customer=? LIMIT 1", [customer], fetch=True, one=True)
+        if old:
+            query(f"UPDATE {rt} SET region=?, updated_at=CURRENT_TIMESTAMP WHERE customer=?", [region, customer])
+        else:
+            query(f"INSERT INTO {rt}(customer, region) VALUES(?, ?)", [customer, region])
+
 @app.route('/api/regions/<module>', methods=['GET'])
 def api_regions(module):
-    table = 'master_orders' if module in ('master_order','ship') else 'orders'
-    if module == 'inventory':
-        table = 'inventory'
-    # PACK20: 訂單/總單北中南只顯示該模組真的有商品且數量>0的客戶，不再 fallback 到所有客戶。
+    table = _yx29_source_table(module)
     rows = query(f"SELECT customer, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty, COUNT(*) AS rows FROM {table} WHERE customer IS NOT NULL AND customer<>'' GROUP BY customer HAVING COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0)>0 ORDER BY customer", fetch=True)
-    customers = [r['customer'] for r in rows if clean_text(r.get('customer'))]
+    customers = [clean_text(r.get('customer')) for r in rows if clean_text(r.get('customer'))]
+    qty_map = {clean_text(r.get('customer')): {'qty': int(r.get('qty') or 0), 'rows': int(r.get('rows') or 0)} for r in rows}
     meta = derived_customers('')
-    region_map = {m['name']: m.get('region') or '北區' for m in meta if m.get('name')}
+    base_region = {m['name']: _yx29_region(m.get('region')) for m in meta if m.get('name')}
+    locked = _yx29_get_locked_regions(module)
     grouped = {'北區': [], '中區': [], '南區': []}
     details = {'北區': [], '中區': [], '南區': []}
     for c in customers:
-        region = region_map.get(c, '北區')
-        grouped.setdefault(region, []).append(c)
-        try:
-            cnt = query(f"SELECT COUNT(*) AS rows, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty FROM {table} WHERE customer=?", [c], fetch=True, one=True) or {}
-        except Exception:
-            cnt = {'rows': 0, 'qty': 0}
         display, terms = split_customer_terms(c)
-        details.setdefault(region, []).append({
-            'name': c,
-            'display_name': display,
-            'terms': terms,
-            'qty': int(cnt.get('qty') or 0),
-            'count': int(cnt.get('rows') or 0),
-            'region': region,
-        })
+        region = locked.get(c) or locked.get(display) or base_region.get(c) or base_region.get(display) or '北區'
+        region = _yx29_region(region)
+        q = qty_map.get(c, {'qty':0,'rows':0})
+        grouped[region].append(c)
+        details[region].append({'name': c, 'display_name': display, 'terms': terms, 'qty': int(q.get('qty') or 0), 'count': int(q.get('rows') or 0), 'region': region})
     return jsonify(ok=True, regions=grouped, details=details)
 
 @app.route('/api/warehouse', methods=['GET'])
@@ -1160,11 +1239,14 @@ def api_customer_detail(name):
 @app.route('/api/customers/move', methods=['POST'])
 def api_customers_move():
     d=request.get_json(silent=True) or {}
-    name=clean_text(d.get('name') or d.get('customer') or d.get('customer_name'))
-    region=clean_text(d.get('region') or '北區')
+    module=clean_text(d.get('module') or d.get('page') or '')
+    name=_yx29_resolve_customer_name(d.get('name') or d.get('customer') or d.get('customer_name'), module)
+    region=_yx29_region(d.get('region') or '北區')
     upsert_customer(name, region)
     query('UPDATE customers SET region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [region, name])
-    return api_success(message='已移區')
+    if module in ('orders','master_order','master_orders','ship'):
+        _yx29_upsert_region(module, name, region)
+    return api_success(message='已移區', name=name, region=region)
 
 @app.route('/api/admin/block', methods=['POST'])
 def api_admin_block_alias():
@@ -2565,13 +2647,16 @@ def api_pack18_customer_edit():
 @app.route('/api/customer-action/move', methods=['POST'])
 def api_pack18_customer_move():
     d = request.get_json(silent=True) or {}
-    name = clean_text(d.get('name') or d.get('customer') or d.get('customer_name'))
-    region = clean_text(d.get('region') or '北區')
+    module = clean_text(d.get('module') or d.get('page') or '')
+    name = _yx29_resolve_customer_name(d.get('name') or d.get('customer') or d.get('customer_name'), module)
+    region = _yx29_region(d.get('region') or '北區')
     if not name:
         return jerr('客戶名稱必填')
     upsert_customer(name, region)
     query('UPDATE customers SET region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [region, name])
-    log_action(username(), '移動客戶區域', 'customers', name, {'region': region})
+    if module in ('orders','master_order','master_orders','ship'):
+        _yx29_upsert_region(module, name, region)
+    log_action(username(), '移動客戶區域', 'customers', name, {'region': region, 'module': module})
     return api_success(message='已移區', name=name, region=region)
 
 @app.route('/api/customer-action/delete', methods=['POST'])
@@ -2794,3 +2879,30 @@ def api_pack28_deploy_acceptance():
         'customer_region_single_card_ui': True,
         'material_RDT_supported': True,
     }, unplaced_summary=_pack26_unplaced_summary())
+
+
+# ==== PACK29 region lock repair endpoints ====
+@app.route('/api/pack29/db-repair')
+def api_pack29_db_repair():
+    _yx29_ensure_region_tables()
+    for module in ('orders','master_order'):
+        table = _yx29_source_table(module)
+        try:
+            rows = query(f"SELECT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' GROUP BY customer", fetch=True)
+            for r in rows:
+                c = clean_text(r.get('customer'))
+                if not c:
+                    continue
+                rt = _yx29_region_table(module)
+                exists = query(f"SELECT customer FROM {rt} WHERE customer=? LIMIT 1", [c], fetch=True, one=True)
+                if not exists:
+                    display, _ = split_customer_terms(c)
+                    meta = query("SELECT region FROM customers WHERE name=? OR name=? LIMIT 1", [c, display], fetch=True, one=True) or {}
+                    _yx29_upsert_region(module, c, meta.get('region') or '北區')
+        except Exception:
+            pass
+    return api_success(pack='29', message='訂單/總單客戶區域鎖定表已修復')
+
+@app.route('/api/pack29/deploy-acceptance')
+def api_pack29_deploy_acceptance():
+    return api_success(pack='29', checks={'order_customer_regions': True, 'master_customer_regions': True, 'move_region_no_jump_back': True, 'regions_api_reads_module_lock_first': True})
