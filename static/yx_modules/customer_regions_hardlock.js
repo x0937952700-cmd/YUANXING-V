@@ -205,23 +205,7 @@
       renderBoards(state.items);
     }, 50);
   }
-  function observeCustomerBoards(){
-    if (moduleKey() === 'ship' || state.observer || !isRegionPage()) return;
-    const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
-    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
-    if (!targets.length || typeof NativeMO === 'undefined') return;
-    state.observer = new NativeMO(muts => {
-      if (state.rendering) return;
-      for (const m of muts){
-        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
-        if (added.length && (added.some(n => (n.matches?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow'))) || hasLegacyCustomerDom())) {
-          scheduleRepair();
-          break;
-        }
-      }
-    });
-    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
-  }
+  function observeCustomerBoards(){ return; }
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
@@ -366,8 +350,7 @@
     document.documentElement.dataset.yx115Customers = 'locked';
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
-    bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
-    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
+    bindEvents(); lockGlobals(); loadCustomerBlocks(true);
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();

@@ -1,0 +1,48 @@
+/* 沅興木業 最終鎖死母版：倉庫圖與商品工具列固定顯示 */
+html[data-yx-final-mother-warehouse="locked"] #warehouse-section,
+.yx-final-warehouse-lock{contain:layout paint;}
+.yx-final-warehouse-root .zone-grid.six-grid,
+.yx67-dynamic-warehouse-layout .zone-grid.six-grid{display:grid!important;grid-template-columns:repeat(6,minmax(132px,1fr))!important;gap:10px!important;align-items:start!important;}
+.yx-final-warehouse-root .vertical-column-card,.yx106-warehouse-column.vertical-column-card{display:flex!important;flex-direction:column!important;min-width:0!important;background:rgba(255,255,255,.86)!important;border:1px solid rgba(90,64,42,.14)!important;border-radius:18px!important;padding:8px!important;box-shadow:0 10px 24px rgba(64,42,20,.08)!important;}
+.yx-final-warehouse-root .vertical-slot-list{display:flex!important;flex-direction:column!important;gap:7px!important;}
+.yx-final-warehouse-root .yx108-slot,.yx-final-slot{width:100%!important;min-height:58px!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:5px!important;border:1px solid rgba(105,85,62,.24)!important;border-radius:13px!important;background:linear-gradient(180deg,#fff,#f8fbff)!important;padding:7px 8px!important;text-align:left!important;user-select:none!important;touch-action:none!important;}
+.yx-final-warehouse-root .yx108-slot-row{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;width:100%!important;line-height:1.15!important;}
+.yx-final-warehouse-root .yx108-slot-no{flex:0 0 auto!important;font-weight:900!important;color:#111!important;}
+.yx-final-warehouse-root .yx108-slot-customers{flex:1 1 auto!important;text-align:right!important;color:#c01818!important;font-weight:900!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+.yx-final-warehouse-root .yx108-slot-empty{color:#999!important;font-weight:700!important;}
+.yx-final-warehouse-root .yx108-slot-sum,.yx-final-warehouse-root .yx108-slot-total{color:#1268d6!important;font-weight:900!important;}
+.yx-final-warehouse-root .yx108-slot-total{margin-left:auto!important;}
+.yx-final-warehouse-root .flash-highlight,.yx-final-warehouse-root .highlight,.yx-final-warehouse-root .yx121-warehouse-drop-target{outline:3px solid rgba(30,120,255,.55)!important;box-shadow:0 0 0 5px rgba(30,120,255,.16),0 12px 28px rgba(30,120,255,.20)!important;}
+.yx-final-warehouse-root .yx121-unplaced-highlight{background:#fff8db!important;}
+.yx-final-html-cell-editor .yx-direct-current-item,.yx-direct-batch-panel .yx121-batch-row{display:grid!important;grid-template-columns:1fr auto!important;gap:8px!important;align-items:center!important;padding:10px!important;border:1px solid rgba(38,93,73,.14)!important;border-radius:14px!important;background:#f7fffb!important;margin:8px 0!important;}
+.yx-direct-batch-panel .yx121-batch-row{grid-template-columns:58px 1fr 88px!important;}
+.yx113-select-toggle,button[data-yx113-toggle-select],button[data-yx-select-all],button[data-yx113-select-all]{display:none!important;}
+.yx114-batch-actions .yx113-search{width:min(315px,42vw)!important;flex:0 1 315px!important;order:-5!important;}
+@media(max-width:760px){.yx-final-warehouse-root .zone-grid.six-grid{grid-template-columns:repeat(2,minmax(132px,1fr))!important}.yx-direct-batch-panel .yx121-batch-row{grid-template-columns:1fr!important}}
+
+/* === SHIP HTML ONLY LOCK：出貨頁只吃 HTML 外殼，JS 只更新資料 === */
+.module-screen[data-module="ship"] #ship-customer-quick-list{display:none!important}
+.module-screen[data-module="ship"] .ship-customer-picker{border:1px solid rgba(148,163,184,.28);border-radius:22px;background:rgba(255,255,255,.82);padding:14px;box-shadow:0 10px 28px rgba(15,23,42,.06)}
+.module-screen[data-module="ship"] .ship-single-toolbar{display:block!important;margin-bottom:10px}
+.module-screen[data-module="ship"] #ship-customer-search{width:min(360px,100%)!important;height:44px;border-radius:22px}
+.module-screen[data-module="ship"] #ship-customer-item-select{width:100%;height:46px;border-radius:18px;margin-top:8px;font-weight:800;color:#0f172a}
+.module-screen[data-module="ship"] .yx-ship-html-locked-note{font-size:13px;color:#64748b;margin-top:8px;font-weight:700}
+.module-screen[data-module="ship"] .yx-ship-direct-note{display:none!important}
+.yx-ship-selected-html-card{display:grid;grid-template-columns:minmax(0,1fr) 130px auto;gap:10px;align-items:center;padding:10px 12px;margin:8px 0;border:1px solid #d1fae5;background:#f0fdf4;border-radius:18px;color:#065f46}
+.yx-ship-selected-main{display:flex;align-items:center;gap:8px;min-width:0;cursor:text;white-space:nowrap;overflow:hidden}
+.yx-ship-source-pill{display:inline-flex;align-items:center;justify-content:center;border:1px solid #86efac;background:#ecfdf5;color:#047857;border-radius:999px;padding:3px 12px;font-weight:950;flex:0 0 auto}
+.yx-ship-material-pill{display:inline-flex;align-items:center;justify-content:center;border:1px solid #bbf7d0;background:#ffffff;color:#15803d;border-radius:999px;padding:3px 10px;font-weight:950;flex:0 0 auto}
+.yx-ship-selected-product{font-size:17px;font-weight:950;letter-spacing:.2px;overflow:hidden;text-overflow:ellipsis;color:#047857}
+.yx-ship-selected-qty-wrap{display:grid;gap:4px;font-size:12px;color:#64748b;font-weight:900}
+.yx-ship-selected-qty{height:40px!important;text-align:center;border-radius:15px!important}
+.module-screen[data-module="ship"] #ship-preview-panel .yx22-preview{background:#ecfdf5!important;border:1px solid #86efac!important;border-radius:22px!important;padding:18px!important;color:#065f46!important;overflow-x:auto!important}
+@media(max-width:760px){.yx-ship-selected-html-card{grid-template-columns:1fr}.yx-ship-selected-main{white-space:normal}.module-screen[data-module="ship"] #ship-customer-search{width:100%!important}}
+
+/* HTML_ALL_PAGES_LOCK_V1：全頁面 HTML 外殼鎖定；JS 只允許更新資料內容。 */
+.yx-html-direct-product-shell,.yx-html-direct-toolbar,.yx-html-direct-summary,.yx-ship-single-html,.yx-final-warehouse-root{contain:layout paint;}
+.yx-html-direct-disabled-legacy,.yx115-hidden-legacy-product,.yx63-toolbar,.yx62-toolbar,.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.yx63-summary,.yx62-summary,.fix57-summary-panel{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+#ship-customer-picker .ship-customer-tag-list,#ship-customer-picker .customer-region-card,#ship-customer-picker .yx113-customer-card{display:none!important;}
+#ship-customer-item-select{width:100%;max-width:720px;}
+.yx-html-direct-toolbar .yx113-search{max-width:260px;min-width:180px;}
+.warehouse-fixed-layout .zone-grid.six-grid{grid-template-columns:repeat(6,minmax(136px,1fr))!important;}
+@media(max-width:760px){.warehouse-fixed-layout .zone-grid.six-grid{grid-template-columns:repeat(6,minmax(128px,1fr))!important;min-width:820px}.warehouse-zone-card{overflow-x:auto}}

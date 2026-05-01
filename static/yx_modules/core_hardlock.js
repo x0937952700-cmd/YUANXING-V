@@ -2,7 +2,7 @@
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix142-speed-ship-master-hardlock') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'html-all-pages-lock-v2-final-clean') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -107,7 +107,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'fix142-speed-ship-master-hardlock',
+    version: 'html-all-pages-lock-v2-final-clean',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };

@@ -3,7 +3,7 @@
   'use strict';
   if (!window.__YX_SHIP_SINGLE_LOCK__) return;
   const $ = (id)=>document.getElementById(id);
-  const state = { customer:'', items:[], selected:[], customers:[], timer:null, loadingName:'', itemCache:new Map() };
+  const state = { customer:'', items:[], selected:[], customers:[], loadingName:'', itemCache:new Map(), bound:false };
   const esc = (v)=>String(v??'').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean = (v)=>String(v??'').replace(/\s+/g,' ').trim();
   async function api(url,opt={}){
@@ -43,18 +43,15 @@
     return `${parts[0].replace(/x\s*\d+$/i,'')}x${q}`;
   }
   function productForQty(it,qty){ const p=splitProduct(it.product_text||''); return `${p.size}=${withQtySupport(p.support,qty)}`; }
-  function selectedKey(it){ return [materialOf(it), normalizeText(splitProduct(it.product_text||'').size), sourcePreferenceOf(it)||'auto'].join('|').toLowerCase(); }
   function setCustomer(name){
-    state.customer=clean(name); const input=$('customer-name'); if(input && input.value!==state.customer) input.value=state.customer;
+    state.customer=clean(name);
+    const input=$('customer-name'); if(input && input.value!==state.customer) input.value=state.customer;
     const search=$('ship-customer-search'); if(search && search.value!==state.customer) search.value=state.customer;
   }
   function renderCustomers(){
-    const box=$('ship-customer-quick-list'); if(!box) return;
-    if(!state.customers.length){ box.innerHTML='<div class="small-note">尚無客戶資料</div>'; return; }
-    const q=clean($('ship-customer-search')?.value||$('customer-name')?.value||'').toLowerCase();
-    let rows=state.customers;
-    if(q) rows=rows.filter(c=>String(c.name||c.customer_name||'').toLowerCase().includes(q));
-    box.innerHTML=rows.slice(0,90).map(c=>`<button type="button" class="ghost-btn tiny-btn yx-ship-customer-chip" data-ship-customer="${esc(c.name||c.customer_name||'')}">${esc(c.name||c.customer_name||'')}</button>`).join('') || '<div class="small-note">找不到符合客戶，按重新載入可手動查商品</div>';
+    // 出貨頁 HTML 鎖定：不再產生一整排客戶按鈕。
+    const box=$('ship-customer-quick-list');
+    if(box) box.replaceChildren();
   }
   async function loadCustomers(){
     try{
@@ -65,23 +62,33 @@
       renderCustomers();
     }catch(_e){}
   }
+  function productLabel(it){
+    const p=splitProduct(it.product_text||it.product||'');
+    const q=qtyFromText(it.product_text,it.qty);
+    const mat=materialOf(it)||'未填材質';
+    const src=sourceOf(it)||'自動';
+    return `${src}｜${mat}｜${p.size}${p.support?'='+p.support:''}｜${q}件`;
+  }
   function renderItems(){
-    const box=$('ship-customer-item-list'); if(!box) return;
-    if(!state.customer){ box.innerHTML='<div class="empty-state-card compact-empty">請先輸入或點選客戶名稱</div>'; return; }
-    if(!state.items.length){ box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>'; return; }
-    const total=state.items.reduce((s,it)=>s+qtyFromText(it.product_text,it.qty),0);
-    box.innerHTML=`<div class="yx-ship-list-head"><strong>${esc(state.customer)} 商品</strong><span>${total}件 / ${state.items.length}筆</span></div>`+
-      state.items.map((it,i)=>{ const p=splitProduct(it.product_text||''); const q=qtyFromText(it.product_text,it.qty); return `
-        <div class="yx-ship-tag-card" data-ship-item="${i}">
-          <button type="button" class="yx-ship-product-tag" data-ship-pick="${i}">
-            <span class="yx-ship-src">${esc(sourceOf(it))}</span>
-            <b>${esc(materialOf(it))}</b>
-            <span>${esc(p.size)}＝${esc(p.support||q)}</span>
-            <em>${q}件</em>
-          </button>
-          <input class="text-input yx-ship-qty-input" type="number" min="1" max="${q||9999}" value="${q||1}" data-ship-qty="${i}" aria-label="出貨件數">
-          <button type="button" class="primary-btn small-btn" data-ship-add="${i}">加入</button>
-        </div>`; }).join('');
+    const select=$('ship-customer-item-select');
+    const box=$('ship-customer-item-list');
+    if(!state.customer){
+      if(select) select.innerHTML='<option value="">請先輸入或點選客戶名稱</option>';
+      if(box) box.textContent='下拉清單會顯示該客戶全部商品；點選商品後會加入下方已選商品。';
+      return;
+    }
+    if(!state.items.length){
+      if(select) select.innerHTML='<option value="">此客戶目前沒有可出貨商品</option>';
+      if(box) box.textContent='此客戶目前沒有可出貨商品';
+      return;
+    }
+    if(select){
+      select.innerHTML='<option value="">請選擇商品（來源｜材質｜尺寸 / 支數｜件數）</option>'+state.items.map((it,i)=>`<option value="${i}">${esc(productLabel(it))}</option>`).join('');
+    }
+    if(box){
+      const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);
+      box.textContent=`${state.customer}：共 ${state.items.length} 筆 / ${total} 件，請使用上方下拉清單選商品`;
+    }
   }
   async function loadItems(name, opts={}){
     setCustomer(name||state.customer); renderItems();
@@ -91,7 +98,7 @@
     if(!opts.force && cached && Date.now()-cached.at<15000){ state.items=cached.items; renderItems(); return; }
     if(state.loadingName===key) return;
     state.loadingName=key;
-    const box=$('ship-customer-item-list'); if(box) box.innerHTML='<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
+    const select=$('ship-customer-item-select'); if(select) select.innerHTML='<option value="">客戶商品載入中…</option>';
     try{
       const d=await api('/api/customer-items?name='+encodeURIComponent(state.customer)+'&fast=1&ship_single=1&ts='+Date.now());
       state.items=Array.isArray(d.items)?d.items:[];
@@ -103,23 +110,26 @@
     const box=$('ship-selected-items'); if(!box) return;
     if(!state.selected.length){ box.innerHTML='<div class="empty-state-card compact-empty">尚未加入出貨商品</div>'; return; }
     box.innerHTML=state.selected.map((it,i)=>{ const p=splitProduct(it.product_text); return `
-      <div class="result-card yx-ship-selected-card">
-        <div><strong>${esc(it.material)}</strong>｜${esc(p.size)}＝${esc(p.support)} <span class="muted">${esc(it.source||'')}</span></div>
-        <input class="text-input yx-ship-selected-qty" type="number" min="1" value="${Number(it.qty||1)}" data-selected-qty="${i}">
+      <div class="yx-ship-selected-html-card" data-selected-card="${i}">
+        <div class="yx-ship-selected-main" data-focus-qty="${i}">
+          <span class="yx-ship-source-pill">${esc(it.source||'自動')}</span>
+          <span class="yx-ship-material-pill">${esc(it.material||'未填材質')}</span>
+          <span class="yx-ship-selected-product">${esc(p.size)}${p.support?'='+esc(p.support):''}</span>
+        </div>
+        <label class="yx-ship-selected-qty-wrap">出貨件數<input class="text-input yx-ship-selected-qty" type="number" min="1" value="${Number(it.qty||1)}" data-selected-qty="${i}"></label>
         <button class="ghost-btn small-btn" type="button" data-selected-remove="${i}">刪除</button>
       </div>`; }).join('');
     const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n');
   }
   function addItem(i){
     const it=state.items[Number(i)]; if(!it) return toast('找不到商品','warn');
-    const max=qtyFromText(it.product_text,it.qty)||9999; const qtyInput=document.querySelector(`[data-ship-qty="${Number(i)}"]`);
-    let qty=Math.max(1,parseInt(qtyInput?.value||max,10)||1); if(max && qty>max) qty=max;
+    const max=qtyFromText(it.product_text,it.qty)||9999;
+    let qty=max || 1;
     const product_text=productForQty(it,qty);
     const pref=sourcePreferenceOf(it);
     const row={ product_text, qty, material:materialOf(it), product_code:materialOf(it), source:sourceOf(it), source_preference:pref, id:it.id };
-    // 出貨選取不在前端二次合併，避免和後端 _merge_items_by_size_material 重複重算件數。
     state.selected.push(row);
-    renderSelected(); toast('已加入出貨商品','ok');
+    renderSelected(); toast('已加入出貨商品，可直接修改件數','ok');
   }
   window.clearShipSelectedItems=function(){ state.selected=[]; renderSelected(); };
   async function confirmSubmit(){
@@ -131,38 +141,48 @@
     catch(e){ toast(e.message||'出貨預覽失敗','error'); }
     finally{ if(btn){ btn.disabled=false; btn.textContent='確認送出'; } }
   }
+  function calcRowsHtml(calc){
+    const rows=calc?.rows||calc?.items||[];
+    if(!rows.length) return '<tr><td colspan="5">尚無材積算式</td></tr>';
+    return rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.product||r.product_text||'')}</td><td>${Number(r.pieces_sum||r.qty||0)}</td><td>${esc(r.formula||'')}</td><td>${esc(r.volume||'')}</td></tr>`).join('');
+  }
+  function previewRowHtml(item, idx, preview){
+    const p=splitProduct(item.product_text||preview.product_text||preview.product||'');
+    const q=Number(item.qty||preview.qty||preview.need_qty||1);
+    const before=Number(preview.master_available||preview.order_available||preview.inventory_available||0);
+    const after=before?Math.max(0,before-q):'';
+    const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
+    const bad=Number(preview.shortage||0)>0;
+    return `<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before?`${before} → ${after}`:'待確認'}</td><td>${bad?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`;
+  }
   function showPreview(data,payload){
     const panel=$('ship-preview-panel')||$('module-result'); if(!panel) return;
     const rows=Array.isArray(data.breakdown)?data.breakdown:(Array.isArray(data.items)?data.items:[]);
+    const draft=payload.items||[];
+    const calc=data.calc||data.volume_calc||{};
+    const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+Number(b.qty||1),0));
     panel.classList.remove('hidden'); panel.style.display='block';
-    panel.innerHTML=`<div class="section-title">出貨預覽</div>
-      <div class="yx-ship-preview-table"><table><thead><tr><th>商品</th><th>出貨</th><th>總單</th><th>訂單</th><th>庫存</th><th>狀態</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td>${esc(r.product_text||r.product||'')}</td><td>${Number(r.qty||r.need_qty||0)}</td><td>${Number(r.master_available||0)}</td><td>${Number(r.order_available||0)}</td><td>${Number(r.inventory_available||0)}</td><td>${Number(r.shortage||0)>0?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`).join('')}
-      </tbody></table></div>
-      <div class="btn-row compact-row"><button class="ghost-btn" type="button" id="ship-preview-cancel">取消</button><button class="primary-btn" type="button" id="ship-preview-confirm">確認扣除</button></div>`;
-    $('ship-preview-cancel')?.addEventListener('click',()=>panel.classList.add('hidden'),{once:true});
-    $('ship-preview-confirm')?.addEventListener('click',async()=>{
-      const b=$('ship-preview-confirm'); if(b){b.disabled=true;b.textContent='扣除中…';}
-      try{ const r=await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_confirm_'+Date.now()+'_'+Math.random().toString(36).slice(2)})});
-        panel.innerHTML='<div class="section-title">出貨完成</div><div class="muted">已完成扣除，客戶商品清單已刷新。</div>'; state.selected=[]; renderSelected(); state.itemCache.delete(state.customer); await loadItems(state.customer,{force:true}); toast('出貨完成','ok');
-      }catch(e){ toast(e.message||'出貨失敗','error'); if(b){b.disabled=false;b.textContent='確認扣除';} }
-    },{once:true});
+    panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(draft.length?draft:rows).map((x,i)=>previewRowHtml(x,i,rows[i]||{})).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;
+    $('yx22-weight')?.addEventListener('input',e=>{const w=Number(e.target.value||0), v=Number(calc.total_volume||0); const out=$('yx22-total-weight'); if(out)out.textContent=w?`總重：${(w*v).toFixed(2)}`:'總重：--';});
+    $('yx22-cancel-preview')?.addEventListener('click',()=>panel.classList.add('hidden'),{once:true});
+    $('yx22-confirm-ship')?.addEventListener('click',async()=>{ const b=$('yx22-confirm-ship'); if(b){b.disabled=true;b.textContent='扣除中…';} try{ await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_confirm_'+Date.now()+'_'+Math.random().toString(36).slice(2)})}); panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>'; state.selected=[]; renderSelected(); state.itemCache.delete(state.customer); await loadItems(state.customer,{force:true}); toast('出貨完成','ok'); }catch(e){ toast(e.message||'出貨失敗','error'); if(b){b.disabled=false;b.textContent='確認扣除';} } },{once:true});
+    panel.scrollIntoView({behavior:'smooth',block:'start'});
   }
   window.confirmSubmit=confirmSubmit;
   window.YX116ShipPicker = { load: loadItems, addItem, renderItems, renderSelected };
   window.reverseLookup=function(){ toast('請使用倉庫圖搜尋商品位置','warn'); };
   function bind(){
+    if(state.bound) return; state.bound=true;
     document.addEventListener('click',(e)=>{
       const c=e.target.closest('[data-ship-customer]'); if(c){ e.preventDefault(); loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error')); return; }
-      const add=e.target.closest('[data-ship-add], [data-ship-pick]'); if(add){ e.preventDefault(); addItem(add.dataset.shipAdd ?? add.dataset.shipPick); return; }
       const rm=e.target.closest('[data-selected-remove]'); if(rm){ e.preventDefault(); state.selected.splice(Number(rm.dataset.selectedRemove),1); renderSelected(); return; }
-      if(e.target.id==='ship-refresh-customer-items'){ e.preventDefault(); loadItems(state.customer||$('customer-name')?.value||$('ship-customer-search')?.value).then(()=>toast('已重新載入','ok')).catch(err=>toast(err.message,'error')); }
+      const focus=e.target.closest('[data-focus-qty]'); if(focus){ const inp=document.querySelector(`[data-selected-qty="${focus.dataset.focusQty}"]`); inp?.focus(); inp?.select?.(); return; }
     },true);
     document.addEventListener('keydown',(e)=>{
       if((e.target.id==='customer-name' || e.target.id==='ship-customer-search') && e.key==='Enter'){ e.preventDefault(); loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error')); }
     },true);
     document.addEventListener('change',(e)=>{
-      if(e.target.id==='customer-name' || e.target.id==='ship-customer-search'){ loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error')); }
+      if(e.target.id==='ship-customer-item-select' && e.target.value!==''){ addItem(e.target.value); e.target.value=''; }
     },true);
     document.addEventListener('input',(e)=>{
       if(e.target.id==='customer-name' || e.target.id==='ship-customer-search'){
@@ -170,12 +190,16 @@
         renderCustomers();
         renderItems();
       }
-      if(e.target.matches('[data-selected-qty]')){ const i=Number(e.target.dataset.selectedQty); const q=Math.max(1,parseInt(e.target.value||1,10)||1); if(state.selected[i]){ state.selected[i].qty=q; state.selected[i].product_text=productForQty(state.selected[i],q); } }
+      if(e.target.matches('[data-selected-qty]')){
+        const i=Number(e.target.dataset.selectedQty);
+        const q=Math.max(1,parseInt(e.target.value||1,10)||1);
+        if(state.selected[i]){ state.selected[i].qty=q; state.selected[i].product_text=productForQty(state.selected[i],q); const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n'); }
+      }
     },true);
   }
   function install(){
     document.documentElement.dataset.yxShipSingle='locked';
-    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; renderCustomers(); }, false); setTimeout(loadCustomers,120); renderSelected();
+    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; renderCustomers(); }, false); renderSelected();
     const name=clean($('customer-name')?.value||''); if(name) loadItems(name).catch(()=>{}); else renderItems();
     window.confirmSubmit=confirmSubmit;
   }

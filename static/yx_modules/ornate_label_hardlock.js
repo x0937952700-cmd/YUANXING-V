@@ -2,7 +2,7 @@
    只接外觀母版：不改功能、不覆蓋 onclick/href/API。 */
 (function(){
   'use strict';
-  const VERSION = 'fix142-speed-ship-master-hardlock';
+  const VERSION = 'html-all-pages-lock-v2-final-clean';
   const SELECTOR = [
     '.menu-btn','a.menu-btn','.home-mini-btn','a.home-mini-btn','.user-cell',
     '.primary-btn','button.primary-btn','.ghost-btn','button.ghost-btn','.back-btn','a.back-btn',
@@ -58,20 +58,9 @@
   function install(){
     window.__YX124_ORNATE_LABEL_ACTIVE__ = true;
     apply(document);
-    if (!observer) {
-      try{
-        const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
-        if (NativeMO && document.body) {
-          observer = new NativeMO(mutations => {
-            for (const m of mutations) {
-              if ((m.addedNodes && m.addedNodes.length) || (m.removedNodes && m.removedNodes.length)) { schedule(); break; }
-            }
-          });
-          observer.observe(document.body, {childList:true, subtree:true});
-        }
-      }catch(_e){}
+    if (!window.__YX_HTML_ONLY_ALL_PAGES__) {
+      [0,120,360,900,1800,3600].forEach(ms => setTimeout(() => apply(document), ms));
     }
-    [0,120,360,900,1800,3600].forEach(ms => setTimeout(() => apply(document), ms));
     return true;
   }
   function bindClickGuard(){
@@ -92,6 +81,6 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
-  window.addEventListener('pageshow', install);
+  if (!window.__YX_HTML_ONLY_ALL_PAGES__) window.addEventListener('pageshow', install);
   document.addEventListener('yx:master-installed', install);
 })();

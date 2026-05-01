@@ -19,13 +19,10 @@
     <div class="ship-customer-picker yx-ship-single-html" id="ship-customer-picker">
       <div class="ship-single-toolbar">
         <input class="text-input" id="ship-customer-search" placeholder="輸入或點選客戶後，直接顯示該客戶全部商品">
-        <button class="ghost-btn small-btn" type="button" id="ship-refresh-customer-items">重新載入</button>
+        
       </div>
-      <div id="ship-customer-quick-list" class="ship-customer-quick-list"></div>
-      <div id="ship-customer-item-list" class="ship-customer-item-list yx-ship-tag-list">
-        <div class="empty-state-card compact-empty">請先輸入或點選客戶名稱</div>
-      </div>
-      <div class="small-note">商品以標籤顯示：材質｜尺寸＝支數x件數。輸入出貨件數後按「加入」，確認送出只讀這一套清單。</div>
+      <select id="ship-customer-item-select" class="text-input ship-customer-item-select"><option value="">請先輸入或點選客戶名稱</option></select>
+      <div id="ship-customer-item-list" class="ship-customer-item-list yx-ship-html-locked-note" data-html-lock="ship-item-note">下拉清單會顯示該客戶全部商品；點選商品後會加入下方已選商品，可直接編輯出貨件數。</div>
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
@@ -62,10 +59,11 @@
       </div>
       <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
         <div class="yx114-toolbar-main">
-          <button class="ghost-btn small-btn" type="button" data-yx113-selectall="inventory">全選目前清單</button>
           <input id="yx113-inventory-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         </div>
         <div class="yx114-batch-actions yx-direct-batch-actions">
+          <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="inventory">加到訂單</button>
+          <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="inventory">加到總單</button>
           <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="inventory">全部區</button>
           <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="inventory">A區</button>
           <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="inventory">B區</button>
@@ -95,11 +93,9 @@
       <span class="muted">固定 HTML 表格：可直接加入總單、直接出貨、批量編輯。</span>
     </div>
     <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
-      <div class="yx114-toolbar-main">
-        <button class="ghost-btn small-btn" type="button" data-yx113-selectall="orders">全選目前清單</button>
-        <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
-      </div>
+      <div class="yx114-toolbar-main"></div>
       <div class="yx114-batch-actions yx-direct-batch-actions">
+        <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="orders">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="orders">A區</button>
@@ -125,11 +121,9 @@
       <span class="muted">固定 HTML 表格：保留直接出貨、批量材質、批量刪除、批量編輯。</span>
     </div>
     <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
-      <div class="yx114-toolbar-main">
-        <button class="ghost-btn small-btn" type="button" data-yx113-selectall="master_order">全選目前清單</button>
-        <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
-      </div>
+      <div class="yx114-toolbar-main"></div>
       <div class="yx114-batch-actions yx-direct-batch-actions">
+        <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="master_order">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="master_order">A區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="master_order">B區</button>
@@ -173,7 +167,7 @@
   <section class="subsection" id="ship-selected-section" {% if module_key != 'ship' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>已選商品</h3>
-      <span class="muted">同商品會自動合併，可調整順序、移除或一鍵清空</span>
+      <span class="muted">點選上方商品後顯示在這裡，可直接修改本次要出的件數</span>
     </div>
     <div class="btn-row compact-row">
       <button class="ghost-btn" onclick="clearShipSelectedItems()">一鍵清空</button>
@@ -207,7 +201,7 @@
   </section>
 
   
-  <section class="subsection warehouse-page-shell" id="warehouse-section" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
@@ -219,7 +213,7 @@
       <div class="search-row warehouse-search-toolbar">
         <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
         <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
-        <button class="ghost-btn" type="button" onclick="renderWarehouse(true)">清除搜尋</button>
+        <button class="ghost-btn" type="button" onclick="clearWarehouseSearchAndHighlights()">清除搜尋</button>
       </div>
 
       <div class="query-bar warehouse-meta-bar">
@@ -228,6 +222,7 @@
         <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
         <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
         <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
+        <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" onclick="undoWarehouseMove()" disabled>還原上一步</button>
       </div>
 
       <div class="warehouse-zone-nav">
@@ -241,7 +236,7 @@
     <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
-    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout">
+    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true">
       <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
@@ -252,9 +247,9 @@
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 11) %}
+              {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-empty">空格</span></div>
+                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
               </button>
               {% endfor %}
             </div>
@@ -273,9 +268,9 @@
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 11) %}
+              {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-empty">空格</span></div>
+                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
               </button>
               {% endfor %}
             </div>
@@ -373,7 +368,7 @@
       </div>
       <label class="field-label">格位備註</label>
       <textarea id="warehouse-note" class="text-area small"></textarea>
-      <div id="warehouse-cell-items" class="chip-list"></div>
+      <div id="warehouse-cell-items" class="chip-list yx-final-html-cell-editor"></div><div id="yx-final-batch-placeholder" class="hidden" aria-hidden="true">批量加入商品｜後排｜中間｜前排</div>
     </div>
   </div>
 </div>

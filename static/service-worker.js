@@ -1,33 +1,29 @@
-/* 沅興木業 PWA Service Worker - ship-fix-v1 */
-const YX_PWA_VERSION='ship-fix-v1';
+/* 沅興木業 PWA Service Worker - html-all-pages-lock-v2-final-clean */
+const YX_PWA_VERSION='html-all-pages-lock-v2-final-clean';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
-  '/static/manifest.webmanifest',
-  '/static/favicon.png',
-  '/static/style.css?v=ship-fix-v1',
-  '/static/yx_modules/ornate_label_hardlock.css?v=ship-fix-v1',
-  '/static/yx_modules/home_background_hardlock.css?v=ship-fix-v1',
-  '/static/yx_assets/home_cloud_background.jpg?v=ship-fix-v1',
-  '/static/app.js?v=ship-fix-v1',
-  '/static/pwa.js?v=ship-fix-v1',
-  '/static/yx_modules/core_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/ornate_label_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/product_sort_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/product_source_bridge_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/product_actions_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/customer_regions_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/warehouse_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/today_changes_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/settings_audit_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/ship_text_validate_hardlock.js?v=ship-fix-v1',
-  '/static/yx_modules/ship_single_lock.js?v=ship-fix-v1',
-  '/static/yx_modules/html_direct_master_lock.js?v=ship-fix-v1',
+  '/static/manifest.webmanifest','/static/favicon.png',
+  '/static/style.css?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/final_mother_lock.css?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/ornate_label_hardlock.css?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/home_background_hardlock.css?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_assets/home_cloud_background.jpg?v=html-all-pages-lock-v2-final-clean',
+  '/static/pwa.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/core_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/ornate_label_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/quantity_rule_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/product_sort_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/product_actions_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/customer_regions_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/warehouse_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/today_changes_hardlock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/settings_manual.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/ship_single_lock.js?v=html-all-pages-lock-v2-final-clean',
+  '/static/yx_modules/html_direct_master_lock.js?v=html-all-pages-lock-v2-final-clean',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k))))
-    .then(()=>caches.open(STATIC_CACHE)).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
+  event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate',event=>{
   event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
@@ -45,15 +41,15 @@ self.addEventListener('fetch',event=>{
     event.respondWith(fetch(req,{cache:'no-store'}));
     return;
   }
-  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
-    event.respondWith(fetch(req,{cache:'no-store'}));
-    return;
-  }
   if(url.pathname.startsWith('/static/')){
-    event.respondWith(fetch(req,{cache:'no-store'}).then(res=>{
+    event.respondWith(caches.match(req).then(cached=>cached || fetch(req).then(res=>{
       if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
       return res;
-    }).catch(()=>caches.match(req)));
+    })));
+    return;
+  }
+  if(url.pathname==='/'||url.pathname.endsWith('.html')||url.pathname.startsWith('/customers')||url.pathname.startsWith('/orders')||url.pathname.startsWith('/master')||url.pathname.startsWith('/inventory')||url.pathname.startsWith('/ship')||url.pathname.startsWith('/warehouse')||url.pathname.startsWith('/settings')||url.pathname.startsWith('/today-changes')||url.pathname.startsWith('/shipping-query')||url.pathname.startsWith('/todos')||url.pathname.startsWith('/login')){
+    event.respondWith(fetch(req,{cache:'no-store'}).catch(()=>caches.match(req)));
     return;
   }
   event.respondWith(fetch(req).catch(()=>caches.match(req)));

@@ -44,22 +44,10 @@
   function install(){
     stopLegacyLayoutNames();
     protectStaticShell();
-    const m = moduleKey();
-    safeInstall('ornate_label');
-    if (m === 'today_changes') safeInstall('today_changes');
-    if (m === 'settings') safeInstall('settings_audit');
-    if (m === 'warehouse') safeInstall('warehouse');
-    if (['orders','master_order','ship','customers'].includes(m)) safeInstall('customer_regions');
-    if (['inventory','orders','master_order'].includes(m)) {
-      safeInstall('product_sort');
-      safeInstall('product_actions');
-      safeInstall('product_source_bridge');
-    }
-    if (m === 'ship') safeInstall('ship_text_validate');
-    protectStaticShell();
+    // HTML_ONLY_ALL_PAGES：功能模組由 base.html 單一載入；這裡不重複 install，避免外殼被重畫。
   }
-  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'html-direct-master-v1', install});
+  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'html-direct-master-v2-no-pageshow', install});
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
-  window.addEventListener('pageshow', install, {once:true});
+  // no pageshow reinstall: avoid settings -> home lag
 })();
