@@ -24,10 +24,10 @@
         <button class="ghost-btn small-btn" type="button" id="ship-refresh-customer-items">重新載入</button>
       </div>
       <div class="btn-row compact-row ship-picker-actions">
-        <button class="primary-btn small-btn" type="button" id="ship-add-selected-item">加入選取商品</button>
-        <button class="ghost-btn small-btn" type="button" id="ship-add-all-items">整個加入下方商品資料</button>
+        <button class="primary-btn small-btn" type="button" id="ship-add-selected-item">加入目前選取</button>
+        <button class="ghost-btn small-btn" type="button" id="ship-add-all-items">整個加入出貨</button>
       </div>
-      <div class="small-note">下拉選單會顯示該客戶目前所有商品；加入後可在「商品資料」欄位直接修改本次要出的數量 / 支數。</div>
+      <div class="small-note">客戶商品會以標籤方式顯示：材質｜尺寸＝支數x件數，可直接輸入本次要出的件數後加入。</div>
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
@@ -40,8 +40,13 @@
     </select>
     {% endif %}
 
+    {% if module_key == 'ship' %}
+    <textarea class="text-area yx-hidden-ship-ocr" id="ocr-text" placeholder="" hidden></textarea>
+    <div class="small-note yx-ship-direct-note">請從上方「客戶商品清單」點選商品標籤，輸入本次要出的件數後加入出貨。</div>
+    {% else %}
     <label class="field-label">商品資料</label>
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
+    {% endif %}
     <div class="btn-row">
       <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
       {% if module_key == 'ship' %}
@@ -63,66 +68,15 @@
   </div>
   {% endif %}
 
-
-
-  {% if module_key in ['inventory','orders','master_order'] %}
-  <!-- HTML_DIRECT_LOCK：新版商品表格外殼直接寫在 HTML，不再由 JS 二次建立。之後介面/按鈕修改請直接改這裡。 -->
-  <section class="yx-main-table-section" id="yx-main-table" data-html-direct-lock="1">
-    <div class="yx-table-head">
-      <div class="yx-table-title">
-        <span id="yx-table-title-text">{% if module_key == 'inventory' %}庫存清單{% elif module_key == 'orders' %}訂單清單{% else %}總單清單{% endif %}</span>
-        <span class="yx-count" id="yx-table-count">0件 / 0筆</span>
-        <span class="yx-selected-customer-title" id="yx-selected-customer-title"></span>
-      </div>
-      <div class="yx-table-tools yx30-tools-row">
-        <button class="yx-chip-btn yx22-unified-btn" id="yx-select-all" type="button">全選目前清單</button>
-        <input id="yx-table-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
-        <button class="yx-chip-btn yx22-unified-btn" data-zone="ALL" type="button">全部區</button>
-        <button class="yx-chip-btn yx22-unified-btn" data-zone="A" type="button">A區</button>
-        <button class="yx-chip-btn yx22-unified-btn" data-zone="B" type="button">B區</button>
-        <div class="yx-batch-line yx-batch-line-material" data-html-direct-toolbar="1">
-          <select id="yx-batch-material" class="yx-material-select">
-            <option value="">批量增加材質</option>
-            <option value="TD">TD</option><option value="MER">MER</option><option value="DF">DF</option><option value="SP">SP</option><option value="SPF">SPF</option><option value="HF">HF</option><option value="RDT">RDT</option><option value="尤加利">尤加利</option><option value="LVL">LVL</option>
-          </select>
-          <button class="yx-chip-btn yx22-unified-btn yx-apply-material-btn" id="yx-apply-material" type="button">套用材質</button>
-        </div>
-        <div class="yx-batch-line yx-batch-line-actions" data-html-direct-toolbar="1">
-          <button class="yx-chip-btn yx22-unified-btn yx-op-danger" id="yx-batch-delete" type="button">批量刪除</button>
-          <button class="yx-chip-btn yx22-unified-btn" id="yx30-batch-edit" type="button">批量編輯</button>
-        </div>
-      </div>
-    </div>
-    <div class="yx-table-wrap">
-      <table class="yx-product-table">
-        <thead><tr><th></th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead>
-        <tbody id="yx-table-body"><tr><td colspan="7" class="yx-empty-line">載入中…</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-  {% endif %}
-
   <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>北中南客戶</h3>
       <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
     </div>
     <div class="category-grid compact-grid">
-      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north" data-html-direct-region="1">
-        {% for c in (region_details.get('北區', []) if region_details else []) %}
-        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
-        {% else %}<span class="muted">無</span>{% endfor %}
-      </div></div>
-      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center" data-html-direct-region="1">
-        {% for c in (region_details.get('中區', []) if region_details else []) %}
-        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
-        {% else %}<span class="muted">無</span>{% endfor %}
-      </div></div>
-      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south" data-html-direct-region="1">
-        {% for c in (region_details.get('南區', []) if region_details else []) %}
-        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
-        {% else %}<span class="muted">無</span>{% endfor %}
-      </div></div>
+      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north"></div></div>
+      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center"></div></div>
+      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south"></div></div>
     </div>
     <div id="selected-customer-items" class="glass panel hidden"></div>
   </section>
@@ -188,9 +142,7 @@
       </div>
 
       <div class="query-bar warehouse-meta-bar">
-        {% set _ua = (unplaced_summary.get('A', 0) if unplaced_summary is defined else 0) %}
-        {% set _ub = (unplaced_summary.get('B', 0) if unplaced_summary is defined else 0) %}
-        <span class="pill warn interactive-pill yx30-unplaced-line" id="warehouse-unplaced-pill" data-refresh="longpress-only" title="長按刷新未錄入倉庫圖件數"><span>A區 <span class="count">{{ _ua }}件</span></span><span class="sep">｜</span><span>B區 <span class="count">{{ _ub }}件</span></span><span class="sep">｜</span><span>總計 <span class="count">{{ _ua + _ub }}件</span></span></span>
+        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" title="長按刷新未錄入倉庫圖件數" onclick="toggleWarehouseUnplacedHighlight()">A區 0件｜B區 0件｜總計 0件</span>
         <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
         <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
         <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
@@ -215,7 +167,18 @@
           <div class="small-note" id="zone-A-count-note">動態格數</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
-          <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
+          {% for col in range(1, 7) %}
+          <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
+              {% for slot in range(1, 11) %}
+              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
+                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-empty">空格</span></div>
+              </button>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
 
@@ -225,7 +188,18 @@
           <div class="small-note" id="zone-B-count-note">動態格數</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
-          <div class="empty-state-card compact-empty">倉庫格位載入中…</div>
+          {% for col in range(1, 7) %}
+          <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
+              {% for slot in range(1, 11) %}
+              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
+                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-empty">空格</span></div>
+              </button>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
     </div>

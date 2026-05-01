@@ -4481,3 +4481,22 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
   html[data-yx132-products="locked"] .yx128-summary-controls{width:100%!important;justify-content:flex-start!important;}
 }
 /* ==== FIX132 END ==== */
+
+/* YX HTML DIRECT FIX: batch edit + ship tags + warehouse fallback */
+.yx-direct-batch-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-start;margin-top:8px}
+.yx-direct-batch-actions .text-input.small{min-width:150px;height:38px;border-radius:14px}
+.yx128-inline-table select.yx128-field{min-width:120px;height:42px;border-radius:12px;background:#fff}
+.yx-hidden-ship-ocr[hidden]{display:none!important}
+.yx-ship-direct-note{margin:12px 0 0;padding:10px 12px;border:1px dashed rgba(159,106,42,.35);border-radius:14px;background:#fffaf3;color:#6b5b45}
+#ship-customer-item-select.yx128-hidden-select,.yx128-hidden-select{display:none!important}
+.ship-picker-row:has(#ship-customer-item-select.yx128-hidden-select){display:flex;justify-content:flex-end;gap:10px}
+.yx128-ship-full-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.yx128-ship-list-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 2px;color:#243447}
+.yx-ship-product-tag{display:grid;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;width:100%;padding:10px 12px;border:1px solid rgba(212,154,66,.55);border-radius:16px;background:linear-gradient(180deg,#fff,#fffaf3);box-shadow:0 6px 16px rgba(92,64,32,.08);text-align:left}
+.yx-ship-material-tag{display:inline-flex;align-items:center;justify-content:center;min-width:58px;padding:4px 10px;border-radius:999px;background:#e8fff2;border:1px solid #87e3ae;color:#008f5a;font-weight:800}
+.yx-ship-qty-edit{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:#475569;font-size:13px}.yx-ship-qty-input,.yx-ship-tag-qty{width:76px!important;height:34px!important;padding:4px 8px!important;border-radius:10px!important}
+.yx-ship-selected-tags{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(159,106,42,.16)}
+.yx-ship-selected-tags:before{content:'已加入出貨商品';font-weight:800;color:#243447;font-size:14px}
+.yx-ship-selected-tag{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid rgba(37,99,235,.18);border-radius:14px;background:#f8fbff}.yx-ship-selected-tag strong{color:#008f5a}.yx-ship-selected-tag span{font-weight:700;color:#1f2937}
+#warehouse-unplaced-pill{user-select:none;cursor:pointer;border-color:#e3a33d;background:#fff8e8;color:#70480f;font-weight:800}.warehouse-zone-wrap{min-height:240px}.yx106-warehouse-column,.vertical-column-card{min-height:120px}.yx108-slot.vertical-slot{min-height:46px}
+@media(max-width:760px){.yx-ship-product-tag{grid-template-columns:1fr;align-items:stretch}.yx-ship-selected-tag{grid-template-columns:1fr}.yx-direct-batch-actions{gap:8px}.yx-direct-batch-actions>*{flex:1 1 auto}}
