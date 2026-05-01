@@ -137,8 +137,10 @@
       </div>
 
       <div class="query-bar warehouse-meta-bar">
-        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill">未入倉：0件</span>
+        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" onclick="toggleWarehouseUnplacedHighlight()">未入倉：0件</span>
+        <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
         <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
+        <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
         <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
       </div>
 

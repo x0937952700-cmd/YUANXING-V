@@ -792,13 +792,14 @@ def api_today():
 
 @app.route('/api/today-summary', methods=['GET'])
 def api_today_summary_pack26():
-    # Final single JSON endpoint: never returns HTML, never shows 未指定.
+    # Single public summary: A/B only, never returns HTML/500 to the UI.
     try:
-        summary = _pack26_unplaced_summary()
-    except Exception:
+        summary = _pack26_unplaced_summary() or {'A': 0, 'B': 0}
+    except Exception as e:
+        print('today-summary error:', e)
         summary = {'A': 0, 'B': 0}
     summary = {'A': int(summary.get('A') or 0), 'B': int(summary.get('B') or 0)}
-    return jsonify(ok=True, success=True, unplaced_summary=summary, summary=summary, unplaced_total=int(summary['A'] + summary['B']), total=int(summary['A'] + summary['B']))
+    return jsonify(ok=True, success=True, unplaced_summary=summary, summary=summary, unplaced_total=int(sum(summary.values())), total=int(sum(summary.values())))
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -1008,10 +1009,10 @@ def api_warehouse_search_alias():
 def api_warehouse_unplaced_summary_pack20():
     try:
         summary = _pack26_unplaced_summary()
-    except Exception:
-        summary = {'A': 0, 'B': 0}
-    summary = {'A': int(summary.get('A') or 0), 'B': int(summary.get('B') or 0)}
-    return jsonify(ok=True, success=True, summary=summary, unplaced_summary=summary, total=int(summary['A']+summary['B']), unplaced_total=int(summary['A']+summary['B']))
+        return jsonify(ok=True, success=True, summary=summary, total=int(sum(summary.values())))
+    except Exception as e:
+        return jsonify(ok=False, success=False, error=str(e), summary={'A':0,'B':0}, total=0), 500
+
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
 def api_warehouse_available_items_alias():
@@ -2958,34 +2959,21 @@ def api_pack30_deploy_acceptance():
     }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
 
 
-# ==== CURRENT FINAL SINGLE FIX: db repair / acceptance ====
-@app.route('/api/current-final/db-repair', methods=['GET','POST'])
-def api_current_final_db_repair():
-    ensure_db()
-    for table in ['activity_logs']:
-        for col, ddl in [
-            ('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"),
-            ('qty', 'INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"),
-            ('unread', 'INTEGER DEFAULT 1'), ('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
-        ]:
-            try: ensure_column(table, col, ddl)
-            except Exception: pass
-    for table in ['inventory','orders','master_orders']:
-        for col, ddl in [('material',"TEXT DEFAULT ''"),('product',"TEXT DEFAULT ''"),('product_text',"TEXT DEFAULT ''"),('qty','INTEGER DEFAULT 0'),('quantity','INTEGER DEFAULT 0'),('location',"TEXT DEFAULT ''"),('zone',"TEXT DEFAULT ''"),('area',"TEXT DEFAULT ''")]:
-            try: ensure_column(table, col, ddl)
-            except Exception: pass
-    return jsonify(ok=True, success=True, message='current final db repaired', today=api_today_summary_pack26().get_json())
-
-@app.route('/api/current-final/deploy-acceptance', methods=['GET'])
-def api_current_final_deploy_acceptance():
-    return jsonify(ok=True, success=True, fixed=[
-        '刪除 PACK notes 類無用檔案',
-        'base.html 收斂成單一最終前端層，減少載入緩慢',
-        '未入倉只顯示 A區/B區/總計，移除未指定',
-        '未入倉長按刷新',
-        '批量編輯：未勾選即全部，已勾選即勾選項',
-        '批量編輯材質改下拉',
-        '批量刪除直接執行不跳確認',
-        '北中南卡片直接套圖二樣式'
-    ], today=api_today_summary_pack26().get_json())
-# ==== END CURRENT FINAL SINGLE FIX ====
+@app.route('/api/current-precise/db-repair', methods=['GET','POST'])
+def current_precise_db_repair():
+    """Repair columns used by current precise UI without changing data."""
+    done=[]
+    for table in ['inventory','orders','master_orders','activity_logs']:
+        try:
+            ensure_column(table, 'category', "TEXT DEFAULT ''") if table == 'activity_logs' else None
+            if table != 'activity_logs':
+                ensure_column(table, 'zone', "TEXT DEFAULT ''")
+                ensure_column(table, 'area', "TEXT DEFAULT ''")
+                ensure_column(table, 'location', "TEXT DEFAULT ''")
+                ensure_column(table, 'product_text', "TEXT DEFAULT ''")
+                ensure_column(table, 'quantity', 'INTEGER DEFAULT 0')
+                ensure_column(table, 'qty', 'INTEGER DEFAULT 0')
+            done.append(table)
+        except Exception as e:
+            done.append(f'{table}: {e}')
+    return jsonify(ok=True, success=True, repaired=done)

@@ -22,14 +22,14 @@
     window.__YX_USERNAME__ = {{ (username or '')|tojson }};
     window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};
   </script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=current-single-base">
-  <link rel="stylesheet" href="{{ url_for('static', filename='clean_override.css') }}?v=current-single-base">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_commercial_ui_lock.css') }}?v=current-single-base">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_current_final_single.css') }}?v=current-final-single">
-  <script defer src="{{ url_for('static', filename='clean_ui_static.js') }}?v=current-single-base"></script>
-  <script defer src="{{ url_for('static', filename='yx_commercial_ui_lock.js') }}?v=current-single-base"></script>
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=current-single-base"></script>
-  <script defer src="{{ url_for('static', filename='yx_current_final_single.js') }}?v=current-final-single"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=current-base">
+  <link rel="stylesheet" href="{{ url_for('static', filename='clean_override.css') }}?v=current-clean">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_commercial_ui_lock.css') }}?v=current-commercial">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_current_precise_fix.css') }}?v=current-precise-20260501">
+  <script defer src="{{ url_for('static', filename='clean_ui_static.js') }}?v=current-clean"></script>
+  <script defer src="{{ url_for('static', filename='yx_commercial_ui_lock.js') }}?v=current-commercial"></script>
+  <script defer src="{{ url_for('static', filename='yx_current_precise_fix.js') }}?v=current-precise-20260501"></script>
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=current-pwa"></script>
 
 </head>
 <body>
