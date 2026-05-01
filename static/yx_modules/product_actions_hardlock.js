@@ -307,18 +307,18 @@
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
-    const tbody = box.querySelector('tbody');
-    const titleBox = box.querySelector('.yx132-summary-title');
-    const setTitle = (html) => { if (titleBox) titleBox.innerHTML = html; };
     if (source === 'master_order' && !selectedCustomer()) {
-      setTitle('<strong>0件 / 0筆</strong><span>總單清單｜請先點選北 / 中 / 南客戶</span>');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr>';
-      syncZoneButtons(source); syncEditButtons(source); return;
+      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻完整顯示該客戶商品。</span></div>';
+      return;
     }
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);
-    setTitle(`${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜HTML 鎖定只更新資料</span>`);
+    const moveButtons = source === 'inventory'
+      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
+      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
+    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
+    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -335,7 +335,7 @@
         <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td><td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
       </tr>`;
     }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    if (tbody) tbody.innerHTML = body;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
@@ -605,7 +605,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'html-all-pages-lock-v2-final-clean', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
@@ -621,7 +621,24 @@
     if (state.repairTimer) return;
     state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
   }
-  function observeProductPage(source){ return; }
+  function observeProductPage(source){
+    if (window.__YX_HTML_ONLY_ALL_PAGES__ || window.__YX_DISABLE_DOM_OBSERVERS__) return;
+    if (state.observer || !source) return;
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (typeof NativeMO === 'undefined') return;
+    const targets = [sectionEl(source), listEl(source)].filter(Boolean);
+    if (!targets.length) return;
+    state.observer = new NativeMO(muts => {
+      for (const m of muts){
+        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
+        if (added.some(n => n.matches?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel') || n.querySelector?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel'))) {
+          scheduleRepair(source);
+          break;
+        }
+      }
+    });
+    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
+  }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
@@ -641,4 +658,5 @@
   YX.register('product_actions', {install, loadSource, refreshCurrent});
   const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootProductActions, {once:true}); else bootProductActions();
+  setTimeout(bootProductActions, 80);
 })();

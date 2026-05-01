@@ -199,7 +199,7 @@
   }
   function install(){
     document.documentElement.dataset.yxShipSingle='locked';
-    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; renderCustomers(); }, false); renderSelected();
+    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; renderCustomers(); }, false); setTimeout(loadCustomers,120); renderSelected();
     const name=clean($('customer-name')?.value||''); if(name) loadItems(name).catch(()=>{}); else renderItems();
     window.confirmSubmit=confirmSubmit;
   }

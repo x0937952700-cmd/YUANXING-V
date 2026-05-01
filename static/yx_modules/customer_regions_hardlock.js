@@ -205,7 +205,24 @@
       renderBoards(state.items);
     }, 50);
   }
-  function observeCustomerBoards(){ return; }
+  function observeCustomerBoards(){
+    if (window.__YX_HTML_ONLY_ALL_PAGES__ || window.__YX_DISABLE_DOM_OBSERVERS__) return;
+    if (moduleKey() === 'ship' || state.observer || !isRegionPage()) return;
+    const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (!targets.length || typeof NativeMO === 'undefined') return;
+    state.observer = new NativeMO(muts => {
+      if (state.rendering) return;
+      for (const m of muts){
+        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
+        if (added.length && (added.some(n => (n.matches?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow') || n.querySelector?.('.customer-region-card:not(.yx116-customer-card),.customer-card-arrow,.fix48-customer-arrow,.yx113-customer-arrow'))) || hasLegacyCustomerDom())) {
+          scheduleRepair();
+          break;
+        }
+      }
+    });
+    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
+  }
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
@@ -351,6 +368,7 @@
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
     bindEvents(); lockGlobals(); loadCustomerBlocks(true);
+    // HTML_ONLY_ALL_PAGES：取消 MutationObserver 和多次延遲重畫，避免頁面跳動/卡頓。
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();
