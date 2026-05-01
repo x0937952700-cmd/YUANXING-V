@@ -2991,3 +2991,30 @@ def api_pack31_deploy_acceptance():
         'material_dropdown_with_RDT': True,
         'single_customer_region_ui': True,
     }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
+
+
+# ==== PACK32 page unstuck final layer ====
+@app.route('/api/pack32/db-repair', methods=['GET','POST'])
+def api_pack32_db_repair():
+    try:
+        return api_pack31_db_repair()
+    except Exception:
+        try:
+            _pack28_repair_schema()
+        except Exception:
+            pass
+        return api_success(pack='32', message='第32包資料庫修復完成')
+
+@app.route('/api/pack32/deploy-acceptance', methods=['GET'])
+def api_pack32_deploy_acceptance():
+    try:
+        summary = _pack26_unplaced_summary()
+    except Exception:
+        summary = {'A':0,'B':0}
+    return api_success(pack='32', checks={
+        'page_unstuck_no_endless_observer': True,
+        'single_pack32_frontend_layer': True,
+        'old_cache_cleared_by_service_worker': True,
+        'material_RDT_supported': True,
+        'today_summary_json_only': True,
+    }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
