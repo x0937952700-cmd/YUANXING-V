@@ -16,18 +16,16 @@
 
     {% if module_key == 'ship' %}
     <label class="field-label">客戶商品清單</label>
-    <div class="ship-customer-picker" id="ship-customer-picker">
-      <div class="ship-picker-row">
-        <select class="text-input" id="ship-customer-item-select">
-          <option value="">請先選擇 / 輸入客戶名稱</option>
-        </select>
+    <div class="ship-customer-picker yx-ship-single-html" id="ship-customer-picker">
+      <div class="ship-single-toolbar">
+        <input class="text-input" id="ship-customer-search" placeholder="輸入或點選客戶後，直接顯示該客戶全部商品">
         <button class="ghost-btn small-btn" type="button" id="ship-refresh-customer-items">重新載入</button>
       </div>
-      <div class="btn-row compact-row ship-picker-actions">
-        <button class="primary-btn small-btn" type="button" id="ship-add-selected-item">加入目前選取</button>
-        <button class="ghost-btn small-btn" type="button" id="ship-add-all-items">整個加入出貨</button>
+      <div id="ship-customer-quick-list" class="ship-customer-quick-list"></div>
+      <div id="ship-customer-item-list" class="ship-customer-item-list yx-ship-tag-list">
+        <div class="empty-state-card compact-empty">請先輸入或點選客戶名稱</div>
       </div>
-      <div class="small-note">客戶商品會以標籤方式顯示：材質｜尺寸＝支數x件數，可直接輸入本次要出的件數後加入。</div>
+      <div class="small-note">商品以標籤顯示：材質｜尺寸＝支數x件數。輸入出貨件數後按「加入」，確認送出只讀這一套清單。</div>
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
@@ -57,16 +55,99 @@
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
     <div id="module-result" class="result-card hidden" style="display:none"></div>
     {% if module_key == 'inventory' %}
-    <div id="inventory-inline-panel" class="result-card inventory-inline-panel">
+    <div id="inventory-inline-panel" class="result-card inventory-inline-panel yx-html-direct-product-shell" data-html-direct-shell>
       <div class="section-head inventory-inline-head">
         <h3>庫存清單</h3>
-        <span class="muted">送出完成後會直接顯示在這裡，可點開編輯或移到訂單 / 總單</span>
+        <span class="muted">固定 HTML 表格：資料只更新表格內容，按鈕不再由舊 JS 重畫。</span>
       </div>
-      <div id="inventory-inline-list" class="card-list inventory-inline-list"></div>
+      <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
+        <div class="yx114-toolbar-main">
+          <button class="ghost-btn small-btn" type="button" data-yx113-selectall="inventory">全選目前清單</button>
+          <input id="yx113-inventory-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
+        </div>
+        <div class="yx114-batch-actions yx-direct-batch-actions">
+          <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="inventory">全部區</button>
+          <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="inventory">A區</button>
+          <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="inventory">B區</button>
+          <select id="yx113-inventory-material" class="text-input small">
+            <option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option>
+          </select>
+          <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="inventory">套用材質</button>
+          <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="inventory">批量刪除</button>
+          <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="inventory">批量編輯全部</button>
+          <button class="primary-btn small-btn" type="button" data-yx128-save-all="inventory" style="display:none">儲存批量編輯</button>
+          <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="inventory" style="display:none">取消編輯</button>
+        </div>
+      </div>
+      <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
+        <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
+        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+      </div>
+      <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
     </div>
     {% endif %}
   </div>
   {% endif %}
+
+  <section class="subsection yx-html-direct-product-shell" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %} data-html-direct-shell>
+    <div class="section-head">
+      <h3>訂單清單</h3>
+      <span class="muted">固定 HTML 表格：可直接加入總單、直接出貨、批量編輯。</span>
+    </div>
+    <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
+      <div class="yx114-toolbar-main">
+        <button class="ghost-btn small-btn" type="button" data-yx113-selectall="orders">全選目前清單</button>
+        <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
+      </div>
+      <div class="yx114-batch-actions yx-direct-batch-actions">
+        <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>
+        <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="orders">全部區</button>
+        <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="orders">A區</button>
+        <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="orders">B區</button>
+        <select id="yx113-orders-material" class="text-input small"><option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option></select>
+        <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="orders">套用材質</button>
+        <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="orders">批量刪除</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="orders">批量編輯全部</button>
+        <button class="primary-btn small-btn" type="button" data-yx128-save-all="orders" style="display:none">儲存批量編輯</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="orders" style="display:none">取消編輯</button>
+      </div>
+    </div>
+    <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+    </div>
+    <div id="orders-list" class="card-list" style="display:none"></div>
+  </section>
+
+  <section class="subsection yx-html-direct-product-shell" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %} data-html-direct-shell>
+    <div class="section-head">
+      <h3>總單清單</h3>
+      <span class="muted">固定 HTML 表格：保留直接出貨、批量材質、批量刪除、批量編輯。</span>
+    </div>
+    <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
+      <div class="yx114-toolbar-main">
+        <button class="ghost-btn small-btn" type="button" data-yx113-selectall="master_order">全選目前清單</button>
+        <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
+      </div>
+      <div class="yx114-batch-actions yx-direct-batch-actions">
+        <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="master_order">全部區</button>
+        <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="master_order">A區</button>
+        <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="master_order">B區</button>
+        <select id="yx113-master_order-material" class="text-input small"><option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option></select>
+        <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="master_order">套用材質</button>
+        <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="master_order">批量刪除</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="master_order">批量編輯全部</button>
+        <button class="primary-btn small-btn" type="button" data-yx128-save-all="master_order" style="display:none">儲存批量編輯</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="master_order" style="display:none">取消編輯</button>
+      </div>
+    </div>
+    <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
+    </div>
+    <div id="master-list" class="card-list" style="display:none"></div>
+  </section>
+
 
   <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
@@ -270,21 +351,6 @@
       </div>
     </div>
     <div id="todo-list" class="todo-list"></div>
-  </section>
-
-  <section class="subsection" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %}>
-    <div class="section-head">
-      <h3>訂單清單</h3>
-      <span class="muted">可直接加入總單</span>
-    </div>
-    <div id="orders-list" class="card-list"></div>
-  </section>
-
-  <section class="subsection" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %}>
-    <div class="section-head">
-      <h3>總單清單</h3>
-    </div>
-    <div id="master-list" class="card-list"></div>
   </section>
 
   <input id="selected-item-json" type="hidden">

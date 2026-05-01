@@ -10,54 +10,68 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=html-direct-fix143-batch-ship-warehouse">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=ship-fix-v1">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=ship-fix-v1">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=ship-fix-v1">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=ship-fix-v1">
   <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";</script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=html-direct-fix143-batch-ship-warehouse">
-  <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v=ship-fix-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=ship-fix-v1">
+  <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }}; window.__YX_SHIP_SINGLE_LOCK__ = {{ 'true' if (request.endpoint or '') == 'ship_page' else 'false' }}; window.__YX_HTML_DIRECT_MASTER__ = true;</script>
   {% if (request.endpoint or '') not in ['login_page'] %}
-  <!-- FIX124：圓型標籤獨立接母版。首頁也載入，不再依賴舊黑色標籤；功能頁 app.js 只當功能庫。 -->
-  <script>window.__YX_MASTER_BRIDGE_VERSION__='html-direct-fix143-batch-ship-warehouse';window.__YX124_MASTER_FIRST__=true;window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;</script>
-  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
+  <!-- HTML_DIRECT_MASTER：只載入資料處理 JS；所有頁面外殼、按鈕、卡片固定寫在 HTML。 -->
+  <script>
+  window.__YX_MASTER_BRIDGE_VERSION__='ship-fix-v1';
+  window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
+  window.__YX_DISABLE_LEGACY_LAYOUT_RENDER__=true;
+  (function(){
+    if(window.__YX_HTML_DIRECT_EVENT_GUARD__) return; window.__YX_HTML_DIRECT_EVENT_GUARD__=true;
+    const blockNeedles=['yx63-','yx60-','yx62-','fix52','fix55','fix56','fix57','renderWarehouse82','renderWarehouse95','install82','install83','install84','install91','install95','install96','install97','install99','install102','loadTodayChanges80','loadTodayChanges93','loadTodayChanges95'];
+    const shouldBlock=fn=>{try{const s=Function.prototype.toString.call(fn); return blockNeedles.some(n=>s.includes(n));}catch(_e){return false;}};
+    const da=document.addEventListener.bind(document);
+    document.addEventListener=function(type,fn,opt){ if(window.__YX_HTML_DIRECT_MASTER__ && type==='DOMContentLoaded' && typeof fn==='function' && shouldBlock(fn)) return; return da(type,fn,opt); };
+    const wa=window.addEventListener.bind(window);
+    window.addEventListener=function(type,fn,opt){ if(window.__YX_HTML_DIRECT_MASTER__ && (type==='pageshow'||type==='load') && typeof fn==='function' && shouldBlock(fn)) return; return wa(type,fn,opt); };
+    const st=window.setTimeout.bind(window);
+    window.setTimeout=function(fn,delay,...args){ if(window.__YX_HTML_DIRECT_MASTER__ && typeof fn==='function' && shouldBlock(fn)) return 0; return st(fn,delay,...args); };
+  })();
+  </script>
+  <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v=ship-fix-v1"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=ship-fix-v1"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v=ship-fix-v1"></script>
+  {% if (request.endpoint or '') in ['inventory_page','orders_page','master_order_page'] %}
+  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=ship-fix-v1"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=ship-fix-v1"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/product_submit_manual.js') }}?v=ship-fix-v1"></script>
   {% endif %}
-  {% if (request.endpoint or '') not in ['home','login_page'] %}
-  <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='app.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/settings_audit_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_source_bridge_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_text_validate_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/inline_edit_full_list_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/legacy_isolation_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/apple_ui_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
+  {% if (request.endpoint or '') in ['orders_page','master_order_page','ship_page','customers_page'] %}
+  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v=ship-fix-v1"></script>
   {% endif %}
-  {% if (request.endpoint or '') not in ['login_page'] %}
-  <script defer src="{{ url_for('static', filename='yx_modules/master_integrator.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix135_master_final_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix136_label_text_repair.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix137_undo_layout_warehouse_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <!-- HTML_DIRECT_FINAL：最後才載入三個主功能，避免舊版 JS 再覆蓋新版 HTML 外殼。 -->
-  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/product_actions_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
-  <script defer src="{{ url_for('static', filename='yx_modules/ship_picker_hardlock.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
+  {% if (request.endpoint or '') == 'ship_page' %}
+  <script defer src="{{ url_for('static', filename='yx_modules/ship_single_lock.js') }}?v=ship-fix-v1"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=html-direct-fix143-batch-ship-warehouse"></script>
+  {% if (request.endpoint or '') == 'warehouse_page' %}
+  <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v=ship-fix-v1"></script>
+  {% endif %}
+  {% if (request.endpoint or '') == 'today_changes_page' %}
+  <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v=ship-fix-v1"></script>
+  {% endif %}
+  {% if (request.endpoint or '') == 'settings_page' %}
+  <script defer src="{{ url_for('static', filename='yx_modules/settings_manual.js') }}?v=ship-fix-v1"></script>
+  {% endif %}
+  {% if (request.endpoint or '') == 'shipping_query_page' %}
+  <script defer src="{{ url_for('static', filename='yx_modules/shipping_query_manual.js') }}?v=ship-fix-v1"></script>
+  {% endif %}
+  <script defer src="{{ url_for('static', filename='yx_modules/html_direct_master_lock.js') }}?v=ship-fix-v1"></script>
+  {% endif %}
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=ship-fix-v1"></script>
   <!-- FIX128_INLINE_EDIT_FULL_LIST_HARDLOCK -->
 </head>
 <body>

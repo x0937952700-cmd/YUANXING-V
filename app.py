@@ -1104,7 +1104,7 @@ def api_ship():
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        if isinstance(result, dict) and customer_name:
+        if isinstance(result, dict) and customer_name and not data.get('skip_snapshot'):
             result.update(build_customer_payload_snapshot(customer_name))
         return jsonify(result)
     except Exception as e:

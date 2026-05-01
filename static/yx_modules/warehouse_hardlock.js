@@ -82,6 +82,29 @@
     const qtyExpr = qtys.join('+') || String(total);
     return `<button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot filled ${hi ? 'highlight' : ''}" data-zone="${esc(zone)}" data-column="${Number(col)}" data-slot="${Number(slot)}"><div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">${Number(slot)}</span><span class="yx108-slot-customers">${esc(cleanCustomerText(names.join('/')))}</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">${esc(qtyExpr)}</span><span class="yx108-slot-total">${total}件</span></div></button>`;
   }
+  function ensureHtmlColumn(zone, col){
+    const grid = $(zone === 'A' ? 'zone-A-grid' : 'zone-B-grid');
+    if (!grid) return null;
+    let card = grid.querySelector(`.vertical-column-card[data-zone="${zone}"][data-column="${col}"]`);
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'yx106-warehouse-column yx116-warehouse-column vertical-column-card';
+      card.dataset.zone = zone; card.dataset.column = String(col);
+      card.innerHTML = `<div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>${zone} 區第 ${col} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div><div class="yx106-slot-list yx116-slot-list vertical-slot-list"></div>`;
+      grid.appendChild(card);
+    }
+    return card;
+  }
+  function applySlotData(zone, col, slot){
+    const list = ensureHtmlColumn(zone,col)?.querySelector('.vertical-slot-list');
+    if (!list) return;
+    let old = list.querySelector(`[data-zone="${zone}"][data-column="${Number(col)}"][data-slot="${Number(slot)}"]`);
+    const tmp = document.createElement('div');
+    tmp.innerHTML = slotHTML(zone,col,slot).trim();
+    const fresh = tmp.firstElementChild;
+    if (!fresh) return;
+    if (old) old.replaceWith(fresh); else list.appendChild(fresh);
+  }
   function renderGrid(){
     if (!isWarehouse()) return;
     state.rendering = true;
@@ -89,19 +112,12 @@
       const grid = $(zone === 'A' ? 'zone-A-grid' : 'zone-B-grid');
       if (!grid) return;
       grid.className = 'zone-grid six-grid vertical-card-grid yx106-warehouse-grid yx116-warehouse-grid yx121-warehouse-grid';
-      grid.innerHTML = '';
       for (let col=1; col<=6; col++) {
-        const card = document.createElement('div');
-        card.className = 'yx106-warehouse-column yx116-warehouse-column vertical-column-card';
-        card.dataset.zone = zone;
-        card.dataset.column = String(col);
-        let rows = '';
-        for (let slot=1; slot<=maxSlot(zone, col); slot++) rows += slotHTML(zone, col, slot);
-        card.innerHTML = `<div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>${zone} 區第 ${col} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div><div class="yx106-slot-list yx116-slot-list vertical-slot-list">${rows}</div>`;
-        grid.appendChild(card);
+        ensureHtmlColumn(zone,col);
+        for (let slot=1; slot<=maxSlot(zone, col); slot++) applySlotData(zone,col,slot);
       }
       const note = $(zone === 'A' ? 'zone-A-count-note' : 'zone-B-count-note');
-      if (note) note.textContent = '新版格位母版';
+      if (note) note.textContent = 'HTML 直寫格位';
     });
     bindSlotEvents();
     cleanupLegacyPanels();

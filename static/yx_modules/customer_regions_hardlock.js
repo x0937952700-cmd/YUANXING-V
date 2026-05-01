@@ -72,7 +72,7 @@
   }
   function renderCachedSelectedPanel(name){
     const panel = $('selected-customer-items');
-    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return false;
+    if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return false;
     const cache = state.itemCache.get(mergeKey(name) || name);
     if (!cache || !Array.isArray(cache.items)) return false;
     renderSelectedCustomerItems(name, cache.items);
@@ -80,7 +80,7 @@
   }
   function renderSelectedCustomerItems(name, items){
     const panel = $('selected-customer-items');
-    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return;
+    if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return;
     panel.classList.remove('hidden');
     const total = (items || []).reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
     panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${(items||[]).length}筆商品</div></div></div><div class="card-list">${(items||[]).length ? items.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
@@ -118,7 +118,7 @@
   }
   async function renderSelectedCustomerPanel(name){
     const panel = $('selected-customer-items');
-    if (!panel || !['orders','master_order','ship'].includes(moduleKey())) return;
+    if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return;
     panel.classList.remove('hidden');
     if (!renderCachedSelectedPanel(name)) panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
     try {
@@ -140,11 +140,23 @@
       if (source && window.YX113ProductActions) {
         window.YX113ProductActions.renderSummary?.(source);
         window.YX113ProductActions.renderCards?.(source);
+        const target = document.getElementById(source === 'orders' ? 'orders-list-section' : 'master-list-section');
+        target?.scrollIntoView?.({behavior:'smooth', block:'start'});
       }
     } catch(_e) {}
     const m = moduleKey();
     if (m === 'customers' && typeof window.fillCustomerForm === 'function') {
       try { await window.fillCustomerForm(name); } catch(_e) {}
+      return;
+    }
+    // 出貨頁專用分工：北中南客戶只負責選客戶，不再渲染 selected-customer-items，避免和 ship_single_lock.js 同時打 /api/customer-items。
+    if (m === 'ship') {
+      try {
+        if (window.YX116ShipPicker) {
+          window.YX116ShipPicker.load(name).catch(()=>{});
+          document.getElementById('ship-customer-picker')?.scrollIntoView?.({behavior:'smooth', block:'start'});
+        }
+      } catch(_e) {}
       return;
     }
     // FIX120/121：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
@@ -154,7 +166,6 @@
       const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
       if (source && window.YX113ProductActions && !window.YX113ProductActions.rowsStore?.(source)?.length) window.YX113ProductActions.refreshCurrent?.().catch(()=>{});
     } catch(_e) {}
-    try { if (moduleKey() === 'ship' && window.YX116ShipPicker) window.YX116ShipPicker.load(name).catch(()=>{}); } catch(_e) {}
   }
   function renderBoards(items){
     if (!isRegionPage()) return;
@@ -195,7 +206,7 @@
     }, 50);
   }
   function observeCustomerBoards(){
-    if (state.observer || !isRegionPage()) return;
+    if (moduleKey() === 'ship' || state.observer || !isRegionPage()) return;
     const targets = ['region-north','region-center','region-south','customers-north','customers-center','customers-south'].map($).filter(Boolean);
     const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
     if (!targets.length || typeof NativeMO === 'undefined') return;
@@ -217,6 +228,7 @@
       const d = await YX.api('/api/customers?yx114=1&ts=' + Date.now(), {method:'GET'});
       state.items = Array.isArray(d.items) ? d.items : [];
       renderBoards(state.items);
+      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}
       return state.items;
     } catch(e) {
       YX.toast(e.message || '客戶名單載入失敗', 'error');

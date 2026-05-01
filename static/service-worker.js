@@ -1,43 +1,28 @@
-/* 沅興木業 PWA Service Worker - html-direct-fix143-batch-ship-warehouse */
-const YX_PWA_VERSION='html-direct-fix143-batch-ship-warehouse';
+/* 沅興木業 PWA Service Worker - ship-fix-v1 */
+const YX_PWA_VERSION='ship-fix-v1';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest',
   '/static/favicon.png',
-  '/static/style.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/ornate_label_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-    '/static/yx_modules/fix135_master_final_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-
-  '/static/yx_modules/fix136_label_text_repair.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix138_final_master_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix140_readme_master_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix142_speed_ship_hardlock.css?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_assets/home_cloud_background.jpg?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/app.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/pwa.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/core_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/ornate_label_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/today_changes_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/warehouse_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/settings_audit_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/customer_regions_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/product_sort_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/product_actions_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/product_source_bridge_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/ship_picker_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/ship_text_validate_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/inline_edit_full_list_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/legacy_isolation_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/apple_ui_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-    '/static/yx_modules/fix135_master_final_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-
-  '/static/yx_modules/fix136_label_text_repair.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix138_final_master_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix140_readme_master_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
-  '/static/yx_modules/fix142_speed_ship_hardlock.js?v=html-direct-fix143-batch-ship-warehouse',
+  '/static/style.css?v=ship-fix-v1',
+  '/static/yx_modules/ornate_label_hardlock.css?v=ship-fix-v1',
+  '/static/yx_modules/home_background_hardlock.css?v=ship-fix-v1',
+  '/static/yx_assets/home_cloud_background.jpg?v=ship-fix-v1',
+  '/static/app.js?v=ship-fix-v1',
+  '/static/pwa.js?v=ship-fix-v1',
+  '/static/yx_modules/core_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/ornate_label_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/quantity_rule_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/product_sort_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/product_source_bridge_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/product_actions_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/customer_regions_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/warehouse_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/today_changes_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/settings_audit_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/ship_text_validate_hardlock.js?v=ship-fix-v1',
+  '/static/yx_modules/ship_single_lock.js?v=ship-fix-v1',
+  '/static/yx_modules/html_direct_master_lock.js?v=ship-fix-v1',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{
@@ -65,7 +50,6 @@ self.addEventListener('fetch',event=>{
     return;
   }
   if(url.pathname.startsWith('/static/')){
-    // FIX136：有版本號的靜態檔先走網路，拿不到才回快取，避免舊母版覆蓋新版。
     event.respondWith(fetch(req,{cache:'no-store'}).then(res=>{
       if(res && res.ok){ const copy=res.clone(); caches.open(STATIC_CACHE).then(cache=>cache.put(req,copy)); }
       return res;

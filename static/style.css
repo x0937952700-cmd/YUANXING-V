@@ -4500,3 +4500,38 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid rgba(37,99,235,.18);border-radius:14px;background:#f8fbff}.yx-ship-selected-tag strong{color:#008f5a}.yx-ship-selected-tag span{font-weight:700;color:#1f2937}
 #warehouse-unplaced-pill{user-select:none;cursor:pointer;border-color:#e3a33d;background:#fff8e8;color:#70480f;font-weight:800}.warehouse-zone-wrap{min-height:240px}.yx106-warehouse-column,.vertical-column-card{min-height:120px}.yx108-slot.vertical-slot{min-height:46px}
 @media(max-width:760px){.yx-ship-product-tag{grid-template-columns:1fr;align-items:stretch}.yx-ship-selected-tag{grid-template-columns:1fr}.yx-direct-batch-actions{gap:8px}.yx-direct-batch-actions>*{flex:1 1 auto}}
+
+/* HTML_DIRECT_MASTER_V1：全部頁面外殼與主要按鈕固定在 HTML，不再靠舊版 JS 二次渲染 */
+.yx-html-direct-product-shell .yx113-toolbar,
+.yx-html-direct-toolbar{
+  display:flex; flex-direction:column; gap:12px; padding:14px; margin:10px 0 14px;
+  border:1px solid rgba(180,128,54,.35); border-radius:22px;
+  background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(250,247,240,.9));
+  box-shadow:0 14px 34px rgba(94,62,30,.08);
+}
+.yx-html-direct-toolbar .yx114-toolbar-main,
+.yx-html-direct-toolbar .yx114-batch-actions{display:flex; flex-wrap:wrap; gap:10px; align-items:center;}
+.yx-html-direct-toolbar .text-input.small{min-width:180px; min-height:42px;}
+.yx-html-direct-summary{overflow:hidden; border-radius:22px; border:1px solid rgba(150,105,55,.25); background:#fff; box-shadow:0 16px 36px rgba(24,24,24,.07);}
+.yx113-table-wrap{width:100%; overflow:auto;}
+.yx113-table{width:100%; border-collapse:separate; border-spacing:0; min-width:760px;}
+.yx113-table th{position:sticky; top:0; z-index:1; padding:13px 14px; background:#f3f7fb; color:#26364a; font-weight:800; border-bottom:1px solid #dde5ee; text-align:center;}
+.yx113-table td{padding:12px 14px; border-bottom:1px solid #edf0f3; vertical-align:middle; text-align:center;}
+.yx113-table tr.yx113-row-selected td{background:#fff7e5; box-shadow:inset 0 0 0 1px rgba(217,154,46,.28);}
+.yx113-row-check{width:18px; height:18px; accent-color:#a46b26; margin-right:8px; vertical-align:middle;}
+.yx128-summary-controls{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;}
+.yx132-summary-title{display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;}
+.yx132-customer-tag{padding:6px 12px; border-radius:999px; background:#f3eadb; color:#6e441f; font-weight:800;}
+.yx-html-direct-disabled-legacy{display:none!important;}
+.module-screen[data-module] .yx63-toolbar,
+.module-screen[data-module] .yx62-toolbar,
+.module-screen[data-module] .fix57-toolbar,
+.module-screen[data-module] .fix56-toolbar,
+.module-screen[data-module] .fix55-toolbar{display:none!important;}
+@media(max-width:760px){
+  .yx-html-direct-toolbar{border-radius:18px; padding:12px;}
+  .yx-html-direct-toolbar .yx114-toolbar-main,
+  .yx-html-direct-toolbar .yx114-batch-actions{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .yx-html-direct-toolbar .text-input.small{grid-column:1/-1; min-width:0; width:100%;}
+  .yx113-table{min-width:680px;}
+}
