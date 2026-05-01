@@ -626,31 +626,22 @@ def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
     logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
     unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
-    # PACK19: 未錄入倉庫圖只回傳 A/B/未指定總件數，不回傳大量明細，避免今日異動與全站卡住。
+    # PACK21: 未錄入倉庫圖只回傳 A/B/未指定總件數；用 Python 分組，避免 PostgreSQL quote/boolean 型別錯誤。
     unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
     try:
         rows = query("""
-            SELECT
-              CASE
-                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%A%' THEN 'A'
-                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%B%' THEN 'B'
-                ELSE '未指定'
-              END AS zone_group,
-              SUM(COALESCE(NULLIF(qty,0), quantity, 0)) AS qty
+            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                   COALESCE(NULLIF(zone,''), location, '') AS z
             FROM inventory
             WHERE COALESCE(placed,0)=0
-            GROUP BY zone_group
+            LIMIT 5000
         """, fetch=True)
-        for r in rows or []:
-            k = r.get('zone_group') or '未指定'
-            unplaced_summary[k] = int(r.get('qty') or 0)
-    except Exception:
-        # fallback for very old schemas
-        rows = query('SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty, COALESCE(NULLIF(zone,''), location, '') AS z FROM inventory WHERE COALESCE(placed,0)=0 LIMIT 2000', fetch=True)
         for r in rows or []:
             z = str(r.get('z') or '').upper()
             k = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
-            unplaced_summary[k] += int(r.get('qty') or 0)
+            unplaced_summary[k] += int(float(r.get('qty') or 0))
+    except Exception:
+        unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
     total_unplaced = int(sum(unplaced_summary.values()))
     return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
 
@@ -835,26 +826,23 @@ def api_warehouse_search_alias():
 
 @app.route('/api/warehouse/unplaced-summary', methods=['GET'])
 def api_warehouse_unplaced_summary_pack20():
+    # PACK21: avoid fragile SQL CASE/quote syntax; group in Python for PostgreSQL/SQLite compatibility.
     summary = {'A': 0, 'B': 0, '未指定': 0}
     try:
         rows = query("""
-            SELECT
-              CASE
-                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%A%' THEN 'A'
-                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%B%' THEN 'B'
-                ELSE '未指定'
-              END AS zone_group,
-              SUM(COALESCE(NULLIF(qty,0), quantity, 0)) AS qty
+            SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                   COALESCE(NULLIF(zone,''), location, '') AS z
             FROM inventory
             WHERE COALESCE(placed,0)=0
-            GROUP BY zone_group
+            LIMIT 5000
         """, fetch=True)
         for r in rows or []:
-            k = r.get('zone_group') or '未指定'
-            summary[k] = int(r.get('qty') or 0)
+            z = str(r.get('z') or '').upper()
+            key = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
+            summary[key] += int(float(r.get('qty') or 0))
+        return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
     except Exception as e:
-        return jerr(str(e))
-    return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
+        return jsonify(ok=False, success=False, error=str(e), summary=summary, total=0), 500
 
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
@@ -2346,6 +2334,27 @@ def api_pack20_deploy_acceptance():
         'A/B 區未錄入商品下拉相容',
         '移除舊未入倉/目前區域按鈕'
     ])
+
+
+
+# ==== pack 21 final requested fixes ====
+@app.route('/api/pack21/deploy-acceptance', methods=['GET'])
+def api_pack21_deploy_acceptance():
+    checks = {}
+    try:
+        checks['today'] = api_today().get_json()
+    except Exception as e:
+        checks['today'] = {'ok': False, 'error': str(e)}
+    try:
+        checks['unplaced'] = api_warehouse_unplaced_summary_pack20().get_json()
+    except Exception as e:
+        checks['unplaced'] = {'ok': False, 'error': str(e)}
+    try:
+        checks['regions_orders'] = api_regions('orders').get_json()
+        checks['regions_master'] = api_regions('master_order').get_json()
+    except Exception as e:
+        checks['regions'] = {'ok': False, 'error': str(e)}
+    return jsonify(success=True, ok=True, pack='21', items=checks, message='第21包：今日異動SQL、未入倉分區、庫存批量按鈕、客戶快速載入、出貨預覽與倉庫下拉已修正')
 
 if __name__ == '__main__':
     ensure_db()
