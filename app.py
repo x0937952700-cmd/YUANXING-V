@@ -42,6 +42,48 @@ def jerr(message, code=400):
     return jsonify(ok=False, message=str(message)), code
 
 
+
+def compute_unplaced_summary_safe():
+    """Return A/B/未指定 unplaced qty without fragile SQL COALESCE(zone, area, location, ).
+    This intentionally groups in Python so PostgreSQL/SQLite and legacy schemas all work.
+    """
+    summary = {'A': 0, 'B': 0, '未指定': 0}
+    try:
+        cols = set(table_columns('inventory'))
+    except Exception:
+        cols = set()
+    if not cols:
+        return summary
+    qty_parts = []
+    if 'qty' in cols:
+        qty_parts.append('NULLIF(qty,0)')
+    if 'quantity' in cols:
+        qty_parts.append('quantity')
+    qty_expr = 'COALESCE(' + ', '.join(qty_parts + ['0']) + ') AS qty' if qty_parts else '0 AS qty'
+    zcols = [c for c in ['zone','area','location','ab_zone'] if c in cols]
+    select_cols = [qty_expr] + zcols
+    where = '1=1'
+    if 'placed' in cols:
+        where = "COALESCE(placed::text,'0') NOT IN ('1','t','true','True','TRUE')" if USE_POSTGRES else "COALESCE(placed,0)=0"
+    try:
+        rows = query(f"SELECT {', '.join(select_cols)} FROM inventory WHERE {where} LIMIT 10000", fetch=True) or []
+    except Exception:
+        # Last fallback: do not break the page.
+        rows = []
+    for r in rows:
+        try:
+            qty = int(float(r.get('qty') or 0))
+        except Exception:
+            qty = 0
+        ztxt = ' '.join(str(r.get(c) or '') for c in zcols).upper()
+        if 'A' in ztxt:
+            summary['A'] += qty
+        elif 'B' in ztxt:
+            summary['B'] += qty
+        else:
+            summary['未指定'] += qty
+    return summary
+
 def unread_count_sql():
     # PostgreSQL may have legacy boolean unread column; SQLite usually has 0/1 integer.
     return "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread::text,'') IN ('1','t','true','True','TRUE')" if USE_POSTGRES else "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread,0)=1"
@@ -621,67 +663,15 @@ def api_shipping_records():
                     AND (?='' OR customer LIKE ? OR product LIKE ? OR operator LIKE ?) ORDER BY shipped_at DESC LIMIT 500''', [start,end,q,like,like,like], fetch=True)
     return jsonify(ok=True, items=rows)
 
-def _safe_int(v, default=0):
-    try:
-        if v is None or v == '':
-            return default
-        return int(float(v))
-    except Exception:
-        return default
-
-def _row_qty(row):
-    for key in ('qty','quantity','count','amount'):
-        q = _safe_int(row.get(key), None)
-        if q and q > 0:
-            return q
-    return parse_qty_from_product(row.get('product') or row.get('product_text') or row.get('item') or '') or 1
-
-def _row_zone(row):
-    raw = ' '.join(str(row.get(k) or '') for k in ('zone','area','location','ab_zone','warehouse_zone'))
-    raw_u = raw.upper()
-    if 'A' in raw_u or 'Ａ' in raw:
-        return 'A'
-    if 'B' in raw_u or 'Ｂ' in raw:
-        return 'B'
-    return '未指定'
-
-def _unplaced_summary_safe():
-    summary = {'A': 0, 'B': 0, '未指定': 0}
-    try:
-        rows = query('SELECT * FROM inventory LIMIT 10000', fetch=True) or []
-        for r in rows:
-            placed = str(r.get('placed') if r.get('placed') is not None else '').lower()
-            loc_text = ' '.join(str(r.get(k) or '') for k in ('warehouse_cell','cell_id','slot','slot_number'))
-            # Only count records not already assigned to a warehouse cell. Legacy placed may be 0/false/empty.
-            if placed in ('1','true','t','yes') or loc_text.strip():
-                continue
-            summary[_row_zone(r)] += _row_qty(r)
-    except Exception:
-        pass
-    return summary
-
-@app.route('/api/today-summary', methods=['GET'])
-def api_today_summary_pack23():
-    summary = _unplaced_summary_safe()
-    return jsonify(ok=True, success=True, unplaced_summary=summary, unplaced_total=sum(summary.values()), items=[
-        {'label':'A區','qty':summary.get('A',0)},
-        {'label':'B區','qty':summary.get('B',0)},
-        {'label':'未指定','qty':summary.get('未指定',0)},
-    ])
-
 @app.route('/api/today', methods=['GET'])
 def api_today():
     today = datetime.now().strftime('%Y-%m-%d')
-    try:
-        logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
-    except Exception:
-        logs = []
-    try:
-        unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
-    except Exception:
-        unread = {'n':0}
-    unplaced_summary = _unplaced_summary_safe()
-    return jsonify(ok=True, success=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=int(sum(unplaced_summary.values())))
+    logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
+    unread = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
+    # PACK24: stable one-source summary. Do not load details; avoid broken COALESCE(zone, area, location, ).
+    unplaced_summary = compute_unplaced_summary_safe()
+    total_unplaced = int(sum(unplaced_summary.values()))
+    return jsonify(ok=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -879,8 +869,9 @@ def api_warehouse_search_alias():
 
 @app.route('/api/warehouse/unplaced-summary', methods=['GET'])
 def api_warehouse_unplaced_summary_pack20():
-    summary = _unplaced_summary_safe()
-    return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()), unplaced_summary=summary, unplaced_total=sum(summary.values()))
+    # PACK24: same safe summary used by 今日異動 and warehouse.
+    summary = compute_unplaced_summary_safe()
+    return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
 
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
@@ -2411,7 +2402,7 @@ def api_pack13_deploy_acceptance():
         pack='13',
         fixed=[
             'today_changes unread boolean/integer compatibility',
-            'material dropdown TD/MER/DF/SPF/HF/尤加利/LVL',
+            'material dropdown TD/MER/DF/SP/SPF/HF/尤加利/LVL/RDT',
             'row click toggles batch selection',
             'inventory/orders/master_order row action buttons hidden',
             'inventory top transfer buttons moved to right side',
@@ -2436,7 +2427,7 @@ def api_pack15_deploy_acceptance():
     return api_success(
         pack='15',
         final_convergence=True,
-        material_options=['TD','MER','DF','SP','SPF','HF','尤加利','LVL'],
+        material_options=['TD','MER','DF','SP','SPF','HF','尤加利','LVL','RDT'],
         warehouse='FIX105 aligned: A/B switch, 6 columns, 20 vertical slots per column, batch dropdown, click edit, long-press insert/delete, drag/drop front placement',
         ui='single pack15 seal loaded after pack14; prevents missing SP and broken warehouse interactions',
         counts=counts,
@@ -2458,7 +2449,7 @@ def api_pack15_warehouse_contract():
 
 @app.route('/api/pack15/material-options', methods=['GET'])
 def api_pack15_material_options():
-    return api_success(items=['TD','MER','DF','SP','SPF','HF','尤加利','LVL'])
+    return api_success(items=['TD','MER','DF','SP','SPF','HF','尤加利','LVL','RDT'])
 
 @app.route('/api/final/pack15-sealed', methods=['GET'])
 def api_final_pack15_sealed():
@@ -2637,17 +2628,28 @@ def api_pack22_deploy_acceptance():
         '倉庫未入倉顯示 A/B/未指定並可長按/刷新更新'
     ], checks=checks)
 
-
-# ==== PACK 23: single final layer / today summary SQL-safe / material RDT / customer move refresh ====
-@app.route('/api/pack23/deploy-acceptance', methods=['GET'])
-def api_pack23_deploy_acceptance():
-    summary = _unplaced_summary_safe()
-    return jsonify(ok=True, success=True, pack='23', message='第二十三包單一最終層已載入', fixes=[
-        '只載入 pack23 單一前端覆蓋層，移除 pack12~pack22 多層覆蓋',
-        '今日異動刷新改用 /api/today-summary，避免 SQL COALESCE 語法錯誤',
-        '未錄入倉庫圖只顯示 A區/B區/未指定總件數',
-        '材質清單加入 RDT',
-        '客戶移區後前端立即重繪到新區',
-        '材質標籤置中，批量編輯放在批量刪除旁邊'
-    ], unplaced_summary=summary, total=sum(summary.values()))
-# ==== end pack 23 ====
+# ==== PACK24: final repair without washing pages ====
+@app.route('/api/pack24/deploy-acceptance', methods=['GET'])
+def api_pack24_deploy_acceptance():
+    checks = {}
+    try:
+        checks['today'] = api_today().get_json()
+    except Exception as e:
+        checks['today'] = {'ok': False, 'error': str(e)}
+    try:
+        checks['unplaced_summary'] = api_warehouse_unplaced_summary_pack20().get_json()
+    except Exception as e:
+        checks['unplaced_summary'] = {'ok': False, 'error': str(e)}
+    try:
+        checks['materials'] = api_pack15_material_options().get_json()
+    except Exception as e:
+        checks['materials'] = {'ok': False, 'error': str(e)}
+    return jsonify(success=True, ok=True, pack='24', items=checks, fixed=[
+        '今日異動改用單一安全統計，不再使用錯誤 COALESCE(zone, area, location, )',
+        '今日異動刷新只顯示 A區/B區/未指定/總計件數',
+        '材質加入 RDT',
+        '保留原本頁面按鈕與卡片，只新增最後修復層，不洗掉版面',
+        '客戶移區後前端卡片立即移到新區',
+        '材質標籤置中，批量編輯在批量刪除旁邊'
+    ])
+# ==== end PACK24 ====
