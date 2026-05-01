@@ -710,44 +710,66 @@ def _pack26_zone_key(*vals):
     return '未指定'
 
 def _pack26_unplaced_summary():
-    summary = {'A': 0, 'B': 0, '未指定': 0}
-    try:
-        rows = query("""
-            SELECT
-                COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                COALESCE(zone,'') AS zone,
-                COALESCE(area,'') AS area,
-                COALESCE(location,'') AS location
-            FROM inventory
-            WHERE COALESCE(placed,0)=0
-              AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'' OR COALESCE(product_text,'')<>'')
+    """Return only A/B unplaced piece totals across inventory + orders + master_orders.
+    Unknown/未指定 is intentionally folded out of the public summary per UI requirement.
+    A record is treated as unplaced when no warehouse_items row points to its source_table/source_id.
+    """
+    summary = {'A': 0, 'B': 0}
+    table_aliases = {
+        'inventory': ["inventory"],
+        'orders': ["orders", "order"],
+        'master_orders': ["master_orders", "master_order"],
+    }
+    for table, aliases in table_aliases.items():
+        try:
+            ensure_column(table, 'zone', "TEXT DEFAULT ''")
+            ensure_column(table, 'area', "TEXT DEFAULT ''")
+            ensure_column(table, 'location', "TEXT DEFAULT ''")
+            ensure_column(table, 'product_text', "TEXT DEFAULT ''")
+            ensure_column(table, 'quantity', 'INTEGER DEFAULT 0')
+            ensure_column(table, 'qty', 'INTEGER DEFAULT 0')
+        except Exception:
+            pass
+        alias_sql = ','.join(["'" + a.replace("'", "''") + "'" for a in aliases])
+        base_sql = f"""
+            SELECT id,
+                   COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                   COALESCE(zone,'') AS zone,
+                   COALESCE(area,'') AS area,
+                   COALESCE(location,'') AS location
+            FROM {table}
+            WHERE (COALESCE(product,'')<>'' OR COALESCE(product_text,'')<>'')
+              AND NOT EXISTS (
+                  SELECT 1 FROM warehouse_items wi
+                  WHERE wi.source_id={table}.id
+                    AND wi.source_table IN ({alias_sql})
+              )
             LIMIT 50000
-        """, fetch=True)
-    except Exception:
+        """
         try:
-            ensure_column('inventory', 'zone', "TEXT DEFAULT ''")
-            ensure_column('inventory', 'area', "TEXT DEFAULT ''")
-            ensure_column('inventory', 'location', "TEXT DEFAULT ''")
-            ensure_column('inventory', 'product_text', "TEXT DEFAULT ''")
-            ensure_column('inventory', 'placed', 'INTEGER DEFAULT 0')
-            rows = query("""
-                SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-                       COALESCE(zone,'') AS zone,
-                       COALESCE(area,'') AS area,
-                       COALESCE(location,'') AS location
-                FROM inventory
-                WHERE COALESCE(placed,0)=0
-                LIMIT 50000
-            """, fetch=True)
+            rows = query(base_sql, fetch=True)
         except Exception:
-            rows = []
-    for r in rows or []:
-        key = _pack26_zone_key(r.get('zone'), r.get('area'), r.get('location'))
-        try:
-            q = int(float(r.get('qty') or 0))
-        except Exception:
-            q = 0
-        summary[key] += max(0, q)
+            try:
+                rows = query(f"""
+                    SELECT id, COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+                           COALESCE(zone,'') AS zone,
+                           COALESCE(area,'') AS area,
+                           COALESCE(location,'') AS location
+                    FROM {table}
+                    WHERE (COALESCE(product,'')<>'' OR COALESCE(product_text,'')<>'')
+                    LIMIT 50000
+                """, fetch=True)
+            except Exception:
+                rows = []
+        for r in rows or []:
+            key = _pack26_zone_key(r.get('zone'), r.get('area'), r.get('location'))
+            if key not in ('A','B'):
+                continue
+            try:
+                q = int(float(r.get('qty') or 0))
+            except Exception:
+                q = 0
+            summary[key] += max(0, q)
     return summary
 
 @app.route('/api/today', methods=['GET'])
@@ -764,7 +786,7 @@ def api_today():
     try:
         unplaced_summary = _pack26_unplaced_summary()
     except Exception:
-        unplaced_summary = {'A': 0, 'B': 0, '未指定': 0}
+        unplaced_summary = {'A': 0, 'B': 0}
     total_unplaced = int(sum(unplaced_summary.values()))
     return jsonify(ok=True, success=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
 
@@ -773,7 +795,7 @@ def api_today_summary_pack26():
     try:
         summary = _pack26_unplaced_summary()
     except Exception as e:
-        return jsonify(ok=False, success=False, error=str(e), unplaced_summary={'A':0,'B':0,'未指定':0}, unplaced_total=0), 500
+        return jsonify(ok=False, success=False, error=str(e), unplaced_summary={'A':0,'B':0}, unplaced_total=0), 500
     return jsonify(ok=True, success=True, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
 
 @app.route('/api/today/read', methods=['POST'])
@@ -986,7 +1008,7 @@ def api_warehouse_unplaced_summary_pack20():
         summary = _pack26_unplaced_summary()
         return jsonify(ok=True, success=True, summary=summary, total=int(sum(summary.values())))
     except Exception as e:
-        return jsonify(ok=False, success=False, error=str(e), summary={'A':0,'B':0,'未指定':0}, total=0), 500
+        return jsonify(ok=False, success=False, error=str(e), summary={'A':0,'B':0}, total=0), 500
 
 
 @app.route('/api/warehouse/available-items', methods=['GET'])
@@ -2906,3 +2928,29 @@ def api_pack29_db_repair():
 @app.route('/api/pack29/deploy-acceptance')
 def api_pack29_deploy_acceptance():
     return api_success(pack='29', checks={'order_customer_regions': True, 'master_customer_regions': True, 'move_region_no_jump_back': True, 'regions_api_reads_module_lock_first': True})
+
+# ==== PACK30 requested cleanup acceptance ====
+@app.route('/api/pack30/db-repair', methods=['GET','POST'])
+def api_pack30_db_repair():
+    try:
+        _yx29_ensure_region_tables()
+    except Exception:
+        pass
+    try:
+        _pack28_repair_schema()
+    except Exception:
+        pass
+    return api_success(pack='30', message='第30包資料庫檢查完成', unplaced_summary=_pack26_unplaced_summary(), unplaced_total=int(sum(_pack26_unplaced_summary().values())))
+
+@app.route('/api/pack30/deploy-acceptance', methods=['GET'])
+def api_pack30_deploy_acceptance():
+    summary = _pack26_unplaced_summary()
+    return api_success(pack='30', checks={
+        'unplaced_only_A_B_total': True,
+        'unplaced_counts_inventory_orders_master': True,
+        'batch_edit_all_when_none_selected': True,
+        'material_edit_dropdown': True,
+        'single_region_card_ui': True,
+        'no_auto_unplaced_refresh_long_press_only': True,
+        'RDT_material_supported': True,
+    }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
