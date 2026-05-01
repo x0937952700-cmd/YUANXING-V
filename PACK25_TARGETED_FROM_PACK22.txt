@@ -1,0 +1,1 @@
+Pack25 is based on Pack22 only. Fixes: add RDT material option; instant customer region move DOM refresh; center material label; batch edit next to batch delete. No UI/card/button redesign.

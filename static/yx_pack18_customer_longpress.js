@@ -6,12 +6,16 @@
   const clean=(s)=>String(s||'').replace(/\s+/g,' ').trim();
   const page=()=>document.querySelector('.module-screen')?.dataset?.module || document.body.dataset?.module || '';
   const api=window.api || (async (url,opt={})=>{const r=await fetch(url,{headers:{'Content-Type':'application/json'},credentials:'same-origin',...opt}); const d=await r.json().catch(()=>({})); if(!r.ok||d.ok===false||d.success===false) throw new Error(d.error||d.message||'API錯誤'); return d;});
-  const toast=window.toast || ((m)=>alert(m));
+  const toast=window.toast || ((m)=>{let t=document.getElementById('clean-toast'); if(t){t.textContent=m; t.classList.remove('hidden'); clearTimeout(window.__yx18Toast); window.__yx18Toast=setTimeout(()=>t.classList.add('hidden'),1400);} else {console.log(m);} });
   const esc=(s)=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
   function extractName(el){
     const ds=el.dataset||{};
+    if(ds.customer) return clean(ds.customer);
     if(ds.customerName) return clean(ds.customerName);
+    const oc=el.getAttribute('onclick')||'';
+    const mm=oc.match(/selectCustomer\(['\"](.+?)['\"]\)/);
+    if(mm) return clean(mm[1].replace(/\\'/g,"'"));
     let clone=el.cloneNode(true);
     clone.querySelectorAll('.yx-cust-count,.pill,.tag,.yx-term,.yx-cnf,.yx-terms,.yx-customer-term,.count,.muted').forEach(x=>x.remove());
     let t=clean(clone.textContent||el.textContent||'');
@@ -30,6 +34,32 @@
 
   function regionOf(el){
     return el.closest('[data-region]')?.dataset?.region || '北區';
+  }
+
+
+  function regionHostId(region){
+    return {'北區':'region-north','中區':'region-center','南區':'region-south'}[region] || 'region-north';
+  }
+  function namesSame(a,b){
+    a=clean(a); b=clean(b);
+    const strip=(x)=>x.replace(/\b(FOB代付|FOB代|FOB|CNF)\b/g,'').replace(/[|｜/\-]/g,' ').replace(/\s+/g,' ').trim();
+    return a===b || strip(a)===strip(b);
+  }
+  function moveCardNow(name, region){
+    const target=$(regionHostId(region));
+    if(!target) return;
+    const chips=$$('#region-north .customer-chip,#region-center .customer-chip,#region-south .customer-chip,#region-north .customer-card,#region-center .customer-card,#region-south .customer-card,#region-north button,#region-center button,#region-south button');
+    const card=chips.find(el=>namesSame(extractName(el), name));
+    if(!card) return;
+    const oldHost=card.closest('.customer-list');
+    target.querySelectorAll('.muted').forEach(x=>{ if(clean(x.textContent)==='無') x.remove(); });
+    target.prepend(card);
+    card.dataset.customerName=name;
+    if(oldHost && oldHost!==target){
+      const hasCards=oldHost.querySelector('.customer-chip,.customer-card,button');
+      if(!hasCards) oldHost.innerHTML='<span class="muted">無</span>';
+    }
+    bindCustomerButtons(target);
   }
 
   function closeMenu(){ document.querySelectorAll('.yx18-menu,.yx18-backdrop').forEach(e=>e.remove()); }
@@ -65,8 +95,10 @@
   async function moveCustomer(name, region){
     try{
       await api('/api/customer-action/move',{method:'POST',body:JSON.stringify({name,region,module:page()})});
+      moveCardNow(name, region);
       toast('已移到'+region);
       await refreshAfter(name);
+      setTimeout(()=>{moveCardNow(name, region); if(window.yx18BindCustomerLongPress) window.yx18BindCustomerLongPress();},120);
     }catch(e){ toast(e.message||'移區失敗'); }
   }
 
