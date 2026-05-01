@@ -522,10 +522,9 @@ def api_regions(module):
     table = 'master_orders' if module in ('master_order','ship') else 'orders'
     if module == 'inventory':
         table = 'inventory'
-    rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' ORDER BY customer", fetch=True)
+    # PACK20: 訂單/總單北中南只顯示該模組真的有商品且數量>0的客戶，不再 fallback 到所有客戶。
+    rows = query(f"SELECT customer, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty, COUNT(*) AS rows FROM {table} WHERE customer IS NOT NULL AND customer<>'' GROUP BY customer HAVING COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0)>0 ORDER BY customer", fetch=True)
     customers = [r['customer'] for r in rows if clean_text(r.get('customer'))]
-    if not customers:
-        customers = [r.get('name') for r in derived_customers('') if r.get('name')]
     meta = derived_customers('')
     region_map = {m['name']: m.get('region') or '北區' for m in meta if m.get('name')}
     grouped = {'北區': [], '中區': [], '南區': []}
@@ -633,8 +632,8 @@ def api_today():
         rows = query("""
             SELECT
               CASE
-                WHEN UPPER(COALESCE(zone, area, location, '')) LIKE '%A%' THEN 'A'
-                WHEN UPPER(COALESCE(zone, area, location, '')) LIKE '%B%' THEN 'B'
+                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%A%' THEN 'A'
+                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%B%' THEN 'B'
                 ELSE '未指定'
               END AS zone_group,
               SUM(COALESCE(NULLIF(qty,0), quantity, 0)) AS qty
@@ -647,7 +646,7 @@ def api_today():
             unplaced_summary[k] = int(r.get('qty') or 0)
     except Exception:
         # fallback for very old schemas
-        rows = query('SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty, COALESCE(zone, area, location, '') AS z FROM inventory WHERE COALESCE(placed,0)=0 LIMIT 2000', fetch=True)
+        rows = query('SELECT COALESCE(NULLIF(qty,0), quantity, 0) AS qty, COALESCE(NULLIF(zone,''), location, '') AS z FROM inventory WHERE COALESCE(placed,0)=0 LIMIT 2000', fetch=True)
         for r in rows or []:
             z = str(r.get('z') or '').upper()
             k = 'A' if 'A' in z else ('B' if 'B' in z else '未指定')
@@ -833,6 +832,31 @@ def api_warehouse_search_alias():
     rows = query("SELECT wi.*, wc.zone, wc.band, wc.row_name, wc.slot FROM warehouse_items wi LEFT JOIN warehouse_cells wc ON wc.id=wi.cell_id WHERE ?='' OR wi.customer LIKE ? OR wi.product LIKE ? OR wi.material LIKE ? ORDER BY wi.id DESC LIMIT 500", [q, like, like, like], fetch=True)
     return jsonify(ok=True, items=rows)
 
+
+@app.route('/api/warehouse/unplaced-summary', methods=['GET'])
+def api_warehouse_unplaced_summary_pack20():
+    summary = {'A': 0, 'B': 0, '未指定': 0}
+    try:
+        rows = query("""
+            SELECT
+              CASE
+                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%A%' THEN 'A'
+                WHEN UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE '%B%' THEN 'B'
+                ELSE '未指定'
+              END AS zone_group,
+              SUM(COALESCE(NULLIF(qty,0), quantity, 0)) AS qty
+            FROM inventory
+            WHERE COALESCE(placed,0)=0
+            GROUP BY zone_group
+        """, fetch=True)
+        for r in rows or []:
+            k = r.get('zone_group') or '未指定'
+            summary[k] = int(r.get('qty') or 0)
+    except Exception as e:
+        return jerr(str(e))
+    return jsonify(ok=True, success=True, summary=summary, total=sum(summary.values()))
+
+
 @app.route('/api/warehouse/available-items', methods=['GET'])
 def api_warehouse_available_items_alias():
     customer = clean_text(request.args.get('customer'))
@@ -841,13 +865,13 @@ def api_warehouse_available_items_alias():
     rows = query("""
         SELECT id, customer, product, material,
                COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
-               COALESCE(zone, area, location, '') AS zone,
+               COALESCE(NULLIF(zone,''), location, '') AS zone,
                'inventory' AS source,
                id AS source_id
         FROM inventory
         WHERE COALESCE(placed,0)=0
           AND (?='' OR customer=?)
-          AND (?='' OR UPPER(COALESCE(zone, area, location, '')) LIKE ?)
+          AND (?='' OR UPPER(COALESCE(NULLIF(zone,''), location, '')) LIKE ?)
         ORDER BY id DESC LIMIT 2000
     """, [customer, customer, zone, f'%{zone}%'], fetch=True)
     return jsonify(ok=True, success=True, items=normalize_item_rows(rows))
@@ -2310,6 +2334,18 @@ def service_worker():
 @app.route('/health', methods=['GET', 'HEAD'])
 def health():
     return 'ok'
+
+
+
+@app.route('/api/pack20/deploy-acceptance', methods=['GET'])
+def api_pack20_deploy_acceptance():
+    return jsonify(ok=True, success=True, pack='20', fixes=[
+        '今日異動 SQL 修復',
+        '訂單/總單北中南只顯示有資料客戶',
+        '倉庫未入倉 A/B/未指定總件數',
+        'A/B 區未錄入商品下拉相容',
+        '移除舊未入倉/目前區域按鈕'
+    ])
 
 if __name__ == '__main__':
     ensure_db()
