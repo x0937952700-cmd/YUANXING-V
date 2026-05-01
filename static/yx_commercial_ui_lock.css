@@ -181,3 +181,11 @@ html[data-yx-customer-table-final="locked"] .yx-customer-table-panel{
  .yx-customer-chip-final{min-height:56px!important;}
 }
 /* ==== CUSTOMER TABLE FINAL ALIGNMENT END ==== */
+
+
+/* SPEC PACK - mobile first, ship dropdown, selected rows */
+button,.primary-btn,.ghost-btn,.back-btn,.chip,.customer-btn{min-height:44px;touch-action:manipulation}
+.yx-selected-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px 12px;border:1px solid rgba(15,30,45,.12);border-radius:14px;background:#fff;margin:8px 0}
+.yx-selected-row b{display:block;font-size:14px}.yx-selected-row span{color:#667085;font-size:12px}.text-input.mini{width:72px;padding:8px 10px;min-height:38px}
+#ship-customer-item-select option{font-size:15px;line-height:1.7}.yx-preview-row{padding:10px 12px;border-bottom:1px solid rgba(15,30,45,.08)}
+@media(max-width:760px){.yx-selected-row{grid-template-columns:1fr;}.query-bar,.ship-picker-row{display:grid;grid-template-columns:1fr;gap:8px}.table-card,.yx-product-table-wrap{overflow-x:auto}.text-input,.text-area,select{font-size:16px}.warehouse-zone-wrap{overflow:auto;max-height:70vh}}

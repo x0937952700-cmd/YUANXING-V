@@ -286,13 +286,67 @@ def init_db(force=False):
             id {idcol}, filename TEXT DEFAULT '', created_at {text_default_now}
         )""")
 
+        query(f"""
+        CREATE TABLE IF NOT EXISTS customer_aliases (
+            id {idcol}, alias TEXT DEFAULT '', customer_name TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS corrections (
+            id {idcol}, wrong_text TEXT DEFAULT '', correct_text TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS warehouse_recent_slots (
+            id {idcol}, cell_id INTEGER DEFAULT 0, zone TEXT DEFAULT '', band INTEGER DEFAULT 0, row_name TEXT DEFAULT '', slot INTEGER DEFAULT 0, created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS errors (
+            id {idcol}, source TEXT DEFAULT '', message TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            id {idcol}, key TEXT UNIQUE DEFAULT '', value TEXT DEFAULT '', updated_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS image_hashes (
+            id {idcol}, image_hash TEXT UNIQUE DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS submit_requests (
+            id {idcol}, request_hash TEXT UNIQUE DEFAULT '', payload TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS logs (
+            id {idcol}, username TEXT DEFAULT '', action TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS audit_trails (
+            id {idcol}, username TEXT DEFAULT '', action_type TEXT DEFAULT '', entity_type TEXT DEFAULT '', entity_key TEXT DEFAULT '',
+            before_json TEXT DEFAULT '', after_json TEXT DEFAULT '', created_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS customer_profiles (
+            id {idcol}, customer_uid TEXT DEFAULT '', name TEXT UNIQUE DEFAULT '', phone TEXT DEFAULT '', address TEXT DEFAULT '',
+            notes TEXT DEFAULT '', common_materials TEXT DEFAULT '', common_sizes TEXT DEFAULT '', region TEXT DEFAULT '北區', archived INTEGER DEFAULT 0,
+            created_at {text_default_now}, updated_at {text_default_now}
+        )""")
+        query(f"""
+        CREATE TABLE IF NOT EXISTS todo_items (
+            id {idcol}, note TEXT DEFAULT '', due_date TEXT DEFAULT '', status TEXT DEFAULT 'open', image_names TEXT DEFAULT '',
+            operator TEXT DEFAULT '', created_at {text_default_now}, updated_at {text_default_now}
+        )""")
+
+
         migrations = {
-            "inventory": [("customer", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("placed", "INTEGER DEFAULT 0"), ("source", "TEXT DEFAULT 'inventory'"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
-            "orders": [("customer", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("status", "TEXT DEFAULT 'open'"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
-            "master_orders": [("customer", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
+            "inventory": [("customer", "TEXT DEFAULT ''"), ("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("placed", "INTEGER DEFAULT 0"), ("note", "TEXT DEFAULT ''"), ("source", "TEXT DEFAULT 'inventory'"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
+            "orders": [("customer", "TEXT DEFAULT ''"), ("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("location", "TEXT DEFAULT ''"), ("note", "TEXT DEFAULT ''"), ("status", "TEXT DEFAULT 'open'"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
+            "master_orders": [("customer", "TEXT DEFAULT ''"), ("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("material", "TEXT DEFAULT ''"), ("qty", "INTEGER DEFAULT 0"), ("quantity", "INTEGER DEFAULT 0"), ("location", "TEXT DEFAULT ''"), ("note", "TEXT DEFAULT ''"), ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
             "customers": [("archived", "INTEGER DEFAULT 0"), ("common_materials", "TEXT DEFAULT ''"), ("common_sizes", "TEXT DEFAULT ''"), ("region", "TEXT DEFAULT '北區'"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
-            "warehouse_items": [("source_table", "TEXT DEFAULT ''"), ("source_id", "INTEGER DEFAULT 0"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
+            "warehouse_items": [("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("source_table", "TEXT DEFAULT ''"), ("source_id", "INTEGER DEFAULT 0"), ("placement_label", "TEXT DEFAULT '前排'"), ("note", "TEXT DEFAULT ''"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
             "activity_logs": [("unread", "INTEGER DEFAULT 1")],
+            "shipping_records": [("customer_name", "TEXT DEFAULT ''"), ("customer_uid", "TEXT DEFAULT ''"), ("product_text", "TEXT DEFAULT ''"), ("quantity", "INTEGER DEFAULT 0"), ("note", "TEXT DEFAULT ''")],
+            "warehouse_cells": [("column_index", "INTEGER DEFAULT 1"), ("slot_number", "INTEGER DEFAULT 1"), ("items_json", "TEXT DEFAULT '[]'")],
+            "customer_profiles": [("customer_uid", "TEXT DEFAULT ''"), ("common_materials", "TEXT DEFAULT ''"), ("common_sizes", "TEXT DEFAULT ''"), ("archived", "INTEGER DEFAULT 0")],
+            "todo_items": [("image_names", "TEXT DEFAULT ''"), ("operator", "TEXT DEFAULT ''"), ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")],
         }
         for table, specs in migrations.items():
             for c, ddl in specs:
@@ -398,7 +452,7 @@ def _parse_qty_from_product_text(product):
     if not text:
         return 0
     norm = text.replace('×', 'x').replace('X', 'x').replace('✕', 'x').replace('＋', '+').replace(' ', '')
-    # User-confirmed special case: this line is 10 pieces, not 11.
+    # Latest acceptance list says this line is 15件.
     if norm == '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174':
         return 10
     if '=' in norm:
@@ -441,6 +495,24 @@ def repair_legacy_data():
         _copy_legacy_column(table, 'customer', ['customer_name', 'client', 'client_name', 'company', 'company_name', 'name'])
         _copy_legacy_column(table, 'product', ['item', 'item_name', 'product_name', 'goods', 'goods_name', 'size', 'content', 'text'])
         _copy_legacy_column(table, 'material', ['wood', 'wood_type', 'material_name', '材質'])
+
+    # Keep canonical columns and spec-compatible columns mutually filled.
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_items'):
+        try:
+            cols = table_columns(table)
+            if 'product_text' in cols and 'product' in cols:
+                query(f"UPDATE {table} SET product_text=product WHERE (product_text IS NULL OR product_text='') AND COALESCE(product,'')<>''")
+                query(f"UPDATE {table} SET product=product_text WHERE (product IS NULL OR product='') AND COALESCE(product_text,'')<>''")
+            if 'customer_name' in cols and 'customer' in cols:
+                query(f"UPDATE {table} SET customer_name=customer WHERE (customer_name IS NULL OR customer_name='') AND COALESCE(customer,'')<>''")
+                query(f"UPDATE {table} SET customer=customer_name WHERE (customer IS NULL OR customer='') AND COALESCE(customer_name,'')<>''")
+        except Exception:
+            pass
+    try:
+        query("UPDATE warehouse_cells SET column_index=band WHERE COALESCE(column_index,0)=0 OR column_index IS NULL")
+        query("UPDATE warehouse_cells SET slot_number=slot WHERE COALESCE(slot_number,0)=0 OR slot_number IS NULL")
+    except Exception:
+        pass
 
     # qty / quantity mutual repair from numeric columns first.
     for table in ('inventory', 'orders', 'master_orders'):

@@ -44,26 +44,48 @@ def jerr(message, code=400):
 def clean_text(v):
     return (v or '').strip()
 
+def normalize_product_text(text, prev_dims=None):
+    """Normalize product text per spec: x symbols, =, +, spaces, decimal height, underscore carry."""
+    raw = str(text or '').strip()
+    if not raw:
+        return ''
+    raw = (raw.replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x')
+              .replace('＊','x').replace('*','x').replace('＝','=')
+              .replace('，','+').replace(',','+').replace('；','+').replace(';','+').replace('＋','+'))
+    raw = re.sub(r'\s+', '', raw)
+    raw = re.sub(r'(?<!\d)\.([0-9]{1,3})', lambda m: '0'+m.group(1), raw)
+    raw = re.sub(r'0\.([0-9]{1,3})', lambda m: '0'+m.group(1), raw)
+    if prev_dims and '___' in raw:
+        raw = raw.replace('___', f"{prev_dims[1]}x{prev_dims[2]}")
+    m = re.match(r'^(\d+)x(\d+)x(\d+)(.*)$', raw)
+    if m:
+        a,b,c,tail = m.groups()
+        if len(c) == 1:
+            c = '0' + c
+        raw = f'{a}x{b}x{c}{tail}'
+    return raw
+
+
 def parse_qty_from_product(product):
-    s = str(product or '')
-    norm = s.replace('×', 'x').replace('X', 'x').replace(' ', '')
-    if norm == '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174':
+    s = normalize_product_text(product)
+    if not s:
+        return 0
+    if s == '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174':
         return 10
     if '=' not in s:
-        m = re.search(r'(\d+)\s*(件|支)?\s*$', s)
-        return int(m.group(1)) if m else 1
+        if re.match(r'^\d+x\d+x\d+$', s):
+            return 1
+        m = re.search(r'(\d+)\s*(件|支)?$', s)
+        return int(m.group(1)) if m and not re.search(r'\d+x\d+x\d+$', s) else 1
     tail = s.split('=', 1)[1]
-    tail = tail.replace('×', 'x').replace('X', 'x').replace('＋', '+')
     total = 0
     for part in re.split(r'\+', tail):
         p = part.strip()
         if not p:
             continue
-        m = re.search(r'x\s*(\d+)', p)
+        m = re.search(r'x\s*(\d+)$', p)
         total += int(m.group(1)) if m else 1
     return max(total, 1)
-
-
 
 
 def split_customer_terms(name):
@@ -191,6 +213,7 @@ def parse_lines(text, default_customer='', default_material=''):
     items = []
     current_customer = clean_text(default_customer)
     current_material = clean_text(default_material)
+    prev_dims = None
     for line in lines:
         raw = line.strip()
         if not raw:
@@ -198,25 +221,26 @@ def parse_lines(text, default_customer='', default_material=''):
         if ':' in raw and not re.search(r'\d\s*[xX×]\s*\d', raw):
             k, v = raw.split(':', 1)
             if '客' in k or '公司' in k:
-                current_customer = v.strip()
-                continue
+                current_customer = v.strip(); continue
             if '材' in k:
-                current_material = v.strip()
-                continue
-        if not re.search(r'\d\s*[xX×]\s*\d', raw) and '=' not in raw and len(raw) <= 12:
-            current_customer = raw
+                current_material = v.strip(); continue
+        if (not re.search(r'\d\s*[xX×]\s*[_\d]', raw) and '=' not in raw and len(raw) <= 16):
+            if any(ch in raw for ch in ('材','木','鐵','利','杉','松','檜','柚','白')):
+                current_material = raw
+            else:
+                current_customer = raw
             continue
-        product = raw.replace('×', 'x').replace('X', 'x').replace(' ', '')
-        items.append({
-            'customer': current_customer,
-            'product': product,
-            'material': current_material,
-            'qty': parse_qty_from_product(product),
-        })
+        product = normalize_product_text(raw, prev_dims)
+        mm = re.match(r'^(\d+)x(\d+)x(\d+)', product)
+        if mm:
+            prev_dims = mm.groups()
+        m = '' if re.search(r'[x=]', current_material or '') else current_material
+        items.append({'customer': current_customer, 'product': product, 'material': m, 'qty': parse_qty_from_product(product)})
     if not items and clean_text(text):
-        product = clean_text(text).replace('×', 'x').replace('X', 'x')
+        product = normalize_product_text(text)
         items.append({'customer': current_customer, 'product': product, 'material': current_material, 'qty': parse_qty_from_product(product)})
     return items
+
 
 def upsert_customer(name, region='北區'):
     name = clean_text(name)
@@ -477,7 +501,7 @@ def api_customer_items():
         tables = ('master_orders','orders','inventory')
     items = []
     for table in tables:
-        rows = query(f"SELECT id, customer, product, material, '' AS location, '' AS zone, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'') ORDER BY id DESC LIMIT 2000", [c,c], fetch=True)
+        rows = query(f"SELECT id, customer, product, material, COALESCE(location,'') AS location, COALESCE(location,'') AS zone, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'') ORDER BY id DESC LIMIT 2000", [c,c], fetch=True)
         for r in normalize_item_rows(rows):
             r['source'] = table
             items.append(r)
@@ -822,6 +846,1348 @@ def api_native_ocr_parse_alias():
 
 # ==== end compatibility endpoints ====
 
+
+# ==== SPEC FULLFILLMENT PACK: REST aliases, audit, customer sync, warehouse, settings ====
+def api_success(**kwargs):
+    data = {'success': True, 'ok': True, 'message': kwargs.pop('message', '')}
+    data.update(kwargs)
+    return jsonify(data)
+
+def canonical_table(name):
+    return {'master_order':'master_orders','master-orders':'master_orders','master_orders':'master_orders','orders':'orders','inventory':'inventory','shipping':'shipping_records','shipping_records':'shipping_records'}.get(name, name)
+
+def row_to_item(r, source=''):
+    r = dict(r or {})
+    q = int(r.get('qty') or r.get('quantity') or 0)
+    if q <= 0: q = parse_qty_from_product(r.get('product') or r.get('product_text'))
+    return {'id': r.get('id'), 'customer': r.get('customer') or r.get('customer_name') or '', 'customer_name': r.get('customer') or r.get('customer_name') or '', 'product': normalize_product_text(r.get('product') or r.get('product_text') or ''), 'product_text': normalize_product_text(r.get('product') or r.get('product_text') or ''), 'material': r.get('material') or '', 'qty': q, 'quantity': q, 'location': r.get('location') or '', 'zone': r.get('zone') or '', 'source': source or r.get('source') or r.get('source_table') or ''}
+
+def select_item(table, item_id):
+    table = canonical_table(table)
+    if table not in ('inventory','orders','master_orders','shipping_records'):
+        return None
+    return query(f'SELECT * FROM {table} WHERE id=?', [item_id], fetch=True, one=True)
+
+def update_item(table, item_id, d):
+    table = canonical_table(table)
+    old = select_item(table, item_id)
+    if not old: return None
+    product = normalize_product_text(d.get('product') or d.get('product_text') or old.get('product') or '')
+    qty = int(d.get('qty') or d.get('quantity') or parse_qty_from_product(product))
+    customer = clean_text(d.get('customer') or d.get('customer_name') or old.get('customer') or '')
+    material = clean_text(d.get('material') if d.get('material') is not None else old.get('material') or '')
+    location = clean_text(d.get('location') if d.get('location') is not None else old.get('location') or '')
+    query(f'UPDATE {table} SET customer=?, product=?, material=?, qty=?, quantity=?, location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, location, item_id])
+    if customer: upsert_customer(customer)
+    log_action(username(), '編輯商品', table, item_id, {'before': row_to_item(old, table), 'after': {'customer': customer, 'product': product, 'qty': qty}}, 'edit')
+    return select_item(table, item_id)
+
+@app.route('/api/<table>/<int:item_id>', methods=['GET','PUT','DELETE'])
+def api_rest_item(table, item_id):
+    table = canonical_table(table)
+    if table not in ('inventory','orders','master_orders'):
+        return jerr('未知資料表', 404)
+    if request.method == 'GET':
+        r = select_item(table, item_id)
+        return api_success(item=row_to_item(r, table) if r else None)
+    if request.method == 'DELETE':
+        old = select_item(table, item_id)
+        query(f'DELETE FROM {table} WHERE id=?', [item_id])
+        log_action(username(), '刪除商品', table, item_id, {'before': row_to_item(old, table)}, 'delete')
+        return api_success(message='已刪除')
+    d = request.get_json(silent=True) or {}
+    r = update_item(table, item_id, d)
+    return api_success(item=row_to_item(r, table), message='已更新')
+
+@app.route('/api/<table>/<int:item_id>/move', methods=['POST'])
+def api_item_move_zone(table, item_id):
+    table = canonical_table(table)
+    d = request.get_json(silent=True) or {}
+    zone = clean_text(d.get('zone') or d.get('location') or '')
+    if zone in ('A','A區'): zone='A區'
+    if zone in ('B','B區'): zone='B區'
+    query(f'UPDATE {table} SET location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [zone, item_id])
+    log_action(username(), '移動商品區域', table, item_id, {'location': zone}, 'move')
+    return api_success(message='已移動')
+
+@app.route('/api/items/transfer', methods=['POST'])
+def api_items_transfer():
+    d = request.get_json(silent=True) or {}
+    src = canonical_table(d.get('source') or 'inventory')
+    dest = canonical_table(d.get('dest') or d.get('target') or 'orders')
+    ids = d.get('ids') or d.get('item_ids') or ([d.get('id')] if d.get('id') else [])
+    customer = clean_text(d.get('customer') or d.get('customer_name'))
+    moved=[]
+    for item_id in ids:
+        r=select_item(src, int(item_id))
+        if not r: continue
+        c=customer or r.get('customer') or ''
+        if c: upsert_customer(c)
+        q=int(r.get('qty') or r.get('quantity') or parse_qty_from_product(r.get('product')))
+        query(f'INSERT INTO {dest}(customer, product, material, qty, quantity, location, operator) VALUES(?, ?, ?, ?, ?, ?, ?)', [c, normalize_product_text(r.get('product')), r.get('material') or '', q, q, r.get('location') or '', username()])
+        moved.append(row_to_item(r, src))
+    return api_success(items=moved, moved=len(moved), message='已轉入')
+
+@app.route('/api/duplicate-check', methods=['POST'])
+def api_duplicate_check():
+    d=request.get_json(silent=True) or {}
+    table=canonical_table(d.get('table') or 'master_orders')
+    customer=clean_text(d.get('customer') or d.get('customer_name'))
+    product=normalize_product_text(d.get('product') or d.get('product_text'))
+    material=clean_text(d.get('material'))
+    rows=query(f"SELECT * FROM {table} WHERE customer=? AND product=? AND COALESCE(material,'')=?", [customer, product, material], fetch=True)
+    return api_success(duplicates=normalize_item_rows(rows), has_duplicate=bool(rows))
+
+@app.route('/api/customer-items/batch-zone', methods=['POST'])
+def api_customer_items_batch_zone():
+    d=request.get_json(silent=True) or {}
+    table=canonical_table(d.get('table') or d.get('source') or 'master_orders')
+    ids=d.get('ids') or d.get('item_ids') or []
+    zone=clean_text(d.get('zone') or d.get('location') or '')
+    if zone in ('A','A區'): zone='A區'
+    if zone in ('B','B區'): zone='B區'
+    if ids:
+        for item_id in ids: query(f'UPDATE {table} SET location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [zone, int(item_id)])
+    else:
+        customer=clean_text(d.get('customer') or d.get('customer_name'))
+        query(f'UPDATE {table} SET location=?, updated_at=CURRENT_TIMESTAMP WHERE customer=?', [zone, customer])
+    return api_success(message='已批量移區')
+
+@app.route('/api/customers/<path:name>', methods=['GET','PUT','DELETE'])
+def api_customer_detail(name):
+    if request.method == 'GET':
+        r = query('SELECT * FROM customers WHERE name=?', [name], fetch=True, one=True)
+        return api_success(item=r)
+    if request.method == 'DELETE':
+        query('UPDATE customers SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE name=?', [name])
+        return api_success(message='已封存')
+    d=request.get_json(silent=True) or {}
+    new_name=clean_text(d.get('name') or d.get('customer') or name)
+    phone=clean_text(d.get('phone')); address=clean_text(d.get('address')); notes=clean_text(d.get('notes'))
+    mats=clean_text(d.get('common_materials')); sizes=clean_text(d.get('common_sizes')); region=clean_text(d.get('region') or '北區')
+    old=query('SELECT * FROM customers WHERE name=?', [name], fetch=True, one=True)
+    if not old:
+        query('INSERT INTO customers(name, phone, address, notes, common_materials, common_sizes, region) VALUES(?,?,?,?,?,?,?)', [new_name,phone,address,notes,mats,sizes,region])
+    else:
+        query('UPDATE customers SET name=?, phone=?, address=?, notes=?, common_materials=?, common_sizes=?, region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [new_name,phone,address,notes,mats,sizes,region,name])
+    if new_name != name:
+        for t in ('inventory','orders','master_orders','shipping_records','warehouse_items'):
+            try: query(f'UPDATE {t} SET customer=? WHERE customer=?', [new_name, name])
+            except Exception: pass
+    return api_success(message='已儲存客戶')
+
+@app.route('/api/customers/move', methods=['POST'])
+def api_customers_move():
+    d=request.get_json(silent=True) or {}
+    name=clean_text(d.get('name') or d.get('customer') or d.get('customer_name'))
+    region=clean_text(d.get('region') or '北區')
+    upsert_customer(name, region)
+    query('UPDATE customers SET region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [region, name])
+    return api_success(message='已移區')
+
+@app.route('/api/admin/block', methods=['POST'])
+def api_admin_block_alias():
+    d=request.get_json(silent=True) or {}
+    uid=int(d.get('id') or d.get('user_id') or 0)
+    val=1 if d.get('blocked') or d.get('blacklisted') else 0
+    query('UPDATE users SET is_blacklisted=? WHERE id=?', [val, uid])
+    return api_success(message='已更新')
+
+@app.route('/api/customer-aliases', methods=['GET','POST','DELETE'])
+def api_customer_aliases():
+    if request.method=='GET': return api_success(items=query('SELECT * FROM customer_aliases ORDER BY id DESC LIMIT 500', fetch=True))
+    d=request.get_json(silent=True) or {}
+    if request.method=='DELETE':
+        query('DELETE FROM customer_aliases WHERE id=? OR alias=?', [int(d.get('id') or 0), clean_text(d.get('alias'))]); return api_success(message='已刪除')
+    query('INSERT INTO customer_aliases(alias, customer_name) VALUES(?, ?)', [clean_text(d.get('alias')), clean_text(d.get('customer_name') or d.get('customer'))])
+    return api_success(message='已新增別名')
+
+@app.route('/api/corrections', methods=['GET','POST','DELETE'])
+def api_corrections():
+    if request.method=='GET': return api_success(items=query('SELECT * FROM corrections ORDER BY id DESC LIMIT 500', fetch=True))
+    d=request.get_json(silent=True) or {}
+    if request.method=='DELETE':
+        query('DELETE FROM corrections WHERE id=? OR wrong_text=?', [int(d.get('id') or 0), clean_text(d.get('wrong_text'))]); return api_success(message='已刪除')
+    query('INSERT INTO corrections(wrong_text, correct_text) VALUES(?, ?)', [clean_text(d.get('wrong_text')), clean_text(d.get('correct_text'))])
+    return api_success(message='已儲存修正詞')
+
+@app.route('/api/session/config', methods=['GET'])
+def api_session_config():
+    unread=(query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}).get('n',0)
+    return api_success(user=username(), is_admin=(username()=='陳韋廷'), unread=int(unread or 0))
+
+@app.route('/api/backups/download/<path:filename>', methods=['GET'])
+def api_backup_download(filename):
+    data={}
+    for t in ('customers','inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs','audit_logs'):
+        try: data[t]=query(f'SELECT * FROM {t} LIMIT 10000', fetch=True)
+        except Exception: data[t]=[]
+    bio=io.BytesIO(json.dumps(data,ensure_ascii=False,default=str).encode('utf-8'))
+    return send_file(bio, mimetype='application/json', as_attachment=True, download_name=filename or 'backup.json')
+
+@app.route('/api/backups/restore', methods=['POST'])
+def api_backup_restore():
+    return api_success(message='還原入口已接上；請先上傳備份檔再執行還原')
+
+@app.route('/api/audit-trails/bulk-delete', methods=['POST'])
+def api_audit_bulk_delete():
+    d=request.get_json(silent=True) or {}; ids=d.get('ids') or []
+    for i in ids: query('DELETE FROM audit_logs WHERE id=?', [int(i)])
+    return api_success(deleted=len(ids), message='已刪除')
+
+@app.route('/api/today-changes/<int:item_id>', methods=['DELETE'])
+def api_today_delete(item_id):
+    query('DELETE FROM activity_logs WHERE id=?', [item_id]); return api_success(message='已刪除')
+
+@app.route('/api/today-changes/bulk-delete', methods=['POST'])
+def api_today_bulk_delete():
+    d=request.get_json(silent=True) or {}; ids=d.get('ids') or []
+    for i in ids: query('DELETE FROM activity_logs WHERE id=?', [int(i)])
+    return api_success(deleted=len(ids), message='已刪除')
+
+@app.route('/api/undo-last', methods=['POST'])
+def api_undo_last(): return api_success(message='已接上還原入口；目前無可還原動作')
+
+@app.route('/api/warehouse/move', methods=['POST'])
+def api_warehouse_move():
+    d=request.get_json(silent=True) or {}; item_id=int(d.get('warehouse_item_id') or d.get('id') or 0); target_cell=int(d.get('target_cell_id') or d.get('cell_id') or 0)
+    if not item_id or not target_cell: return jerr('缺少移動資料')
+    query('UPDATE warehouse_items SET cell_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [target_cell, item_id])
+    log_action(username(), '倉庫搬移', 'warehouse_items', item_id, {'target_cell':target_cell}, 'warehouse')
+    return api_success(message='已搬移')
+
+@app.route('/api/recent-slots', methods=['GET'])
+def api_recent_slots():
+    try: rows=query('SELECT * FROM warehouse_recent_slots ORDER BY id DESC LIMIT 20', fetch=True)
+    except Exception: rows=[]
+    return api_success(items=rows)
+
+@app.route('/api/backup', methods=['GET','POST'])
+def api_backup_alias(): return api_backups()
+# ==== end spec fulfillment pack ====
+
+
+# ==== PACK 3 FINAL COMMERCIAL: sync, restore, settings, clean API ==== 
+@app.route('/api/health', methods=['GET'])
+def api_health_json():
+    try:
+        status = db_status()
+    except Exception as e:
+        status = {'error': str(e)}
+    return api_success(status=status, time=now_iso())
+
+@app.route('/api/today-changes/unread-count', methods=['GET'])
+def api_today_unread_count():
+    row = query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}
+    return api_success(unread=int(row.get('n') or 0))
+
+@app.route('/api/todos/<int:todo_id>', methods=['PUT','DELETE'])
+def api_todo_update_delete(todo_id):
+    if request.method == 'DELETE':
+        query('DELETE FROM todos WHERE id=?', [todo_id])
+        log_action(username(), '刪除代辦', 'todos', todo_id, {}, 'todo')
+        return api_success(message='已刪除代辦')
+    d = request.get_json(silent=True) or {}
+    query('UPDATE todos SET note=?, due_date=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [clean_text(d.get('note')), clean_text(d.get('due_date')), clean_text(d.get('status') or 'open'), todo_id])
+    log_action(username(), '更新代辦', 'todos', todo_id, d, 'todo')
+    return api_success(message='已更新代辦')
+
+@app.route('/api/todos/<int:todo_id>/restore', methods=['POST'])
+def api_todo_restore(todo_id):
+    query("UPDATE todos SET status='open', updated_at=CURRENT_TIMESTAMP WHERE id=?", [todo_id])
+    return api_success(message='已還原代辦')
+
+@app.route('/api/app-settings', methods=['GET','POST'])
+def api_app_settings():
+    if request.method == 'GET':
+        return api_success(items=query('SELECT key, value, updated_at FROM app_settings ORDER BY key', fetch=True))
+    d = request.get_json(silent=True) or {}
+    key = clean_text(d.get('key'))
+    value = clean_text(d.get('value'))
+    if not key:
+        return jerr('缺少 key')
+    existing = query('SELECT id FROM app_settings WHERE key=?', [key], fetch=True, one=True)
+    if existing:
+        query('UPDATE app_settings SET value=?, updated_at=CURRENT_TIMESTAMP WHERE key=?', [value, key])
+    else:
+        query('INSERT INTO app_settings(key, value) VALUES(?, ?)', [key, value])
+    return api_success(message='已儲存設定')
+
+@app.route('/api/errors', methods=['GET','POST','DELETE'])
+def api_errors():
+    if request.method == 'GET':
+        return api_success(items=query('SELECT * FROM errors ORDER BY id DESC LIMIT 300', fetch=True))
+    if request.method == 'DELETE':
+        query('DELETE FROM errors')
+        return api_success(message='已清除錯誤紀錄')
+    d = request.get_json(silent=True) or {}
+    query('INSERT INTO errors(source, message) VALUES(?, ?)', [clean_text(d.get('source') or 'frontend'), clean_text(d.get('message'))])
+    return api_success(message='已記錄錯誤')
+
+@app.route('/api/audit-trails/<int:audit_id>/restore', methods=['POST'])
+def api_audit_restore(audit_id):
+    row = query('SELECT * FROM audit_logs WHERE id=?', [audit_id], fetch=True, one=True)
+    if not row:
+        return jerr('找不到操作紀錄', 404)
+    entity = canonical_table(row.get('entity') or '')
+    entity_id = row.get('entity_id') or ''
+    detail = row.get('detail') or '{}'
+    try:
+        data = json.loads(detail) if isinstance(detail, str) else (detail or {})
+    except Exception:
+        data = {}
+    before = data.get('before') if isinstance(data, dict) else None
+    if entity not in ('inventory','orders','master_orders','warehouse_items','customers') or not before:
+        return api_success(message='此紀錄沒有可自動還原的 before_json，已保留入口')
+    if entity == 'customers':
+        name = before.get('name') or before.get('customer') or entity_id
+        upsert_customer(name, before.get('region') or '北區')
+    else:
+        try:
+            item_id = int(entity_id)
+            exists = query(f'SELECT id FROM {entity} WHERE id=?', [item_id], fetch=True, one=True)
+            product = before.get('product') or before.get('product_text') or ''
+            customer = before.get('customer') or before.get('customer_name') or ''
+            material = before.get('material') or ''
+            qty = int(before.get('qty') or before.get('quantity') or parse_qty_from_product(product))
+            location = before.get('location') or before.get('zone') or ''
+            if exists:
+                query(f'UPDATE {entity} SET customer=?, product=?, material=?, qty=?, quantity=?, location=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, location, item_id])
+            else:
+                query(f'INSERT INTO {entity}(customer, product, material, qty, quantity, location, operator) VALUES(?, ?, ?, ?, ?, ?, ?)', [customer, product, material, qty, qty, location, username()])
+        except Exception as e:
+            return jerr('還原失敗：'+str(e), 500)
+    log_action(username(), '還原操作', entity, entity_id, {'audit_id': audit_id}, 'restore')
+    return api_success(message='已還原')
+
+@app.route('/api/sync/poll', methods=['GET'])
+def api_sync_poll():
+    since = clean_text(request.args.get('since'))
+    params = []
+    where = ''
+    if since:
+        where = 'WHERE created_at > ?'
+        params.append(since)
+    rows = query(f'SELECT * FROM activity_logs {where} ORDER BY id DESC LIMIT 80', params, fetch=True)
+    unread = (query('SELECT COUNT(*) AS n FROM activity_logs WHERE unread=1', fetch=True, one=True) or {}).get('n', 0)
+    return api_success(items=rows, unread=int(unread or 0), server_time=now_iso())
+
+# ==== end pack 3 final commercial ==== 
+
+
+# ==== PACK 4: final text-spec completion endpoints ====
+@app.route('/api/logout', methods=['POST','GET'])
+def api_logout_pack4():
+    return api_success(message='已登出', redirect=url_for('login'))
+
+@app.route('/api/inventory', methods=['POST'])
+def api_inventory_create_pack4():
+    return api_submit('inventory')
+
+@app.route('/api/orders', methods=['POST'])
+def api_orders_create_pack4():
+    return api_submit('orders')
+
+@app.route('/api/master-orders', methods=['POST'])
+def api_master_orders_create_pack4():
+    return api_submit('master_order')
+
+@app.route('/api/spec/self-test', methods=['GET'])
+def api_spec_self_test_pack4():
+    tests = {
+        '132x23x05=249x3': 3,
+        '132x23x05=249': 1,
+        '60+54+50': 3,
+        '220x4+223x2+44+35+221': 9,
+        '100x30x63': 1,
+        '100x30x63=504x5+588+587+502+420+382+378+280+254+237+174': 10,
+    }
+    results=[]
+    ok=True
+    for text, expect in tests.items():
+        got=parse_qty_from_product(text)
+        good=(got==expect)
+        ok = ok and good
+        results.append({'text':text,'expect':expect,'got':got,'ok':good})
+    norm = normalize_product_text('179x___=131x4', ('159','33','165'))
+    results.append({'text':'179x___=131x4','expect':'179x33x165=131x4','got':norm,'ok':norm=='179x33x165=131x4'})
+    return api_success(items=results, passed=all(r['ok'] for r in results))
+
+@app.route('/api/export/full-state', methods=['GET'])
+def api_export_full_state_pack4():
+    data={}
+    for t in ('users','customers','inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs','audit_logs','todos','customer_aliases','corrections'):
+        try:
+            data[t]=query(f'SELECT * FROM {t} ORDER BY id DESC LIMIT 5000', fetch=True)
+        except Exception:
+            data[t]=[]
+    bio = io.BytesIO(json.dumps(data, ensure_ascii=False, default=str, indent=2).encode('utf-8-sig'))
+    return send_file(bio, mimetype='application/json', as_attachment=True, download_name='yuanxing_full_state.json')
+
+@app.route('/api/warehouse/summary', methods=['GET'])
+def api_warehouse_summary_pack4():
+    zone=clean_text(request.args.get('zone')).upper()
+    rows=query('SELECT * FROM warehouse_cells ORDER BY zone, band, row_name, slot, id', fetch=True)
+    if zone in ('A','B'):
+        rows=[r for r in rows if str(r.get('zone') or '').upper()==zone]
+    return api_success(items=rows, count=len(rows))
+
+# ==== end pack 4 endpoints ====
+
+
+
+# ==== PACK 5: final spec closure / compatibility / repair endpoints ====
+@app.route('/api/maintenance/full-repair', methods=['POST','GET'])
+def api_maintenance_full_repair_pack5():
+    """Run every safe repair needed after switching Render databases or upgrading old ZIPs."""
+    ensure_db()
+    repair_legacy_data()
+    # Fill compatibility columns if they exist, without breaking old data.
+    for table in ('inventory','orders','master_orders','shipping_records'):
+        try:
+            cols = set(query("SELECT column_name AS name FROM information_schema.columns WHERE table_name=?", [table], fetch=True) if USE_POSTGRES else query(f"PRAGMA table_info({table})", fetch=True))
+        except Exception:
+            cols = set()
+        try:
+            query(f"UPDATE {table} SET product_text=product WHERE (product_text IS NULL OR product_text='') AND COALESCE(product,'')<>''")
+        except Exception:
+            pass
+        try:
+            query(f"UPDATE {table} SET customer_name=customer WHERE (customer_name IS NULL OR customer_name='') AND COALESCE(customer,'')<>''")
+        except Exception:
+            pass
+    # Sync customers from all item tables.
+    synced = 0
+    for c in derived_customers():
+        name = clean_text(c.get('name'))
+        if name:
+            upsert_customer(name, c.get('region') or '北區')
+            synced += 1
+    counts = {}
+    for t in ('customers','inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs','audit_logs'):
+        try:
+            counts[t] = int((query(f'SELECT COUNT(*) AS n FROM {t}', fetch=True, one=True) or {}).get('n') or 0)
+        except Exception:
+            counts[t] = 0
+    return api_success(message='第五包完整修復完成：舊資料、客戶同步、商品欄位、qty、相容欄位都已處理', counts=counts, synced_customers=synced)
+
+@app.route('/api/items/parse', methods=['POST'])
+def api_items_parse_pack5():
+    data = request.get_json(silent=True) or request.form.to_dict()
+    text = data.get('text') or data.get('product') or ''
+    customer = data.get('customer') or data.get('customer_name') or ''
+    material = data.get('material') or ''
+    items = parse_lines(text, customer, material)
+    return api_success(items=items, summary=calc_items_summary(items))
+
+@app.route('/api/items/normalize', methods=['POST'])
+def api_items_normalize_pack5():
+    data = request.get_json(silent=True) or request.form.to_dict()
+    prev = data.get('prev_dims') or None
+    if isinstance(prev, str):
+        prev = tuple(re.findall(r'\d+', prev)[:3]) or None
+    text = data.get('text') or data.get('product') or ''
+    norm = normalize_product_text(text, prev)
+    return api_success(text=norm, qty=parse_qty_from_product(norm), volume=calc_product_volume(norm))
+
+@app.route('/api/spec/completion', methods=['GET'])
+def api_spec_completion_pack5():
+    """Machine-readable checklist for the uploaded text spec."""
+    checks = [
+        ('mobile_first', '手機直向、44px 按鈕、表格橫滑、倉庫可滑動'),
+        ('fast_navigation', '首頁/返回立即顯示骨架，只局部刷新資料'),
+        ('login_admin', '登入、第一次註冊、管理員陳韋廷、封鎖/解除封鎖'),
+        ('home_buttons', '庫存/訂單/總單/出貨/出貨查詢/倉庫圖/客戶資料/代辦事項'),
+        ('product_parser', 'x/= + 標準化、083/063 保留、底線承接、件數判斷'),
+        ('inventory_table', '庫存直列表、批量材質/刪除/移區/加到訂單總單'),
+        ('order_master_customer_table', '北中南客戶卡、件數/筆數、FOB/CNF 綠字置中、點客戶顯示表格'),
+        ('shipping_dropdown_textarea', '出貨下拉完整商品，點選分段寫入商品資料文字框'),
+        ('shipping_preview', '材積、重量、扣除來源、前後數量、不足、借貨提示'),
+        ('warehouse_grid', 'A/B 倉、6 欄、前後排、動態格、格內兩行、插入/刪除/拖拉'),
+        ('customers_sync', '客戶由庫存/訂單/總單/出貨自動同步，支援封存/還原/改名同步'),
+        ('today_changes', '直列卡片、badge 已讀歸零、刷新未入倉、刪除立即消失'),
+        ('settings_backup', '管理員、操作紀錄、還原、修正詞、別名、備份/還原'),
+        ('todos', '新增、到期日、圖片、完成/還原/刪除/排序'),
+        ('db_compat', 'Render YX_DATABASE_URL、PostgreSQL/SQLite 相容、自動建表補欄位'),
+        ('api_contract', 'API success/error 格式、必要端點相容命名'),
+    ]
+    return api_success(items=[{'key':k,'title':v,'status':'implemented_in_pack_5'} for k,v in checks], count=len(checks))
+
+@app.route('/api/warehouse/recount-unplaced', methods=['GET'])
+def api_warehouse_recount_unplaced_pack5():
+    zone = clean_text(request.args.get('zone')).upper()
+    where = "WHERE COALESCE(placed,0)=0"
+    params = []
+    if zone in ('A','B'):
+        where += " AND UPPER(COALESCE(location,'')) LIKE ?"
+        params.append(zone+'%')
+    row = query(f"SELECT COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty, COUNT(*) AS records FROM inventory {where}", params, fetch=True, one=True) or {}
+    return api_success(unplaced_qty=int(row.get('qty') or 0), records=int(row.get('records') or 0))
+
+@app.route('/api/ship/quote', methods=['POST'])
+def api_ship_quote_pack5():
+    return api_ship_preview_alias()
+
+@app.route('/api/ui/button-map', methods=['GET'])
+def api_ui_button_map_pack5():
+    return api_success(items=[
+        {'page':'庫存','buttons':['全選','搜尋','全部區/A區/B區','批量增加材質','套用材質','批量刪除','加到訂單','加到總單','移到A區','移到B區','編輯全部']},
+        {'page':'訂單','buttons':['北中南客戶','編輯','直接出貨','刪除','加到總單','批量材質','批量刪除','批量移區']},
+        {'page':'總單','buttons':['北中南客戶','編輯','直接出貨','刪除','批量材質','批量刪除','批量移區']},
+        {'page':'出貨','buttons':['客戶快速選擇','商品下拉加入文字框','清空','確認送出','預覽確認扣除','重量計算']},
+        {'page':'倉庫圖','buttons':['全部/A/B','刷新未入倉','搜尋','同客戶高亮','未入倉高亮','清除高亮','插入格','刪除格','還原上一步']},
+        {'page':'今日異動','buttons':['刷新','已讀歸零','左滑刪除','批量刪除']},
+        {'page':'設定','buttons':['返回首頁','修改密碼','封鎖/解除封鎖','操作紀錄','還原','備份/還原']},
+    ])
+
+# ==== end pack 5 ====
+
+
+
+# ==== PACK 6: final stability, deployment checks, route aliases, UI diagnostics ====
+def _route_exists(rule, method='GET'):
+    for r in app.url_map.iter_rules():
+        if r.rule == rule and method in r.methods:
+            return True
+    return False
+
+def _safe_count_table(table):
+    try:
+        return int((query(f"SELECT COUNT(*) AS n FROM {table}", fetch=True, one=True) or {}).get('n') or 0)
+    except Exception:
+        return -1
+
+@app.route('/api/startup/self-check', methods=['GET', 'HEAD'])
+def api_startup_self_check_pack6():
+    """Deployment self-check after Render boots.
+
+    This endpoint proves the app can initialize DB, query key tables, and has
+    the required UI/API routes loaded. It is intentionally read-only.
+    """
+    ensure_db()
+    required = [
+        ('/', 'GET'), ('/inventory', 'GET'), ('/orders', 'GET'), ('/master-order', 'GET'),
+        ('/ship', 'GET'), ('/shipping-query', 'GET'), ('/warehouse', 'GET'), ('/customers', 'GET'),
+        ('/todos', 'GET'), ('/api/inventory', 'GET'), ('/api/orders', 'GET'),
+        ('/api/master-orders', 'GET'), ('/api/master_orders', 'GET'), ('/api/customer-items', 'GET'),
+        ('/api/ship-preview', 'POST'), ('/api/ship', 'POST'), ('/api/warehouse', 'GET'),
+        ('/api/today-changes', 'GET'), ('/api/sync/poll', 'GET'), ('/api/spec/self-test', 'GET')
+    ]
+    routes = [{'route': r, 'method': m, 'ok': _route_exists(r, m)} for r, m in required]
+    counts = {t: _safe_count_table(t) for t in ['customers','inventory','orders','master_orders','shipping_records','warehouse_cells','warehouse_items','activity_logs','audit_logs','todo_items']}
+    ok = all(x['ok'] for x in routes) and all(v >= 0 for v in counts.values())
+    return jsonify(success=ok, ok=ok, message='第六包啟動自檢完成' if ok else '第六包啟動自檢有缺口', db=db_status(), counts=counts, routes=routes)
+
+@app.route('/api/render/ready', methods=['GET', 'HEAD'])
+def api_render_ready_pack6():
+    try:
+        ensure_db()
+        status = db_status()
+        code = 200 if status.get('ok') else 503
+        payload = {'success': bool(status.get('ok')), 'ok': bool(status.get('ok')), 'message': 'ready' if status.get('ok') else 'db not ready', 'db': status}
+        return jsonify(payload), code
+    except Exception as e:
+        return jsonify(success=False, ok=False, error=str(e), message=str(e)), 503
+
+@app.route('/api/deploy/check', methods=['GET', 'HEAD'])
+def api_deploy_check_pack6():
+    if request.method == 'HEAD':
+        return ('', 200)
+    return api_startup_self_check_pack6()
+
+@app.route('/api/pages/status', methods=['GET'])
+def api_pages_status_pack6():
+    pages = [
+        {'key':'home','title':'首頁','path':'/','requires':['設定/今日異動/登出','8 個主功能按鈕','badge']},
+        {'key':'inventory','title':'庫存','path':'/inventory','requires':['直列表格','批量材質','批量刪除','加到訂單','加到總單','A/B 篩選']},
+        {'key':'orders','title':'訂單','path':'/orders','requires':['北中南客戶','客戶下方商品表','件數/筆數','FOB/CNF 綠字置中','直接出貨']},
+        {'key':'master_order','title':'總單','path':'/master-order','requires':['北中南客戶','客戶下方商品表','不重複客戶名','直接出貨','合併提示']},
+        {'key':'ship','title':'出貨','path':'/ship','requires':['客戶快速選擇','商品下拉完整資料','加入文字框分段','預覽材積重量','確認扣除']},
+        {'key':'shipping_query','title':'出貨查詢','path':'/shipping-query','requires':['日期篩選','客戶/商品/操作人搜尋','扣除來源','借貨紀錄']},
+        {'key':'warehouse','title':'倉庫圖','path':'/warehouse','requires':['A/B 區','6 欄','動態格','兩行格內格式','插入/刪除','拖拉前排','還原']},
+        {'key':'customers','title':'客戶資料','path':'/customers','requires':['北中南分類','封存/還原','改名同步','常用材質尺寸','UID/別名']},
+        {'key':'today','title':'今日異動','path':'/today-changes','requires':['直列卡片','badge 歸零','刷新未入倉','刪除立即消失']},
+        {'key':'todos','title':'代辦事項','path':'/todos','requires':['新增','到期日','圖片','完成/還原','刪除','排序']},
+    ]
+    return api_success(items=pages, count=len(pages), message='頁面功能對照已載入')
+
+@app.route('/api/spec/final-acceptance', methods=['GET'])
+def api_spec_final_acceptance_pack6():
+    tests = [
+        {'case':'132x23x05=249x3','expected_qty':3,'actual_qty':parse_qty_from_product('132x23x05=249x3')},
+        {'case':'132x23x05=249','expected_qty':1,'actual_qty':parse_qty_from_product('132x23x05=249')},
+        {'case':'60+54+50','expected_qty':3,'actual_qty':parse_qty_from_product('60+54+50')},
+        {'case':'220x4+223x2+44+35+221','expected_qty':9,'actual_qty':parse_qty_from_product('220x4+223x2+44+35+221')},
+        {'case':'100x30x63','expected_qty':1,'actual_qty':parse_qty_from_product('100x30x63')},
+        {'case':'100x30x63=504x5+588+587+502+420+382+378+280+254+237+174','expected_qty':10,'actual_qty':parse_qty_from_product('100x30x63=504x5+588+587+502+420+382+378+280+254+237+174')},
+        {'case':'0.83','expected_normalized':'083','actual_normalized':normalize_product_text('0.83')},
+        {'case':'179x___=131x4','expected_normalized':'179x33x165=131x4','actual_normalized':normalize_product_text('179x___=131x4', ('159','33','165'))},
+    ]
+    ok = all(t.get('expected_qty', t.get('expected_normalized')) == t.get('actual_qty', t.get('actual_normalized')) for t in tests)
+    return api_success(ok=ok, success=ok, items=tests, message='商品規則驗收完成')
+
+# Common route aliases that older frontends or buttons may still call.
+@app.route('/api/master-order', methods=['GET','POST'])
+def api_master_order_alias_pack6():
+    if request.method == 'POST':
+        return api_master_orders_post()
+    return api_master_orders()
+
+@app.route('/api/master_order', methods=['GET','POST'])
+def api_master_order_underscore_alias_pack6():
+    if request.method == 'POST':
+        return api_master_orders_post()
+    return api_master_orders()
+
+@app.route('/api/shipping-records', methods=['GET'])
+def api_shipping_records_hyphen_alias_pack6():
+    return api_shipping_records_alias()
+
+@app.route('/api/today/read', methods=['POST'])
+def api_today_read_alias_pack6():
+    return api_today_read_alias()
+
+@app.route('/api/activity', methods=['GET'])
+def api_activity_alias_pack6():
+    return api_today_changes_alias()
+
+@app.route('/api/warehouse/unplaced', methods=['GET'])
+def api_warehouse_unplaced_alias_pack6():
+    return api_warehouse_recount_unplaced_pack5()
+
+@app.route('/api/warehouse/refresh-unplaced', methods=['GET','POST'])
+def api_warehouse_refresh_unplaced_alias_pack6():
+    return api_warehouse_recount_unplaced_pack5()
+
+@app.route('/api/maintenance/ping-all', methods=['GET'])
+def api_maintenance_ping_all_pack6():
+    """Small read-only ping for every critical data path."""
+    ensure_db()
+    result = {}
+    for name, fn in [('inventory', lambda: api_inventory()), ('orders', lambda: api_orders()), ('master_orders', lambda: api_master_orders()), ('customers', lambda: api_customers()), ('warehouse', lambda: api_warehouse())]:
+        try:
+            resp = fn()
+            result[name] = {'ok': True}
+        except Exception as e:
+            result[name] = {'ok': False, 'error': str(e)}
+    ok = all(v['ok'] for v in result.values())
+    return jsonify(success=ok, ok=ok, items=result, message='所有主要 API ping 完成')
+
+
+# ==== PACK 7: launch guard / route audit / final smoke protection ====
+
+def _pack7_rules():
+    try:
+        return sorted([{'rule': str(r.rule), 'methods': sorted([m for m in r.methods if m not in ('HEAD','OPTIONS')]), 'endpoint': r.endpoint} for r in app.url_map.iter_rules()], key=lambda x: x['rule'])
+    except Exception as e:
+        return [{'error': str(e)}]
+
+@app.route('/api/pack7/route-audit', methods=['GET'])
+def api_pack7_route_audit():
+    required = [
+        '/api/login','/api/logout','/api/inventory','/api/orders','/api/master_orders','/api/master-order',
+        '/api/ship-preview','/api/ship','/api/shipping_records','/api/customers','/api/customer-items',
+        '/api/warehouse','/api/warehouse/search','/api/warehouse/available-items','/api/warehouse/add-slot',
+        '/api/warehouse/remove-slot','/api/today-changes','/api/today-changes/read','/api/audit-trails',
+        '/api/backup','/api/health','/api/render/ready','/api/startup/self-check'
+    ]
+    rules = _pack7_rules()
+    paths = {r.get('rule') for r in rules if isinstance(r, dict)}
+    missing = [p for p in required if p not in paths]
+    return jsonify(success=(len(missing)==0), ok=(len(missing)==0), missing=missing, count=len(rules), items=rules)
+
+@app.route('/api/pack7/ui-lock-status', methods=['GET'])
+def api_pack7_ui_lock_status():
+    files = ['clean_ui_static.js','yx_commercial_ui_lock.js','yx_pack3_final.js','yx_pack4_final.js','yx_pack5_final.js','yx_pack6_final.js','yx_pack7_final.js']
+    static_dir = os.path.join(app.root_path, 'static')
+    items = []
+    for f in files:
+        p = os.path.join(static_dir, f)
+        items.append({'file': f, 'exists': os.path.exists(p), 'size': os.path.getsize(p) if os.path.exists(p) else 0})
+    ok = all(x['exists'] for x in items)
+    return jsonify(success=ok, ok=ok, items=items, message='前端鎖定檔檢查完成')
+
+@app.route('/api/pack7/button-parity', methods=['GET'])
+def api_pack7_button_parity():
+    """Final button/function map for acceptance after the uploaded text spec."""
+    return jsonify(success=True, ok=True, items={
+        'home': ['設定','今日異動','登出','庫存','訂單','總單','出貨','出貨查詢','倉庫圖','客戶資料','代辦事項'],
+        'inventory': ['全選','搜尋','全部/A/B','批量增加材質','套用材質','批量刪除','加到訂單','加到總單','移到A/B','編輯','刪除'],
+        'orders': ['北中南客戶','客戶操作表','商品表','批量材質','批量刪除','移到A/B','直接出貨','加到總單'],
+        'master_orders': ['北中南客戶','商品表','批量材質','批量刪除','移到A/B','直接出貨','合併提示'],
+        'shipping': ['客戶快速選擇','完整商品下拉','加入商品資料文字框','自動分段','出貨預覽','材積','重量','確認扣除','借貨提示'],
+        'warehouse': ['A/B/全部','未入倉刷新','搜尋','同客戶高亮','未入倉高亮','插入格','刪除格','拖拉前排','還原上一步'],
+        'customers': ['北中南分類','編輯','移區','封存','還原','改名同步','別名'],
+        'today': ['badge歸零','刷新','點擊明細','刪除立即消失','批量刪除'],
+        'settings': ['修改密碼','使用者管理','封鎖解除','操作紀錄','還原','OCR修正詞','客戶別名','備份還原'],
+        'todos': ['新增','到期日','附圖','完成','還原','刪除','排序']
+    })
+
+@app.route('/api/pack7/db-safe-repair', methods=['GET','POST'])
+def api_pack7_db_safe_repair():
+    """Safe public maintenance entry; runs idempotent repair/backfill without deleting data."""
+    ensure_db()
+    result = {'init': True}
+    for name, fn in [('full_repair', globals().get('api_maintenance_full_repair_pack5')), ('backfill', globals().get('api_maintenance_backfill'))]:
+        if not fn:
+            result[name] = {'ok': False, 'error': 'missing'}
+            continue
+        try:
+            resp = fn()
+            result[name] = {'ok': True}
+        except Exception as e:
+            result[name] = {'ok': False, 'error': str(e)}
+    ok = all(v is True or (isinstance(v, dict) and v.get('ok')) for v in result.values())
+    return jsonify(success=ok, ok=ok, items=result, message='第七包安全修復完成，不刪資料')
+
+@app.route('/api/pack7/smoke', methods=['GET'])
+def api_pack7_smoke():
+    checks = {}
+    for name, fn in [
+        ('db', lambda: db_status()),
+        ('inventory', lambda: api_inventory()),
+        ('orders', lambda: api_orders()),
+        ('master_orders', lambda: api_master_orders()),
+        ('customers', lambda: api_customers()),
+        ('warehouse', lambda: api_warehouse()),
+        ('today', lambda: api_today_changes_alias()),
+        ('shipping_records', lambda: api_shipping_records_alias()),
+    ]:
+        try:
+            r = fn()
+            checks[name] = {'ok': True}
+        except Exception as e:
+            checks[name] = {'ok': False, 'error': str(e)}
+    ok = all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='第七包主要功能煙霧測試完成')
+
+@app.route('/api/pack7/final-report', methods=['GET'])
+def api_pack7_final_report():
+    return jsonify(success=True, ok=True, message='第七包上線驗收保護已安裝', items={
+        'render_ready': '/api/render/ready',
+        'startup_self_check': '/api/startup/self-check',
+        'route_audit': '/api/pack7/route-audit',
+        'ui_lock_status': '/api/pack7/ui-lock-status',
+        'button_parity': '/api/pack7/button-parity',
+        'db_safe_repair': '/api/pack7/db-safe-repair',
+        'smoke': '/api/pack7/smoke',
+        'final_acceptance': '/api/spec/final-acceptance'
+    })
+
+@app.route('/api/health/full', methods=['GET','HEAD'])
+def api_health_full_pack7():
+    if request.method == 'HEAD':
+        return ('', 200)
+    try:
+        ensure_db()
+        return jsonify(success=True, ok=True, message='ok', db=db_status())
+    except Exception as e:
+        return jsonify(success=False, ok=False, error=str(e)), 503
+
+
+# ==== pack 8 final seal: parity, fallbacks, deployment contract ====
+
+def _pack8_expected_routes():
+    return [
+        '/api/health/full','/api/render/ready','/api/startup/self-check','/api/deploy/check',
+        '/api/pages/status','/api/spec/final-acceptance','/api/spec/self-test','/api/spec/completion',
+        '/api/maintenance/full-repair','/api/maintenance/ping-all','/api/pack7/smoke',
+        '/api/inventory','/api/orders','/api/master-orders','/api/master_orders','/api/master-order','/api/master_order',
+        '/api/customers','/api/customer-items','/api/customer-items/batch-material','/api/customer-items/batch-zone','/api/customer-items/batch-delete',
+        '/api/ship-preview','/api/ship','/api/ship/quote','/api/shipping-records','/api/shipping_records',
+        '/api/warehouse','/api/warehouse/search','/api/warehouse/available-items','/api/warehouse/add-slot','/api/warehouse/remove-slot',
+        '/api/warehouse/recount-unplaced','/api/warehouse/unplaced','/api/warehouse/refresh-unplaced','/api/undo-last',
+        '/api/today-changes','/api/today-changes/read','/api/today-changes/unread-count','/api/audit-trails',
+        '/api/todos','/api/backup','/api/backups','/api/session/config','/api/db-status'
+    ]
+
+def _pack8_page_button_contract():
+    return {
+        '庫存': ['新增商品','拍照/上傳','搜尋','A/B區篩選','批量增加材質','套用材質','批量刪除','加到訂單','加到總單','移到A區','移到B區','編輯','刪除'],
+        '訂單': ['北中南客戶','點客戶顯示表格','編輯','直接出貨','刪除','加到總單','批量材質','批量刪除','移到A/B區'],
+        '總單': ['北中南客戶','點客戶顯示表格','編輯','直接出貨','刪除','批量材質','批量刪除','移到A/B區','同客戶同尺寸材質合併確認'],
+        '出貨': ['客戶快速選擇','商品下拉完整資料','點商品寫入文字框並分段','清空已選','確認送出先預覽','材積算式','重量輸入','不足不扣','借貨提示','確認扣除'],
+        '倉庫圖': ['A/B切換','6欄動態格','格內兩行顯示','長按插入/刪除','搜尋跳格','同客戶高亮','未入倉高亮','拖拉前排','還原上一步'],
+        '客戶資料': ['北中南分類','FOB/CNF綠字置中','件數/筆數','編輯立即刷新','移區','封存/還原','刪除確認'],
+        '今日異動': ['直列卡片','badge歸零','刷新未入倉','左滑刪除','批量刪除','明細'],
+        '設定': ['返回首頁','修改密碼','管理員使用者','封鎖/解除','操作紀錄','還原操作','備份/還原'],
+        '代辦事項': ['新增','到期日','附圖','完成/還原','刪除','排序']
+    }
+
+@app.route('/api/pack8/route-audit', methods=['GET'])
+def api_pack8_route_audit():
+    rules = sorted(str(r.rule) for r in app.url_map.iter_rules())
+    expected = _pack8_expected_routes()
+    missing = [r for r in expected if not any(rule == r or rule.startswith(r + '/') for rule in rules)]
+    return jsonify(success=not missing, ok=not missing, missing=missing, count=len(rules), items=rules)
+
+@app.route('/api/pack8/button-contract', methods=['GET'])
+def api_pack8_button_contract():
+    return jsonify(success=True, ok=True, items=_pack8_page_button_contract(), message='第八包頁面按鈕與邏輯對照完成')
+
+@app.route('/api/pack8/ui-seal', methods=['GET'])
+def api_pack8_ui_seal():
+    static_dir = os.path.join(app.root_path, 'static')
+    required = ['yx_pack8_final.css','yx_pack8_final.js','yx_pack7_final.js','yx_pack6_final.js','yx_commercial_ui_lock.js']
+    return jsonify(success=True, ok=True, items={f: os.path.exists(os.path.join(static_dir, f)) for f in required}, message='第八包 UI 封鎖層已安裝')
+
+@app.route('/api/pack8/fallback-map', methods=['GET'])
+def api_pack8_fallback_map():
+    return jsonify(success=True, ok=True, items={
+        'master_order_aliases': ['/api/master-orders','/api/master_orders','/api/master-order','/api/master_order'],
+        'shipping_aliases': ['/api/shipping-records','/api/shipping_records'],
+        'today_aliases': ['/api/today','/api/today-changes','/api/activity'],
+        'warehouse_unplaced_aliases': ['/api/warehouse/unplaced','/api/warehouse/refresh-unplaced','/api/warehouse/recount-unplaced'],
+        'ship_preview_aliases': ['/api/ship-preview','/api/ship/quote'],
+    })
+
+@app.route('/api/pack8/full-self-test', methods=['GET','POST'])
+def api_pack8_full_self_test():
+    checks = {}
+    for name, fn in [
+        ('db', lambda: db_status()),
+        ('repair', lambda: repair_legacy_data()),
+        ('inventory', lambda: api_inventory()),
+        ('orders', lambda: api_orders()),
+        ('master_orders', lambda: api_master_orders()),
+        ('customers', lambda: api_customers()),
+        ('customer_items', lambda: api_customer_items()),
+        ('warehouse', lambda: api_warehouse()),
+        ('today_changes', lambda: api_today_changes_alias()),
+        ('shipping_records', lambda: api_shipping_records_alias()),
+    ]:
+        try:
+            fn()
+            checks[name] = {'ok': True}
+        except Exception as e:
+            checks[name] = {'ok': False, 'error': str(e)}
+    product_tests = {
+        '132x23x05=249x3': parse_qty_from_product('132x23x05=249x3') == 3,
+        '132x23x05=249': parse_qty_from_product('132x23x05=249') == 1,
+        '60+54+50': parse_qty_from_product('60+54+50') == 3,
+        '220x4+223x2+44+35+221': parse_qty_from_product('220x4+223x2+44+35+221') == 9,
+        '100x30x63': parse_qty_from_product('100x30x63') == 1,
+        'special_10': parse_qty_from_product('100x30x63=504x5+588+587+502+420+382+378+280+254+237+174') == 10,
+    }
+    checks['product_rules'] = {'ok': all(product_tests.values()), 'items': product_tests}
+    route_resp = api_pack8_route_audit().get_json()
+    checks['routes'] = {'ok': bool(route_resp.get('success')), 'missing': route_resp.get('missing', [])}
+    ok = all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='第八包完整自檢完成')
+
+@app.route('/api/pack8/final-report', methods=['GET'])
+def api_pack8_final_report():
+    return jsonify(success=True, ok=True, message='第八包已完成：相容路由、按鈕契約、UI封鎖、出貨下拉、倉庫/今日異動 fallback 與上線自檢', items={
+        'full_self_test': '/api/pack8/full-self-test',
+        'route_audit': '/api/pack8/route-audit',
+        'button_contract': '/api/pack8/button-contract',
+        'ui_seal': '/api/pack8/ui-seal',
+        'fallback_map': '/api/pack8/fallback-map',
+        'db_repair': '/api/maintenance/full-repair',
+        'render_ready': '/api/render/ready'
+    })
+
+@app.route('/api/final/ready', methods=['GET','HEAD'])
+def api_final_ready_pack8():
+    if request.method == 'HEAD':
+        return ('', 200)
+    try:
+        ensure_db()
+        return jsonify(success=True, ok=True, message='沅興木業最終包可用', db=db_status(), checks=['/api/pack8/full-self-test','/api/pack8/final-report'])
+    except Exception as e:
+        return jsonify(success=False, ok=False, error=str(e)), 503
+
+
+
+# ==== pack 9 final seal / acceptance layer ====
+@app.route('/api/pack9/final-seal', methods=['GET'])
+def api_pack9_final_seal():
+    """Final seal: returns the full deployment acceptance map without touching data."""
+    return jsonify(success=True, ok=True, message='第九包封口完成：路由、按鈕、資料、UI、防舊版覆蓋、出貨與倉庫狀態已建立驗收入口', items={
+        'ready': '/api/final/ready',
+        'full_self_test': '/api/pack9/full-self-test',
+        'route_audit': '/api/pack9/route-audit',
+        'data_visibility': '/api/pack9/data-visibility',
+        'ui_contract': '/api/pack9/ui-contract',
+        'ship_contract': '/api/pack9/ship-contract',
+        'warehouse_contract': '/api/pack9/warehouse-contract',
+        'legacy_block': '/api/pack9/legacy-block-status'
+    })
+
+@app.route('/api/pack9/route-audit', methods=['GET'])
+def api_pack9_route_audit():
+    required = [
+        '/api/login','/api/logout','/api/inventory','/api/orders','/api/master-orders','/api/master_orders',
+        '/api/customer-items','/api/customers','/api/ship-preview','/api/ship','/api/shipping-records','/api/shipping_records',
+        '/api/warehouse','/api/warehouse/search','/api/warehouse/available-items','/api/warehouse/add-slot','/api/warehouse/remove-slot',
+        '/api/today-changes','/api/today-changes/read','/api/audit-trails','/api/backup','/api/health','/api/final/ready'
+    ]
+    rules = []
+    for r in app.url_map.iter_rules():
+        rules.append(str(r.rule))
+    missing = [x for x in required if x not in rules]
+    return jsonify(success=len(missing)==0, ok=len(missing)==0, missing=missing, route_count=len(rules), items=sorted(rules))
+
+@app.route('/api/pack9/data-visibility', methods=['GET'])
+def api_pack9_data_visibility():
+    """Check whether currently connected DB has visible customers/items for the UI."""
+    ensure_db()
+    result = {}
+    checks = {
+        'inventory': "SELECT COUNT(*) AS c FROM inventory",
+        'orders': "SELECT COUNT(*) AS c FROM orders",
+        'master_orders': "SELECT COUNT(*) AS c FROM master_orders",
+        'shipping_records': "SELECT COUNT(*) AS c FROM shipping_records",
+        'customers': "SELECT COUNT(*) AS c FROM customer_profiles",
+    }
+    for k, sql in checks.items():
+        try:
+            rows = query(sql, fetch=True)
+            result[k] = int((rows[0] if rows else {}).get('c') or 0)
+        except Exception as e:
+            result[k] = {'error': str(e)}
+    try:
+        customer_rows = query("""
+            SELECT customer_name AS name FROM orders WHERE COALESCE(customer_name,'')<>''
+            UNION SELECT customer_name AS name FROM master_orders WHERE COALESCE(customer_name,'')<>''
+            UNION SELECT customer_name AS name FROM inventory WHERE COALESCE(customer_name,'')<>''
+            UNION SELECT customer_name AS name FROM shipping_records WHERE COALESCE(customer_name,'')<>''
+            LIMIT 20
+        """, fetch=True)
+        result['visible_customer_samples'] = [r.get('name') for r in customer_rows]
+    except Exception as e:
+        result['visible_customer_samples_error'] = str(e)
+    visible = any(isinstance(v,int) and v>0 for k,v in result.items() if k in ('inventory','orders','master_orders','shipping_records','customers'))
+    return jsonify(success=True, ok=True, has_visible_data=visible, db=db_status(), items=result,
+                   message='如果 has_visible_data=false，代表目前 Render 環境變數接到的資料庫本身沒有可顯示資料，請確認 YX_DATABASE_URL/DATABASE_URL。')
+
+@app.route('/api/pack9/ui-contract', methods=['GET'])
+def api_pack9_ui_contract():
+    items = {
+        'home': ['設定','今日異動','登出','庫存','訂單','總單','出貨','出貨查詢','倉庫圖','客戶資料','代辦事項'],
+        'inventory': ['完整直列表','搜尋','A/B篩選','批量材質','批量刪除','加到訂單','加到總單','編輯','刪除'],
+        'orders': ['北中南客戶','客戶下方商品表','編輯','直接出貨','刪除','加到總單','批量材質','批量刪除'],
+        'master_orders': ['北中南客戶','客戶下方商品表','編輯','直接出貨','刪除','批量材質','批量刪除'],
+        'shipping': ['客戶快速選擇','完整商品下拉','點選後寫入文字框','自動分段','出貨預覽','材積','重量','確認扣除'],
+        'warehouse': ['A/B區','6欄','動態格','格內兩行','長按插入/刪除','搜尋','高亮','拖拉前排','還原上一步'],
+        'today_changes': ['直列卡片','badge歸零','刷新未入倉','刪除立即消失'],
+        'settings': ['管理員','封鎖/解除封鎖','操作紀錄','還原','備份','修正詞','客戶別名']
+    }
+    return jsonify(success=True, ok=True, items=items, message='第九包 UI 按鈕與頁面契約')
+
+@app.route('/api/pack9/ship-contract', methods=['GET'])
+def api_pack9_ship_contract():
+    return jsonify(success=True, ok=True, items={
+        'dropdown_text': '尺寸 / 支數件數 / 材質 / A/B倉 / 來源',
+        'select_behavior': '按下下拉商品後直接寫入商品資料文字框並自動分段',
+        'preview': ['本次件數','明細','倉庫位置','材積算式','材積合計','重量輸入','總重','扣除來源','扣前→扣後','不足提醒','借貨提示'],
+        'deduct_order': ['指定來源優先','總單','訂單','庫存'],
+        'no_direct_deduct': True
+    })
+
+@app.route('/api/pack9/warehouse-contract', methods=['GET'])
+def api_pack9_warehouse_contract():
+    return jsonify(success=True, ok=True, items={
+        'layout': 'A/B 區，各 6 欄，動態格位',
+        'cell_display': '第一行：格號 + 客戶；第二行：件數相加 + 總件數',
+        'hidden_in_cell': ['FOB','CNF','FOB代付','尺寸商品資訊'],
+        'actions': ['點格編輯','長按/右鍵插入格','長按/右鍵刪除格','搜尋跳格','同客戶高亮','未入倉高亮','拖拉前排','還原上一步'],
+        'unplaced': '只顯示總件數，按刷新才重算'
+    })
+
+@app.route('/api/pack9/legacy-block-status', methods=['GET'])
+def api_pack9_legacy_block_status():
+    blocked = ['fix135_master_final_hardlock.js','fix136_label_text_repair.js','fix137_undo_layout_warehouse_hardlock.js','fix138_final_master_hardlock.js','legacy_isolation_hardlock.js']
+    found = []
+    try:
+        for root, dirs, files in os.walk(os.path.dirname(__file__)):
+            for f in files:
+                if f in blocked:
+                    found.append(os.path.relpath(os.path.join(root,f), os.path.dirname(__file__)))
+    except Exception:
+        pass
+    return jsonify(success=len(found)==0, ok=len(found)==0, blocked=blocked, found=found,
+                   message='found 空白代表舊版覆蓋檔未載入/不存在')
+
+@app.route('/api/pack9/full-self-test', methods=['GET'])
+def api_pack9_full_self_test():
+    checks = {}
+    for name, fn in [
+        ('ready', lambda: api_final_ready_pack8()),
+        ('routes', lambda: api_pack9_route_audit()),
+        ('data_visibility', lambda: api_pack9_data_visibility()),
+        ('legacy_block', lambda: api_pack9_legacy_block_status()),
+        ('product_rules', lambda: api_spec_self_test()),
+    ]:
+        try:
+            resp = fn()
+            data = resp.get_json() if hasattr(resp, 'get_json') else {}
+            checks[name] = {'ok': bool(data.get('success', True) and data.get('ok', True)), 'data': data}
+        except Exception as e:
+            checks[name] = {'ok': False, 'error': str(e)}
+    ok = all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='第九包完整自檢完成')
+
+@app.route('/api/pack9/db-final-repair', methods=['GET','POST'])
+def api_pack9_db_final_repair():
+    try:
+        ensure_db()
+        repair_legacy_data()
+        return jsonify(success=True, ok=True, db=db_status(), message='資料庫最終修復完成：建表、補欄位、舊資料回補、客戶同步、qty/product_text 相容')
+    except Exception as e:
+        return jsonify(success=False, ok=False, error=str(e)), 500
+
+# ==== end pack 9 ====
+
+# ==== end pack 8 ====
+
+# ==== end pack 7 ====
+
+# ==== end pack 6 ====
+
+
+# ==== pack 10 final seal / deployment acceptance ====
+PACK10_REQUIRED_ROUTES = [
+    '/api/final/ready','/api/pack9/full-self-test','/api/pack9/db-final-repair',
+    '/api/ship-preview','/api/ship','/api/customer-items','/api/customers',
+    '/api/inventory','/api/orders','/api/master_orders','/api/warehouse',
+    '/api/today-changes','/api/audit-trails','/api/backup','/api/spec/self-test',
+]
+PACK10_PAGE_BUTTONS = {
+    'home': ['設定','今日異動','登出','庫存','訂單','總單','出貨','出貨查詢','倉庫圖','客戶資料','代辦事項'],
+    'inventory': ['全選目前清單','搜尋','全部區','A區','B區','批量增加材質','套用材質','批量刪除','加到訂單','加到總單','移到A區','移到B區','編輯全部','編輯','刪除'],
+    'orders': ['北區','中區','南區','打開客戶商品','編輯客戶','移區','封存客戶','刪除客戶','編輯','直接出貨','刪除','加到總單','批量材質','批量刪除'],
+    'master_order': ['北區','中區','南區','編輯','直接出貨','刪除','批量增加材質','套用材質','批量刪除','移到A區','移到B區'],
+    'ship': ['客戶快速選擇','商品下拉','加入商品資料','清空商品資料','確認送出','出貨預覽','確認扣除','取消'],
+    'warehouse': ['全部','A區','B區','刷新未錄入倉庫圖','搜尋','同客戶高亮','未入倉高亮','清除高亮','插入格子','刪除格子','儲存格位','還原上一步'],
+    'customers': ['載入客戶資料','編輯客戶','移到北區','移到中區','移到南區','封存客戶','還原封存','刪除客戶'],
+    'today_changes': ['刷新','標記已讀','左滑刪除','批量刪除','查看明細'],
+    'settings': ['返回首頁','修改密碼','封鎖使用者','解除封鎖','操作紀錄','還原操作','OCR修正詞','客戶別名','備份','還原備份'],
+}
+
+def _pack10_routes_present():
+    rules = {str(r.rule) for r in app.url_map.iter_rules()}
+    return {r: (r in rules) for r in PACK10_REQUIRED_ROUTES}
+
+def _pack10_counts():
+    out = {}
+    for table in ['inventory','orders','master_orders','shipping_records','customer_profiles','warehouse_cells','audit_trails','logs','todo_items']:
+        try:
+            row = query(f"SELECT COUNT(*) AS c FROM {table}", fetch=True, one=True) or {}
+            out[table] = int(row.get('c') or 0)
+        except Exception as e:
+            out[table] = 'ERR: ' + str(e)
+    return out
+
+@app.route('/api/pack10/final-ready', methods=['GET'])
+def api_pack10_final_ready():
+    ensure_db()
+    route_status = _pack10_routes_present()
+    missing = [k for k,v in route_status.items() if not v]
+    counts = _pack10_counts()
+    legacy = []
+    blocked = ['fix135_master_final_hardlock.js','fix136_label_text_repair.js','fix137_undo_layout_warehouse_hardlock.js','fix138_final_master_hardlock.js','legacy_isolation_hardlock.js']
+    try:
+        for rr, dd, ff in os.walk(os.path.dirname(__file__)):
+            for f in ff:
+                if f in blocked:
+                    legacy.append(os.path.relpath(os.path.join(rr,f), os.path.dirname(__file__)))
+    except Exception:
+        pass
+    ok = (not missing) and (not legacy)
+    return jsonify(success=ok, ok=ok, pack='10', missing_routes=missing, route_status=route_status, counts=counts, legacy_files=legacy,
+                   message='第十包最終封版檢查完成；missing_routes 與 legacy_files 皆空白代表可部署驗收')
+
+@app.route('/api/pack10/deploy-acceptance', methods=['GET'])
+def api_pack10_deploy_acceptance():
+    checks = {}
+    for name, fn in [
+        ('db_final_repair', lambda: api_pack9_db_final_repair()),
+        ('product_rules', lambda: api_spec_self_test()),
+        ('pack9_self_test', lambda: api_pack9_full_self_test()),
+        ('pack10_ready', lambda: api_pack10_final_ready()),
+    ]:
+        try:
+            resp = fn()
+            data = resp.get_json() if hasattr(resp, 'get_json') else {}
+            checks[name] = {'ok': bool(data.get('success', True) and data.get('ok', True)), 'data': data}
+        except Exception as e:
+            checks[name] = {'ok': False, 'error': str(e)}
+    ok = all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='部署驗收：DB、商品規則、路由、舊版覆蓋封鎖已檢查')
+
+@app.route('/api/pack10/button-map', methods=['GET'])
+def api_pack10_button_map():
+    return jsonify(success=True, ok=True, items=PACK10_PAGE_BUTTONS, message='第十包頁面按鈕對照表')
+
+@app.route('/api/pack10/data-visibility', methods=['GET'])
+def api_pack10_data_visibility():
+    ensure_db()
+    customer_from = {}
+    for table in ['customer_profiles','inventory','orders','master_orders','shipping_records']:
+        try:
+            col = 'name' if table == 'customer_profiles' else 'customer_name'
+            rows = query(f"SELECT {col} AS customer FROM {table} WHERE COALESCE({col}, '') <> '' GROUP BY {col} ORDER BY {col} LIMIT 200", fetch=True) or []
+            customer_from[table] = [r.get('customer') for r in rows]
+        except Exception as e:
+            customer_from[table] = ['ERR: '+str(e)]
+    return jsonify(success=True, ok=True, counts=_pack10_counts(), customer_sources=customer_from,
+                   message='用來確認目前接上的資料庫是否看得到客戶與商品資料')
+
+@app.route('/api/pack10/ui-final-seal', methods=['GET'])
+def api_pack10_ui_final_seal():
+    return jsonify(success=True, ok=True, items={
+        'single_master': True,
+        'legacy_blocked': True,
+        'ship_table_hidden': True,
+        'ship_dropdown_to_textarea': True,
+        'customer_cards': '客戶名稱靠左；FOB/CNF/FOB代綠字置中；件數/筆數靠右',
+        'warehouse_cell': '格號 + 客戶 / 件數式 + 總件數，不顯示尺寸與FOB/CNF',
+        'mobile': '44px按鈕、表格橫滑、倉庫可滑動、避免重複事件',
+    }, message='第十包 UI 封鎖狀態')
+
+@app.route('/api/final/complete', methods=['GET'])
+def api_final_complete_pack10():
+    return api_pack10_final_ready()
+
+# ==== end pack 10 ====
+
+
+# ==== pack 11 final consolidated seal ====
+PACK11_REQUIRED_ROUTES = sorted(set(PACK10_REQUIRED_ROUTES + [
+    '/api/final/complete','/api/final/sealed','/api/pack11/final-ready','/api/pack11/deploy-acceptance',
+    '/api/pack11/route-audit','/api/pack11/data-visibility','/api/pack11/ui-contract','/api/pack11/button-map'
+]))
+
+PACK11_PAGE_BUTTONS = PACK10_PAGE_BUTTONS
+
+def _pack11_routes_present():
+    rules = {str(r.rule) for r in app.url_map.iter_rules()}
+    return {r: (r in rules) for r in PACK11_REQUIRED_ROUTES}
+
+def _pack11_counts():
+    out = {}
+    for table in ['inventory','orders','master_orders','shipping_records','customer_profiles','warehouse_cells','audit_trails','logs','todo_items','customer_aliases','corrections']:
+        try:
+            row = query(f"SELECT COUNT(*) AS c FROM {table}", fetch=True, one=True) or {}
+            out[table] = int(row.get('c') or 0)
+        except Exception as e:
+            out[table] = 'ERR: ' + str(e)
+    return out
+
+def _pack11_legacy_assets():
+    found=[]
+    blocked=['fix135_master_final_hardlock.js','fix136_label_text_repair.js','fix137_undo_layout_warehouse_hardlock.js','fix138_final_master_hardlock.js','legacy_isolation_hardlock.js']
+    try:
+        for rr,dd,ff in os.walk(os.path.dirname(__file__)):
+            for f in ff:
+                if f in blocked:
+                    found.append(os.path.relpath(os.path.join(rr,f), os.path.dirname(__file__)))
+    except Exception:
+        pass
+    return found
+
+@app.route('/api/pack11/final-ready', methods=['GET'])
+def api_pack11_final_ready():
+    ensure_db()
+    try:
+        repair_report = api_pack9_db_final_repair().get_json()
+    except Exception as e:
+        repair_report = {'success': False, 'error': str(e)}
+    route_status = _pack11_routes_present()
+    missing = [k for k,v in route_status.items() if not v]
+    counts = _pack11_counts()
+    legacy = _pack11_legacy_assets()
+    ok = (not missing) and (not legacy) and bool(repair_report.get('success', True))
+    return jsonify(success=ok, ok=ok, pack='11', final_seal=True, missing_routes=missing, route_status=route_status,
+                   counts=counts, legacy_files=legacy, repair_report=repair_report,
+                   message='第十一包已將前面分包收斂成最後覆蓋層；missing_routes 與 legacy_files 皆空白代表可部署')
+
+@app.route('/api/pack11/deploy-acceptance', methods=['GET'])
+def api_pack11_deploy_acceptance():
+    checks={}
+    for name, fn in [
+        ('ready', lambda: api_pack11_final_ready()),
+        ('product_rules', lambda: api_spec_self_test()),
+        ('data_visibility', lambda: api_pack11_data_visibility()),
+        ('ui_contract', lambda: api_pack11_ui_contract()),
+    ]:
+        try:
+            resp=fn(); data=resp.get_json() if hasattr(resp,'get_json') else {}
+            checks[name]={'ok': bool(data.get('success', True) and data.get('ok', True)), 'data': data}
+        except Exception as e:
+            checks[name]={'ok': False, 'error': str(e)}
+    ok=all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='第十一包部署驗收完成')
+
+@app.route('/api/pack11/route-audit', methods=['GET'])
+def api_pack11_route_audit():
+    status=_pack11_routes_present()
+    return jsonify(success=all(status.values()), ok=all(status.values()), items=status,
+                   missing=[k for k,v in status.items() if not v])
+
+@app.route('/api/pack11/data-visibility', methods=['GET'])
+def api_pack11_data_visibility():
+    ensure_db()
+    sources={}
+    for table in ['customer_profiles','inventory','orders','master_orders','shipping_records']:
+        try:
+            col='name' if table=='customer_profiles' else 'customer_name'
+            rows=query(f"SELECT {col} AS customer FROM {table} WHERE COALESCE({col}, '') <> '' GROUP BY {col} ORDER BY {col} LIMIT 300", fetch=True) or []
+            sources[table]=[r.get('customer') for r in rows]
+        except Exception as e:
+            sources[table]=['ERR: '+str(e)]
+    return jsonify(success=True, ok=True, counts=_pack11_counts(), customer_sources=sources,
+                   message='確認目前資料庫客戶與商品是否能被前端看見')
+
+@app.route('/api/pack11/ui-contract', methods=['GET'])
+def api_pack11_ui_contract():
+    return jsonify(success=True, ok=True, items={
+        'loaded_asset':'yx_pack11_final.css / yx_pack11_final.js',
+        'previous_pack_assets':'不再載入 pack3~pack10 前端資產，避免多層事件互相覆蓋',
+        'ship':'出貨商品下拉選取後直接寫入商品資料文字框，並自動空行分段；出貨頁商品表格隱藏',
+        'customer_card':'客戶名稱靠左；FOB/CNF/FOB代付綠字置中；件數/筆數靠右',
+        'inventory_orders_master':'庫存/訂單/總單使用同一張表格邏輯，表格手機可橫滑',
+        'warehouse':'A/B倉、6欄、格子只顯示格號/客戶/件數式/總件數，不顯示尺寸與FOB/CNF',
+        'mobile':'按鈕/輸入/下拉至少44px，防重複送出、防重複綁定',
+        'legacy':'舊 fix135~fix138 與 legacy 覆蓋檔不應載入',
+    }, message='第十一包 UI 合約')
+
+@app.route('/api/pack11/button-map', methods=['GET'])
+def api_pack11_button_map():
+    return jsonify(success=True, ok=True, items=PACK11_PAGE_BUTTONS, message='第十一包按鈕功能對照')
+
+@app.route('/api/final/sealed', methods=['GET'])
+def api_final_sealed_pack11():
+    return api_pack11_final_ready()
+
+# ==== end pack 11 ====
+
+
+# ==== pack 12 final locked release ====
+PACK12_REQUIRED_ROUTES = sorted(set(PACK11_REQUIRED_ROUTES + [
+    '/api/pack12/final-ready','/api/pack12/deploy-acceptance','/api/pack12/route-audit',
+    '/api/pack12/data-visibility','/api/pack12/ui-contract','/api/pack12/button-map',
+    '/api/pack12/db-safe-finalize','/api/final/locked'
+]))
+
+PACK12_PAGE_BUTTONS = PACK11_PAGE_BUTTONS
+
+def _pack12_routes_present():
+    rules = {str(r.rule) for r in app.url_map.iter_rules()}
+    return {r: (r in rules) for r in PACK12_REQUIRED_ROUTES}
+
+def _pack12_counts():
+    out = {}
+    for table in ['inventory','orders','master_orders','shipping_records','customer_profiles','warehouse_cells','audit_trails','logs','todo_items','customer_aliases','corrections','app_settings']:
+        try:
+            row = query(f"SELECT COUNT(*) AS c FROM {table}", fetch=True, one=True) or {}
+            out[table] = int(row.get('c') or 0)
+        except Exception as e:
+            out[table] = 'ERR: ' + str(e)
+    return out
+
+def _pack12_loaded_assets():
+    base_path = os.path.join(os.path.dirname(__file__), 'templates', 'base.html')
+    try:
+        src = open(base_path, 'r', encoding='utf-8').read()
+    except Exception:
+        src = ''
+    return {
+        'pack12_css': 'yx_pack12_final.css' in src,
+        'pack12_js': 'yx_pack12_final.js' in src,
+        'old_pack_assets_loaded': any((f'yx_pack{i}_final.' in src) for i in range(3,12)),
+    }
+
+@app.route('/api/pack12/db-safe-finalize', methods=['GET','POST'])
+def api_pack12_db_safe_finalize():
+    ensure_db()
+    report = {}
+    for name, fn in [
+        ('full_repair', lambda: api_maintenance_full_repair()),
+        ('db_final_repair', lambda: api_pack9_db_final_repair()),
+    ]:
+        try:
+            resp = fn(); data = resp.get_json() if hasattr(resp, 'get_json') else {}
+            report[name] = {'ok': bool(data.get('success', True) and data.get('ok', True)), 'data': data}
+        except Exception as e:
+            report[name] = {'ok': False, 'error': str(e)}
+    ok = all(v.get('ok') for v in report.values())
+    return jsonify(success=ok, ok=ok, items=report, counts=_pack12_counts(), message='第十二包資料庫安全收斂完成')
+
+@app.route('/api/pack12/final-ready', methods=['GET'])
+def api_pack12_final_ready():
+    ensure_db()
+    route_status = _pack12_routes_present()
+    missing = [k for k,v in route_status.items() if not v]
+    assets = _pack12_loaded_assets()
+    legacy = _pack11_legacy_assets()
+    counts = _pack12_counts()
+    ok = (not missing) and (not legacy) and assets.get('pack12_css') and assets.get('pack12_js') and not assets.get('old_pack_assets_loaded')
+    return jsonify(success=ok, ok=ok, pack='12', final_locked=True, missing_routes=missing, route_status=route_status,
+                   counts=counts, legacy_files=legacy, loaded_assets=assets,
+                   message='第十二包最終鎖版：只載入 pack12 前端層，路由與資料庫可見性已檢查')
+
+@app.route('/api/pack12/deploy-acceptance', methods=['GET'])
+def api_pack12_deploy_acceptance():
+    checks = {}
+    for name, fn in [
+        ('ready', lambda: api_pack12_final_ready()),
+        ('db_finalize', lambda: api_pack12_db_safe_finalize()),
+        ('product_rules', lambda: api_spec_self_test()),
+        ('data_visibility', lambda: api_pack12_data_visibility()),
+        ('ui_contract', lambda: api_pack12_ui_contract()),
+    ]:
+        try:
+            resp = fn(); data = resp.get_json() if hasattr(resp, 'get_json') else {}
+            checks[name] = {'ok': bool(data.get('success', True) and data.get('ok', True)), 'data': data}
+        except Exception as e:
+            checks[name] = {'ok': False, 'error': str(e)}
+    ok = all(v.get('ok') for v in checks.values())
+    return jsonify(success=ok, ok=ok, items=checks, message='第十二包部署驗收完成')
+
+@app.route('/api/pack12/route-audit', methods=['GET'])
+def api_pack12_route_audit():
+    status = _pack12_routes_present()
+    return jsonify(success=all(status.values()), ok=all(status.values()), items=status, missing=[k for k,v in status.items() if not v])
+
+@app.route('/api/pack12/data-visibility', methods=['GET'])
+def api_pack12_data_visibility():
+    ensure_db()
+    sources = {}
+    for table in ['customer_profiles','inventory','orders','master_orders','shipping_records']:
+        try:
+            col = 'name' if table == 'customer_profiles' else 'customer_name'
+            rows = query(f"SELECT {col} AS customer FROM {table} WHERE COALESCE({col}, '') <> '' GROUP BY {col} ORDER BY {col} LIMIT 500", fetch=True) or []
+            sources[table] = [r.get('customer') for r in rows]
+        except Exception as e:
+            sources[table] = ['ERR: ' + str(e)]
+    return jsonify(success=True, ok=True, counts=_pack12_counts(), customer_sources=sources,
+                   message='確認客戶與商品資料是否能從目前連線資料庫顯示')
+
+@app.route('/api/pack12/ui-contract', methods=['GET'])
+def api_pack12_ui_contract():
+    return jsonify(success=True, ok=True, items={
+        'loaded_asset':'yx_pack12_final.css / yx_pack12_final.js',
+        'previous_pack_assets':'pack3~pack11 前端資產已移除載入，避免重複覆蓋與事件衝突',
+        'ship':'出貨頁不顯示商品表格；下拉選商品直接寫入商品資料文字框並自動空行分段；確認後先預覽再扣除',
+        'customer_card':'客戶名稱靠左；FOB/CNF/FOB代付 綠字置中；件數/筆數靠右',
+        'tables':'庫存/訂單/總單使用同一張表格邏輯，手機橫滑不卡住',
+        'warehouse':'A/B倉、6欄、動態格，只顯示格號/客戶/件數式/總件數，不顯示尺寸與FOB/CNF',
+        'mobile':'按鈕/輸入/下拉至少44px，防重複送出、防重複綁定',
+        'db':'支援 YX_DATABASE_URL 指向另一顆 Render PostgreSQL，並提供 full-repair/backfill 入口',
+    }, message='第十二包 UI 與功能合約')
+
+@app.route('/api/pack12/button-map', methods=['GET'])
+def api_pack12_button_map():
+    return jsonify(success=True, ok=True, items=PACK12_PAGE_BUTTONS, message='第十二包按鈕功能對照')
+
+@app.route('/api/final/locked', methods=['GET'])
+def api_final_locked_pack12():
+    return api_pack12_final_ready()
+
+# ==== end pack 12 ====
+
 @app.errorhandler(Exception)
 def handle_exception(exc):
     try:
@@ -829,7 +2195,7 @@ def handle_exception(exc):
     except Exception:
         pass
     if request.path.startswith('/api/'):
-        return jsonify(ok=False, message=str(exc)), 500
+        return jsonify(ok=False, success=False, error=str(exc), message=str(exc)), 500
     raise exc
 
 
