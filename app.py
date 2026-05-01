@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, url_for, request, send_file
+from flask import Flask, render_template, jsonify, url_for, request, send_file, send_from_directory
 import os
 import re
 import json
@@ -62,6 +62,12 @@ def parse_qty_from_product(product):
         m = re.search(r'x\s*(\d+)', p)
         total += int(m.group(1)) if m else 1
     return max(total, 1)
+
+
+
+def qty_expr(table_alias=''):
+    prefix = (table_alias + '.') if table_alias else ''
+    return f"COALESCE(NULLIF({prefix}qty,0), {prefix}quantity, 0)"
 
 def parse_lines(text, default_customer='', default_material=''):
     lines = [x.strip() for x in re.split(r'[\r\n]+', text or '') if x.strip()]
@@ -196,15 +202,15 @@ def ship_items(customer, items):
                 if table == 'inventory':
                     rows = tx_query(
                         cur,
-                        "SELECT id, COALESCE(qty, quantity, 0) AS stock_qty, product FROM inventory "
-                        "WHERE (?='' OR customer=?) AND product=? AND COALESCE(qty, quantity, 0)>0 ORDER BY id" + _row_lock_clause(),
+                        "SELECT id, COALESCE(NULLIF(qty,0), quantity, 0) AS stock_qty, product FROM inventory "
+                        "WHERE (?='' OR customer=?) AND product=? AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id" + _row_lock_clause(),
                         [c, c, p], fetch=True
                     )
                 else:
                     rows = tx_query(
                         cur,
-                        f"SELECT id, COALESCE(qty, quantity, 0) AS stock_qty, product FROM {table} "
-                        "WHERE (?='' OR customer=?) AND product=? AND COALESCE(qty, quantity, 0)>0 ORDER BY id" + _row_lock_clause(),
+                        f"SELECT id, COALESCE(NULLIF(qty,0), quantity, 0) AS stock_qty, product FROM {table} "
+                        "WHERE (?='' OR customer=?) AND product=? AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id" + _row_lock_clause(),
                         [c, c, p], fetch=True
                     )
                 for r in rows:
@@ -231,17 +237,17 @@ def ship_items(customer, items):
 
 @app.route('/api/inventory', methods=['GET'])
 def api_inventory():
-    rows = query('SELECT * FROM inventory ORDER BY id DESC LIMIT 500', fetch=True)
+    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM inventory ORDER BY id DESC LIMIT 500', fetch=True)
     return jsonify(ok=True, items=rows)
 
 @app.route('/api/orders', methods=['GET'])
 def api_orders():
-    rows = query('SELECT * FROM orders WHERE COALESCE(qty,0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
+    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM orders WHERE COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
     return jsonify(ok=True, items=rows)
 
 @app.route('/api/master-orders', methods=['GET'])
 def api_master_orders():
-    rows = query('SELECT * FROM master_orders WHERE COALESCE(qty,0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
+    rows = query('SELECT *, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM master_orders WHERE COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC LIMIT 500', fetch=True)
     return jsonify(ok=True, items=rows)
 
 @app.route('/api/item/<table>/<int:item_id>', methods=['DELETE', 'POST'])
@@ -254,10 +260,13 @@ def api_item_change(table, item_id):
         log_action(username(), '刪除資料', table, item_id, {})
         return jsonify(ok=True)
     data = request.get_json(silent=True) or {}
-    product = clean_text(data.get('product'))
-    qty = int(data.get('qty') or 0)
-    material = clean_text(data.get('material'))
-    customer = clean_text(data.get('customer'))
+    current = query(f'SELECT * FROM {table_map[table]} WHERE id=?', [item_id], fetch=True, one=True)
+    if not current:
+        return jerr('找不到資料', 404)
+    product = clean_text(data.get('product')) if 'product' in data else current.get('product','')
+    qty = int(data.get('qty') if data.get('qty') not in (None, '') else (current.get('qty') or current.get('quantity') or 0))
+    material = clean_text(data.get('material')) if 'material' in data else current.get('material','')
+    customer = clean_text(data.get('customer')) if 'customer' in data else current.get('customer','')
     if table == 'inventory':
         query('UPDATE inventory SET customer=?, product=?, material=?, qty=?, quantity=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [customer, product, material, qty, qty, item_id])
     else:
@@ -325,9 +334,9 @@ def api_customer_items():
     for table in ('master_orders','orders','inventory'):
         
         if table == 'inventory':
-            rows = query("SELECT id, customer, product, material, COALESCE(qty, quantity, 0) AS qty, quantity FROM inventory WHERE (?='' OR customer=?) AND COALESCE(qty, quantity, 0)>0 ORDER BY id DESC", [c,c], fetch=True)
+            rows = query("SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM inventory WHERE (?='' OR customer=?) AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC", [c,c], fetch=True)
         else:
-            rows = query(f"SELECT id, customer, product, material, COALESCE(qty,0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND COALESCE(qty,0)>0 ORDER BY id DESC", [c,c], fetch=True)
+            rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id DESC", [c,c], fetch=True)
         for r in rows:
             r['source'] = table
             r['qty'] = int(r.get('qty') or r.get('quantity') or 0)
@@ -337,7 +346,7 @@ def api_customer_items():
 @app.route('/api/regions/<module>', methods=['GET'])
 def api_regions(module):
     table = 'master_orders' if module in ('master_order','ship') else 'orders'
-    rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer<>'' AND COALESCE(qty,0)>0 ORDER BY customer", fetch=True)
+    rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer<>'' AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY customer", fetch=True)
     customers = [r['customer'] for r in rows]
     meta = query('SELECT name, region FROM customers WHERE archived=0', fetch=True)
     region_map = {m['name']: m.get('region') or '北區' for m in meta}
@@ -355,7 +364,7 @@ def api_warehouse():
         by_cell.setdefault(str(it.get('cell_id')), []).append(it)
     for c in cells:
         c['items'] = by_cell.get(str(c['id']), [])
-    unplaced = query('SELECT COUNT(*) AS n, COALESCE(SUM(qty), SUM(quantity), 0) AS qty FROM inventory WHERE COALESCE(placed,0)=0', fetch=True, one=True) or {}
+    unplaced = query('SELECT COUNT(*) AS n, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)), 0) AS qty FROM inventory WHERE COALESCE(placed,0)=0', fetch=True, one=True) or {}
     return jsonify(ok=True, cells=cells, unplaced_qty=int(unplaced.get('qty') or 0))
 
 @app.route('/api/warehouse/cell/<int:cell_id>', methods=['POST'])
@@ -474,6 +483,11 @@ def handle_exception(exc):
     if request.path.startswith('/api/'):
         return jsonify(ok=False, message=str(exc)), 500
     raise exc
+
+
+@app.route('/sw.js', methods=['GET'])
+def service_worker():
+    return send_from_directory(app.static_folder, 'service-worker.js', mimetype='application/javascript')
 
 @app.route('/health', methods=['GET', 'HEAD'])
 def health():

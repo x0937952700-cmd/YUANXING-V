@@ -4,12 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or '沅興木業' }}</title>
-  <meta name="theme-color" content="#f2f2f2">
+  <meta name="theme-color" content="#7b4a26">
   <meta name="application-name" content="沅興木業">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="沅興木業">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=beautiful-clean-ui">
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}?v=beautiful-clean-ui">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=beautiful-clean-ui">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=beautiful-clean-ui">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=beautiful-clean-ui">
   <script>
     document.documentElement.dataset.yx117AppleUi="locked";
     document.documentElement.dataset.yx118AppleUi="locked";
@@ -29,11 +33,12 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v=beautiful-clean-ui">
   <link rel="stylesheet" href="{{ url_for('static', filename='clean_override.css') }}?v=beautiful-clean-ui">
   <script defer src="{{ url_for('static', filename='clean_ui_static.js') }}?v=beautiful-clean-ui"></script>
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=beautiful-clean-ui"></script>
 </head>
 <body>
   <div class="page-shell">
     {% block body %}{% endblock %}
   </div>
-  <div id="clean-toast" class="clean-toast hidden">目前是乾淨介面版，功能尚未接入。</div>
+  <div id="clean-toast" class="clean-toast hidden">完成</div>
 </body>
 </html>

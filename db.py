@@ -23,20 +23,32 @@ if USE_POSTGRES and "sslmode=" not in DATABASE_URL:
     DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
 
 _POOL = None
+_POOL_LOCK = threading.RLock()
 _SQLITE_LOCK = threading.RLock()
 _INIT_LOCK = threading.RLock()
 _INIT_DONE = False
 _SQLITE_PATH = os.environ.get("SQLITE_PATH", os.path.join(BASE_DIR, "warehouse.db"))
 
-if USE_POSTGRES:
-    _POOL = SimpleConnectionPool(
-        minconn=int(os.environ.get("DB_POOL_MIN", "1")),
-        maxconn=int(os.environ.get("DB_POOL_MAX", "10")),
-        dsn=DATABASE_URL,
-    )
-elif not ALLOW_SQLITE_FALLBACK:
+if USE_POSTGRES and SimpleConnectionPool is None:
+    raise RuntimeError("psycopg2-binary 未安裝，無法使用 PostgreSQL")
+elif not ALLOW_SQLITE_FALLBACK and not USE_POSTGRES:
     raise RuntimeError("DATABASE_URL 未設定或 psycopg2 不可用，且 YX_ALLOW_SQLITE_FALLBACK=0")
 
+
+
+def _get_pg_pool():
+    """Lazy PostgreSQL pool. Avoid boot crash before Render DB is reachable; first API call creates it."""
+    global _POOL
+    if _POOL is None:
+        with _POOL_LOCK:
+            if _POOL is None:
+                _POOL = SimpleConnectionPool(
+                    minconn=int(os.environ.get("DB_POOL_MIN", "1")),
+                    maxconn=int(os.environ.get("DB_POOL_MAX", "10")),
+                    dsn=DATABASE_URL,
+                    connect_timeout=int(os.environ.get("DB_CONNECT_TIMEOUT", "10")),
+                )
+    return _POOL
 
 def now_iso():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -67,11 +79,12 @@ def _connect_sqlite():
 @contextmanager
 def get_conn():
     if USE_POSTGRES:
-        conn = _POOL.getconn()
+        pool = _get_pg_pool()
+        conn = pool.getconn()
         try:
             yield conn
         finally:
-            _POOL.putconn(conn)
+            pool.putconn(conn)
     else:
         with _SQLITE_LOCK:
             conn = _connect_sqlite()
@@ -127,7 +140,8 @@ def execute_many(sql, seq):
 def transaction():
     """Single transaction. PostgreSQL uses row locks; SQLite is protected by a process lock."""
     if USE_POSTGRES:
-        conn = _POOL.getconn()
+        pool = _get_pg_pool()
+        conn = pool.getconn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
         try:
             yield cur
@@ -137,7 +151,7 @@ def transaction():
             raise
         finally:
             cur.close()
-            _POOL.putconn(conn)
+            pool.putconn(conn)
     else:
         with _SQLITE_LOCK:
             conn = _connect_sqlite()
@@ -306,17 +320,61 @@ def seed_admin_user():
         query("INSERT INTO users(username, password, is_admin) VALUES(?, ?, 1)", [name, os.environ.get("YX_PASSWORD", "1234")])
 
 
+def _dedupe_warehouse_cells():
+    """Remove duplicate warehouse cells left by older versions before creating a unique index."""
+    try:
+        if USE_POSTGRES:
+            query("""
+            DELETE FROM warehouse_cells a
+            USING warehouse_cells b
+            WHERE a.id > b.id
+              AND a.zone = b.zone
+              AND a.band = b.band
+              AND a.row_name = b.row_name
+              AND a.slot = b.slot
+            """)
+        else:
+            query("""
+            DELETE FROM warehouse_cells
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM warehouse_cells
+                GROUP BY zone, band, row_name, slot
+            )
+            """)
+    except Exception:
+        # Dedupe must not stop startup; seed below is still safe without a unique constraint.
+        pass
+
+
 def seed_warehouse_cells():
+    """Seed A/B warehouse cells without relying on ON CONFLICT.
+
+    Older deployed databases may already have warehouse_cells created without
+    UNIQUE(zone, band, row_name, slot). PostgreSQL rejects ON CONFLICT unless
+    that exact unique/exclusion constraint exists, which caused HEAD / 500 on
+    Render. This WHERE NOT EXISTS version works on both PostgreSQL and SQLite
+    even when the old table has no constraint.
+    """
+    _dedupe_warehouse_cells()
     params = []
     for zone in ("A", "B"):
         for band in range(1, 7):
             for row_name in ("front", "back"):
                 for slot in range(1, 11):
-                    params.append((zone, band, row_name, slot))
-    if USE_POSTGRES:
-        execute_many("INSERT INTO warehouse_cells(zone, band, row_name, slot) VALUES(?, ?, ?, ?) ON CONFLICT(zone, band, row_name, slot) DO NOTHING", params)
-    else:
-        execute_many("INSERT OR IGNORE INTO warehouse_cells(zone, band, row_name, slot) VALUES(?, ?, ?, ?)", params)
+                    params.append((zone, band, row_name, slot, zone, band, row_name, slot))
+
+    execute_many("""
+        INSERT INTO warehouse_cells(zone, band, row_name, slot)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM warehouse_cells
+            WHERE zone=? AND band=? AND row_name=? AND slot=?
+        )
+    """, params)
+
+    _safe_index(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_position ON warehouse_cells(zone, band, row_name, slot)"
+    )
 
 
 def log_action(username, action, entity='', entity_id='', detail=None, category=''):
