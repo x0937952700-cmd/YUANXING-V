@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'html-direct-master-v1';
+  const PWA_VERSION = 'html-lock-ship-open-list-v5';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

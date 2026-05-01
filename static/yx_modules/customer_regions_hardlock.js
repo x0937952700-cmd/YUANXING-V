@@ -132,6 +132,7 @@
   async function selectCustomer(name){
     name = YX.clean(name || ''); if (!name) return;
     window.__YX_SELECTED_CUSTOMER__ = name;
+    try { window.dispatchEvent(new CustomEvent('yx:customer-selected', {detail:{name, variants:variantsForName(name)}})); } catch(_e) {}
     const input = $('customer-name');
     if (input) input.value = name;
     document.querySelectorAll('.yx113-customer-card,.yx114-customer-card').forEach(card => card.classList.toggle('is-active', YX.clean(card.dataset.customerName) === name));

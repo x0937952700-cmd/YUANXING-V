@@ -16,9 +16,25 @@
 
     {% if module_key == 'ship' %}
     <label class="field-label">客戶商品清單</label>
-    <div class="ship-customer-picker yx-ship-single-html" id="ship-customer-picker">
+    <div class="ship-customer-picker yx-ship-single-html yx-ship-html-open-list-lock" id="ship-customer-picker" data-html-locked="ship-open-product-list">
       <input type="hidden" id="ship-customer-search" value="">
-      <select id="ship-customer-item-select" class="text-input ship-customer-item-select"><option value="">請先點選北 / 中 / 南客戶</option></select>
+      <select id="ship-customer-item-select" class="text-input ship-customer-item-select yx-legacy-hidden-select" data-html-locked="ship-customer-all-items" hidden aria-hidden="true"><option value="">請先點選北 / 中 / 南客戶</option></select>
+      <div class="yx-ship-open-list-head">
+        <strong>可出貨商品</strong>
+        <span id="ship-customer-item-count" class="muted">請先點選北 / 中 / 南客戶</span>
+      </div>
+      <div id="ship-customer-item-list" class="yx-ship-open-product-list" data-html-locked="ship-customer-open-items">
+        <div class="empty-state-card compact-empty">請先點選北 / 中 / 南客戶，這裡會完整顯示該客戶全部商品。</div>
+      </div>
+      <div class="yx-ship-selected-inline-html" data-html-locked="ship-selected-tags-below-list">
+        <div class="yx-ship-selected-inline-head">
+          <strong>已加入出貨商品</strong>
+          <button class="ghost-btn small-btn" type="button" onclick="clearShipSelectedItems()">一鍵清空</button>
+        </div>
+        <div id="ship-selected-items" class="card-list yx-ship-selected-tag-list">
+          <div class="empty-state-card compact-empty">尚未加入出貨商品</div>
+        </div>
+      </div>
     </div>
     <input type="hidden" id="location-input" value="">
     {% else %}
@@ -157,15 +173,12 @@
     <div id="ship-preview-panel" class="glass panel hidden"></div>
   </section>
 
-  <section class="subsection" id="ship-selected-section" {% if module_key != 'ship' %}style="display:none"{% endif %}>
+  <section class="subsection yx-ship-selected-section-moved" id="ship-selected-section" {% if module_key != 'ship' %}style="display:none"{% else %}style="display:none"{% endif %} aria-hidden="true">
     <div class="section-head">
       <h3>已選商品</h3>
-      <span class="muted">點選上方商品後顯示在這裡，可直接修改本次要出的件數</span>
+      <span class="muted">已改為固定顯示在客戶商品清單下方，避免被舊版區塊覆蓋。</span>
     </div>
-    <div class="btn-row compact-row">
-      <button class="ghost-btn" onclick="clearShipSelectedItems()">一鍵清空</button>
-    </div>
-    <div id="ship-selected-items" class="card-list"></div>
+    <div id="ship-selected-items-bottom" class="card-list"></div>
   </section>
 
 
@@ -361,7 +374,24 @@
       </div>
       <label class="field-label">格位備註</label>
       <textarea id="warehouse-note" class="text-area small"></textarea>
-      <div id="warehouse-cell-items" class="chip-list yx-final-html-cell-editor"></div><div id="yx-final-batch-placeholder" class="hidden" aria-hidden="true">批量加入商品｜後排｜中間｜前排</div>
+      <div id="warehouse-cell-items" class="chip-list yx-final-html-cell-editor" data-html-locked="warehouse-batch-zone-unplaced">
+        <div class="yx-direct-section" data-html-locked="warehouse-current-items-html">
+          <div class="yx-direct-section-title">目前此格商品</div>
+          <div id="warehouse-current-items-html" class="yx-direct-current-list">
+            <div class="empty-state-card compact-empty">此格目前沒有商品</div>
+          </div>
+        </div>
+        <div class="yx-direct-batch-panel" data-html-locked="warehouse-batch-html-fixed">
+          <div class="yx-direct-section-title">批量加入商品</div>
+          <div class="small-note">此區固定寫在 HTML：A / B 區各自只顯示尚未錄入倉庫圖商品；第 1 筆後排、第 2 筆中間、第 3 筆前排；未輸入件數時自動用該商品未入倉件數。</div>
+          <div id="yx121-batch-rows" data-html-locked="warehouse-batch-default-three">
+            <div class="yx121-batch-row" data-batch-index="0"><label class="yx121-batch-label">後排</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option></select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>
+            <div class="yx121-batch-row" data-batch-index="1"><label class="yx121-batch-label">中間</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option></select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>
+            <div class="yx121-batch-row" data-batch-index="2"><label class="yx121-batch-label">前排</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option></select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>
+          </div>
+          <div class="btn-row compact-row"><button class="ghost-btn small-btn" type="button" id="yx121-add-batch-row">新增更多批量</button><button class="primary-btn small-btn" type="button" id="yx121-save-cell">儲存格位</button></div>
+        </div>
+      </div><div id="yx-final-batch-placeholder" class="hidden" aria-hidden="true">批量加入商品｜A/B區各自未錄入｜後排｜中間｜前排｜placement_label｜HTML_LOCKED</div>
     </div>
   </div>
 </div>

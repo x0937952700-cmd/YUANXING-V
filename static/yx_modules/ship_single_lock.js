@@ -1,4 +1,4 @@
-/* 沅興木業 出貨單一母版：只保留一套 HTML 結構 + 一套 JS 邏輯 */
+/* 沅興木業 出貨單一母版：HTML 固定顯示完整商品清單，不再用下拉選單當主畫面 */
 (function(){
   'use strict';
   if (!window.__YX_SHIP_SINGLE_LOCK__) return;
@@ -25,7 +25,7 @@
     const n=Number(fallback||0); return Number.isFinite(n)&&n>0?Math.floor(n):0;
   }
   function splitProduct(text){ const raw=normalizeText(text); const i=raw.indexOf('='); return {size:i>=0?raw.slice(0,i):raw, support:i>=0?raw.slice(i+1):''}; }
-  function materialOf(it){ return clean(it.material||it.product_code||it.product||'未填材質'); }
+  function materialOf(it){ return clean(it.material||it.product_code||it.wood_type||it['材質']||'未填材質'); }
   function normalizeSource(v){
     const raw=clean(v);
     if(/總單|master_order|master_orders|master/i.test(raw)) return '總單';
@@ -35,6 +35,10 @@
   }
   function sourceOf(it){ return normalizeSource(it.source_preference||it.source||it.deduct_source) || '自動'; }
   function sourcePreferenceOf(it){ return normalizeSource(it.source_preference||it.source||it.deduct_source); }
+  function variantsQuery(){
+    const arr=Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__)?window.__YX_SELECTED_CUSTOMER_VARIANTS__.filter(Boolean):[];
+    return arr.length?'&variants='+encodeURIComponent(JSON.stringify(arr)):'';
+  }
   function withQtySupport(support, qty){
     let s=normalizeText(support); const q=Math.max(1,parseInt(qty||1,10)||1);
     if(!s) return String(q);
@@ -43,11 +47,19 @@
     return `${parts[0].replace(/x\s*\d+$/i,'')}x${q}`;
   }
   function productForQty(it,qty){ const p=splitProduct(it.product_text||''); return `${p.size}=${withQtySupport(p.support,qty)}`; }
+  function productLabel(it){
+    const p=splitProduct(it.product_text||it.product||'');
+    const q=qtyFromText(it.product_text,it.qty);
+    const mat=materialOf(it)||'未填材質';
+    const src=sourceOf(it)||'自動';
+    return `${src}｜${mat}｜${p.size}${p.support?'='+p.support:''}｜${q}件`;
+  }
   function setCustomer(name){
     state.customer=clean(name);
     const input=$('customer-name'); if(input && input.value!==state.customer) input.value=state.customer;
     const search=$('ship-customer-search'); if(search && search.value!==state.customer) search.value=state.customer;
   }
+  function setCount(text){ const el=$('ship-customer-item-count'); if(el) el.textContent=text; }
   function renderCustomers(){
     // 出貨頁 HTML 鎖定：不再產生一整排客戶按鈕。
     const box=$('ship-customer-quick-list');
@@ -62,32 +74,46 @@
       renderCustomers();
     }catch(_e){}
   }
-  function productLabel(it){
-    const p=splitProduct(it.product_text||it.product||'');
-    const q=qtyFromText(it.product_text,it.qty);
-    const mat=materialOf(it)||'未填材質';
-    const src=sourceOf(it)||'自動';
-    return `${src}｜${mat}｜${p.size}${p.support?'='+p.support:''}｜${q}件`;
+  function syncHiddenSelect(){
+    const select=$('ship-customer-item-select'); if(!select) return;
+    if(!state.customer){ select.innerHTML='<option value="">請先點選北 / 中 / 南客戶</option>'; return; }
+    if(!state.items.length){ select.innerHTML='<option value="">此客戶目前沒有可出貨商品</option>'; return; }
+    select.innerHTML='<option value="">請選擇商品（來源｜材質｜尺寸 / 支數｜件數）</option>'+state.items.map((it,i)=>`<option value="${i}">${esc(productLabel(it))}</option>`).join('');
   }
   function renderItems(){
-    const select=$('ship-customer-item-select');
     const box=$('ship-customer-item-list');
+    syncHiddenSelect();
     if(!state.customer){
-      if(select) select.innerHTML='<option value="">請先點選北 / 中 / 南客戶</option>';
-      if(box) box.textContent='下拉清單會顯示該客戶全部商品；點選商品後會加入下方已選商品。';
+      setCount('請先點選北 / 中 / 南客戶');
+      if(box) box.innerHTML='<div class="empty-state-card compact-empty">請先點選北 / 中 / 南客戶，這裡會完整顯示該客戶全部商品。</div>';
+      return;
+    }
+    if(state.loadingName===state.customer){
+      setCount(`${state.customer}：商品載入中…`);
+      if(box) box.innerHTML='<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
       return;
     }
     if(!state.items.length){
-      if(select) select.innerHTML='<option value="">此客戶目前沒有可出貨商品</option>';
-      if(box) box.textContent='此客戶目前沒有可出貨商品';
+      setCount(`${state.customer}：0 筆 / 0 件`);
+      if(box) box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>';
       return;
     }
-    if(select){
-      select.innerHTML='<option value="">請選擇商品（來源｜材質｜尺寸 / 支數｜件數）</option>'+state.items.map((it,i)=>`<option value="${i}">${esc(productLabel(it))}</option>`).join('');
-    }
+    const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);
+    setCount(`${state.customer}：${state.items.length} 筆 / ${total} 件`);
     if(box){
-      const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);
-      box.textContent=`${state.customer}：共 ${state.items.length} 筆 / ${total} 件，請使用上方下拉清單選商品`;
+      box.innerHTML=state.items.map((it,i)=>{
+        const p=splitProduct(it.product_text||it.product||'');
+        const q=qtyFromText(it.product_text,it.qty);
+        const mat=materialOf(it)||'未填材質';
+        const src=sourceOf(it)||'自動';
+        return `<button class="yx-ship-open-product-card" type="button" data-ship-add-index="${i}">
+          <span class="yx-ship-open-source">${esc(src)}</span>
+          <span class="yx-ship-open-material">${esc(mat)}</span>
+          <span class="yx-ship-open-product">${esc(p.size)}${p.support?'='+esc(p.support):''}</span>
+          <span class="yx-ship-open-total">${q}件</span>
+          <span class="yx-ship-open-add">加入</span>
+        </button>`;
+      }).join('');
     }
   }
   async function loadItems(name, opts={}){
@@ -97,39 +123,44 @@
     const cached=state.itemCache.get(key);
     if(!opts.force && cached && Date.now()-cached.at<15000){ state.items=cached.items; renderItems(); return; }
     if(state.loadingName===key) return;
-    state.loadingName=key;
-    const select=$('ship-customer-item-select'); if(select) select.innerHTML='<option value="">客戶商品載入中…</option>';
+    state.loadingName=key; renderItems();
     try{
-      const d=await api('/api/customer-items?name='+encodeURIComponent(state.customer)+'&fast=1&ship_single=1&ts='+Date.now());
+      const d=await api('/api/customer-items?name='+encodeURIComponent(state.customer)+'&fast=1&ship_single=1'+variantsQuery()+'&ts='+Date.now());
       state.items=Array.isArray(d.items)?d.items:[];
       state.itemCache.set(key,{items:state.items,at:Date.now()});
       renderItems();
-    } finally { state.loadingName=''; }
+    } finally { state.loadingName=''; renderItems(); }
+  }
+  function selectedCardHtml(it,i){
+    const p=splitProduct(it.product_text);
+    const q=Math.max(1,Number(it.qty||qtyFromText(it.product_text)||1));
+    return `<div class="yx-ship-selected-html-card yx-ship-selected-tag-card" data-selected-card="${i}">
+      <button class="yx-ship-selected-main" type="button" data-focus-qty="${i}" title="點擊可修改件數">
+        <span class="yx-ship-source-pill">${esc(it.source||'自動')}</span>
+        <span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span>
+        <span class="yx-ship-selected-product" data-selected-product-text="${i}">${esc(p.size)}${p.support?'='+esc(p.support):''}</span>
+        <span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span>
+      </button>
+      <label class="yx-ship-selected-qty-wrap">修改件數<input class="text-input yx-ship-selected-qty" type="number" min="1" value="${q}" data-selected-qty="${i}"></label>
+      <button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除</button>
+    </div>`;
   }
   function renderSelected(){
     const box=$('ship-selected-items'); if(!box) return;
-    if(!state.selected.length){ box.innerHTML='<div class="empty-state-card compact-empty">尚未加入出貨商品</div>'; return; }
-    box.innerHTML=state.selected.map((it,i)=>{ const p=splitProduct(it.product_text); return `
-      <div class="yx-ship-selected-html-card" data-selected-card="${i}">
-        <div class="yx-ship-selected-main" data-focus-qty="${i}">
-          <span class="yx-ship-source-pill">${esc(it.source||'自動')}</span>
-          <span class="yx-ship-material-pill">${esc(it.material||'未填材質')}</span>
-          <span class="yx-ship-selected-product">${esc(p.size)}${p.support?'='+esc(p.support):''}</span>
-        </div>
-        <label class="yx-ship-selected-qty-wrap">出貨件數<input class="text-input yx-ship-selected-qty" type="number" min="1" value="${Number(it.qty||1)}" data-selected-qty="${i}"></label>
-        <button class="ghost-btn small-btn" type="button" data-selected-remove="${i}">刪除</button>
-      </div>`; }).join('');
+    if(!state.selected.length){ box.innerHTML='<div class="empty-state-card compact-empty">尚未加入出貨商品</div>'; }
+    else { box.innerHTML=state.selected.map(selectedCardHtml).join(''); }
     const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n');
   }
   function addItem(i){
     const it=state.items[Number(i)]; if(!it) return toast('找不到商品','warn');
     const max=qtyFromText(it.product_text,it.qty)||9999;
-    let qty=max || 1;
+    const qty=max || 1;
     const product_text=productForQty(it,qty);
     const pref=sourcePreferenceOf(it);
     const row={ product_text, qty, material:materialOf(it), product_code:materialOf(it), source:sourceOf(it), source_preference:pref, id:it.id };
     state.selected.push(row);
     renderSelected(); toast('已加入出貨商品，可直接修改件數','ok');
+    $('ship-selected-items')?.scrollIntoView?.({behavior:'smooth',block:'nearest'});
   }
   window.clearShipSelectedItems=function(){ state.selected=[]; renderSelected(); };
   async function confirmSubmit(){
@@ -175,8 +206,9 @@
     if(state.bound) return; state.bound=true;
     document.addEventListener('click',(e)=>{
       const c=e.target.closest('[data-ship-customer]'); if(c){ e.preventDefault(); loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error')); return; }
+      const add=e.target.closest('[data-ship-add-index]'); if(add){ e.preventDefault(); addItem(add.dataset.shipAddIndex); return; }
       const rm=e.target.closest('[data-selected-remove]'); if(rm){ e.preventDefault(); state.selected.splice(Number(rm.dataset.selectedRemove),1); renderSelected(); return; }
-      const focus=e.target.closest('[data-focus-qty]'); if(focus){ const inp=document.querySelector(`[data-selected-qty="${focus.dataset.focusQty}"]`); inp?.focus(); inp?.select?.(); return; }
+      const focus=e.target.closest('[data-focus-qty]'); if(focus){ e.preventDefault(); const inp=document.querySelector(`[data-selected-qty="${focus.dataset.focusQty}"]`); inp?.focus(); inp?.select?.(); return; }
     },true);
     document.addEventListener('keydown',(e)=>{
       if((e.target.id==='customer-name' || e.target.id==='ship-customer-search') && e.key==='Enter'){ e.preventDefault(); loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error')); }
@@ -193,13 +225,26 @@
       if(e.target.matches('[data-selected-qty]')){
         const i=Number(e.target.dataset.selectedQty);
         const q=Math.max(1,parseInt(e.target.value||1,10)||1);
-        if(state.selected[i]){ state.selected[i].qty=q; state.selected[i].product_text=productForQty(state.selected[i],q); const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n'); }
+        if(state.selected[i]){
+          state.selected[i].qty=q;
+          state.selected[i].product_text=productForQty(state.selected[i],q);
+          const p=splitProduct(state.selected[i].product_text);
+          const label=document.querySelector(`[data-selected-product-text="${i}"]`);
+          if(label) label.textContent=`${p.size}${p.support?'='+p.support:''}`;
+          const total=document.querySelector(`[data-selected-total="${i}"]`);
+          if(total) total.textContent=`${q}件`;
+          const hidden=$('ocr-text'); if(hidden) hidden.value=state.selected.map(it=>it.product_text).join('\n');
+        }
       }
     },true);
   }
   function install(){
-    document.documentElement.dataset.yxShipSingle='locked';
-    bind(); window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; }, false); renderSelected();
+    document.documentElement.dataset.yxShipSingle='locked-open-html-list';
+    bind();
+    loadCustomers();
+    window.addEventListener('yx:customers-loaded',e=>{ state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers; }, false);
+    window.addEventListener('yx:customer-selected',e=>{ const name=clean(e.detail?.name||''); if(name) loadItems(name,{force:true}).catch(err=>toast(err.message,'error')); }, false);
+    renderSelected();
     const name=clean($('customer-name')?.value||''); if(name) loadItems(name).catch(()=>{}); else renderItems();
     window.confirmSubmit=confirmSubmit;
   }
