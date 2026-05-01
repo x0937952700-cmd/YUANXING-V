@@ -65,6 +65,77 @@ def parse_qty_from_product(product):
 
 
 
+
+def split_customer_terms(name):
+    """Separate customer name and trade terms like FOB/CNF/FOB代付 for UI labels."""
+    raw = clean_text(name)
+    terms = []
+    for term in ('FOB代付', 'FOB代', 'FOB', 'CNF'):
+        if term in raw:
+            terms.append(term)
+            raw = raw.replace(term, '').strip()
+    raw = re.sub(r'\s+', ' ', raw).strip('｜|/ -') or clean_text(name)
+    return raw, terms
+
+def dimension_factor(n, idx):
+    """Convert handwritten dimensions to the user's volume factors.
+    idx 0 length: 80->0.8, 140->1.4, 363->0.363.
+    idx 1 width: 30->3, 25->2.5.
+    idx 2 height: 125->1.25, 12->1.2, 05->0.5.
+    """
+    txt = str(n or '').strip()
+    try:
+        val = int(txt)
+    except Exception:
+        return 0
+    if idx == 0:
+        return val / 1000 if val >= 210 else val / 100
+    if idx == 1:
+        return val / 10
+    return val / 100 if val >= 100 else val / 10
+
+def parse_piece_sum(product):
+    s = str(product or '').replace('×','x').replace('X','x').replace('＋','+')
+    if '=' not in s:
+        return parse_qty_from_product(s)
+    tail = s.split('=',1)[1]
+    total = 0
+    parts = []
+    for part in re.split(r'\+', tail):
+        part = part.strip()
+        if not part:
+            continue
+        m = re.search(r'(\d+)\s*x\s*(\d+)', part, re.I)
+        if m:
+            val = int(m.group(1)) * int(m.group(2))
+        else:
+            m2 = re.search(r'\d+', part)
+            val = int(m2.group(0)) if m2 else 0
+        if val:
+            parts.append(val)
+            total += val
+    return max(total, 0), parts
+
+def calc_product_volume(product):
+    s = str(product or '').replace('×','x').replace('X','x')
+    left = s.split('=',1)[0]
+    nums = re.findall(r'\d+', left)
+    if len(nums) < 3:
+        return {'product': product, 'ok': False, 'formula': '', 'volume': 0, 'pieces_sum': 0, 'pieces': []}
+    dims = nums[:3]
+    factors = [dimension_factor(dims[i], i) for i in range(3)]
+    piece_sum, pieces = parse_piece_sum(s)
+    volume = piece_sum * factors[0] * factors[1] * factors[2] if piece_sum else 0
+    formula = f"({'+'.join(map(str,pieces)) if pieces else piece_sum})x{factors[0]:g}x{factors[1]:g}x{factors[2]:g}"
+    return {'product': product, 'ok': True, 'dims': dims, 'factors': factors, 'pieces_sum': piece_sum, 'pieces': pieces, 'formula': formula, 'volume': round(volume, 4)}
+
+def calc_items_summary(items):
+    rows = [calc_product_volume(i.get('product')) for i in items or []]
+    total_volume = round(sum(float(r.get('volume') or 0) for r in rows), 4)
+    total_qty = sum(int(i.get('qty') or parse_qty_from_product(i.get('product'))) for i in items or [])
+    return {'rows': rows, 'total_volume': total_volume, 'total_qty': total_qty, 'formula': '+'.join([r['formula'] for r in rows if r.get('ok')])}
+
+
 def qty_expr(table_alias=''):
     prefix = (table_alias + '.') if table_alias else ''
     return f"COALESCE(NULLIF({prefix}qty,0), {prefix}quantity, 0)"
@@ -297,7 +368,7 @@ def ship_items(customer, items):
             )
             tx_log_action(cur, username(), '出貨扣除', 'shipping_records', '', {'customer': c, 'product': p, 'qty': deducted_qty}, 'outbound')
             saved.append({'customer': c, 'product': p, 'qty': qty, 'deducted': deducted_qty, 'remaining': remaining, 'sources': deducted})
-    return jsonify(ok=True, message='出貨完成', items=saved)
+    return jsonify(ok=True, message='出貨完成', items=saved, calc=calc_items_summary(items))
 
 @app.route('/api/inventory', methods=['GET'])
 def api_inventory():
@@ -394,17 +465,31 @@ def api_restore_customer(name):
 @app.route('/api/customer-items', methods=['GET'])
 def api_customer_items():
     c = clean_text(request.args.get('customer'))
+    module = clean_text(request.args.get('module'))
+    if module == 'orders':
+        tables = ('orders',)
+    elif module == 'master_order':
+        tables = ('master_orders',)
+    elif module == 'inventory':
+        tables = ('inventory',)
+    else:
+        # 出貨頁：顯示該客戶可出貨的全部來源，先總單，再訂單，再庫存
+        tables = ('master_orders','orders','inventory')
     items = []
-    for table in ('master_orders','orders','inventory'):
-        rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'') ORDER BY id DESC LIMIT 1000", [c,c], fetch=True)
+    for table in tables:
+        rows = query(f"SELECT id, customer, product, material, '' AS location, '' AS zone, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, quantity FROM {table} WHERE (?='' OR customer=?) AND (COALESCE(product,'')<>'' OR COALESCE(customer,'')<>'') ORDER BY id DESC LIMIT 2000", [c,c], fetch=True)
         for r in normalize_item_rows(rows):
             r['source'] = table
             items.append(r)
-    return jsonify(ok=True, items=items)
+    summary = calc_items_summary(items)
+    display, terms = split_customer_terms(c)
+    return jsonify(ok=True, items=items, summary=summary, customer={'name': c, 'display_name': display, 'terms': terms})
 
 @app.route('/api/regions/<module>', methods=['GET'])
 def api_regions(module):
     table = 'master_orders' if module in ('master_order','ship') else 'orders'
+    if module == 'inventory':
+        table = 'inventory'
     rows = query(f"SELECT DISTINCT customer FROM {table} WHERE customer IS NOT NULL AND customer<>'' ORDER BY customer", fetch=True)
     customers = [r['customer'] for r in rows if clean_text(r.get('customer'))]
     if not customers:
@@ -412,9 +497,24 @@ def api_regions(module):
     meta = derived_customers('')
     region_map = {m['name']: m.get('region') or '北區' for m in meta if m.get('name')}
     grouped = {'北區': [], '中區': [], '南區': []}
+    details = {'北區': [], '中區': [], '南區': []}
     for c in customers:
-        grouped.setdefault(region_map.get(c,'北區'), []).append(c)
-    return jsonify(ok=True, regions=grouped)
+        region = region_map.get(c, '北區')
+        grouped.setdefault(region, []).append(c)
+        try:
+            cnt = query(f"SELECT COUNT(*) AS rows, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty FROM {table} WHERE customer=?", [c], fetch=True, one=True) or {}
+        except Exception:
+            cnt = {'rows': 0, 'qty': 0}
+        display, terms = split_customer_terms(c)
+        details.setdefault(region, []).append({
+            'name': c,
+            'display_name': display,
+            'terms': terms,
+            'qty': int(cnt.get('qty') or 0),
+            'count': int(cnt.get('rows') or 0),
+            'region': region,
+        })
+    return jsonify(ok=True, regions=grouped, details=details)
 
 @app.route('/api/warehouse', methods=['GET'])
 def api_warehouse():
@@ -546,6 +646,181 @@ def api_report(kind):
     bio = io.BytesIO(output.getvalue().encode('utf-8-sig'))
     return send_file(bio, mimetype='text/csv', as_attachment=True, download_name=f'{kind}.csv')
 
+
+
+# ==== FIX: reference package compatibility endpoints / button parity ====
+@app.route('/api/master_orders', methods=['GET', 'POST'])
+def api_master_orders_alias():
+    if request.method == 'GET':
+        return api_master_orders()
+    return api_submit('master_order')
+
+@app.route('/api/shipping_records', methods=['GET'])
+def api_shipping_records_alias():
+    return api_shipping_records()
+
+@app.route('/api/ship', methods=['POST'])
+def api_ship_alias():
+    d = request.get_json(silent=True) or {}
+    customer = clean_text(d.get('customer') or d.get('customer_name'))
+    items = d.get('items') if isinstance(d.get('items'), list) else parse_lines(d.get('text') or d.get('ocr_text') or d.get('product') or '', customer, d.get('material') or '')
+    return ship_items(customer, items)
+
+@app.route('/api/ship-preview', methods=['POST'])
+def api_ship_preview_alias():
+    d = request.get_json(silent=True) or {}
+    customer = clean_text(d.get('customer') or d.get('customer_name'))
+    items = d.get('items') if isinstance(d.get('items'), list) else parse_lines(d.get('text') or d.get('ocr_text') or d.get('product') or '', customer, d.get('material') or '')
+    preview = []
+    for item in items:
+        p = clean_text(item.get('product'))
+        c = clean_text(item.get('customer') or customer)
+        qty = int(item.get('qty') or parse_qty_from_product(p))
+        sources = []
+        for table in ('master_orders','orders','inventory'):
+            rows = query(f"SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty FROM {table} WHERE (?='' OR customer=?) AND product=? AND COALESCE(NULLIF(qty,0), quantity, 0)>0 ORDER BY id LIMIT 20", [c,c,p], fetch=True)
+            for r in rows:
+                r['source'] = table
+                sources.append(r)
+        preview.append({'customer': c, 'product': p, 'qty': qty, 'sources': normalize_item_rows(sources)})
+    return jsonify(ok=True, items=preview, calc=calc_items_summary(items))
+
+@app.route('/api/today-changes', methods=['GET'])
+def api_today_changes_alias():
+    return api_today()
+
+@app.route('/api/today-changes/read', methods=['POST'])
+def api_today_changes_read_alias():
+    return api_today_read()
+
+@app.route('/api/change_password', methods=['POST'])
+def api_change_password_alias():
+    return api_change_password()
+
+@app.route('/api/customer-item', methods=['POST', 'DELETE'])
+def api_customer_item_alias():
+    d = request.get_json(silent=True) or {}
+    table = d.get('source') or d.get('table') or d.get('source_table') or 'master_orders'
+    table = {'master_order':'master_orders','master_orders':'master_orders','orders':'orders','inventory':'inventory'}.get(table, table)
+    item_id = int(d.get('id') or d.get('item_id') or 0)
+    if request.method == 'DELETE':
+        if not item_id:
+            return jerr('缺少 item_id')
+        return api_item_change(table, item_id)
+    if item_id:
+        return api_item_change(table, item_id)
+    customer = clean_text(d.get('customer') or d.get('customer_name'))
+    product = clean_text(d.get('product') or d.get('item') or d.get('text'))
+    material = clean_text(d.get('material'))
+    qty = int(d.get('qty') or d.get('quantity') or parse_qty_from_product(product))
+    if not product:
+        return jerr('商品資料必填')
+    upsert_customer(customer)
+    if table == 'inventory':
+        query('INSERT INTO inventory(customer, product, material, qty, quantity, operator) VALUES(?, ?, ?, ?, ?, ?)', [customer, product, material, qty, qty, username()])
+    elif table == 'orders':
+        query('INSERT INTO orders(customer, product, material, qty, quantity, operator) VALUES(?, ?, ?, ?, ?, ?)', [customer, product, material, qty, qty, username()])
+    else:
+        query('INSERT INTO master_orders(customer, product, material, qty, quantity, operator) VALUES(?, ?, ?, ?, ?, ?)', [customer, product, material, qty, qty, username()])
+    return jsonify(ok=True)
+
+@app.route('/api/customer-items/batch-material', methods=['POST'])
+def api_customer_items_batch_material():
+    d = request.get_json(silent=True) or {}
+    table = {'master_order':'master_orders','master_orders':'master_orders','orders':'orders','inventory':'inventory'}.get(d.get('table') or d.get('source') or 'master_orders')
+    ids = d.get('ids') or d.get('item_ids') or []
+    material = clean_text(d.get('material'))
+    if not ids:
+        customer = clean_text(d.get('customer') or d.get('customer_name'))
+        if not customer:
+            return jerr('缺少選取資料或客戶')
+        query(f"UPDATE {table} SET material=?, updated_at=CURRENT_TIMESTAMP WHERE customer=?", [material, customer])
+        return jsonify(ok=True)
+    for item_id in ids:
+        query(f"UPDATE {table} SET material=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", [material, int(item_id)])
+    return jsonify(ok=True)
+
+@app.route('/api/customer-items/batch-delete', methods=['POST'])
+def api_customer_items_batch_delete():
+    d = request.get_json(silent=True) or {}
+    table = {'master_order':'master_orders','master_orders':'master_orders','orders':'orders','inventory':'inventory'}.get(d.get('table') or d.get('source') or 'master_orders')
+    ids = d.get('ids') or d.get('item_ids') or []
+    for item_id in ids:
+        query(f"DELETE FROM {table} WHERE id=?", [int(item_id)])
+    return jsonify(ok=True, deleted=len(ids))
+
+@app.route('/api/warehouse/search', methods=['GET'])
+def api_warehouse_search_alias():
+    q = clean_text(request.args.get('q') or request.args.get('keyword'))
+    like = f'%{q}%'
+    rows = query("SELECT wi.*, wc.zone, wc.band, wc.row_name, wc.slot FROM warehouse_items wi LEFT JOIN warehouse_cells wc ON wc.id=wi.cell_id WHERE ?='' OR wi.customer LIKE ? OR wi.product LIKE ? OR wi.material LIKE ? ORDER BY wi.id DESC LIMIT 500", [q, like, like, like], fetch=True)
+    return jsonify(ok=True, items=rows)
+
+@app.route('/api/warehouse/available-items', methods=['GET'])
+def api_warehouse_available_items_alias():
+    customer = clean_text(request.args.get('customer'))
+    rows = query("SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, 'inventory' AS source FROM inventory WHERE COALESCE(placed,0)=0 AND (?='' OR customer=?) ORDER BY id DESC LIMIT 1000", [customer, customer], fetch=True)
+    return jsonify(ok=True, items=normalize_item_rows(rows))
+
+@app.route('/api/warehouse/cell', methods=['POST'])
+def api_warehouse_cell_alias():
+    d = request.get_json(silent=True) or {}
+    zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
+    band = int(d.get('band') or d.get('column_index') or 1)
+    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
+    slot = int(d.get('slot') or d.get('slot_number') or 1)
+    found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+    if not found:
+        query('INSERT INTO warehouse_cells(zone, band, row_name, slot, note) VALUES(?, ?, ?, ?, ?)', [zone, band, row_name, slot, d.get('note','')])
+    else:
+        query('UPDATE warehouse_cells SET note=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [d.get('note',''), found['id']])
+    return jsonify(ok=True)
+
+@app.route('/api/warehouse/add-slot', methods=['POST'])
+def api_warehouse_add_slot_alias():
+    d = request.get_json(silent=True) or {}
+    zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
+    band = int(d.get('band') or d.get('column_index') or 1)
+    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
+    slot = int(d.get('slot') or d.get('after_slot') or 1) + 1
+    found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+    if not found:
+        query('INSERT INTO warehouse_cells(zone, band, row_name, slot) VALUES(?, ?, ?, ?)', [zone, band, row_name, slot])
+    return jsonify(ok=True)
+
+@app.route('/api/warehouse/remove-slot', methods=['POST'])
+def api_warehouse_remove_slot_alias():
+    d = request.get_json(silent=True) or {}
+    zone = clean_text(d.get('zone') or 'A').upper()[:1] or 'A'
+    band = int(d.get('band') or d.get('column_index') or 1)
+    row_name = clean_text(d.get('row_name') or d.get('slot_type') or 'front')
+    slot = int(d.get('slot') or d.get('slot_number') or 1)
+    found = query('SELECT id FROM warehouse_cells WHERE zone=? AND band=? AND row_name=? AND slot=?', [zone, band, row_name, slot], fetch=True, one=True)
+    if found:
+        query('DELETE FROM warehouse_items WHERE cell_id=?', [found['id']])
+        query('DELETE FROM warehouse_cells WHERE id=?', [found['id']])
+    return jsonify(ok=True)
+
+@app.route('/api/orders/to-master', methods=['POST'])
+def api_orders_to_master_alias():
+    d = request.get_json(silent=True) or {}
+    ids = d.get('ids') or d.get('item_ids') or []
+    moved = 0
+    for item_id in ids:
+        r = query('SELECT * FROM orders WHERE id=?', [int(item_id)], fetch=True, one=True)
+        if r:
+            qty = int(r.get('qty') or r.get('quantity') or 0)
+            query('INSERT INTO master_orders(customer, product, material, qty, quantity, operator) VALUES(?, ?, ?, ?, ?, ?)', [r.get('customer',''), r.get('product',''), r.get('material',''), qty, qty, username()])
+            moved += 1
+    return jsonify(ok=True, moved=moved)
+
+@app.route('/api/native-ocr/parse', methods=['POST'])
+def api_native_ocr_parse_alias():
+    d = request.get_json(silent=True) or {}
+    text = d.get('text') or d.get('ocr_text') or ''
+    return jsonify(ok=True, text='\n'.join([i['product'] for i in parse_lines(text)]), items=parse_lines(text))
+
+# ==== end compatibility endpoints ====
 
 @app.errorhandler(Exception)
 def handle_exception(exc):
