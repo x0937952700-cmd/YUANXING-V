@@ -21,18 +21,28 @@ function stripTerms(name){let s=String(name||''); ['FOB代付','FOB代','FOB','C
 function tableShellHtml(title, selectedName=''){
  return `<div class="yx-table-head"><div class="yx-table-title"><span>${esc(title)}</span><span class="yx-count" id="yx-table-count">0件 / 0筆</span>${selectedName?`<span class="yx-selected-customer-title">${esc(stripTerms(selectedName))}</span>${termsHtml(extractTerms(selectedName))}`:''}</div><div class="yx-table-tools"><button class="yx-chip-btn" id="yx-select-all">全選目前清單</button><input id="yx-table-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="yx-chip-btn" data-zone="ALL">全部區</button><button class="yx-chip-btn" data-zone="A">A區</button><button class="yx-chip-btn" data-zone="B">B區</button><select id="yx-batch-material"><option value="">批量增加材質</option><option>紅木</option><option>花梨</option><option>黑檀</option><option>柚木</option><option>未填材質</option></select><button class="yx-chip-btn" id="yx-apply-material">套用材質</button><button class="yx-chip-btn yx-op-danger" id="yx-batch-delete">批量刪除</button></div></div><div class="yx-table-wrap"><table class="yx-product-table"><thead><tr><th></th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody id="yx-table-body"><tr><td colspan="7" class="yx-empty-line">載入中…</td></tr></tbody></table></div>`;
 }
+function setTableTitle(title, selectedName=''){
+ const titleEl=$('yx-table-title-text'); if(titleEl) titleEl.textContent=title;
+ const selected=$('yx-selected-customer-title'); if(selected) selected.textContent=selectedName?stripTerms(selectedName):'';
+}
 function ensureMainTable(m){
  let sec=$('yx-main-table');
- if(!sec){sec=document.createElement('section');sec.className='yx-main-table-section';sec.id='yx-main-table';sec.innerHTML=tableShellHtml(titleByModule(m)); let panel=document.querySelector('.upload-panel')||document.querySelector('.module-screen'); panel.insertAdjacentElement('afterend',sec);} 
+ if(!sec){
+   // Fallback only for old templates. Normal path: templates/module.html owns this HTML.
+   sec=document.createElement('section');sec.className='yx-main-table-section';sec.id='yx-main-table';sec.dataset.htmlDirectFallback='1';sec.innerHTML=tableShellHtml(titleByModule(m));
+   let panel=document.querySelector('.upload-panel')||document.querySelector('.module-screen'); panel.insertAdjacentElement('afterend',sec);
+ }
+ sec.style.display='';
+ setTableTitle(titleByModule(m));
  bindTableTools(m);
  return sec;
 }
 function ensureCustomerTable(m,name){
- let host=$('selected-customer-items'); if(!host) return null;
- host.className='glass panel yx-customer-table-panel yx66-active'; host.classList.remove('hidden');
- host.innerHTML=tableShellHtml(`${stripTerms(name)} 商品清單`, name);
+ let sec=$('yx-main-table') || ensureMainTable(m); if(!sec) return null;
+ sec.style.display='';
+ setTableTitle(`${stripTerms(name)} 商品清單`, name);
  bindTableTools(m);
- return host;
+ return sec;
 }
 function bindTableTools(m){
  setTimeout(()=>{

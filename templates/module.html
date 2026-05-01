@@ -63,6 +63,41 @@
   </div>
   {% endif %}
 
+
+
+  {% if module_key in ['inventory','orders','master_order'] %}
+  <!-- HTML_DIRECT_LOCK：新版商品表格外殼直接寫在 HTML，不再由 JS 二次建立。之後介面/按鈕修改請直接改這裡。 -->
+  <section class="yx-main-table-section" id="yx-main-table" data-html-direct-lock="1">
+    <div class="yx-table-head">
+      <div class="yx-table-title">
+        <span id="yx-table-title-text">{% if module_key == 'inventory' %}庫存清單{% elif module_key == 'orders' %}訂單清單{% else %}總單清單{% endif %}</span>
+        <span class="yx-count" id="yx-table-count">0件 / 0筆</span>
+        <span class="yx-selected-customer-title" id="yx-selected-customer-title"></span>
+      </div>
+      <div class="yx-table-tools yx30-tools-row">
+        <button class="yx-chip-btn yx22-unified-btn" id="yx-select-all" type="button">全選目前清單</button>
+        <input id="yx-table-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
+        <button class="yx-chip-btn yx22-unified-btn" data-zone="ALL" type="button">全部區</button>
+        <button class="yx-chip-btn yx22-unified-btn" data-zone="A" type="button">A區</button>
+        <button class="yx-chip-btn yx22-unified-btn" data-zone="B" type="button">B區</button>
+        <select id="yx-batch-material" class="yx-material-select">
+          <option value="">批量增加材質</option>
+          <option value="TD">TD</option><option value="MER">MER</option><option value="DF">DF</option><option value="SP">SP</option><option value="SPF">SPF</option><option value="HF">HF</option><option value="RDT">RDT</option><option value="尤加利">尤加利</option><option value="LVL">LVL</option>
+        </select>
+        <button class="yx-chip-btn yx22-unified-btn" id="yx-apply-material" type="button">套用材質</button>
+        <button class="yx-chip-btn yx22-unified-btn" id="yx28-batch-edit" type="button">批量編輯</button>
+        <button class="yx-chip-btn yx22-unified-btn yx-op-danger" id="yx-batch-delete" type="button">批量刪除</button>
+      </div>
+    </div>
+    <div class="yx-table-wrap">
+      <table class="yx-product-table">
+        <thead><tr><th></th><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead>
+        <tbody id="yx-table-body"><tr><td colspan="7" class="yx-empty-line">載入中…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
   <section class="subsection" id="region-picker-section" {% if module_key not in ['orders','master_order','ship'] %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>北中南客戶</h3>
