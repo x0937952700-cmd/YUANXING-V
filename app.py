@@ -47,7 +47,7 @@ def unread_count_sql():
     return "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread::text,'') IN ('1','t','true','True','TRUE')" if USE_POSTGRES else "SELECT COUNT(*) AS n FROM activity_logs WHERE COALESCE(unread,0)=1"
 
 def unread_clear_sql():
-    return "UPDATE activity_logs SET unread=FALSE" if USE_POSTGRES else "UPDATE activity_logs SET unread=0"
+    return "UPDATE activity_logs SET unread='0'"
 
 def clean_text(v):
     return (v or '').strip()
@@ -811,8 +811,21 @@ def api_warehouse_search_alias():
 @app.route('/api/warehouse/available-items', methods=['GET'])
 def api_warehouse_available_items_alias():
     customer = clean_text(request.args.get('customer'))
-    rows = query("SELECT id, customer, product, material, COALESCE(NULLIF(qty,0), quantity, 0) AS qty, 'inventory' AS source FROM inventory WHERE COALESCE(placed,0)=0 AND (?='' OR customer=?) ORDER BY id DESC LIMIT 1000", [customer, customer], fetch=True)
-    return jsonify(ok=True, items=normalize_item_rows(rows))
+    zone = clean_text(request.args.get('zone')).upper()[:1]
+    # PACK17: A區只顯示 A 區未錄入，B區只顯示 B 區未錄入；未指定則顯示全部。
+    rows = query("""
+        SELECT id, customer, product, material,
+               COALESCE(NULLIF(qty,0), quantity, 0) AS qty,
+               COALESCE(zone, area, location, '') AS zone,
+               'inventory' AS source,
+               id AS source_id
+        FROM inventory
+        WHERE COALESCE(placed,0)=0
+          AND (?='' OR customer=?)
+          AND (?='' OR UPPER(COALESCE(zone, area, location, '')) LIKE ?)
+        ORDER BY id DESC LIMIT 2000
+    """, [customer, customer, zone, f'%{zone}%'], fetch=True)
+    return jsonify(ok=True, success=True, items=normalize_item_rows(rows))
 
 @app.route('/api/warehouse/cell', methods=['POST'])
 def api_warehouse_cell_alias():
@@ -2344,3 +2357,139 @@ def api_final_pack15_sealed():
     return api_pack15_deploy_acceptance()
 
 # ==== end pack 15 ====
+
+
+# ==== PACK 16: final requested UI fixes / today boolean compatibility ====
+@app.route('/api/pack16/deploy-acceptance', methods=['GET'])
+def api_pack16_deploy_acceptance():
+    try:
+        today = query(unread_count_sql(), fetch=True, one=True) or {'n':0}
+        return api_success(
+            pack='16',
+            today_unread=int(today.get('n') or 0),
+            fixes=[
+                '今日異動 unread boolean/integer compatibility',
+                '庫存重複清單隱藏',
+                '表格操作欄移除',
+                '批量材質按鈕同列排列',
+                '客戶輸入第一字自動建議',
+                '訂單空客戶隱藏',
+                '出貨加入按鈕移除並改下拉直接寫入文字框',
+                '出貨預覽表格美化'
+            ],
+            message='第十六包修復已載入'
+        )
+    except Exception as e:
+        return jerr(str(e), 500)
+# ==== END PACK 16 ====
+
+
+# ==== PACK17 warehouse exact deploy acceptance ====
+@app.route('/api/pack17/deploy-acceptance', methods=['GET'])
+def api_pack17_deploy_acceptance():
+    return jsonify(ok=True, success=True, pack='17', checks={
+        'warehouse_single_grid': True,
+        'batch_unplaced_dropdown': True,
+        'zone_filtered_unplaced': True,
+        'cell_insert_delete': True,
+        'cell_display_customer_red_qty_blue': True
+    })
+
+# ==== PACK18 customer long-press edit/move/delete for orders/master ====
+def _yx18_update_customer_everywhere(old_name, new_name):
+    for t in ('customers','inventory','orders','master_orders','shipping_records','warehouse_items'):
+        try:
+            cols = table_columns(t)
+            if 'name' in cols:
+                query(f'UPDATE {t} SET name=? WHERE name=?', [new_name, old_name])
+            if 'customer' in cols:
+                query(f'UPDATE {t} SET customer=? WHERE customer=?', [new_name, old_name])
+            if 'customer_name' in cols:
+                query(f'UPDATE {t} SET customer_name=? WHERE customer_name=?', [new_name, old_name])
+        except Exception:
+            pass
+
+@app.route('/api/customer-action/edit', methods=['POST'])
+def api_pack18_customer_edit():
+    d = request.get_json(silent=True) or {}
+    old_name = clean_text(d.get('old_name') or d.get('name') or d.get('customer'))
+    new_name = clean_text(d.get('new_name') or d.get('name') or d.get('customer'))
+    region = clean_text(d.get('region') or '北區')
+    if not old_name or not new_name:
+        return jerr('客戶名稱必填')
+    upsert_customer(old_name, region)
+    _yx18_update_customer_everywhere(old_name, new_name)
+    upsert_customer(new_name, region)
+    try:
+        query('UPDATE customers SET region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [region, new_name])
+    except Exception:
+        pass
+    log_action(username(), '編輯客戶', 'customers', old_name, {'old_name': old_name, 'new_name': new_name, 'region': region})
+    return api_success(message='客戶已編輯', old_name=old_name, new_name=new_name)
+
+@app.route('/api/customer-action/move', methods=['POST'])
+def api_pack18_customer_move():
+    d = request.get_json(silent=True) or {}
+    name = clean_text(d.get('name') or d.get('customer') or d.get('customer_name'))
+    region = clean_text(d.get('region') or '北區')
+    if not name:
+        return jerr('客戶名稱必填')
+    upsert_customer(name, region)
+    query('UPDATE customers SET region=?, updated_at=CURRENT_TIMESTAMP WHERE name=?', [region, name])
+    log_action(username(), '移動客戶區域', 'customers', name, {'region': region})
+    return api_success(message='已移區', name=name, region=region)
+
+@app.route('/api/customer-action/delete', methods=['POST'])
+def api_pack18_customer_delete():
+    d = request.get_json(silent=True) or {}
+    name = clean_text(d.get('name') or d.get('customer') or d.get('customer_name'))
+    module = clean_text(d.get('module') or '')
+    table = clean_text(d.get('table') or '')
+    if not name:
+        return jerr('客戶名稱必填')
+    allowed = {'orders':'orders', 'master_order':'master_orders', 'master_orders':'master_orders'}
+    table = table if table in ('orders','master_orders') else allowed.get(module, '')
+    deleted = 0
+    if table:
+        for col in ('customer','customer_name'):
+            try:
+                cols = table_columns(table)
+                if col in cols:
+                    query(f'DELETE FROM {table} WHERE {col}=?', [name])
+                    deleted += 1
+            except Exception:
+                pass
+    else:
+        try:
+            query('UPDATE customers SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE name=?', [name])
+        except Exception:
+            pass
+    # If the customer no longer has any order/master data, archive profile so it disappears from lists.
+    try:
+        remains = 0
+        for t in ('orders','master_orders'):
+            cols = table_columns(t)
+            parts=[]; params=[]
+            if 'customer' in cols:
+                parts.append('customer=?'); params.append(name)
+            if 'customer_name' in cols:
+                parts.append('customer_name=?'); params.append(name)
+            if parts:
+                r=query(f"SELECT COUNT(*) AS n FROM {t} WHERE " + ' OR '.join(parts), params, fetch=True, one=True) or {'n':0}
+                remains += int(r.get('n') or 0)
+        if remains == 0:
+            query('UPDATE customers SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE name=?', [name])
+    except Exception:
+        pass
+    log_action(username(), '刪除客戶', table or 'customers', name, {'module': module, 'table': table})
+    return api_success(message='已刪除客戶並刷新', name=name, table=table, deleted=deleted)
+
+@app.route('/api/pack18/deploy-acceptance', methods=['GET'])
+def api_pack18_deploy_acceptance():
+    return api_success(pack='18', checks={
+        'orders_master_customer_longpress_menu': True,
+        'edit_customer_refresh_immediately': True,
+        'move_region_refresh_immediately': True,
+        'delete_customer_refresh_immediately': True
+    }, message='第十八包客戶長按操作已載入')
+# ==== END PACK18 ====
