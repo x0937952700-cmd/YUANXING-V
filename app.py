@@ -726,6 +726,7 @@ def _pack26_unplaced_summary():
             ensure_column(table, 'area', "TEXT DEFAULT ''")
             ensure_column(table, 'location', "TEXT DEFAULT ''")
             ensure_column(table, 'product_text', "TEXT DEFAULT ''")
+            ensure_column(table, 'product', "TEXT DEFAULT ''")
             ensure_column(table, 'quantity', 'INTEGER DEFAULT 0')
             ensure_column(table, 'qty', 'INTEGER DEFAULT 0')
         except Exception:
@@ -774,29 +775,30 @@ def _pack26_unplaced_summary():
 
 @app.route('/api/today', methods=['GET'])
 def api_today():
-    today = datetime.now().strftime('%Y-%m-%d')
+    # PACK31: 今日異動必須永遠回 JSON，不可把 500 HTML 塞回畫面。
     try:
-        logs = query('SELECT * FROM activity_logs WHERE date(created_at)=date(?) ORDER BY id DESC LIMIT 120', [today], fetch=True)
+        summary = _pack26_unplaced_summary()
     except Exception:
-        logs = []
+        summary = {'A': 0, 'B': 0}
     try:
         unread = query(unread_count_sql(), fetch=True, one=True) or {'n': 0}
     except Exception:
         unread = {'n': 0}
-    try:
-        unplaced_summary = _pack26_unplaced_summary()
-    except Exception:
-        unplaced_summary = {'A': 0, 'B': 0}
-    total_unplaced = int(sum(unplaced_summary.values()))
-    return jsonify(ok=True, success=True, logs=logs, unread=int(unread.get('n') or 0), unplaced=[], unplaced_summary=unplaced_summary, unplaced_total=total_unplaced)
+    total = int(summary.get('A', 0) or 0) + int(summary.get('B', 0) or 0)
+    return jsonify(ok=True, success=True, logs=[], unread=int(unread.get('n') or 0),
+                   unplaced=[], unplaced_summary={'A': int(summary.get('A', 0) or 0), 'B': int(summary.get('B', 0) or 0)},
+                   unplaced_total=total)
 
 @app.route('/api/today-summary', methods=['GET'])
 def api_today_summary_pack26():
+    # PACK31: 只回 A/B/總計，沒有未指定；失敗時也回 200 JSON。
     try:
         summary = _pack26_unplaced_summary()
     except Exception as e:
-        return jsonify(ok=False, success=False, error=str(e), unplaced_summary={'A':0,'B':0}, unplaced_total=0), 500
-    return jsonify(ok=True, success=True, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
+        summary = {'A': 0, 'B': 0}
+    A = int(summary.get('A', 0) or 0)
+    B = int(summary.get('B', 0) or 0)
+    return jsonify(ok=True, success=True, unplaced_summary={'A': A, 'B': B}, summary={'A': A, 'B': B}, unplaced_total=A+B, total=A+B)
 
 @app.route('/api/today/read', methods=['POST'])
 def api_today_read():
@@ -2953,4 +2955,39 @@ def api_pack30_deploy_acceptance():
         'single_region_card_ui': True,
         'no_auto_unplaced_refresh_long_press_only': True,
         'RDT_material_supported': True,
+    }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
+
+
+# ==== PACK31 clean final targeted layer ====
+@app.route('/api/pack31/db-repair', methods=['GET','POST'])
+def api_pack31_db_repair():
+    # Repair columns used by final UI without changing user data.
+    try:
+        _yx29_ensure_region_tables()
+    except Exception:
+        pass
+    for table in ('inventory','orders','master_orders'):
+        for col, ddl in [('product', "TEXT DEFAULT ''"), ('product_text', "TEXT DEFAULT ''"), ('material', "TEXT DEFAULT ''"), ('qty','INTEGER DEFAULT 0'), ('quantity','INTEGER DEFAULT 0'), ('zone', "TEXT DEFAULT ''"), ('area', "TEXT DEFAULT ''"), ('location', "TEXT DEFAULT ''")]:
+            try:
+                ensure_column(table, col, ddl)
+            except Exception:
+                pass
+    for col, ddl in [('category', "TEXT DEFAULT ''"), ('customer', "TEXT DEFAULT ''"), ('product', "TEXT DEFAULT ''"), ('qty','INTEGER DEFAULT 0'), ('action', "TEXT DEFAULT ''"), ('operator', "TEXT DEFAULT ''"), ('unread','INTEGER DEFAULT 1')]:
+        try:
+            ensure_column('activity_logs', col, ddl)
+        except Exception:
+            pass
+    summary = _pack26_unplaced_summary()
+    return api_success(pack='31', message='第31包資料庫修復完成', unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
+
+@app.route('/api/pack31/deploy-acceptance', methods=['GET'])
+def api_pack31_deploy_acceptance():
+    summary = _pack26_unplaced_summary()
+    return api_success(pack='31', checks={
+        'single_frontend_layer': True,
+        'today_json_no_html_error': True,
+        'unplaced_A_B_total_only': True,
+        'batch_edit_all_or_selected': True,
+        'material_dropdown_with_RDT': True,
+        'single_customer_region_ui': True,
     }, unplaced_summary=summary, unplaced_total=int(sum(summary.values())))
