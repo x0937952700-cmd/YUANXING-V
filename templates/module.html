@@ -80,13 +80,17 @@
         <button class="yx-chip-btn yx22-unified-btn" data-zone="ALL" type="button">全部區</button>
         <button class="yx-chip-btn yx22-unified-btn" data-zone="A" type="button">A區</button>
         <button class="yx-chip-btn yx22-unified-btn" data-zone="B" type="button">B區</button>
-        <select id="yx-batch-material" class="yx-material-select">
-          <option value="">批量增加材質</option>
-          <option value="TD">TD</option><option value="MER">MER</option><option value="DF">DF</option><option value="SP">SP</option><option value="SPF">SPF</option><option value="HF">HF</option><option value="RDT">RDT</option><option value="尤加利">尤加利</option><option value="LVL">LVL</option>
-        </select>
-        <button class="yx-chip-btn yx22-unified-btn" id="yx-apply-material" type="button">套用材質</button>
-        <button class="yx-chip-btn yx22-unified-btn" id="yx28-batch-edit" type="button">批量編輯</button>
-        <button class="yx-chip-btn yx22-unified-btn yx-op-danger" id="yx-batch-delete" type="button">批量刪除</button>
+        <div class="yx-batch-line yx-batch-line-material" data-html-direct-toolbar="1">
+          <select id="yx-batch-material" class="yx-material-select">
+            <option value="">批量增加材質</option>
+            <option value="TD">TD</option><option value="MER">MER</option><option value="DF">DF</option><option value="SP">SP</option><option value="SPF">SPF</option><option value="HF">HF</option><option value="RDT">RDT</option><option value="尤加利">尤加利</option><option value="LVL">LVL</option>
+          </select>
+          <button class="yx-chip-btn yx22-unified-btn yx-apply-material-btn" id="yx-apply-material" type="button">套用材質</button>
+        </div>
+        <div class="yx-batch-line yx-batch-line-actions" data-html-direct-toolbar="1">
+          <button class="yx-chip-btn yx22-unified-btn yx-op-danger" id="yx-batch-delete" type="button">批量刪除</button>
+          <button class="yx-chip-btn yx22-unified-btn" id="yx30-batch-edit" type="button">批量編輯</button>
+        </div>
       </div>
     </div>
     <div class="yx-table-wrap">
@@ -104,9 +108,21 @@
       <span class="muted">點選客戶後自動帶入客戶名稱，並顯示該客戶商品</span>
     </div>
     <div class="category-grid compact-grid">
-      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north"></div></div>
-      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center"></div></div>
-      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south"></div></div>
+      <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="region-north" data-html-direct-region="1">
+        {% for c in (region_details.get('北區', []) if region_details else []) %}
+        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
+        {% else %}<span class="muted">無</span>{% endfor %}
+      </div></div>
+      <div class="category-box" data-region="中區"><div class="category-title">中區</div><div class="customer-list" id="region-center" data-html-direct-region="1">
+        {% for c in (region_details.get('中區', []) if region_details else []) %}
+        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
+        {% else %}<span class="muted">無</span>{% endfor %}
+      </div></div>
+      <div class="category-box" data-region="南區"><div class="category-title">南區</div><div class="customer-list" id="region-south" data-html-direct-region="1">
+        {% for c in (region_details.get('南區', []) if region_details else []) %}
+        <button type="button" class="chip customer-chip yx-customer-chip-final" data-customer="{{ c.name }}" data-customer-name="{{ c.name }}" onclick='selectCustomer({{ c.name|tojson }})'><span class="yx-cust-main">{{ c.display_name }}</span>{% for term in c.terms %}<span class="yx-term-label">{{ term }}</span>{% endfor %}<span class="yx-cust-count">{{ c.qty }}件 / {{ c.count }}筆</span></button>
+        {% else %}<span class="muted">無</span>{% endfor %}
+      </div></div>
     </div>
     <div id="selected-customer-items" class="glass panel hidden"></div>
   </section>
@@ -172,7 +188,9 @@
       </div>
 
       <div class="query-bar warehouse-meta-bar">
-        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" onclick="toggleWarehouseUnplacedHighlight()">未入倉：0件</span>
+        {% set _ua = (unplaced_summary.get('A', 0) if unplaced_summary is defined else 0) %}
+        {% set _ub = (unplaced_summary.get('B', 0) if unplaced_summary is defined else 0) %}
+        <span class="pill warn interactive-pill yx30-unplaced-line" id="warehouse-unplaced-pill" data-refresh="longpress-only" title="長按刷新未錄入倉庫圖件數"><span>A區 <span class="count">{{ _ua }}件</span></span><span class="sep">｜</span><span>B區 <span class="count">{{ _ub }}件</span></span><span class="sep">｜</span><span>總計 <span class="count">{{ _ua + _ub }}件</span></span></span>
         <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
         <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
         <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>

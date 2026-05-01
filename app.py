@@ -258,6 +258,44 @@ def upsert_customer(name, region='北區'):
     if not exists:
         query('INSERT INTO customers(name, region) VALUES(?, ?)', [name, region or '北區'])
 
+
+
+def server_region_details(module):
+    """Return customer region rows for server-side HTML rendering.
+    This intentionally mirrors /api/regions but is used before the page is sent,
+    so the customer board is not created by client-side second rendering.
+    """
+    try:
+        table = 'orders' if module == 'orders' else 'master_orders'
+        if module == 'ship':
+            table = 'master_orders'
+        rows = query(f"SELECT customer, COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0) AS qty, COUNT(*) AS rows FROM {table} WHERE customer IS NOT NULL AND customer<>'' GROUP BY customer HAVING COALESCE(SUM(COALESCE(NULLIF(qty,0), quantity, 0)),0)>0 ORDER BY customer", fetch=True)
+        customers = [clean_text(r.get('customer')) for r in rows if clean_text(r.get('customer'))]
+        qty_map = {clean_text(r.get('customer')): {'qty': int(r.get('qty') or 0), 'rows': int(r.get('rows') or 0)} for r in rows}
+        try:
+            meta = derived_customers('')
+            base_region = {m['name']: _yx29_region(m.get('region')) for m in meta if m.get('name')}
+        except Exception:
+            base_region = {}
+        try:
+            locked = _yx29_get_locked_regions(module)
+        except Exception:
+            locked = {}
+        details = {'北區': [], '中區': [], '南區': []}
+        for c in customers:
+            display, terms = split_customer_terms(c)
+            region = locked.get(c) or locked.get(display) or base_region.get(c) or base_region.get(display) or '北區'
+            try:
+                region = _yx29_region(region)
+            except Exception:
+                region = region if region in details else '北區'
+            q = qty_map.get(c, {'qty': 0, 'rows': 0})
+            details.setdefault(region, [])
+            details[region].append({'name': c, 'display_name': display, 'terms': terms, 'qty': int(q.get('qty') or 0), 'count': int(q.get('rows') or 0), 'region': region})
+        return details
+    except Exception:
+        return {'北區': [], '中區': [], '南區': []}
+
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
     return render_template('index.html', username=username(), title='沅興木業')
@@ -282,7 +320,13 @@ for endpoint, (module_key, title) in MODULES.items():
         route = '/shipping-query'
     def make_view(m=module_key, t=title):
         def view():
-            return render_template('module.html', username=username(), title=t, module_key=m)
+            # HTML_DIRECT_LOCK：北中南客戶列改由 Flask 直接寫進 HTML，避免前端再二次渲染同一塊畫面。
+            region_details = server_region_details(m) if m in ('orders', 'master_order', 'ship') else {'北區': [], '中區': [], '南區': []}
+            try:
+                unplaced_summary = _pack26_unplaced_summary() if m == 'warehouse' else {'A': 0, 'B': 0}
+            except Exception:
+                unplaced_summary = {'A': 0, 'B': 0}
+            return render_template('module.html', username=username(), title=t, module_key=m, region_details=region_details, unplaced_summary=unplaced_summary)
         return view
     app.add_url_rule(route, endpoint, make_view(), methods=['GET', 'HEAD'])
 

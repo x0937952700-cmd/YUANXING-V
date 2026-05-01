@@ -43,10 +43,11 @@ async function applyMaterial(){const sel=$('yx-batch-material')||$('batch-materi
 function patchToolbar(){
   if(!['inventory','orders','master_order'].includes(page())) return; const tools=document.querySelector('.yx-table-tools'); if(!tools) return; tools.classList.add('yx30-tools-row');
   // dedupe batch edit buttons, keep one after delete
-  const edits=$$('button',tools).filter(b=>clean(b.textContent)==='批量編輯'); let edit=edits[0]; edits.slice(1).forEach(b=>b.remove()); if(!edit){edit=document.createElement('button'); edit.textContent='批量編輯'; edit.type='button'; edit.id='yx30-batch-edit'; edit.className='yx-chip-btn yx22-unified-btn';}
-  const del=$('yx-batch-delete')||$$('button',tools).find(b=>clean(b.textContent)==='批量刪除'); if(del) del.insertAdjacentElement('afterend',edit); else tools.appendChild(edit);
+  const edits=$$('button',tools).filter(b=>clean(b.textContent)==='批量編輯'); let edit=$('yx30-batch-edit')||$('yx28-batch-edit')||edits[0]; edits.filter(b=>b!==edit).forEach(b=>b.remove()); if(!edit){edit=document.createElement('button'); edit.textContent='批量編輯'; edit.type='button'; edit.id='yx30-batch-edit'; edit.className='yx-chip-btn yx22-unified-btn';}
+  edit.id='yx30-batch-edit';
+  const del=$('yx-batch-delete')||$$('button',tools).find(b=>clean(b.textContent)==='批量刪除');
   edit.className='yx-chip-btn yx22-unified-btn yx30-batch-edit'; edit.onclick=(e)=>{e.preventDefault();e.stopImmediatePropagation();startBatchEdit();};
-  if(del){const d=del.cloneNode(true); d.className='yx-chip-btn yx22-unified-btn'; d.onclick=(e)=>{e.preventDefault();e.stopImmediatePropagation();directDelete();}; del.replaceWith(d); d.insertAdjacentElement('afterend',edit);}
+  if(del){const d=del.cloneNode(true); d.id='yx-batch-delete'; d.className='yx-chip-btn yx22-unified-btn yx-op-danger'; d.onclick=(e)=>{e.preventDefault();e.stopImmediatePropagation();directDelete();}; del.replaceWith(d); d.insertAdjacentElement('afterend',edit);} else tools.appendChild(edit);
   const apply=$('yx-apply-material')||$$('button',tools).find(b=>clean(b.textContent)==='套用材質'); if(apply){const a=apply.cloneNode(true); a.className='yx-chip-btn yx22-unified-btn'; a.onclick=(e)=>{e.preventDefault();e.stopImmediatePropagation();applyMaterial();}; apply.replaceWith(a);} 
   patchMaterialOptions();
 }
@@ -66,7 +67,7 @@ async function renderWarehouseUnplaced(manual=false){if(page()!=='warehouse')ret
 function bindLongPressRefresh(){const bind=el=>{if(!el||el.dataset.yx30Long)return;el.dataset.yx30Long='1';let tm=null;const start=()=>{tm=setTimeout(()=>{renderWarehouseUnplaced(true);toast('已更新未入倉件數');},650)};const stop=()=>{clearTimeout(tm)};el.addEventListener('mousedown',start);el.addEventListener('touchstart',start,{passive:true});['mouseup','mouseleave','touchend','touchcancel'].forEach(ev=>el.addEventListener(ev,stop));};bind($('warehouse-unplaced-pill'));}
 function cleanCustomerItemDropdown(){ if(page()!=='ship') return; const sel=$('ship-customer-item-select'); if(!sel)return; $$('option',sel).forEach(o=>{let txt=clean(o.textContent); if(!txt||txt.includes('請'))return; // Ensure product detail format: 尺寸｜支數件數｜件數｜材質
     txt=txt.replace(/\s*\|\s*/g,'｜'); o.textContent=txt;}); }
-function boot(){patchMaterialOptions(); bindRowSelection(); patchToolbar(); centerMaterialTags(); hideDuplicateRegionBoards(); patchRegionMove(); cleanCustomerItemDropdown(); renderWarehouseUnplaced(false); bindLongPressRefresh(); if(page()==='today') renderToday();}
+function boot(){patchMaterialOptions(); bindRowSelection(); patchToolbar(); centerMaterialTags(); hideDuplicateRegionBoards(); patchRegionMove(); cleanCustomerItemDropdown(); bindLongPressRefresh(); if(page()==='today') renderToday();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,120),{once:true});else setTimeout(boot,120);
 let moTimer=null;new MutationObserver(()=>{clearTimeout(moTimer);moTimer=setTimeout(boot,220)}).observe(document.documentElement,{childList:true,subtree:true});
 window.yx30RefreshUnplaced=()=>{renderToday();renderWarehouseUnplaced(true)};
