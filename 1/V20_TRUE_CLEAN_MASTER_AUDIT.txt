@@ -7,6 +7,6 @@ V20 TRUE CLEAN MASTER AUDIT
 2. 商品頁只保留 product_actions 主線 renderer + v20 final product submit master。
 3. 確認送出、套用材質、批量刪除、移到 A/B 區、批量編輯、加到訂單/總單都保留。
 4. 批量操作仍走單次 API：/api/customer-items/batch-material、/api/customer-items/batch-delete、/api/customer-items/batch-zone、/api/customer-items/batch-update、/api/items/batch-transfer。
-5. 更新 PWA/cache 版本：v21-no-old-cover。
+5. 更新 PWA/cache 版本：v20-true-clean-master。
 
 注意：fix135～fix142 的 CSS 仍保留，因它們只提供外觀樣式，不執行 JS renderer；為了保持畫面一模一樣，沒有刪除視覺 CSS。

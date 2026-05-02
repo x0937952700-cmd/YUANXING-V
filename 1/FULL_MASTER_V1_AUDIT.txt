@@ -1,0 +1,28 @@
+FULL_MASTER_V1_AUDIT
+來源：使用使用者提供的「還完整.zip」為基底，先不刪功能。
+做法：把原本載入的 JS 依原順序合併成 static/yx_pages/yx_full_master_v1.js。
+HTML：templates/base.html 改為只載入 yx_full_master_v1.js + pwa.js。
+舊補丁檔：沒有再以獨立 script 載入；內容已合併進母版 bundle。
+HTML 骨架：保留原本完整可用版本，沒有大刪畫面，後續逐項指定再改。
+合併來源：
+ - static/yx_modules/core_hardlock.js
+ - static/yx_modules/quantity_rule_hardlock.js
+ - static/yx_modules/ornate_label_hardlock.js
+ - static/yx_modules/product_sort_hardlock.js
+ - static/yx_pages/page_products_master.js
+ - static/yx_modules/customer_regions_hardlock.js
+ - static/yx_pages/page_customers_master.js
+ - static/yx_modules/ship_single_lock.js
+ - static/yx_modules/warehouse_hardlock.js
+ - static/yx_modules/today_changes_hardlock.js
+ - static/yx_modules/settings_manual.js
+ - static/yx_modules/shipping_query_manual.js
+ - static/yx_pages/page_todos_master.js
+ - static/yx_pages/page_bootstrap_master.js
+新增 script：1（唯一母版 static/yx_pages/yx_full_master_v1.js；不是補丁檔）
+新增 renderer：0（只搬移原本 renderer 到母版 bundle）
+新增 MutationObserver：0
+新增 setTimeout：0
+目前仍保留 CSS：style.css + 原本 CSS，因為先不刪功能與外觀。
+bundle bytes: 177529
+script yx_modules/yx_pages references in base: 10

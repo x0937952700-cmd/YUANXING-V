@@ -85,7 +85,7 @@
         </div>
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
-        <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜完整直列顯示，不用下拉式</span></div><div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="inventory">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="inventory">加到總單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="inventory">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="inventory">移到B區</button></div></div>
+        <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
         <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
@@ -103,6 +103,7 @@
       <div class="yx114-toolbar-main"></div>
       <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
         <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
+        <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="orders">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="orders">A區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="orders">B區</button>
@@ -110,10 +111,12 @@
         <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="orders">套用材質</button>
         <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="orders">批量刪除</button>
         <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="orders">批量編輯全部</button>
+        <button class="primary-btn small-btn" type="button" data-yx128-save-all="orders" style="display:none">儲存批量編輯</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="orders" style="display:none">取消編輯</button>
       </div>
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
-      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜完整直列顯示，不用下拉式</span></div><div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="orders">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="orders">移到B區</button></div></div>
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
       <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
     </div>
     <div id="orders-list" class="card-list" style="display:none"></div>
@@ -135,10 +138,12 @@
         <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="master_order">套用材質</button>
         <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="master_order">批量刪除</button>
         <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="master_order">批量編輯全部</button>
+        <button class="primary-btn small-btn" type="button" data-yx128-save-all="master_order" style="display:none">儲存批量編輯</button>
+        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="master_order" style="display:none">取消編輯</button>
       </div>
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
-      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜完整直列顯示，不用下拉式</span></div><div class="yx128-summary-controls"><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="master_order">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="master_order">移到B區</button></div></div>
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
       <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
     </div>
     <div id="master-list" class="card-list" style="display:none"></div>

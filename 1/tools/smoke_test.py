@@ -19,19 +19,19 @@ required = {
     "static/yx_modules/core_hardlock.js": ["YXHardLock", "register"],
     "static/yx_modules/quantity_rule_hardlock.js": ["YX126Qty", "calcTotalQty"],
     "static/yx_modules/product_sort_hardlock.js": ["YX118ProductSort", "compareRows"],
-    "static/yx_pages/page_products_master.js": ["v25-one-table-master", "YX113ProductActions", "bulkMaterial", "bulkDelete", "batchMoveZone", "saveAllEdits", "confirmSubmit"],
+    "static/yx_pages/page_products_master.js": ["v20-true-clean-master", "YX113ProductActions", "bulkMaterial", "bulkDelete", "batchMoveZone", "saveAllEdits", "confirmSubmit"],
     "static/yx_pages/page_customers_master.js": ["saveCustomer", "fillCustomerForm", "openArchivedCustomersModal"],
-    "static/yx_pages/page_bootstrap_master.js": ["v25-one-table-master", "safeInstall", "customer_regions", "today_changes"],
-    "static/yx_pages/page_todos_master.js": ["v25-one-table-master", "openTodoAlbumPicker", "openTodoCameraPicker", "saveTodoItem", "clearTodoForm", "/api/todos"],
+    "static/yx_pages/page_bootstrap_master.js": ["v20-true-clean-master", "safeInstall", "customer_regions", "today_changes"],
+    "static/yx_pages/page_todos_master.js": ["v20-true-clean-master", "openTodoAlbumPicker", "openTodoCameraPicker", "saveTodoItem", "clearTodoForm", "/api/todos"],
     "static/yx_modules/customer_regions_hardlock.js": ["customer_regions", "loadCustomerBlocks", "yx:customer-selected"],
     "static/yx_modules/warehouse_hardlock.js": ["warehouse", "renderWarehouse", "saveWarehouseCell"],
     "static/yx_modules/ship_single_lock.js": ["YX_SHIP_SINGLE", "state.selected", "loadItems"],
     "static/yx_modules/today_changes_hardlock.js": ["today_changes", "loadTodayChanges"],
     "static/yx_modules/settings_manual.js": ["loadAuditTrails", "backup"],
-    "templates/base.html": ["v25-one-table-master", "yx_pages/page_products_master.js", "yx_pages/page_bootstrap_master.js", "yx_pages/page_todos_master.js", "warehouse_hardlock.js", "ship_single_lock.js"],
+    "templates/base.html": ["v20-true-clean-master", "yx_pages/page_products_master.js", "yx_pages/page_bootstrap_master.js", "yx_pages/page_todos_master.js", "warehouse_hardlock.js", "ship_single_lock.js"],
     "templates/module.html": ["data-html-direct-shell", "yx113-inventory-toolbar", "yx113-orders-toolbar", "yx113-master_order-toolbar", "warehouse-unplaced-pill", "yx-ship-single-html"],
-    "static/service-worker.js": ["v25-one-table-master", "no-store"],
-    "static/pwa.js": ["v25-one-table-master"],
+    "static/service-worker.js": ["v20-true-clean-master", "yx_pages/page_products_master.js", "yx_pages/page_bootstrap_master.js", "yx_pages/page_todos_master.js", "ship_single_lock.js"],
+    "static/pwa.js": ["v20-true-clean-master"],
     "app.py": ["/api/customer-items/batch-material", "/api/customer-items/batch-zone", "/api/customer-items/batch-delete", "/api/customer-items/batch-update", "/api/items/batch-transfer"],
     ".python-version": ["3.11.11"],
     "runtime.txt": ["python-3.11.11"],
@@ -71,4 +71,4 @@ for handler in ["confirmSubmit", "reverseLookup", "clearShipSelectedItems", "sea
     if handler + "(" in html and (handler not in owners and f"window.{handler}" not in owners):
         raise SystemExit(f"Missing inline handler owner: {handler}")
 
-print("v23 one render master smoke test OK")
+print("v20 true clean master smoke test OK")

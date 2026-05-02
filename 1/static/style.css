@@ -4571,9 +4571,3 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 #warehouse-modal .yx121-batch-label{font-weight:950;color:#111827;text-align:center;background:#f4f7fb;border:1px solid rgba(15,23,42,.08);border-radius:999px;padding:9px 6px;}
 #warehouse-modal .yx121-batch-select,#warehouse-modal .yx121-batch-qty{min-height:42px;}
 @media(max-width:680px){#warehouse-modal .yx-direct-current-item{align-items:flex-start;flex-direction:column;}#warehouse-modal .yx121-batch-row{grid-template-columns:1fr;}#warehouse-modal .yx121-batch-label{text-align:left;padding-left:12px;}}
-
-
-/* v23 one-render master: remove legacy alternate product pages/rows */
-.yx63-toolbar,.yx62-toolbar,.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.yx63-summary,.yx62-summary,.fix57-summary-panel,.yx63-card-list{display:none!important;}
-.yx113-summary .yx131-action-cell .small-note{display:none!important;}
-.yx113-summary .yx131-action-cell:empty{display:none!important;}

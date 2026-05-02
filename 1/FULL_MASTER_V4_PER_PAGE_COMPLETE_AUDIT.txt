@@ -1,0 +1,125 @@
+FULL MASTER V4 PER PAGE COMPLETE AUDIT
+版本：full-master-v6-no-readme-no-cover
+
+一、每頁唯一母版 JS 載入：
+- home: static/yx_pages/page_home_master_v2.js
+- inventory: static/yx_pages/page_inventory_master_v2.js
+- orders: static/yx_pages/page_orders_master_v2.js
+- master_order: static/yx_pages/page_master_order_master_v2.js
+- ship: static/yx_pages/page_ship_master_v2.js
+- warehouse: static/yx_pages/page_warehouse_master_v2.js
+- today_changes: static/yx_pages/page_today_changes_master_v2.js
+- settings: static/yx_pages/page_settings_master_v2.js
+- shipping_query: static/yx_pages/page_shipping_query_master_v2.js
+- todos: static/yx_pages/page_todos_master_v2.js
+- customers: static/yx_pages/page_customers_master_v2.js
+- login: static/yx_pages/page_login_master_v4.js
+
+二、原本完整版本 JS 已合併來源：
+- home:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_pages/page_bootstrap_master.js
+- inventory:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_pages/page_products_master.js
+  * static/yx_pages/page_bootstrap_master.js
+- orders:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_pages/page_products_master.js
+  * static/yx_modules/customer_regions_hardlock.js
+  * static/yx_pages/page_customers_master.js
+  * static/yx_pages/page_bootstrap_master.js
+- master_order:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_pages/page_products_master.js
+  * static/yx_modules/customer_regions_hardlock.js
+  * static/yx_pages/page_customers_master.js
+  * static/yx_pages/page_bootstrap_master.js
+- ship:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/customer_regions_hardlock.js
+  * static/yx_pages/page_customers_master.js
+  * static/yx_modules/ship_single_lock.js
+  * static/yx_pages/page_bootstrap_master.js
+- warehouse:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/warehouse_hardlock.js
+  * static/yx_pages/page_bootstrap_master.js
+- today_changes:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/today_changes_hardlock.js
+  * static/yx_pages/page_bootstrap_master.js
+- settings:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/settings_manual.js
+  * static/yx_pages/page_bootstrap_master.js
+- shipping_query:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/shipping_query_manual.js
+  * static/yx_pages/page_bootstrap_master.js
+- todos:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_pages/page_todos_master.js
+  * static/yx_pages/page_bootstrap_master.js
+- customers:
+  * static/yx_modules/core_hardlock.js
+  * static/yx_modules/quantity_rule_hardlock.js
+  * static/yx_modules/ornate_label_hardlock.js
+  * static/yx_modules/product_sort_hardlock.js
+  * static/yx_modules/customer_regions_hardlock.js
+  * static/yx_pages/page_customers_master.js
+  * static/yx_pages/page_bootstrap_master.js
+- login:
+  * templates/login.html inline script -> static/yx_pages/page_login_master_v4.js
+
+三、HTML inline/onclick 檢查：
+onclick 函式數：26
+缺少對應 JS 函式：0
+登入頁 inline script：已搬入 static/yx_pages/page_login_master_v4.js
+
+四、舊 JS 檢查：
+static/yx_modules/*.js 殘留數：0
+base.html 直接載入舊 yx_modules JS：0
+
+五、這次新增/移動：
+- 新增登入頁唯一母版：static/yx_pages/page_login_master_v4.js
+- 移除 login.html 的登入 inline script 與 onclick，改由登入母版綁定
+- 更新 base.html 讓 login_page 只載入 page_login_master_v4.js
+- Service Worker/PWA 快取版本更新，並加入登入母版 JS
+
+六、要求回報：
+- 新增補丁檔：0（新增的是頁面母版 page_login_master_v4.js）
+- 新增 renderer：0
+- 新增 MutationObserver：0
+- 新增 setTimeout：0
+- 舊 yx_modules JS：未載入、未保留 JS 檔

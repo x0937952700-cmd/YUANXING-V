@@ -1,0 +1,60 @@
+FULL MASTER V3 PER PAGE AUDIT
+版本：full-master-v6-no-readme-no-cover
+
+處理結果：
+1. 已把 FULL MASTER V1 的合併內容拆成每頁各自唯一母版 JS。
+2. base.html 不再載入 yx_full_master_v1.js。
+3. 每個 endpoint 只載入一支對應頁面母版 JS + pwa.js。
+4. 舊 yx_modules/*.js 沒有再由 HTML 或 Service Worker 載入。
+5. Service Worker 改為 full-master-v6-no-readme-no-cover，並清除舊 yuanxing-* 快取；static 改 network-first，避免舊 JS/CSS 跳出。
+6. app.py /static Cache-Control 改 no-store，部署後不再因瀏覽器快取吃到舊檔。
+
+每頁母版：
+- home -> page_home_master_v2.js
+- inventory_page -> page_inventory_master_v2.js
+- orders_page -> page_orders_master_v2.js
+- master_order_page -> page_master_order_master_v2.js
+- ship_page -> page_ship_master_v2.js
+- warehouse_page -> page_warehouse_master_v2.js
+- today_changes_page -> page_today_changes_master_v2.js
+- settings_page -> page_settings_master_v2.js
+- shipping_query_page -> page_shipping_query_master_v2.js
+- todos_page -> page_todos_master_v2.js
+- customers_page -> page_customers_master_v2.js
+
+HTML script src 檢查：
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_home_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_inventory_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_orders_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_master_order_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_ship_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_warehouse_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_today_changes_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_settings_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_shipping_query_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_todos_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='yx_pages/page_customers_master_v2.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+base.html: <script defer src="{{ url_for('static', filename='pwa.js') }}?v=full-master-v6-no-readme-no-cover"></script>
+
+舊 yx_modules JS 載入殘留：0
+
+每頁 JS 內部檢查：
+page_home_master_v2.js: render=11, MutationObserver=1, setTimeout=2, DOMContentLoaded=2
+page_inventory_master_v2.js: render=55, MutationObserver=2, setTimeout=5, DOMContentLoaded=3
+page_orders_master_v2.js: render=74, MutationObserver=3, setTimeout=8, DOMContentLoaded=3
+page_master_order_master_v2.js: render=74, MutationObserver=3, setTimeout=8, DOMContentLoaded=3
+page_ship_master_v2.js: render=51, MutationObserver=2, setTimeout=7, DOMContentLoaded=3
+page_warehouse_master_v2.js: render=28, MutationObserver=1, setTimeout=4, DOMContentLoaded=3
+page_today_changes_master_v2.js: render=16, MutationObserver=1, setTimeout=4, DOMContentLoaded=2
+page_settings_master_v2.js: render=11, MutationObserver=1, setTimeout=2, DOMContentLoaded=3
+page_shipping_query_master_v2.js: render=11, MutationObserver=1, setTimeout=2, DOMContentLoaded=2
+page_todos_master_v2.js: render=23, MutationObserver=1, setTimeout=2, DOMContentLoaded=3
+page_customers_master_v2.js: render=30, MutationObserver=2, setTimeout=5, DOMContentLoaded=2
+
+新增 script：每頁條件式 1 支唯一母版 JS，沒有新增補丁檔。
+新增 renderer：0（只拆分原本 FULL MASTER 內容到各頁母版，沒有新增新 renderer）。
+新增 MutationObserver：0（只保留原本完整版本已有內容，沒有新增）。
+新增 setTimeout：0（只保留原本完整版本已有內容，沒有新增）。
+
+JS syntax：OK
+Python compile：OK

@@ -1,0 +1,63 @@
+FULL MASTER V3 PER PAGE CONFIRMED AUDIT
+
+Result: each page loads only its own page_xxx_master_v2.js plus static/pwa.js.
+Removed unused old JS files from package to prevent accidental future loading.
+
+Per-page master JS files:
+- static/yx_pages/page_customers_master_v2.js
+- static/yx_pages/page_home_master_v2.js
+- static/yx_pages/page_inventory_master_v2.js
+- static/yx_pages/page_master_order_master_v2.js
+- static/yx_pages/page_orders_master_v2.js
+- static/yx_pages/page_settings_master_v2.js
+- static/yx_pages/page_ship_master_v2.js
+- static/yx_pages/page_shipping_query_master_v2.js
+- static/yx_pages/page_today_changes_master_v2.js
+- static/yx_pages/page_todos_master_v2.js
+- static/yx_pages/page_warehouse_master_v2.js
+
+Script refs in templates:
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_home_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_inventory_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_orders_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_master_order_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_ship_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_warehouse_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_today_changes_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_settings_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_shipping_query_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_todos_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='yx_pages/page_customers_master_v2.js') }}?v=full-master-v6-no-readme-no-cover
+- templates/base.html: {{ url_for('static', filename='pwa.js') }}?v=full-master-v6-no-readme-no-cover
+
+Removed old JS files:
+- static/yx_modules/customer_regions_hardlock.js
+- static/yx_modules/product_sort_hardlock.js
+- static/yx_modules/quantity_rule_hardlock.js
+- static/yx_modules/warehouse_hardlock.js
+- static/yx_modules/core_hardlock.js
+- static/yx_modules/ornate_label_hardlock.js
+- static/yx_modules/today_changes_hardlock.js
+- static/yx_modules/settings_manual.js
+- static/yx_modules/shipping_query_manual.js
+- static/yx_modules/ship_single_lock.js
+- static/yx_pages/page_products_master.js
+- static/yx_pages/page_customers_master.js
+- static/yx_pages/page_bootstrap_master.js
+- static/yx_pages/page_todos_master.js
+- static/yx_pages/yx_full_master_v1.js
+
+Forbidden loaded refs in base/service-worker: yx_modules/
+
+Master JS scan counts:
+- page_customers_master_v2.js: {'document_addEventListener_click': 4, 'MutationObserver': 2, 'setTimeout': 5, 'render_mentions': 35, 'bytes': 49451}
+- page_home_master_v2.js: {'document_addEventListener_click': 1, 'MutationObserver': 1, 'setTimeout': 2, 'render_mentions': 11, 'bytes': 19488}
+- page_inventory_master_v2.js: {'document_addEventListener_click': 3, 'MutationObserver': 2, 'setTimeout': 5, 'render_mentions': 62, 'bytes': 72377}
+- page_master_order_master_v2.js: {'document_addEventListener_click': 6, 'MutationObserver': 3, 'setTimeout': 8, 'render_mentions': 86, 'bytes': 102336}
+- page_orders_master_v2.js: {'document_addEventListener_click': 6, 'MutationObserver': 3, 'setTimeout': 8, 'render_mentions': 86, 'bytes': 102324}
+- page_settings_master_v2.js: {'document_addEventListener_click': 2, 'MutationObserver': 1, 'setTimeout': 2, 'render_mentions': 11, 'bytes': 24506}
+- page_ship_master_v2.js: {'document_addEventListener_click': 7, 'MutationObserver': 2, 'setTimeout': 7, 'render_mentions': 56, 'bytes': 70002}
+- page_shipping_query_master_v2.js: {'document_addEventListener_click': 1, 'MutationObserver': 1, 'setTimeout': 2, 'render_mentions': 11, 'bytes': 20916}
+- page_today_changes_master_v2.js: {'document_addEventListener_click': 2, 'MutationObserver': 1, 'setTimeout': 4, 'render_mentions': 19, 'bytes': 32911}
+- page_todos_master_v2.js: {'document_addEventListener_click': 2, 'MutationObserver': 1, 'setTimeout': 2, 'render_mentions': 23, 'bytes': 32662}
+- page_warehouse_master_v2.js: {'document_addEventListener_click': 3, 'MutationObserver': 1, 'setTimeout': 4, 'render_mentions': 32, 'bytes': 47677}

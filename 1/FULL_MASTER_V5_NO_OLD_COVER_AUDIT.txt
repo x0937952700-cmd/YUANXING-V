@@ -1,0 +1,31 @@
+FULL MASTER V5 NO OLD COVER AUDIT
+version=full-master-v6-no-readme-no-cover
+
+修正重點:
+1. 移除 base.html 中 HTML_DIRECT 動態防護 setTimeout 攔截器。
+2. 移除 fix135/fix136/fix137/fix138/fix140 舊版 CSS 載入，只保留必要 style.css/final_mother/ornate/home_background/fix142 出貨樣式。
+3. 每頁母版 JS 內的 ornate_label_hardlock 動態 MutationObserver/setTimeout 已改成靜態樣式鎖，不再重複掃 DOM。
+4. Service Worker 改為 network-only + 清除 yuanxing 舊快取，不再快取 JS/CSS/HTML。
+5. /static 改 no-store，避免 Render/瀏覽器吃舊 JS/CSS。
+
+修改過的頁面母版 JS:
+- page_home_master_v2.js: replaced live visual observer block (1)
+- page_inventory_master_v2.js: replaced live visual observer block (1)
+- page_orders_master_v2.js: replaced live visual observer block (1)
+- page_master_order_master_v2.js: replaced live visual observer block (1)
+- page_ship_master_v2.js: replaced live visual observer block (1)
+- page_warehouse_master_v2.js: replaced live visual observer block (1)
+- page_today_changes_master_v2.js: replaced live visual observer block (1)
+- page_settings_master_v2.js: replaced live visual observer block (1)
+- page_shipping_query_master_v2.js: replaced live visual observer block (1)
+- page_todos_master_v2.js: replaced live visual observer block (1)
+- page_customers_master_v2.js: replaced live visual observer block (1)
+
+剩餘檢查:
+page master JS contains ornate_label_hardlock live block: False
+page master JS contains __YX124_ORNATE_LABEL_ACTIVE__: False
+base.html loads fix135/fix136/fix137/fix138/fix140 CSS: False
+新增 script: 0
+新增 renderer: 0
+新增 MutationObserver: 0（已移除舊視覺掃描器；功能頁自身必要拖拉/客戶監聽仍保留）
+新增 setTimeout: 0（並移除舊視覺定時掃描）

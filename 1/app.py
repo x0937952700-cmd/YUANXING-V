@@ -197,14 +197,14 @@ def login_required_json(f):
 
 @app.after_request
 def add_cache_headers(response):
-    # v24：static 檔案暫時改 no-store，避免舊 JS/CSS 快取造成跳版。
+    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
     # HTML / API 仍維持 no-store，資料不會吃舊。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
         response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
