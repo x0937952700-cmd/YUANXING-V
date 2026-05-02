@@ -1,0 +1,15 @@
+V19 CLEAN REAL FIX
+
+修復內容：
+1. 實際載入改為 page_*_master_v19.js。
+2. 清除 v18 每頁內部的 V18 PERSIST CUSTOMER ENHANCER，避免全頁 click 監聽與 localStorage 區域覆蓋後端。
+3. 客戶區域顯示改為優先採用後端 customer_profiles 的 region，localStorage 只當最後備援。
+4. 訂單 / 總單 / 庫存 POST 回傳 customers=get_customers()，前端可直接用後端最新客戶區資料。
+5. Service Worker / base 快取版本更新為 full-master-v19-clean-real-fix。
+6. 沒有新增補丁 JS；仍是每頁唯一實際載入母版 JS。
+
+檢查重點：
+- page_*_master_v18.js 載入：0
+- page_*_master_v2.js 載入：0
+- full-master-v18/v17/v16/v15/v14/v13/v12/v11/v10/v9 載入：0
+- V18 PERSIST CUSTOMER ENHANCER 殘留：0

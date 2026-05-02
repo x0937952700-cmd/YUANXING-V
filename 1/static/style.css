@@ -4590,7 +4590,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag-list .yx-ship-selected-html-card{width:100%; display:block;}
 
 
-/* ===== full-master-v13-real-customer-delete: real loaded HTML/JS/CSS fixes ===== */
+/* ===== full-master-v19-clean-real-fix: real loaded HTML/JS/CSS fixes ===== */
 #ship-customer-item-select[hidden], .ship-customer-item-select[hidden]{display:none!important;}
 .yx-final-ship-tag-menu{display:block!important;max-height:none!important;overflow:visible!important;padding:6px 0!important;}
 .yx-ship-product-option-row{width:100%;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;margin:8px 0;padding:10px 12px;border:1px solid rgba(180,112,40,.35);border-radius:14px;background:#fffdf8;box-shadow:0 4px 14px rgba(20,20,20,.05);cursor:pointer;}
@@ -4654,3 +4654,17 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 /* V15: 訂單/總單新增後客戶卡直接顯示，避免被空狀態或舊版樣式蓋掉 */
 .customer-list .yx-v15-force-customer-card{display:flex!important;align-items:center;justify-content:space-between;width:100%;min-height:44px;pointer-events:auto!important;opacity:1!important;visibility:visible!important;}
 .customer-list .empty-state-card:has(+ .yx-v15-force-customer-card){display:none!important;}
+
+/* V18：客戶新增/移動區域確實持久化後的顯示樣式；寫進實際載入 CSS。 */
+.customer-region-card[data-region="北區"],
+.customer-region-card[data-region="中區"],
+.customer-region-card[data-region="南區"]{
+  opacity:1;
+  pointer-events:auto;
+}
+.category-box[data-region] .customer-region-card{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}

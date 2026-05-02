@@ -921,7 +921,7 @@ def api_inventory():
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
-        return jsonify(success=True, items=grouped_inventory(), **snap)
+        return jsonify(success=True, items=grouped_inventory(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
@@ -1048,13 +1048,14 @@ def api_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         log_action(current_username(), "建立訂單")
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_orders(), **snap)
+        return jsonify(success=True, items=get_orders(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("orders", str(e))
         return error_response("訂單建立失敗")
@@ -1074,13 +1075,14 @@ def api_master_orders():
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         log_action(current_username(), "更新總單")
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_master_orders(), **snap)
+        return jsonify(success=True, items=get_master_orders(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("master_orders", str(e))
         return error_response("總單失敗")
@@ -1173,6 +1175,23 @@ def api_customers():
         return error_response("客戶儲存失敗")
 
 
+@app.route("/api/customers/ensure", methods=["POST"])
+@login_required_json
+def api_customers_ensure():
+    try:
+        data = request.get_json(silent=True) or {}
+        name = (data.get('name') or data.get('customer_name') or '').strip()
+        region = resolve_customer_region(name, data.get('region') or '北區')
+        if not name:
+            return error_response('請輸入客戶名稱')
+        item = upsert_customer(name, region=region, preserve_existing=bool(data.get('preserve_existing', True)))
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已確實寫入：{name}', extra={'customer_name': name, 'region': item.get('region') if isinstance(item, dict) else region})
+        return jsonify(success=True, item=item, items=get_customers())
+    except Exception as e:
+        log_error('customers_ensure', str(e))
+        return error_response('客戶確實寫入失敗')
+
+
 @app.route("/api/recover/customers-from-relations", methods=["POST", "GET"])
 @login_required_json
 def api_recover_customers_from_relations():
@@ -1222,10 +1241,16 @@ def api_customers_move():
             return error_response("缺少客戶或區域")
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or '', include_archived=True)
         name = resolved_name or name
-        if not name or not row:
-            return error_response("找不到客戶資料")
-        before_region = (row.get("region") or "").strip()
-        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
+        if not name:
+            return error_response("缺少客戶名稱")
+        # v18：客戶可能是從訂單/總單關聯表產生的 virtual customer，customer_profiles 尚未有實體列。
+        # 移動區域時必須先把它確實寫入 customer_profiles，不能只做前端暫存。
+        if not row:
+            item = upsert_customer(name, region=region, preserve_existing=False)
+            before_region = ''
+        else:
+            before_region = (row.get("region") or "").strip()
+            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
         log_action(current_username(), f"移動客戶 {name} 到 {region}")
         add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
