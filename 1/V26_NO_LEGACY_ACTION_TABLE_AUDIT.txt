@@ -1,0 +1,22 @@
+V26 NO LEGACY ACTION TABLE AUDIT
+
+原因：v25 的商品母版 JS 仍然保留兩個輸出來源：
+1. renderSummary() 表格 renderer
+2. renderCards() 小卡 renderer，裡面仍會產生「編輯 / 刪除 / 加到訂單 / 加到總單」按鈕
+此外庫存 HTML 骨架原本是 5 欄，JS 最終版又可能改成不同欄數，會造成載入前後畫面像跳兩個版本。
+
+本版修改：
+- 庫存 / 訂單 / 總單表格統一為 6 欄：材質 / 尺寸 / 支數x件數 / 總數量 / A/B區 / 操作。
+- 操作欄固定只顯示「勾選後用上方按鈕操作」。
+- 移除表格列內「編輯 / 刪除」按鈕版本。
+- renderCards() 改成 no-op 並強制隱藏，避免小卡舊版本跳出。
+- HTML 骨架同步為 JS 最終表格欄位。
+
+檢查要求：
+- 新增 script：0
+- 新增 renderer：0
+- 新增 MutationObserver：0
+- 新增 setTimeout：0
+- 商品頁仍只載入 page_products_master.js
+
+- cardHTML / renderCardEditor 已清空，避免舊小卡操作按鈕殘留。

@@ -1,0 +1,17 @@
+V24 NO JUMP AUDIT
+
+這次真正還會亂跳的主因：
+1. 瀏覽器 / PWA service worker 還可能拿到舊版 page_products_master.js，所以會出現 v22 已刪掉的「勾選後用上方按鈕操作」。這個字串在 v23 ZIP 內已不存在，若畫面還看到，就代表實際執行的是快取舊 JS。
+2. page_bootstrap_master.js 會再次 force install product_actions，造成同頁二次重畫；v24 已移除這個重複安裝。
+3. app.py 對 /static/ 使用 immutable 長快取，部署後瀏覽器可能繼續吃舊 JS/CSS；v24 已改 no-store。
+4. v24 已停用/清除舊 Service Worker 與 yuanxing-* caches。
+
+v24 保留的最終版本：
+- 商品表格保留有「編輯 / 刪除 / 加到訂單 / 加到總單 / 直接出貨」的功能完整版本。
+- 移除「勾選後用上方按鈕操作」版本。
+- 商品頁只由 static/yx_pages/page_products_master.js 接管。
+
+部署後需要：
+- GitHub 整包覆蓋
+- Render 重新部署
+- 第一次開啟後重新整理一次，讓舊 service worker 被解除控制

@@ -197,12 +197,12 @@ def login_required_json(f):
 
 @app.after_request
 def add_cache_headers(response):
-    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
+    # v24：static 檔案暫時改 no-store，避免舊 JS/CSS 快取造成跳版。
     # HTML / API 仍維持 no-store，資料不會吃舊。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
         response.headers.pop('Pragma', None)
         response.headers.pop('Expires', None)
         return response
@@ -3008,6 +3008,87 @@ def api_fix28_items_transfer():
     except Exception as e:
         log_error('fix28_items_transfer', str(e))
         return error_response('互通操作失敗')
+
+
+@app.route('/api/items/batch-transfer', methods=['POST'])
+@login_required_json
+def api_v17_items_batch_transfer():
+    """v17 clean master：加到訂單 / 加到總單使用單次 API。
+    前端一次送出多筆來源商品，後端逐筆轉入目標並回傳最新清單，避免多個按鈕逐筆等待 HTTP。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        items = data.get('items') or []
+        target = (data.get('target') or '').strip()
+        customer_name = (data.get('customer_name') or '').strip()
+        if target in ('master_orders',):
+            target = 'master_order'
+        if target not in ('inventory', 'orders', 'master_order'):
+            return error_response('目標類型錯誤')
+        if target != 'inventory' and not customer_name:
+            return error_response('請選擇客戶')
+        if not items:
+            return error_response('請先勾選要轉入的商品')
+        if customer_name:
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+        moved_rows = []
+        errors = []
+        for it in items:
+            try:
+                source_info = _fix28_table_for_source(it.get('source'))
+                if not source_info:
+                    errors.append({'item': it, 'error': '來源類型錯誤'})
+                    continue
+                source_table, source_label = source_info
+                item_id = int(it.get('id') or 0)
+                row = _fix28_get_row(source_table, item_id)
+                if not row:
+                    errors.append({'item': it, 'error': '找不到來源商品'})
+                    continue
+                current_qty = int(row.get('qty') or 0)
+                qty = int(it.get('qty') or current_qty or 0)
+                if qty <= 0:
+                    errors.append({'item': it, 'error': '數量必須大於 0'})
+                    continue
+                qty = min(qty, current_qty)
+                product_text = format_product_text_height2((row.get('product_text') or '').strip())
+                material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
+                product_code = clean_material_value(row.get('product_code') or material or '', product_text)
+                final_customer = customer_name or (row.get('customer_name') or '').strip()
+                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+                if target == 'inventory':
+                    save_inventory_item(product_text, product_code, qty, (row.get('location') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
+                    target_label = '庫存'
+                elif target == 'orders':
+                    save_order(final_customer, [item_payload], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+                    target_label = '訂單'
+                else:
+                    save_master_order(final_customer, [item_payload], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
+                    target_label = '總單'
+                ok, moved_qty = _fix28_update_or_delete_source(source_table, item_id, qty)
+                if not ok:
+                    errors.append({'item': it, 'error': moved_qty})
+                    continue
+                moved_rows.append({'source': source_label, 'target': target_label, 'id': item_id, 'product_text': product_text, 'qty': moved_qty, 'customer_name': final_customer})
+                add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, 'table': source_table, **row}, after_json={'target': target_label, 'customer_name': final_customer, 'product_text': product_text, 'qty': moved_qty})
+            except Exception as row_error:
+                errors.append({'item': it, 'error': str(row_error)})
+        if not moved_rows and errors:
+            return error_response(errors[0].get('error') or '批量轉入失敗')
+        target_label = {'inventory':'庫存','orders':'訂單','master_order':'總單'}[target]
+        log_action(current_username(), f'批量轉入{target_label}，共 {len(moved_rows)} 筆')
+        notify_sync_event(kind='refresh', module='all', message=f'商品已批量轉入{target_label}', extra={'count': len(moved_rows), 'target': target_label})
+        payload = {'success': True, 'count': len(moved_rows), 'moved': moved_rows, 'errors': errors}
+        if target == 'inventory':
+            payload['items'] = grouped_inventory()
+        elif target == 'orders':
+            payload['items'] = get_orders()
+        else:
+            payload['items'] = get_master_orders()
+        return jsonify(payload)
+    except Exception as e:
+        log_error('v17_items_batch_transfer', str(e))
+        return error_response('批量轉入失敗')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

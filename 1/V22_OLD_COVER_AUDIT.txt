@@ -1,0 +1,16 @@
+V22 舊版覆蓋檢查
+
+已修正：
+1. 商品頁 rowActionsHTML 不再輸出「勾選後用上方按鈕操作」。
+2. 商品頁固定使用較多功能版本：編輯 / 刪除 / 加到訂單 / 加到總單 / 直接出貨。
+3. 快取版本更新為 v25-one-table-master。
+
+仍可能造成「看起來像跳版」的位置：
+A. templates/module.html：伺服器先輸出固定 HTML 骨架，JS 載入後 page_products_master.js 會重畫一次。這不是舊版補丁，但會有一次畫面切換。
+B. static/style.css：仍包含多段 FIX 舊 selector，主要是樣式，不是 renderer。若要完全乾淨，需把有用樣式剝到 final_mother_lock.css，再清 style.css。
+C. static/yx_modules/core_hardlock.js / ornate_label_hardlock.js / product_sort_hardlock.js：仍是共用工具/樣式/排序橋接，不是商品 renderer。
+D. PWA service worker：使用者端若還留舊快取，可能短暫載入舊檔；部署後需重新整理兩次或清除網站資料。
+
+可選版本：
+版本 A（本包）：保留操作欄與最多功能按鈕，穩定性較高。
+版本 B：刪除整個操作欄，只能用上方批量按鈕操作，畫面最乾淨但單筆操作較少。

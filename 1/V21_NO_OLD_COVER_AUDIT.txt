@@ -1,0 +1,6 @@
+v21 no old cover
+- removed old FIX CSS links from base.html
+- bumped all cache query versions
+- service worker static assets network-first
+- pwa forces cache clear/update for v21
+- removed product MutationObserver second-pass cleaner

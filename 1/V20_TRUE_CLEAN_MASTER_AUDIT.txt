@@ -1,0 +1,12 @@
+V20 TRUE CLEAN MASTER AUDIT
+
+目的：解決 v19 內部仍吸收 v11～v16 補丁段，導致同一頁多個 submit/render handler 互相覆蓋的風險。
+
+已處理：
+1. static/yx_pages/page_products_master.js 移除內部 v11/v12/v13/v15/v16 疊加補丁段。
+2. 商品頁只保留 product_actions 主線 renderer + v20 final product submit master。
+3. 確認送出、套用材質、批量刪除、移到 A/B 區、批量編輯、加到訂單/總單都保留。
+4. 批量操作仍走單次 API：/api/customer-items/batch-material、/api/customer-items/batch-delete、/api/customer-items/batch-zone、/api/customer-items/batch-update、/api/items/batch-transfer。
+5. 更新 PWA/cache 版本：v21-no-old-cover。
+
+注意：fix135～fix142 的 CSS 仍保留，因它們只提供外觀樣式，不執行 JS renderer；為了保持畫面一模一樣，沒有刪除視覺 CSS。

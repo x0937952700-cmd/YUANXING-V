@@ -1,0 +1,13 @@
+V23 one-render master audit
+
+已處理：
+1. 商品頁庫存/訂單/總單骨架已改成與 page_products_master.js 最終 renderer 相同：summary head、移到 A/B、加到訂單/總單、操作欄保留編輯/刪除等功能版本。
+2. 移除商品頁 MutationObserver 修補器與延遲重畫 setTimeout，避免在表格載入後又跳成另一版。
+3. 移除客戶區域頁 MutationObserver 修補器與多次延遲重畫，避免北中南客戶卡片反覆重畫。
+4. 刪除未載入的舊 fix*.css 與 FIX*_README，減少舊版誤載風險。
+5. CSS 強制移除 yx63/yx62/fix55~fix57 舊商品表格與「勾選後用上方按鈕操作」舊操作欄。
+6. PWA / Service Worker 快取版本更新為 v25-one-table-master。
+
+保留：
+- 功能較完整的商品表格版本：編輯、刪除、加到訂單、加到總單、直接出貨、套用材質、批量刪除、批量編輯、移到 A/B 區。
+- 倉庫圖、出貨、今日異動、設定、出貨查詢、代辦事項的現有功能 JS。

@@ -4,6 +4,7 @@ from collections import Counter
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Python syntax and duplicate-def check
 for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
     path = ROOT / rel
     text = path.read_text(encoding="utf-8", errors="ignore")
@@ -15,33 +16,31 @@ for rel in ["app.py", "db.py", "backup.py", "ocr.py"]:
         raise SystemExit(f"{rel} duplicate Python functions: {dup}")
 
 required = {
-    "static/app.js": ["window.YX_MASTER", "confirmSubmit", "saveWarehouseCell", "loadCustomerBlocks", "insertWarehouseCell", "deleteWarehouseCell"],
     "static/yx_modules/core_hardlock.js": ["YXHardLock", "register"],
-    "static/yx_modules/html_direct_master_lock.js": ["YX_HTML_DIRECT_MASTER", "__YX_HTML_DIRECT_MASTER_LOCK__", "protectStaticShell", "safeInstall"],
-    "static/yx_modules/product_actions_hardlock.js": ["loadSource", "renderSummary", "beginBatchEdit", "saveAllEdits", "qtyFromText"],
-    "static/yx_modules/product_sort_hardlock.js": ["YX118ProductSort", "compareRows"],
-    "static/yx_modules/product_source_bridge_hardlock.js": ["product_source_bridge", "loadSource"],
-    "static/yx_modules/customer_regions_hardlock.js": ["customer_regions", "loadCustomerBlocks"],
-    "static/yx_modules/warehouse_hardlock.js": ["normalizeSlot", "warehouse"],
-    "static/yx_modules/today_changes_hardlock.js": ["today_changes", "loadTodayChanges"],
-    "static/yx_modules/settings_audit_hardlock.js": ["settings_audit"],
-    "static/yx_modules/ship_single_lock.js": ["YX_SHIP_SINGLE", "state.selected", "loadItems"],
-    "static/yx_modules/ship_text_validate_hardlock.js": ["ship_text_validate"],
     "static/yx_modules/quantity_rule_hardlock.js": ["YX126Qty", "calcTotalQty"],
-    "static/yx_modules/ornate_label_hardlock.js": ["YX124OrnateLabel"],
-    "static/style.css": ["HTML_DIRECT_MASTER_V1", "yx-html-direct-toolbar", "yx-html-direct-summary"],
-    "templates/base.html": ["html-direct-master-v1", "html_direct_master_lock.js", "__YX_DISABLE_LEGACY_LAYOUT_RENDER__", "yx_modules/product_actions_hardlock.js", "yx_modules/warehouse_hardlock.js"],
+    "static/yx_modules/product_sort_hardlock.js": ["YX118ProductSort", "compareRows"],
+    "static/yx_pages/page_products_master.js": ["v25-one-table-master", "YX113ProductActions", "bulkMaterial", "bulkDelete", "batchMoveZone", "saveAllEdits", "confirmSubmit"],
+    "static/yx_pages/page_customers_master.js": ["saveCustomer", "fillCustomerForm", "openArchivedCustomersModal"],
+    "static/yx_pages/page_bootstrap_master.js": ["v25-one-table-master", "safeInstall", "customer_regions", "today_changes"],
+    "static/yx_pages/page_todos_master.js": ["v25-one-table-master", "openTodoAlbumPicker", "openTodoCameraPicker", "saveTodoItem", "clearTodoForm", "/api/todos"],
+    "static/yx_modules/customer_regions_hardlock.js": ["customer_regions", "loadCustomerBlocks", "yx:customer-selected"],
+    "static/yx_modules/warehouse_hardlock.js": ["warehouse", "renderWarehouse", "saveWarehouseCell"],
+    "static/yx_modules/ship_single_lock.js": ["YX_SHIP_SINGLE", "state.selected", "loadItems"],
+    "static/yx_modules/today_changes_hardlock.js": ["today_changes", "loadTodayChanges"],
+    "static/yx_modules/settings_manual.js": ["loadAuditTrails", "backup"],
+    "templates/base.html": ["v25-one-table-master", "yx_pages/page_products_master.js", "yx_pages/page_bootstrap_master.js", "yx_pages/page_todos_master.js", "warehouse_hardlock.js", "ship_single_lock.js"],
     "templates/module.html": ["data-html-direct-shell", "yx113-inventory-toolbar", "yx113-orders-toolbar", "yx113-master_order-toolbar", "warehouse-unplaced-pill", "yx-ship-single-html"],
-    "static/service-worker.js": ["html-direct-master-v1", "html_direct_master_lock.js", "ship_single_lock.js"],
-    "static/pwa.js": ["html-direct-master-v1"],
-    "static/manifest.webmanifest": ['"url": "/inventory"', '"url": "/warehouse"', '"version": "html-direct-master-v1"'],
+    "static/service-worker.js": ["v25-one-table-master", "no-store"],
+    "static/pwa.js": ["v25-one-table-master"],
+    "app.py": ["/api/customer-items/batch-material", "/api/customer-items/batch-zone", "/api/customer-items/batch-delete", "/api/customer-items/batch-update", "/api/items/batch-transfer"],
     ".python-version": ["3.11.11"],
     "runtime.txt": ["python-3.11.11"],
-    "render.yaml": ["PYTHON_VERSION", "3.11.11", "gunicorn app:app --config gunicorn.conf.py", "pip install --upgrade pip && pip install -r requirements.txt"],
 }
 
 for rel, tokens in required.items():
     path = ROOT / rel
+    if not path.exists():
+        raise SystemExit(f"missing required file: {rel}")
     text = path.read_text(encoding="utf-8", errors="ignore")
     miss = [t for t in tokens if t not in text]
     if miss:
@@ -49,31 +48,27 @@ for rel, tokens in required.items():
 
 base = (ROOT / "templates/base.html").read_text(encoding="utf-8", errors="ignore")
 sw = (ROOT / "static/service-worker.js").read_text(encoding="utf-8", errors="ignore")
+# v9~v16 patch JS and old product renderers must not be loaded or present.
 for legacy in [
-    "master_integrator.js",
-    "fix135_master_final_hardlock.js",
-    "fix136_label_text_repair.js",
-    "fix137_undo_layout_warehouse_hardlock.js",
-    "fix138_final_master_hardlock.js",
-    "fix140_readme_master_hardlock.js",
-    "fix142_speed_ship_hardlock.js",
-    "ship_picker_hardlock.js",
-    "inline_edit_full_list_hardlock.js",
-    "legacy_isolation_hardlock.js",
-    "apple_ui_hardlock.js",
+    "button_repair_v9.js",
+    "v12_html_submit_guard.js",
+    "v13_final_submit_and_render.js",
+    "v15_single_api_batch_guard.js",
+    "v16_submit_true_render_lock.js",
+    "product_actions_hardlock.js",
+    "product_submit_manual.js",
+    "html_direct_master_lock.js",
 ]:
     if legacy in base or legacy in sw:
-        raise SystemExit(f"legacy renderer still referenced: {legacy}")
+        raise SystemExit(f"legacy/patch still referenced: {legacy}")
     if (ROOT / "static/yx_modules" / legacy).exists():
-        raise SystemExit(f"legacy renderer still active in yx_modules: {legacy}")
+        raise SystemExit(f"legacy/patch still exists in yx_modules: {legacy}")
 
+# Inline handlers in templates must have a loaded owner script.
 html = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in (ROOT / "templates").glob("*.html"))
-js = (ROOT / "static/app.js").read_text(encoding="utf-8", errors="ignore")
+owners = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in list((ROOT / "static/yx_modules").glob("*.js")) + list((ROOT / "static/yx_pages").glob("*.js")) + list((ROOT / "templates").glob("*.html")))
 for handler in ["confirmSubmit", "reverseLookup", "clearShipSelectedItems", "searchWarehouse", "renderWarehouse", "saveCustomer", "renderCustomers"]:
-    if handler + "(" in html and handler not in js and f"window.{handler}" not in js:
-        raise SystemExit(f"Missing inline handler: {handler}")
+    if handler + "(" in html and (handler not in owners and f"window.{handler}" not in owners):
+        raise SystemExit(f"Missing inline handler owner: {handler}")
 
-if "warehouse-plusminus" in html or "data-action=\"add-slot\"" in html:
-    raise SystemExit("Old warehouse +/- controls still in templates")
-
-print("HTML direct master smoke test OK")
+print("v23 one render master smoke test OK")

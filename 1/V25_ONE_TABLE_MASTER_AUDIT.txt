@@ -1,0 +1,18 @@
+V25_ONE_TABLE_MASTER_AUDIT
+
+本版依使用者指定處理：
+1. 庫存清單：刪除有「編輯 / 刪除」整行操作版本，只保留無操作欄的圖二版本；row action 產生器已移除。
+2. 訂單清單：保留圖三的固定 HTML 表格版本；不加入第二套舊表格。
+3. 總單清單：保留圖四的固定 HTML 表格版本；不加入第二套舊表格。
+4. page_products_master.js 為商品頁唯一母版 JS；沒有新增補丁 JS。
+5. templates/module.html 商品頁骨架已同步成 JS 最終畫面：庫存 5 欄、訂單/總單 6 欄。
+
+改動檢查：
+- 新增 script：否。
+- 新增 renderer：否。仍為 renderSummary / renderCards 這一組商品母版渲染。
+- 新增 MutationObserver：否。
+- 新增 setTimeout：否。並移除 v24 末端 DOM guard 的 setTimeout。
+
+保留原因：
+- renderCards 保留但 card-list 預設隱藏，用於舊全域橋接相容，不作為主要畫面。
+- base.html 原本的 setTimeout 攔截器仍保留，這不是本次新增，作用是阻擋舊 FIX 延遲重畫。
