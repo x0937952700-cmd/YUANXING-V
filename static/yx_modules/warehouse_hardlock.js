@@ -158,12 +158,21 @@
     }
     const current=(state.current.items||[]).map((it,i)=>{ const mat=materialOf(it), place=clean(it.placement_label||it.layer_label||''); return `<div class="yx-direct-current-item" data-idx="${i}"><div class="yx-direct-current-main"><span class="yx-direct-source">${esc(sourceOf(it))}</span>${mat?`<span class="yx-direct-material">${esc(mat)}</span>`:''}<strong>${esc(cleanCustomer(it.customer_name))}</strong><span class="yx-direct-product">${esc(productText(it))}</span></div><div class="yx-direct-current-side"><span>${place?esc(place)+'｜':''}${itemQty(it)}件</span><button class="remove yx-direct-remove" type="button" data-remove-cell-item="${i}">×</button></div></div>`; }).join('') || '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
     const currentBox=$('warehouse-current-items-html'); if(currentBox) currentBox.innerHTML=current;
-    const opts=availableRows().map(r=>`<option value="${r.index}">${esc(optionLabel(r.it))}</option>`).join('');
-    const rows=Array.from({length:Math.max(3,Number(state.batchCount||3))},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>`).join('');
+    const opts=availableRows().map(r=>`<option value="${r.index}" data-max="${itemQty(r.it)}">${esc(optionLabel(r.it))}｜可加入 ${itemQty(r.it)} 件</option>`).join('');
+    const rows=Array.from({length:Math.max(3,Number(state.batchCount||3))},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
     const rowsBox=$('yx121-batch-rows'); if(rowsBox) rowsBox.innerHTML=rows;
+    syncBatchSelectLimits();
   }
   async function openWarehouseModal(z,c,s){ await loadAvailable(); z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; $('warehouse-modal')?.classList.remove('hidden'); renderCellItems(); }
   function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); }
+  function syncBatchSelectLimits(){
+    document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
+      const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty'); if(!sel||!qty) return;
+      const opt=sel.options[sel.selectedIndex]; const max=Number(opt?.dataset?.max||0);
+      if(max>0){ qty.max=String(max); qty.dataset.yx121Max=String(max); if(!qty.value) qty.value=String(max); if(Number(qty.value)>max) qty.value=String(max); }
+      else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; if(!sel.value) qty.value=''; }
+    });
+  }
   function collectBatchItems(){ const added=[]; const pool=availableListForCurrent(); document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{ const raw=row.querySelector('.yx121-batch-select')?.value; if(raw==='') return; const idx=Number(raw); if(!Number.isFinite(idx)) return; const it=pool[idx]; if(!it) return; let qty=Number(row.querySelector('.yx121-batch-qty')?.value||itemQty(it)||1); qty=Math.max(1,Math.min(itemQty(it)||qty,qty)); added.push(normalizedItem(it,qty,placementForBatch(Number(row.dataset.batchIndex||added.length)))); }); return added; }
   async function saveCellRaw(z,c,s,items,note){ return api('/api/warehouse/cell',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:items||[],note:note||''})}); }
   async function saveWarehouseCell(){ const items=[...(state.current.items||[]),...collectBatchItems()]; await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||''); toast('格位已儲存','ok'); closeWarehouseModal(); await renderWarehouse(true); highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot); }
@@ -201,6 +210,8 @@
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){ ev.preventDefault(); state.current.items.splice(Number(rm.dataset.removeCellItem),1); renderCellItems(); return; }
     },true);
+    document.addEventListener('change', ev=>{ const sel=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-select'); if(sel){ syncBatchSelectLimits(); } }, true);
+    document.addEventListener('input', ev=>{ const qty=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-qty'); if(qty){ const max=Number(qty.dataset.yx121Max||qty.max||0); if(max>0 && Number(qty.value)>max){ qty.value=String(max); toast('加入件數不可超過該商品可加入數量','warn'); } } }, true);
     $('warehouse-item-search')?.addEventListener('input',renderCellItems);
     updateUndoButton();
   }

@@ -48,6 +48,13 @@
     return hit ? total : (raw ? 1 : (Number(fallback || 0) || 0));
   }
   function qtyOf(r){ return qtyFromText(r?.product_text || r?.support || '', r?.qty ?? r?.effective_qty ?? 0); }
+  function selectedOrAllIds(source){
+    const ids = selectedIds(source);
+    if (ids.size) return Array.from(ids);
+    return filteredRows(source).map(r => String(r.id || '')).filter(Boolean);
+  }
+  function autoQtyFromSupport(support){ return qtyFromText('=' + norm(support || ''), 1) || 1; }
+
   function productTextFromParts(size, support){
     size = norm(size || ''); support = norm(support || '');
     return size ? (support ? `${size}=${support}` : size) : '';
@@ -186,10 +193,10 @@
     const saveBtn = document.querySelector(`[data-yx128-save-all="${source}"]`);
     const cancelBtn = document.querySelector(`[data-yx128-cancel-all="${source}"]`);
     const count = selectedIds(source).size;
-    if (editBtn) editBtn.textContent = count ? '批量編輯已勾選' : '批量編輯全部';
-    if (editBtn) editBtn.style.display = editing ? 'none' : '';
-    if (saveBtn) saveBtn.style.display = editing ? '' : 'none';
-    if (cancelBtn) cancelBtn.style.display = editing ? '' : 'none';
+    if (editBtn) editBtn.textContent = editing ? '儲存批量編輯' : (count ? '批量編輯已勾選' : '批量編輯全部');
+    if (editBtn) editBtn.style.display = '';
+    if (saveBtn) saveBtn.remove();
+    if (cancelBtn) cancelBtn.remove();
   }
   function ensureBatchToolbar(source){
     const sec = sectionEl(source); if (!sec) return null;
@@ -198,7 +205,7 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button><button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}" style="display:none">儲存批量編輯</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}" style="display:none">取消編輯</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -245,15 +252,7 @@
     });
   }
   function rowActionsHTML(source, id){
-    const commonEdit = `<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="edit" data-source="${source}" data-id="${id}">編輯</button>`;
-    const del = `<button class="ghost-btn tiny-btn danger-btn" type="button" data-yx131-row-action="delete" data-source="${source}" data-id="${id}">刪除</button>`;
-    if (source === 'inventory') {
-      return `<div class="yx131-row-action-group"><span class="small-note">勾選後用上方加到訂單 / 總單</span></div>`;
-    }
-    if (source === 'orders') {
-      return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button>${del}</div>`;
-    }
-    return `<div class="yx131-row-action-group">${commonEdit}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${source}" data-id="${id}">直接出貨</button>${del}</div>`;
+    return '<span class="small-note">勾選後用上方按鈕操作</span>';
   }
   function proxyCard(source, id){
     return {dataset:{source:String(source || ''), id:String(id || '')}};
@@ -471,10 +470,11 @@
   async function bulkMaterial(source){
     const material = YX.clean($(`yx113-${source}-material`)?.value || '').toUpperCase();
     if (!material) return YX.toast('請先選擇材質', 'warn');
-    const items = selectedItems(source);
-    if (!items.length) return YX.toast('請先批量選取要套用材質的商品', 'warn');
+    const ids = selectedOrAllIds(source);
+    if (!ids.length) return YX.toast('目前沒有可套用材質的商品', 'warn');
+    const items = ids.map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
     const d = await YX.api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
-    YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok'); await loadSource(source);
+    YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok'); if($(`yx113-${source}-material`)) $(`yx113-${source}-material`).value=''; clearSelected(source); await loadSource(source);
   }
   async function bulkDelete(source){
     const items = selectedItems(source);
@@ -494,7 +494,7 @@
       const bz = ev.target?.closest?.('[data-yx132-batch-zone]');
       if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
       const editAll = ev.target?.closest?.('[data-yx128-edit-all]');
-      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); beginBatchEdit(editAll.dataset.yx128EditAll); return; }
+      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s=editAll.dataset.yx128EditAll; try{ if(state.editAll[s]) await saveAllEdits(s); else beginBatchEdit(s); }catch(e){ YX.toast(e.message || '批量編輯失敗','error'); } return; }
       const cancelAll = ev.target?.closest?.('[data-yx128-cancel-all]');
       if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); cancelBatchEdit(cancelAll.dataset.yx128CancelAll); return; }
       const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
@@ -549,7 +549,12 @@
         if (qty) qty.value = String(qtyFromText(supportInput.value, qty.value || 1) || 1);
       }
     }, true);
-    document.addEventListener('change', ev => {
+    document.addEventListener('change', async ev => {
+      const matSel = ev.target?.closest?.('select[id^="yx113-"][id$="-material"]');
+      if (matSel) {
+        const m = matSel.id.match(/^yx113-(inventory|orders|master_order)-material$/);
+        if (m) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try { await bulkMaterial(m[1]); } catch(e) { YX.toast(e.message || '批量材質失敗','error'); } return; }
+      }
       const supportInput = ev.target?.closest?.('[data-yx128-field="support"],[data-yx128-card-field="support"]');
       if (supportInput) {
         const root = supportInput.closest('.yx128-edit-row,.yx128-card-editing');
