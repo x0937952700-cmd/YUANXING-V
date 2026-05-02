@@ -772,3 +772,54 @@
 })();
 
 /* ===== END static/yx_pages/page_bootstrap_master.js ===== */
+
+
+/* ===== FULL MASTER V10 INTEGRATED FIXES: immediate product actions + customer boards ===== */
+(function(){
+  'use strict';
+  const YX = window.YXHardLock;
+  if (!YX) return;
+  const clean = v => String(v ?? '').trim();
+  const moduleKey = () => document.querySelector('.module-screen[data-module]')?.dataset.module || '';
+  const apiSource = s => s === 'master_order' ? 'master_orders' : s;
+  const sourceFromPage = () => moduleKey()==='inventory'?'inventory':moduleKey()==='orders'?'orders':moduleKey()==='master_order'?'master_order':'';
+  function checkedIds(source){return Array.from(document.querySelectorAll(`.yx113-row-check[data-source="${source}"]:checked`)).map(x=>String(x.dataset.id||'')).filter(Boolean);}
+  function rows(source){try{return (window.YX113ProductActions?.rowsStore?.(source)||[]).slice();}catch(_){return [];}}
+  function setRows(source, arr){try{window.YX113ProductActions?.rowsStore?.(source, arr);}catch(_){}}
+  function rerender(source){try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){}}
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json','Cache-Control':'no-cache',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{};}catch{d={success:false,error:t};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d;}
+  async function refreshAll(source, customer){
+    try{await window.YX113ProductActions?.loadSource?.(source,{force:true});}catch(_){ }
+    rerender(source);
+    try{if(customer){window.__YX_SELECTED_CUSTOMER__=customer; const input=document.getElementById('customer-name'); if(input)input.value=customer;}}catch(_){ }
+    try{await window.loadCustomerBlocks?.(true);}catch(_){ }
+    try{await window.renderCustomers?.(true);}catch(_){ }
+  }
+  document.addEventListener('click', async function(ev){
+    const del=ev.target.closest?.('[data-yx113-batch-delete]');
+    if(del){
+      const source=del.dataset.yx113BatchDelete||sourceFromPage(); if(!source)return;
+      const ids=checkedIds(source); if(!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      if(!confirm(`確定刪除 ${ids.length} 筆商品？`))return;
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.filter(r=>!idset.has(String(r.id||'')))); rerender(source);
+      try{await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); YX.toast?.('已刪除，清單已更新','ok'); await refreshAll(source, clean(document.getElementById('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''));}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'批量刪除失敗','error');}
+      return;
+    }
+    const zone=ev.target.closest?.('[data-yx132-batch-zone]');
+    if(zone){
+      const source=zone.dataset.source||sourceFromPage(); const z=zone.dataset.yx132BatchZone; const ids=checkedIds(source); if(!source||!z||!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.map(r=>idset.has(String(r.id||''))?{...r,location:z,zone:z,warehouse_zone:z}:r)); rerender(source);
+      try{await api('/api/customer-items/batch-zone',{method:'POST',body:JSON.stringify({zone:z,items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); await refreshAll(source);}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'移動 A/B 區失敗','error');}
+      return;
+    }
+  }, true);
+  window.addEventListener('yx:customer-selected', function(e){
+    const source=sourceFromPage(); if(!source)return; const name=clean(e.detail?.name||window.__YX_SELECTED_CUSTOMER__||'');
+    if(name){const input=document.getElementById('customer-name'); if(input)input.value=name;}
+    try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){ }
+  }, false);
+})();

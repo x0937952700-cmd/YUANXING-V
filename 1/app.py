@@ -1144,7 +1144,46 @@ def api_ship_preview():
 def api_customers():
     try:
         if request.method == "GET":
-            return jsonify(success=True, items=get_customers())
+            # V10：客戶區要立即反映訂單 / 總單新增。
+            # 原本只回 customer_profiles，若新增商品後 profile 尚未正確帶入或 relation_counts 未刷新，
+            # 前端北中南會看起來沒客戶。這裡直接用 relation tables 補齊客戶與件/筆數。
+            items = get_customers()
+            try:
+                by_name = {((c.get('name') or '').strip()): dict(c) for c in items if (c.get('name') or '').strip()}
+                conn = get_db(); cur = conn.cursor()
+                for table, rows_key, qty_key in [('inventory','inventory_rows','inventory_qty'), ('orders','order_rows','order_qty'), ('master_orders','master_rows','master_qty'), ('shipping_records','shipping_rows','shipping_qty')]:
+                    try:
+                        cur.execute(sql(f"SELECT customer_name, COUNT(*) AS rows_count, COALESCE(SUM(qty),0) AS qty_sum FROM {table} WHERE COALESCE(customer_name,'') <> '' GROUP BY customer_name"))
+                        for r in rows_to_dict(cur):
+                            name = (r.get('customer_name') or '').strip()
+                            if not name:
+                                continue
+                            if name not in by_name:
+                                try:
+                                    item = upsert_customer(name, region='北區', preserve_existing=True)
+                                except Exception:
+                                    item = {'name': name, 'region': '北區'}
+                                by_name[name] = dict(item or {'name': name, 'region': '北區'})
+                            c = by_name[name]
+                            rc = dict(c.get('relation_counts') or {})
+                            rc[rows_key] = int(r.get('rows_count') or 0)
+                            rc[qty_key] = int(r.get('qty_sum') or 0)
+                            rc['total_rows'] = int(rc.get('inventory_rows') or 0) + int(rc.get('order_rows') or 0) + int(rc.get('master_rows') or 0) + int(rc.get('shipping_rows') or 0)
+                            rc['total_qty'] = int(rc.get('inventory_qty') or 0) + int(rc.get('order_qty') or 0) + int(rc.get('master_qty') or 0) + int(rc.get('shipping_qty') or 0)
+                            c['relation_counts'] = rc
+                            c['row_count'] = rc['total_rows']
+                            c['item_count'] = rc['total_qty']
+                            if not (c.get('region') or '').strip():
+                                c['region'] = '北區'
+                    except Exception as e:
+                        log_error('customers_relation_enrich_' + table, str(e))
+                conn.close()
+                items = list(by_name.values())
+            except Exception as e:
+                try: conn.close()
+                except Exception: pass
+                log_error('customers_relation_enrich', str(e))
+            return jsonify(success=True, items=items)
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)

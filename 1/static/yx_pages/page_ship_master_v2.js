@@ -733,15 +733,35 @@
   function variantsQuery(){const arr=Array.isArray(window.__YX_SELECTED_CUSTOMER_VARIANTS__)?window.__YX_SELECTED_CUSTOMER_VARIANTS__.filter(Boolean):[];return arr.length?'&variants='+encodeURIComponent(JSON.stringify(arr)):'';}
   function setCustomer(name){state.customer=clean(name);const a=$('customer-name');if(a&&a.value!==state.customer)a.value=state.customer;const b=$('ship-customer-search');if(b&&b.value!==state.customer)b.value=state.customer;}
   function setCount(text){const el=$('ship-customer-item-count');if(el)el.textContent=text;}
-  function syncHiddenSelect(){const select=$('ship-customer-item-select');if(!select)return;if(!state.customer){select.innerHTML='<option value="">請先點選北 / 中 / 南客戶</option>';return;}if(!state.items.length){select.innerHTML='<option value="">此客戶目前沒有可出貨商品</option>';return;}select.innerHTML='<option value="">請選擇商品</option>'+state.items.map((it,i)=>`<option value="${i}">${esc(productLabel(it))}</option>`).join('');}
-  function renderCustomers(){const box=$('ship-customer-quick-list');if(box)box.replaceChildren();}
-  async function loadCustomers(){try{const cards=Array.from(document.querySelectorAll('[data-customer-name]')).map(el=>({name:el.dataset.customerName||el.dataset.customer||''})).filter(x=>x.name);if(cards.length){state.customers=cards;renderCustomers();return;}const d=await api('/api/customers?ship_single=1&light=1&ts='+Date.now());state.customers=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]);renderCustomers();}catch(_){}}
-  function renderItems(){const box=$('ship-customer-item-list');syncHiddenSelect();if(!state.customer){setCount('請先點選北 / 中 / 南客戶');if(box)box.innerHTML='<div class="empty-state-card compact-empty">請先點選北 / 中 / 南客戶，這裡會完整顯示該客戶全部商品。</div>';return;}if(state.loadingName===state.customer){setCount(`${state.customer}：商品載入中…`);if(box)box.innerHTML='<div class="empty-state-card compact-empty">客戶商品載入中…</div>';return;}if(!state.items.length){setCount(`${state.customer}：0 筆 / 0 件`);if(box)box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>';return;}const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);setCount(`${state.customer}：${state.items.length} 筆 / ${total} 件`);if(box){box.innerHTML=state.items.map((it,i)=>{const p=splitProduct(it.product_text||it.product||'');const q=qtyFromText(it.product_text,it.qty);return`<button class="yx-ship-open-product-card" type="button" data-ship-add-index="${i}"><span class="yx-ship-open-source">${esc(sourceOf(it))}</span><span class="yx-ship-open-material">${esc(materialOf(it))}</span><span class="yx-ship-open-product">${esc(p.size)}${p.support?'='+esc(p.support):''}</span><span class="yx-ship-open-total">${q}件</span><span class="yx-ship-open-add">加入</span></button>`;}).join('');}}
+  function syncHiddenSelect(){
+    const select=$('ship-customer-item-select');
+    if(!select)return;
+    select.hidden=true; select.setAttribute('hidden',''); select.setAttribute('aria-hidden','true');
+    select.innerHTML='<option value="">請用下方商品標籤加入</option>';
+  }
+  function shipTagHtml(it,i){
+    return `<button type="button" class="yx-ship-tag-option" data-ship-add-index="${i}">${esc(productLabel(it))}</button>`;
+  }
+  function renderItems(){
+    const box=$('ship-customer-item-list');
+    syncHiddenSelect();
+    const btn=$('ship-product-dropdown-button');
+    if(!state.customer){setCount('請先點選北 / 中 / 南客戶'); if(btn)btn.textContent='請先點選北 / 中 / 南客戶'; if(box)box.innerHTML=''; return;}
+    if(state.loadingName===state.customer){setCount(`${state.customer}：商品載入中…`); if(btn)btn.textContent='商品載入中…'; if(box)box.innerHTML=''; return;}
+    if(!state.items.length){setCount(`${state.customer}：0 筆 / 0 件`); if(btn)btn.textContent='此客戶目前沒有可出貨商品'; if(box)box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>'; return;}
+    const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);
+    setCount(`${state.customer}：${state.items.length} 筆 / ${total} 件`);
+    if(btn)btn.textContent=`${state.customer} 可出貨商品：${state.items.length} 筆，點下面標籤加入`;
+    if(box)box.innerHTML=state.items.map(shipTagHtml).join('');
+  }
   async function loadItems(name,opts={}){setCustomer(name||state.customer);renderItems();if(!state.customer)return;const key=state.customer;const cached=state.itemCache.get(key);if(!opts.force&&cached&&Date.now()-cached.at<15000){state.items=cached.items;renderItems();return;}if(state.loadingName===key)return;state.loadingName=key;renderItems();try{const d=await api('/api/customer-items?name='+encodeURIComponent(state.customer)+'&fast=1&ship_single=1'+variantsQuery()+'&ts='+Date.now());state.items=Array.isArray(d.items)?d.items:[];state.itemCache.set(key,{items:state.items,at:Date.now()});renderItems();}finally{state.loadingName='';renderItems();}}
-  function selectedCardHtml(it,i){const p=splitProduct(it.product_text);const q=selectedQtyOf(it);const over=warnOverQty(it);return`<div class="yx-ship-selected-html-card yx-ship-selected-tag-card yx-ship-one-line-card ${over?'is-over-qty':''}" data-selected-card="${i}"><div class="yx-ship-selected-main yx-ship-selected-main-editable" title="直接在這一行修改支數；例如 220x12 改成 220x9，或刪掉不要的 +段"><span class="yx-ship-source-pill">${esc(it.source||'自動')}</span><span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span><span class="yx-ship-selected-size">${esc(p.size)}=</span><input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="直接改 220x12 或刪除不要的 +段"><span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span><span class="yx-ship-over-note" data-over-note="${i}">${over?`超出可出貨 ${over.max} 件`:''}</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div></div>`;}
+  function selectedCardHtml(it,i){
+    const p=splitProduct(it.product_text);const q=selectedQtyOf(it);const over=warnOverQty(it);
+    return `<div class="yx-ship-selected-html-card yx-ship-selected-tag-card yx-ship-one-line-card ${over?'is-over-qty':''}" data-selected-card="${i}"><div class="yx-ship-selected-main yx-ship-selected-main-editable"><span class="yx-ship-source-pill">${esc(it.source||'自動')}</span><span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span><span class="yx-ship-selected-size">${esc(p.size)}=</span><input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="直接改支數"><span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span><span class="yx-ship-over-note" data-over-note="${i}">${over?`超出可出貨 ${over.max} 件`:''}</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div></div>`;
+  }
   function updateSelectedProductFromSupport(i,support){const row=state.selected[i];if(!row)return;const p=splitProduct(row.product_text||'');const spt=normalizeText(support);row.product_text=productFromSupport(p.size,spt);row.qty=supportTotalPieces(spt)||qtyFromText(row.product_text,row.qty)||1;const total=document.querySelector(`[data-selected-total="${i}"]`);if(total)total.textContent=`${row.qty}件`;const over=warnOverQty(row);const card=document.querySelector(`[data-selected-card="${i}"]`);if(card)card.classList.toggle('is-over-qty',!!over);const note=document.querySelector(`[data-over-note="${i}"]`);if(note)note.textContent=over?`超出可出貨 ${over.max} 件`:'';if(over)toast(`出貨 ${over.q} 件大於可出貨 ${over.max} 件，請先修改`,'warn');const hidden=$('ocr-text');if(hidden)hidden.value=state.selected.map(it=>it.product_text).join('\n');}
   function renderSelected(){const box=$('ship-selected-items');if(!box)return;if(!state.selected.length)box.innerHTML='<div class="empty-state-card compact-empty">尚未加入出貨商品</div>';else box.innerHTML=state.selected.map(selectedCardHtml).join('');const hidden=$('ocr-text');if(hidden)hidden.value=state.selected.map(it=>it.product_text).join('\n');}
-  function addItem(i){const it=state.items[Number(i)];if(!it)return toast('找不到商品','warn');const max=availableQtyOf(it)||qtyFromText(it.product_text,it.qty)||9999;const product_text=it.product_text||'';const row={product_text,qty:qtyFromText(product_text,it.qty)||max,material:materialOf(it),product_code:materialOf(it),source:sourceOf(it),source_preference:sourcePreferenceOf(it),id:it.id,original_id:it.id,available_qty:max,original_qty:max,_key:productKey(it)};const exists=state.selected.findIndex(x=>(x._key||productKey(x))===row._key);if(exists>=0){toast('同樣商品已加入，請直接在下面那一行修改，不會重複添加','warn');const card=document.querySelector(`[data-selected-card="${exists}"]`);card?.scrollIntoView?.({behavior:'smooth',block:'center'});card?.classList.add('flash-highlight');setTimeout(()=>card?.classList.remove('flash-highlight'),1200);return;}state.selected.push(row);renderSelected();toast('已加入出貨商品，可直接修改件數','ok');$('ship-selected-items')?.scrollIntoView?.({behavior:'smooth',block:'nearest'});}
+  function addItem(i){const it=state.items[Number(i)];if(!it)return toast('找不到商品','warn');const max=availableQtyOf(it)||qtyFromText(it.product_text,it.qty)||9999;const product_text=it.product_text||'';const row={product_text,qty:qtyFromText(product_text,it.qty)||max,material:materialOf(it),product_code:materialOf(it),source:sourceOf(it),source_preference:sourcePreferenceOf(it),id:it.id,original_id:it.id,available_qty:max,original_qty:max,_key:productKey(it)};const exists=state.selected.findIndex(x=>(x._key||productKey(x))===row._key);if(exists>=0){toast('同樣商品已加入，請直接在下面那一行修改，不會重複添加','warn');const card=document.querySelector(`[data-selected-card="${exists}"]`);card?.scrollIntoView?.({behavior:'smooth',block:'center'});card?.classList.add('flash-highlight');return;}state.selected.push(row);renderSelected();toast('已加入出貨商品，可直接修改件數','ok');$('ship-selected-items')?.scrollIntoView?.({behavior:'smooth',block:'nearest'});}
   window.clearShipSelectedItems=function(){state.selected=[];renderSelected();};
   function volumeCoeffLength(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?(n>210?n/1000:n/100):0;}
   function volumeCoeffWidth(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?n/10:0;}
@@ -828,3 +848,54 @@
 })();
 
 /* ===== END static/yx_pages/page_bootstrap_master.js ===== */
+
+
+/* ===== FULL MASTER V10 INTEGRATED FIXES: immediate product actions + customer boards ===== */
+(function(){
+  'use strict';
+  const YX = window.YXHardLock;
+  if (!YX) return;
+  const clean = v => String(v ?? '').trim();
+  const moduleKey = () => document.querySelector('.module-screen[data-module]')?.dataset.module || '';
+  const apiSource = s => s === 'master_order' ? 'master_orders' : s;
+  const sourceFromPage = () => moduleKey()==='inventory'?'inventory':moduleKey()==='orders'?'orders':moduleKey()==='master_order'?'master_order':'';
+  function checkedIds(source){return Array.from(document.querySelectorAll(`.yx113-row-check[data-source="${source}"]:checked`)).map(x=>String(x.dataset.id||'')).filter(Boolean);}
+  function rows(source){try{return (window.YX113ProductActions?.rowsStore?.(source)||[]).slice();}catch(_){return [];}}
+  function setRows(source, arr){try{window.YX113ProductActions?.rowsStore?.(source, arr);}catch(_){}}
+  function rerender(source){try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){}}
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json','Cache-Control':'no-cache',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{};}catch{d={success:false,error:t};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d;}
+  async function refreshAll(source, customer){
+    try{await window.YX113ProductActions?.loadSource?.(source,{force:true});}catch(_){ }
+    rerender(source);
+    try{if(customer){window.__YX_SELECTED_CUSTOMER__=customer; const input=document.getElementById('customer-name'); if(input)input.value=customer;}}catch(_){ }
+    try{await window.loadCustomerBlocks?.(true);}catch(_){ }
+    try{await window.renderCustomers?.(true);}catch(_){ }
+  }
+  document.addEventListener('click', async function(ev){
+    const del=ev.target.closest?.('[data-yx113-batch-delete]');
+    if(del){
+      const source=del.dataset.yx113BatchDelete||sourceFromPage(); if(!source)return;
+      const ids=checkedIds(source); if(!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      if(!confirm(`確定刪除 ${ids.length} 筆商品？`))return;
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.filter(r=>!idset.has(String(r.id||'')))); rerender(source);
+      try{await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); YX.toast?.('已刪除，清單已更新','ok'); await refreshAll(source, clean(document.getElementById('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''));}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'批量刪除失敗','error');}
+      return;
+    }
+    const zone=ev.target.closest?.('[data-yx132-batch-zone]');
+    if(zone){
+      const source=zone.dataset.source||sourceFromPage(); const z=zone.dataset.yx132BatchZone; const ids=checkedIds(source); if(!source||!z||!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.map(r=>idset.has(String(r.id||''))?{...r,location:z,zone:z,warehouse_zone:z}:r)); rerender(source);
+      try{await api('/api/customer-items/batch-zone',{method:'POST',body:JSON.stringify({zone:z,items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); await refreshAll(source);}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'移動 A/B 區失敗','error');}
+      return;
+    }
+  }, true);
+  window.addEventListener('yx:customer-selected', function(e){
+    const source=sourceFromPage(); if(!source)return; const name=clean(e.detail?.name||window.__YX_SELECTED_CUSTOMER__||'');
+    if(name){const input=document.getElementById('customer-name'); if(input)input.value=name;}
+    try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){ }
+  }, false);
+})();

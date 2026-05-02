@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v8-visible-submit-warehouse-batch';
+  const PWA_VERSION = 'full-master-v9-actions-ship-select';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

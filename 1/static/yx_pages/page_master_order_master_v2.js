@@ -436,8 +436,8 @@
     const valid = new Set(rowsStore(source).map(r => String(r.id || '')).filter(Boolean));
     state.selected[source] = new Set(Array.from(selectedIds(source)).filter(id => valid.has(id)));
   }
-  function selectedItems(source){
-    const ids = selectedIds(source);
+  function selectedItems(source, useAll=false){
+    const ids = useAll ? selectedOrAllIds(source) : Array.from(selectedIds(source));
     return [...ids].map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
   }
   function editingIds(source){
@@ -557,16 +557,22 @@
       const row = rowsStore(source).find(r => String(r.id || '') === String(id));
       return {source:apiSource(source), id:Number(id), qty:qtyOf(row), customer_name: customer || customerOf(row)};
     }).filter(x => x.id > 0);
-    const d = await YX.api('/api/items/batch-transfer', {method:'POST', body:JSON.stringify({items, target, customer_name:customer, allow_inventory_fallback:true, request_key:`v18-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})});
+    const d = await YX.api('/api/items/batch-transfer', {method:'POST', body:JSON.stringify({items, target, customer_name:customer, region:'北區', allow_inventory_fallback:true, request_key:`v18-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})});
     clearSelected(source);
     YX.toast(`已移動 ${d.count || items.length} 筆商品`, 'ok');
     await loadSource(source);
-    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') await loadSource(target === 'master_orders' ? 'master_order' : target); } catch(_e) {}
+    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; await loadSource(t); } } catch(_e) {}
+    try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
+    try { if (customer && typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
   }
   async function batchMoveZone(source, zone){
-    const ids = Array.from(selectedIds(source));
-    if (!ids.length) return YX.toast('請先勾選要移到 A/B 區的商品', 'warn');
-    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items:selectedItems(source)})});
+    const ids = selectedOrAllIds(source);
+    if (!ids.length) return YX.toast('目前沒有可移到 A/B 區的商品', 'warn');
+    const items = selectedItems(source, true);
+    const idSet = new Set(items.map(x => String(x.id)));
+    rowsStore(source).forEach(r => { if (idSet.has(String(r.id || ''))) { r.location = zone; r.zone = zone; r.warehouse_zone = zone; } });
+    renderSummary(source); renderCards(source);
+    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items})});
     clearSelected(source);
     YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
     await loadSource(source);
@@ -705,8 +711,13 @@
     if (!customer) customer = prompt(`要加入${target === 'orders' ? '訂單' : '總單'}的客戶名稱`) || '';
     customer = YX.clean(customer);
     if (!customer) return YX.toast('請輸入客戶名稱', 'warn');
-    await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer})});
-    YX.toast(`已加到${target === 'orders' ? '訂單' : '總單'}`, 'ok'); await loadSource('inventory');
+    await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer, region:'北區'})});
+    YX.toast(`已加到${target === 'orders' ? '訂單' : '總單'}`, 'ok');
+    window.__YX_SELECTED_CUSTOMER__ = customer;
+    await loadSource('inventory');
+    try { await loadSource(target === 'orders' ? 'orders' : 'master_order'); } catch(_e) {}
+    try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
+    try { if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
   }
   async function shipItem(card){
     const source = card.dataset.source, id = card.dataset.id;
@@ -770,10 +781,14 @@
     }
   }
   async function bulkDelete(source){
-    const items = selectedItems(source);
-    if (!items.length) return YX.toast('請先批量選取要刪除的商品', 'warn');
+    const items = selectedItems(source, false);
+    if (!items.length) return YX.toast('請先勾選要刪除的商品', 'warn');
     if (!confirm(`確定刪除 ${items.length} 筆商品？`)) return;
+    const idSet = new Set(items.map(x => String(x.id)));
+    rowsStore(source, rowsStore(source).filter(r => !idSet.has(String(r.id || ''))));
+    renderSummary(source); renderCards(source);
     const d = await YX.api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})});
+    clearSelected(source);
     YX.toast(`已刪除 ${d.count || items.length} 筆商品`, 'ok'); await loadSource(source);
   }
   function bindEvents(){
@@ -1057,6 +1072,7 @@
     } catch(e){ console.warn('[YX v8 loadSource]', e); }
     try { if (act?.renderSummary) act.renderSummary(m); if (act?.renderCards) act.renderCards(m); } catch(e){ console.warn('[YX v8 final render]', e); }
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
+    try { if (customer && typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
   }
   async function finalConfirmSubmit(ev){
     if (ev) { ev.preventDefault?.(); ev.stopPropagation?.(); ev.stopImmediatePropagation?.(); }
@@ -1078,7 +1094,7 @@
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
       const requestKey = `v20-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const activeZone = activeZoneForSource(m);
-      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, location:activeZone, zone:activeZone, request_key:requestKey})});
+      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})});
       if (ta) ta.value = '';
       await refreshAfterSubmit(m, customer, posted, items, activeZone);
       if (result) {
@@ -1620,3 +1636,54 @@
 })();
 
 /* ===== END static/yx_pages/page_bootstrap_master.js ===== */
+
+
+/* ===== FULL MASTER V10 INTEGRATED FIXES: immediate product actions + customer boards ===== */
+(function(){
+  'use strict';
+  const YX = window.YXHardLock;
+  if (!YX) return;
+  const clean = v => String(v ?? '').trim();
+  const moduleKey = () => document.querySelector('.module-screen[data-module]')?.dataset.module || '';
+  const apiSource = s => s === 'master_order' ? 'master_orders' : s;
+  const sourceFromPage = () => moduleKey()==='inventory'?'inventory':moduleKey()==='orders'?'orders':moduleKey()==='master_order'?'master_order':'';
+  function checkedIds(source){return Array.from(document.querySelectorAll(`.yx113-row-check[data-source="${source}"]:checked`)).map(x=>String(x.dataset.id||'')).filter(Boolean);}
+  function rows(source){try{return (window.YX113ProductActions?.rowsStore?.(source)||[]).slice();}catch(_){return [];}}
+  function setRows(source, arr){try{window.YX113ProductActions?.rowsStore?.(source, arr);}catch(_){}}
+  function rerender(source){try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){}}
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json','Cache-Control':'no-cache',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{};}catch{d={success:false,error:t};}if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d;}
+  async function refreshAll(source, customer){
+    try{await window.YX113ProductActions?.loadSource?.(source,{force:true});}catch(_){ }
+    rerender(source);
+    try{if(customer){window.__YX_SELECTED_CUSTOMER__=customer; const input=document.getElementById('customer-name'); if(input)input.value=customer;}}catch(_){ }
+    try{await window.loadCustomerBlocks?.(true);}catch(_){ }
+    try{await window.renderCustomers?.(true);}catch(_){ }
+  }
+  document.addEventListener('click', async function(ev){
+    const del=ev.target.closest?.('[data-yx113-batch-delete]');
+    if(del){
+      const source=del.dataset.yx113BatchDelete||sourceFromPage(); if(!source)return;
+      const ids=checkedIds(source); if(!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      if(!confirm(`確定刪除 ${ids.length} 筆商品？`))return;
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.filter(r=>!idset.has(String(r.id||'')))); rerender(source);
+      try{await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); YX.toast?.('已刪除，清單已更新','ok'); await refreshAll(source, clean(document.getElementById('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''));}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'批量刪除失敗','error');}
+      return;
+    }
+    const zone=ev.target.closest?.('[data-yx132-batch-zone]');
+    if(zone){
+      const source=zone.dataset.source||sourceFromPage(); const z=zone.dataset.yx132BatchZone; const ids=checkedIds(source); if(!source||!z||!ids.length)return;
+      ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+      const before=rows(source); const idset=new Set(ids); setRows(source,before.map(r=>idset.has(String(r.id||''))?{...r,location:z,zone:z,warehouse_zone:z}:r)); rerender(source);
+      try{await api('/api/customer-items/batch-zone',{method:'POST',body:JSON.stringify({zone:z,items:ids.map(id=>({source:apiSource(source),id:Number(id)}))})}); await refreshAll(source);}
+      catch(e){setRows(source,before); rerender(source); YX.toast?.(e.message||'移動 A/B 區失敗','error');}
+      return;
+    }
+  }, true);
+  window.addEventListener('yx:customer-selected', function(e){
+    const source=sourceFromPage(); if(!source)return; const name=clean(e.detail?.name||window.__YX_SELECTED_CUSTOMER__||'');
+    if(name){const input=document.getElementById('customer-name'); if(input)input.value=name;}
+    try{window.YX113ProductActions?.renderSummary?.(source);window.YX113ProductActions?.renderCards?.(source);}catch(_){ }
+  }, false);
+})();
