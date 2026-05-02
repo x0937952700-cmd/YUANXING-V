@@ -1,0 +1,29 @@
+FULL MASTER V7 - 立即新增刷新 + 倉庫格位批量加入
+
+修改重點：
+1. 庫存 / 訂單 / 總單確認送出後，先使用 POST 回傳的後端清單立即重畫下方表格，再補一次 GET 校正。
+2. 新增後會同步目前客戶名稱，客戶訂單 / 客戶總單清單會馬上反映。
+3. 倉庫圖點格子後先立刻開啟格位編輯 modal，預設三列批量加入：後排 / 中間 / 前排。
+4. 倉庫格位 modal 的搜尋框會即時篩選每列下拉選單；下拉內容限定該格所在 A/B 區尚未錄入倉庫圖商品。
+5. HTML 骨架已同步倉庫批量加入提示文字。
+6. Service Worker / base 版本更新為 full-master-v7-immediate-submit-warehouse，維持 no-store，避免吃舊檔。
+
+本次沒有做的事：
+- 沒有新增補丁 JS。
+- 沒有新增 renderer。
+- 沒有新增 MutationObserver。
+- 沒有新增 setTimeout；現有 setTimeout 僅保留原本功能用的長按、toast、提示閃爍。
+
+主要修改檔案：
+- templates/base.html
+- templates/module.html
+- static/yx_pages/page_inventory_master_v2.js
+- static/yx_pages/page_orders_master_v2.js
+- static/yx_pages/page_master_order_master_v2.js
+- static/yx_pages/page_warehouse_master_v2.js
+- static/service-worker.js
+- static/pwa.js
+
+檢查：
+- JS syntax OK
+- Python compile OK

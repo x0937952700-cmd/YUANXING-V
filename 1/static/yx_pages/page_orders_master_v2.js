@@ -903,7 +903,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v7-submit-refresh', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     // V6：不再掃 DOM 隱藏舊版，也不再二次 render，避免庫存/訂單/總單跳版。
@@ -994,12 +994,24 @@
       qty:qtyFromProduct(x.product_text)
     })).filter(x=>x.qty>0);
   }
-  async function refreshAfterSubmit(m, customer){
+  async function refreshAfterSubmit(m, customer, posted){
     try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
     try { if (customer && $('customer-name')) $('customer-name').value = customer; } catch(_e) {}
-    try { if (window.YX113ProductActions?.loadSource) await window.YX113ProductActions.loadSource(m, {force:true}); } catch(e){ console.warn('[YX v20 loadSource]', e); }
-    try { if (window.YX113ProductActions?.refreshCurrent) await window.YX113ProductActions.refreshCurrent(); } catch(e){ console.warn('[YX v20 refreshCurrent]', e); }
-    try { if (customer) window.dispatchEvent(new CustomEvent('yx:customer-selected', {detail:{name:customer}})); } catch(_e) {}
+    const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+    // V7：新增成功後先用 POST 回傳的後端清單立即重畫，再補一次 GET 校正。
+    // 這樣庫存、客戶訂單、客戶總單都會馬上出現在下方清單，不等舊流程或客戶區重選。
+    try {
+      const rows = Array.isArray(posted?.items) ? posted.items : [];
+      if (rows.length && act?.rowsStore) {
+        act.rowsStore(m, rows);
+        act.renderSummary?.(m);
+        act.renderCards?.(m);
+      }
+    } catch(e){ console.warn('[YX v7 immediate render]', e); }
+    try { if (customer) window.dispatchEvent(new CustomEvent('yx:customer-selected', {detail:{name:customer, source:m}})); } catch(_e) {}
+    try { if (act?.loadSource) await act.loadSource(m, {force:true, afterSubmit:true}); } catch(e){ console.warn('[YX v7 loadSource]', e); }
+    try { if (act?.renderSummary) act.renderSummary(m); if (act?.renderCards) act.renderCards(m); } catch(e){ console.warn('[YX v7 final render]', e); }
+    try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
   }
   async function finalConfirmSubmit(ev){
     if (ev) { ev.preventDefault?.(); ev.stopPropagation?.(); ev.stopImmediatePropagation?.(); }
@@ -1020,9 +1032,9 @@
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
       const requestKey = `v20-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, request_key:requestKey})});
+      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, request_key:requestKey})});
       if (ta) ta.value = '';
-      await refreshAfterSubmit(m, customer);
+      await refreshAfterSubmit(m, customer, posted);
       if (result) {
         result.classList.remove('hidden');
         result.style.display = '';

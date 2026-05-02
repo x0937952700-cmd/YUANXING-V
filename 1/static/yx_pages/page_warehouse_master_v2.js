@@ -425,11 +425,24 @@
     const current=(state.current.items||[]).map((it,i)=>{ const mat=materialOf(it), place=clean(it.placement_label||it.layer_label||''); return `<div class="yx-direct-current-item" data-idx="${i}"><div class="yx-direct-current-main"><span class="yx-direct-source">${esc(sourceOf(it))}</span>${mat?`<span class="yx-direct-material">${esc(mat)}</span>`:''}<strong>${esc(cleanCustomer(it.customer_name))}</strong><span class="yx-direct-product">${esc(productText(it))}</span></div><div class="yx-direct-current-side"><span>${place?esc(place)+'｜':''}${itemQty(it)}件</span><button class="remove yx-direct-remove" type="button" data-remove-cell-item="${i}">×</button></div></div>`; }).join('') || '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
     const currentBox=$('warehouse-current-items-html'); if(currentBox) currentBox.innerHTML=current;
     const opts=availableRows().map(r=>`<option value="${r.index}" data-max="${itemQty(r.it)}">${esc(optionLabel(r.it))}｜可加入 ${itemQty(r.it)} 件</option>`).join('');
-    const rows=Array.from({length:Math.max(3,Number(state.batchCount||3))},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
+    const emptyHint = opts ? '' : '<option value="">此區目前沒有未錄入商品，或請換 A/B 區</option>';
+    const rows=Array.from({length:Math.max(3,Number(state.batchCount||3))},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts || emptyHint}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
     const rowsBox=$('yx121-batch-rows'); if(rowsBox) rowsBox.innerHTML=rows;
     syncBatchSelectLimits();
   }
-  async function openWarehouseModal(z,c,s){ await loadAvailable(); z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; $('warehouse-modal')?.classList.remove('hidden'); renderCellItems(); }
+  async function openWarehouseModal(z,c,s){
+    z=clean(z).toUpperCase();
+    state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)};
+    state.batchCount=3;
+    const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`;
+    const note=$('warehouse-note'); if(note) note.value=state.current.note||'';
+    const search=$('warehouse-item-search'); if(search) search.value='';
+    $('warehouse-modal')?.classList.remove('hidden');
+    renderCellItems();
+    try { if(search) search.focus(); } catch(_e) {}
+    // V7：先立刻開啟格位批量加入畫面，再背景抓 A/B 區未錄入商品，下拉選單抓完即刷新。
+    try { await loadAvailable(); renderCellItems(); } catch(e){ toast(e.message||'未錄入商品載入失敗','error'); }
+  }
   function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); }
   function syncBatchSelectLimits(){
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{

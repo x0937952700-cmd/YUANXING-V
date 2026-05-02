@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v6-no-readme-no-cover';
+  const PWA_VERSION = 'full-master-v7-immediate-submit-warehouse';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

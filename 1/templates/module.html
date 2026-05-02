@@ -361,7 +361,7 @@
       </div>
       <div id="warehouse-modal-meta" class="muted"></div>
       <label class="field-label">搜尋已錄入商品</label>
-      <input id="warehouse-item-search" class="text-input" placeholder="輸入 113 直接篩選">
+      <input id="warehouse-item-search" class="text-input" placeholder="搜尋商品 / 客戶 / 材質；下方每列也可直接下拉選擇">
       <!-- FIX88：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
       <div class="yx83-legacy-warehouse-controls" style="display:none" aria-hidden="true">
         <label class="field-label">加入商品</label>
@@ -379,7 +379,7 @@
         </div>
         <div class="yx-direct-batch-panel" data-html-locked="warehouse-batch-html-fixed">
           <div class="yx-direct-section-title">批量加入商品</div>
-          <div class="small-note">此區固定寫在 HTML：A / B 區各自只顯示尚未錄入倉庫圖商品；第 1 筆後排、第 2 筆中間、第 3 筆前排；未輸入件數時自動用該商品未入倉件數。這一區不再由舊版 JS 產生或覆蓋。</div>
+          <div class="small-note">此區固定寫在 HTML：點格子會立刻開啟此批量加入功能；A / B 區各自只顯示尚未錄入倉庫圖商品。可先搜尋，再用每列下拉選擇商品；第 1 筆後排、第 2 筆中間、第 3 筆前排；未輸入件數時自動用該商品未入倉件數。</div>
           <div id="yx121-batch-rows" data-html-locked="warehouse-batch-default-three">
             <div class="yx121-batch-row" data-batch-index="0"><label class="yx121-batch-label">後排</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option></select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>
             <div class="yx121-batch-row" data-batch-index="1"><label class="yx121-batch-label">中間</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option></select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數"></div>
