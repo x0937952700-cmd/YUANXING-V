@@ -18,7 +18,7 @@
     <label class="field-label">客戶商品清單</label>
     <div class="ship-customer-picker yx-ship-single-html yx-ship-html-open-list-lock" id="ship-customer-picker" data-html-locked="ship-open-product-list">
       <input type="hidden" id="ship-customer-search" value="">
-      <select id="ship-customer-item-select" class="text-input ship-customer-item-select yx-final-ship-product-select" data-html-locked="ship-customer-all-items"><option value="">請先點選北 / 中 / 南客戶</option></select>
+      <select id="ship-customer-item-select" class="text-input ship-customer-item-select yx-final-ship-product-select" data-html-locked="ship-customer-all-items" hidden aria-hidden="true" style="display:none!important"><option value="">商品標籤清單已顯示在下方</option></select>
       <div class="yx-ship-open-list-head yx-final-ship-select-head">
         <strong>下拉選擇商品</strong>
         <span id="ship-customer-item-count" class="muted">請先點選北 / 中 / 南客戶</span>
@@ -29,7 +29,7 @@
           <strong>已加入出貨商品</strong>
           <button class="ghost-btn small-btn" type="button" onclick="clearShipSelectedItems()">一鍵清空</button>
         </div>
-        <div id="ship-selected-items" class="card-list yx-ship-selected-tag-list">
+        <div id="ship-selected-items" class="card-list yx-ship-selected-tag-list yx-ship-selected-one-column">
           <div class="empty-state-card compact-empty">尚未加入出貨商品</div>
         </div>
       </div>
@@ -177,11 +177,6 @@
     <div id="ship-selected-items-bottom" class="card-list"></div>
   </section>
 
-
-  <section class="subsection" id="inventory-summary-section" style="display:none">
-    <div id="inventory-summary" class="card-list"></div>
-  </section>
-
   <section class="subsection" id="shipping-query-section" {% if module_key != 'shipping_query' %}style="display:none"{% endif %}>
     <div class="section-head">
       <h3>出貨查詢</h3>
@@ -235,7 +230,6 @@
     </div>
 
     <div id="warehouse-search-results" class="search-results hidden"></div>
-    <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
     <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true">

@@ -4605,3 +4605,32 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 @media(max-width:760px){.yx-ship-product-option-row{grid-template-columns:1fr;}.yx-ship-selected-main{grid-template-columns:1fr!important;}}
 /* 刪除今日異動的未錄入倉庫圖區塊；倉庫圖本身的未錄入批量加入不受影響 */
 #today-filter-unplaced,[data-today-panel="unplaced"],#today-unplaced-list{display:none!important;}
+
+
+/* ===== V12 REAL LOADED FIX: HTML/JS/CSS aligned, no v2/v9 residue ===== */
+#warehouse-unplaced-list-inline,
+#inventory-summary-section,
+.unplaced-list,
+.unplaced-panel,
+.warehouse-unplaced-list,
+.yx-warehouse-unplaced-block,
+.yx-unplaced-list,
+.yx-unplaced-panel { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }
+#ship-customer-item-select,
+.ship-customer-item-select,
+.yx-final-ship-product-select { display:none!important; visibility:hidden!important; height:0!important; min-height:0!important; margin:0!important; padding:0!important; border:0!important; pointer-events:none!important; }
+#ship-customer-item-list,
+.yx-final-ship-tag-menu,
+.yx-ship-open-product-list { display:flex!important; flex-direction:column!important; gap:8px!important; max-height:none!important; overflow:visible!important; width:100%!important; }
+.yx-ship-product-option-row { display:grid!important; grid-template-columns:auto auto 1fr auto auto!important; align-items:center!important; width:100%!important; min-height:42px!important; text-align:left!important; white-space:normal!important; border:1px solid rgba(180,130,65,.35)!important; border-radius:14px!important; background:#fff!important; padding:9px 12px!important; box-shadow:0 4px 12px rgba(15,23,42,.05)!important; }
+.yx-ship-selected-tag-list,
+.yx-ship-selected-one-column,
+#ship-selected-items { display:flex!important; flex-direction:column!important; gap:10px!important; grid-template-columns:1fr!important; }
+.yx-ship-selected-html-card,
+.yx-ship-selected-tag-card,
+.yx-ship-one-line-card { width:100%!important; max-width:100%!important; display:block!important; break-inside:avoid!important; }
+.yx-ship-selected-main { display:grid!important; grid-template-columns:auto auto auto minmax(180px,1fr) auto auto auto!important; gap:8px!important; align-items:center!important; width:100%!important; }
+@media (max-width: 760px) {
+  .yx-ship-product-option-row { grid-template-columns:1fr!important; gap:4px!important; }
+  .yx-ship-selected-main { grid-template-columns:1fr!important; }
+}
