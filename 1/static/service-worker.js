@@ -1,25 +1,26 @@
-/* 沅興木業 PWA Service Worker - html-lock-products-warehouse-v8 */
-const YX_PWA_VERSION='html-lock-products-warehouse-v8';
+/* 沅興木業 PWA Service Worker - html-lock-products-warehouse-v10-buttons-all */
+const YX_PWA_VERSION='html-lock-products-warehouse-v10-buttons-all';
 const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest','/static/favicon.png',
-  '/static/style.css?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/final_mother_lock.css?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/home_background_hardlock.css?v=html-lock-products-warehouse-v8',
-  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-products-warehouse-v8',
-  '/static/pwa.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/core_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/settings_manual.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/ship_single_lock.js?v=html-lock-products-warehouse-v8',
-  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-products-warehouse-v8',
+  '/static/style.css?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/final_mother_lock.css?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/home_background_hardlock.css?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/pwa.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/core_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/settings_manual.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/ship_single_lock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-products-warehouse-v10-buttons-all',
+  '/static/yx_modules/button_repair_v9.js?v=html-lock-products-warehouse-v10-buttons-all',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{
