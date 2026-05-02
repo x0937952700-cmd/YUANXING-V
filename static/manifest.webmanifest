@@ -1,7 +1,7 @@
 {
   "name": "沅興木業",
   "short_name": "沅興木業",
-  "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
+  "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統 v25",
   "id": "/",
   "start_url": "/?source=pwa",
   "scope": "/",
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "html-lock-buttons-v9"
+  "version": "clean-events-v21"
 }

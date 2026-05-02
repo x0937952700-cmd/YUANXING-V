@@ -4571,3 +4571,29 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 #warehouse-modal .yx121-batch-label{font-weight:950;color:#111827;text-align:center;background:#f4f7fb;border:1px solid rgba(15,23,42,.08);border-radius:999px;padding:9px 6px;}
 #warehouse-modal .yx121-batch-select,#warehouse-modal .yx121-batch-qty{min-height:42px;}
 @media(max-width:680px){#warehouse-modal .yx-direct-current-item{align-items:flex-start;flex-direction:column;}#warehouse-modal .yx121-batch-row{grid-template-columns:1fr;}#warehouse-modal .yx121-batch-label{text-align:left;padding-left:12px;}}
+
+
+/* CLEAN_V12 fixed layout patch */
+.yx113-toolbar,.yx128-toolbar,.products-toolbar,.query-bar{justify-content:flex-start!important;text-align:left!important;}
+.yx-ship-selected-tag-list{display:flex!important;flex-direction:column!important;gap:10px!important;align-items:stretch!important;}
+.yx-ship-selected-one-line{display:grid!important;grid-template-columns:auto auto minmax(130px,auto) minmax(260px,1fr) auto auto;gap:8px!important;align-items:center!important;width:100%!important;}
+.yx-ship-support-input{width:100%!important;min-width:260px!important;}
+.yx121-batch-area,.yx121-batch-rows{display:block!important;visibility:visible!important;opacity:1!important;}
+.yx121-batch-row{display:grid!important;grid-template-columns:70px minmax(260px,1fr) 120px;gap:8px!important;align-items:center!important;margin:8px 0!important;}
+
+/* CLEAN_EVENTS_V19 warehouse action sheet + batch rows */
+.yx-warehouse-action-card{max-width:520px;width:min(92vw,520px)}
+.yx-warehouse-action-buttons{display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:14px}
+.yx121-batch-row,.yx-warehouse-current-row{display:grid;grid-template-columns:72px minmax(0,1fr) 96px;gap:8px;align-items:center;margin:8px 0}
+.yx-warehouse-current-row{grid-template-columns:auto minmax(0,1fr) 84px 72px;padding:8px;border:1px solid rgba(120,90,60,.18);border-radius:12px;background:rgba(255,255,255,.62)}
+.yx121-batch-label{font-weight:800;color:#7b4a26;text-align:center}
+@media(max-width:640px){.yx121-batch-row,.yx-warehouse-current-row{grid-template-columns:1fr}.yx121-batch-label{text-align:left}.yx-warehouse-current-row .small-btn{width:100%}}
+
+
+/* CLEAN_EVENTS_V21_LAYOUT_PATCH: keep selected shipping items and warehouse batch rows readable. */
+.yx-ship-selected-one-line{display:grid;grid-template-columns:auto auto minmax(180px,1fr) minmax(180px,1.2fr) auto auto;gap:8px;align-items:center;width:100%;margin:8px 0;padding:10px;border:1px solid rgba(15,23,42,.10);border-radius:14px;background:#fff;}
+.yx-ship-product-row{display:grid;grid-template-columns:auto auto minmax(220px,1fr) auto auto;gap:8px;align-items:center;padding:10px;border-bottom:1px solid rgba(15,23,42,.08);}
+.yx121-batch-row{display:grid;grid-template-columns:60px minmax(220px,1fr) 110px;gap:8px;align-items:center;margin:8px 0;}
+.yx-warehouse-current-row{display:grid;grid-template-columns:auto minmax(220px,1fr) 90px auto;gap:8px;align-items:center;margin:8px 0;padding:8px;border:1px solid rgba(15,23,42,.08);border-radius:12px;background:#fff;}
+.yx-v10-left-actions,.yx-html-one-row-actions{justify-content:flex-start!important;text-align:left!important;}
+@media(max-width:720px){.yx-ship-selected-one-line,.yx-ship-product-row,.yx121-batch-row,.yx-warehouse-current-row{grid-template-columns:1fr;}.yx-ship-selected-one-line .text-input,.yx121-batch-row .text-input{width:100%;}}

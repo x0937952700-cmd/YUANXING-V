@@ -29,7 +29,7 @@
       <div class="yx-ship-selected-inline-html" data-html-locked="ship-selected-tags-below-list">
         <div class="yx-ship-selected-inline-head">
           <strong>已加入出貨商品</strong>
-          <button class="ghost-btn small-btn" type="button" onclick="clearShipSelectedItems()">一鍵清空</button>
+          <button class="ghost-btn small-btn" type="button" data-yx-action="ship-clear-selected">一鍵清空</button>
         </div>
         <div id="ship-selected-items" class="card-list yx-ship-selected-tag-list">
           <div class="empty-state-card compact-empty">尚未加入出貨商品</div>
@@ -55,9 +55,9 @@
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     {% endif %}
     <div class="btn-row">
-      <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
+      <button class="primary-btn" id="submit-btn" data-yx-action="confirm-submit">確認送出</button>
       {% if module_key == 'ship' %}
-      <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
+      <button class="ghost-btn" data-yx-action="reverse-lookup">反查商品位置</button>
       {% endif %}
     </div>
     <div id="duplicate-action-panel" class="result-card hidden"></div>
@@ -71,7 +71,7 @@
       </div>
       <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
         <div class="yx114-toolbar-main"></div>
-        <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
+        <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions yx-v10-left-actions">
           <input id="yx113-inventory-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
           <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="inventory">全部區</button>
           <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="inventory">A區</button>
@@ -85,7 +85,7 @@
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
         <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
-        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">資料載入中…</td></tr></tbody></table></div>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
     </div>
@@ -96,11 +96,11 @@
   <section class="subsection yx-html-direct-product-shell" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>訂單清單</h3>
-      <span class="muted">固定 HTML 表格：批量材質自動套用；批量編輯再按一次直接儲存。</span>
+      <span class="muted">固定 HTML 表格：批量材質選完立即套用；批量編輯再按一次直接儲存。</span>
     </div>
     <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
-      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
+      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions yx-v10-left-actions">
         <input id="yx113-orders-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="orders">全部區</button>
@@ -113,7 +113,7 @@
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">資料載入中…</td></tr></tbody></table></div>
     </div>
     <div id="orders-list" class="card-list" style="display:none"></div>
   </section>
@@ -121,11 +121,11 @@
   <section class="subsection yx-html-direct-product-shell" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>總單清單</h3>
-      <span class="muted">固定 HTML 表格：批量材質自動套用；批量編輯再按一次直接儲存。</span>
+      <span class="muted">固定 HTML 表格：批量材質選完立即套用；批量編輯再按一次直接儲存。</span>
     </div>
     <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
-      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
+      <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions yx-v10-left-actions">
         <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="master_order">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="master_order">A區</button>
@@ -137,7 +137,7 @@
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
     </div>
     <div id="master-list" class="card-list" style="display:none"></div>
   </section>
@@ -192,7 +192,7 @@
       </select>
       <input id="ship-start" class="text-input small" type="date">
       <input id="ship-end" class="text-input small" type="date">
-      <button class="primary-btn" onclick="loadShippingRecords()">查詢</button>
+      <button class="primary-btn" data-yx-action="shipping-query-load">查詢</button>
     </div>
     <div id="shipping-results" class="table-card"></div>
   </section>
@@ -209,23 +209,23 @@
     <div class="glass panel warehouse-toolbar-panel">
       <div class="search-row warehouse-search-toolbar">
         <input id="warehouse-search" class="text-input" placeholder="搜尋商品 / 客戶 / 格位，例如 113 或 A-3-07">
-        <button class="primary-btn" type="button" onclick="searchWarehouse()">搜尋</button>
-        <button class="ghost-btn" type="button" onclick="renderWarehouse(true)">清除搜尋</button>
+        <button class="primary-btn" type="button" data-yx-action="warehouse-search">搜尋</button>
+        <button class="ghost-btn" type="button" data-yx-action="warehouse-clear-search">清除搜尋</button>
       </div>
 
       <div class="query-bar warehouse-meta-bar">
-        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" title="長按刷新未錄入倉庫圖件數" onclick="toggleWarehouseUnplacedHighlight()">A區 0件｜B區 0件｜總計 0件</span>
+        <span class="pill warn interactive-pill" id="warehouse-unplaced-pill" title="長按刷新未錄入倉庫圖件數" data-yx-action="warehouse-unplaced">A區 0件｜B區 0件｜總計 0件</span>
         <span class="pill" id="warehouse-selection-pill">目前區域：A 區</span>
-        <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
-        <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
-        <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
-        <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" onclick="undoWarehouseMove()" disabled>還原上一步</button>
+        <button class="ghost-btn small-btn" type="button" data-yx-action="warehouse-same-customer">同客戶</button>
+        <button class="ghost-btn small-btn" type="button" data-yx-action="warehouse-unplaced">未入倉</button>
+        <button class="ghost-btn small-btn" type="button" data-yx-action="warehouse-clear-highlight">清除高亮</button>
+        <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" data-yx-action="warehouse-undo" disabled>還原上一步</button>
       </div>
 
       <div class="warehouse-zone-nav">
-        <button id="zone-switch-A" class="chip zone-switch active" type="button" onclick="setWarehouseZone('A')">A 區</button>
-        <button id="zone-switch-B" class="chip zone-switch" type="button" onclick="setWarehouseZone('B')">B 區</button>
-        <button id="zone-switch-ALL" class="chip zone-switch" type="button" onclick="setWarehouseZone('ALL')">全部</button>
+        <button id="zone-switch-A" class="chip zone-switch active" type="button" data-yx-zone="A">A 區</button>
+        <button id="zone-switch-B" class="chip zone-switch" type="button" data-yx-zone="B">B 區</button>
+        <button id="zone-switch-ALL" class="chip zone-switch" type="button" data-yx-zone="ALL">全部</button>
       </div>
     </div>
 
@@ -243,12 +243,8 @@
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
-            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 21) %}
-              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
-              </button>
-              {% endfor %}
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list" data-html-locked="warehouse-dynamic-slot-list">
+              <div class="empty-state-card compact-empty">格位載入中…</div>
             </div>
           </div>
           {% endfor %}
@@ -264,12 +260,8 @@
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
-            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 21) %}
-              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
-              </button>
-              {% endfor %}
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list" data-html-locked="warehouse-dynamic-slot-list">
+              <div class="empty-state-card compact-empty">格位載入中…</div>
             </div>
           </div>
           {% endfor %}
@@ -302,13 +294,13 @@
         <select id="cust-region" class="text-input">
           <option>北區</option><option>中區</option><option>南區</option>
         </select>
-        <button class="primary-btn" onclick="saveCustomer()">儲存客戶</button>
+        <button class="primary-btn" data-yx-action="customer-save">儲存客戶</button>
       </div>
       <div class="customer-board">
         <div class="customer-search-row">
           <input id="customer-search" class="text-input" placeholder="搜尋客戶">
-          <button class="primary-btn" onclick="renderCustomers()">搜尋</button>
-          <button class="ghost-btn" onclick="openArchivedCustomersModal()">封存客戶</button>
+          <button class="primary-btn" data-yx-action="customer-search">搜尋</button>
+          <button class="ghost-btn" data-yx-action="customer-archived">封存客戶</button>
         </div>
         <div class="category-grid">
           <div class="category-box" data-region="北區"><div class="category-title">北區</div><div class="customer-list" id="customers-north"></div></div>
@@ -327,8 +319,8 @@
     </div>
     <div class="glass panel todo-panel">
       <div class="upload-row tight-row todo-upload-row">
-        <button class="primary-btn" onclick="openTodoAlbumPicker()">上傳檔案</button>
-        <button class="ghost-btn" onclick="openTodoCameraPicker()">拍照</button>
+        <button class="primary-btn" data-yx-action="todo-album">上傳檔案</button>
+        <button class="ghost-btn" data-yx-action="todo-camera">拍照</button>
       </div>
       <input id="todo-image-input" class="hidden" type="file" accept="image/*" multiple>
       <input id="todo-camera-input" class="hidden" type="file" accept="image/*" capture="environment" multiple>
@@ -338,31 +330,39 @@
       <label class="field-label">備忘內容</label>
       <textarea id="todo-note" class="text-area small" placeholder="可輸入今天要注意的事情或補充說明"></textarea>
       <div class="btn-row">
-        <button class="primary-btn" id="todo-save-btn" onclick="saveTodoItem()">新增代辦</button>
-        <button class="ghost-btn" onclick="clearTodoForm()">清空</button>
+        <button class="primary-btn" id="todo-save-btn" data-yx-action="todo-save">新增代辦</button>
+        <button class="ghost-btn" data-yx-action="todo-clear">清空</button>
       </div>
     </div>
     <div id="todo-list" class="todo-list"></div>
   </section>
 
   <input id="selected-item-json" type="hidden">
+  <div id="warehouse-action-sheet" class="modal hidden" aria-hidden="true">
+    <div class="modal-card glass yx-warehouse-action-card">
+      <div class="modal-head">
+        <div class="section-title">格位操作</div>
+        <button class="icon-btn" type="button" id="warehouse-action-close">✕</button>
+      </div>
+      <div id="warehouse-action-meta" class="muted"></div>
+      <div class="btn-row yx-warehouse-action-buttons">
+        <button class="primary-btn" type="button" id="warehouse-action-open">開啟 / 編輯格位</button>
+        <button class="ghost-btn" type="button" id="warehouse-action-insert">在此格後插入格子</button>
+        <button class="ghost-btn danger-btn" type="button" id="warehouse-action-delete">刪除此格</button>
+      </div>
+    </div>
+  </div>
+
   <div id="warehouse-modal" class="modal hidden">
     <div class="modal-card glass">
       <div class="modal-head">
         <div class="section-title">格位編輯</div>
-        <button class="icon-btn" onclick="closeWarehouseModal()">✕</button>
+        <button class="icon-btn" data-yx-action="warehouse-close-modal">✕</button>
       </div>
       <div id="warehouse-modal-meta" class="muted"></div>
       <label class="field-label">搜尋已錄入商品</label>
       <input id="warehouse-item-search" class="text-input" placeholder="輸入 113 直接篩選">
-      <!-- FIX88：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
-      <div class="yx83-legacy-warehouse-controls" style="display:none" aria-hidden="true">
-        <label class="field-label">加入商品</label>
-        <select id="warehouse-item-select" class="text-input"></select>
-        <label class="field-label">加入數量</label>
-        <input id="warehouse-add-qty" class="text-input" type="number" min="1" value="1">
-        <div id="warehouse-recent-slots" class="chip-list"></div>
-      </div>
+      <!-- CLEAN_EVENTS_V19：舊版倉庫 hidden select/input 已移除，避免儲存吃到舊欄位。 -->
       <div id="warehouse-cell-items" class="chip-list yx-final-html-cell-editor" data-html-locked="warehouse-batch-zone-unplaced">
         <div class="yx-direct-section" data-html-locked="warehouse-current-items-html">
           <div class="yx-direct-section-title">目前此格商品</div>

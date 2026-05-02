@@ -468,13 +468,36 @@
     try { if (window.YX116ShipPicker && selectedCustomer()) await window.YX116ShipPicker.load(selectedCustomer()); } catch(_e) {}
   }
   async function bulkMaterial(source){
-    const material = YX.clean($(`yx113-${source}-material`)?.value || '').toUpperCase();
+    const sel = $(`yx113-${source}-material`);
+    const material = YX.clean(sel?.value || '').toUpperCase();
     if (!material) return YX.toast('請先選擇材質', 'warn');
     const ids = selectedOrAllIds(source);
     if (!ids.length) return YX.toast('目前沒有可套用材質的商品', 'warn');
+    const idSet = new Set(ids.map(String));
+    // V10：先立即改畫面與本機 rowsStore，避免按下後等很久才看到變化。
+    try {
+      rowsStore(source).forEach(r => { if (idSet.has(String(r.id || ''))) { r.material = material; r.product_code = material; } });
+      document.querySelectorAll(`#yx113-${source}-summary .yx113-summary-row[data-source="${source}"]`).forEach(tr => {
+        if (idSet.has(String(tr.dataset.id || ''))) {
+          const matCell = tr.querySelector('td.mat');
+          if (matCell) {
+            const cb = matCell.querySelector('input');
+            matCell.innerHTML = '';
+            if (cb) matCell.appendChild(cb);
+            matCell.append(document.createTextNode(material));
+          }
+          const matSelect = tr.querySelector('[data-yx128-field="material"]');
+          if (matSelect) matSelect.value = material;
+        }
+      });
+      YX.toast(`已立即套用材質 ${material}，正在寫入資料庫…`, 'ok');
+    } catch(_e) {}
     const items = ids.map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
     const d = await YX.api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
-    YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok'); if($(`yx113-${source}-material`)) $(`yx113-${source}-material`).value=''; clearSelected(source); await loadSource(source);
+    YX.toast(`已完成材質 ${material}：${d.count || items.length} 筆`, 'ok');
+    if(sel) sel.value='';
+    clearSelected(source);
+    await loadSource(source);
   }
   async function bulkDelete(source){
     const items = selectedItems(source);
