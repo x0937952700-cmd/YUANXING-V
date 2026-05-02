@@ -4650,3 +4650,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .customer-list .empty-state-card:empty{display:none;}
 .yx113-summary-row.is-removing,
 .yx113-summary-row.yx-row-deleted{display:none!important;}
+
+/* V15: 訂單/總單新增後客戶卡直接顯示，避免被空狀態或舊版樣式蓋掉 */
+.customer-list .yx-v15-force-customer-card{display:flex!important;align-items:center;justify-content:space-between;width:100%;min-height:44px;pointer-events:auto!important;opacity:1!important;visibility:visible!important;}
+.customer-list .empty-state-card:has(+ .yx-v15-force-customer-card){display:none!important;}
