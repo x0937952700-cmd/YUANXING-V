@@ -4,7 +4,7 @@
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const MATERIALS = ['SPF','HF','DF','RDT','SPY','SP','RP','TD','MKJ','LVL','尤加利','尤佳利'];
+  const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
   const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
@@ -205,7 +205,7 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -449,32 +449,56 @@
   async function saveAllEdits(source){
     const rows = [...document.querySelectorAll(`#yx113-${source}-summary .yx128-edit-row[data-source="${source}"]`)];
     if (!rows.length) return;
-    let saved = 0;
+    const items = [];
     for (const tr of rows){
-      const id = tr.dataset.id;
+      const id = Number(tr.dataset.id || 0);
       const row = rowsStore(source).find(r => String(r.id || '') === String(id));
-      if (!row) continue;
+      if (!row || !id) continue;
       const val = f => tr.querySelector(`[data-yx128-field="${f}"]`)?.value || '';
       const payload = payloadFromParts(source, row, {material:val('material'), size:val('size'), support:val('support'), qty:val('qty'), customer_name:val('customer_name'), zone:val('zone')});
       if (!payload.product_text) continue;
       if ((source === 'orders' || source === 'master_order') && !payload.customer_name) continue;
-      await YX.api(urlFor(source, id), {method:'PUT', body:JSON.stringify(payload)});
-      saved += 1;
+      Object.assign(row, payload);
+      items.push({source:apiSource(source), id, ...payload});
     }
+    if (!items.length) return YX.toast('沒有可儲存的商品', 'warn');
     state.editAll[source] = false;
     state.editScope[source] = null;
-    YX.toast(`已更新 ${saved} 筆商品`, 'ok');
-    await loadSource(source);
-    try { if (window.YX116ShipPicker && selectedCustomer()) await window.YX116ShipPicker.load(selectedCustomer()); } catch(_e) {}
+    renderSummary(source);
+    renderCards(source);
+    try{
+      const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
+      YX.toast(`已批量更新 ${d.count || items.length} 筆商品`, 'ok');
+      clearSelected(source);
+      await loadSource(source);
+      try { if (window.YX116ShipPicker && selectedCustomer()) await window.YX116ShipPicker.load(selectedCustomer()); } catch(_e) {}
+    }catch(e){
+      await loadSource(source);
+      YX.toast(e.message || '批量編輯儲存失敗', 'error');
+    }
   }
   async function bulkMaterial(source){
-    const material = YX.clean($(`yx113-${source}-material`)?.value || '').toUpperCase();
+    const sel = $(`yx113-${source}-material`);
+    const material = YX.clean(sel?.value || '').toUpperCase();
     if (!material) return YX.toast('請先選擇材質', 'warn');
     const ids = selectedOrAllIds(source);
     if (!ids.length) return YX.toast('目前沒有可套用材質的商品', 'warn');
     const items = ids.map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
-    const d = await YX.api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
-    YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok'); if($(`yx113-${source}-material`)) $(`yx113-${source}-material`).value=''; clearSelected(source); await loadSource(source);
+    // 樂觀更新：先讓表格立即變化，避免看起來像沒反應
+    const idSet = new Set(items.map(x => String(x.id)));
+    rowsStore(source).forEach(r => { if (idSet.has(String(r.id || ''))) { r.material = material; r.product_code = material; } });
+    renderSummary(source);
+    renderCards(source);
+    try{
+      const d = await YX.api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
+      YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok');
+      if(sel) sel.value='';
+      clearSelected(source);
+      await loadSource(source);
+    }catch(e){
+      await loadSource(source);
+      YX.toast(e.message || '批量材質失敗，請確認材質是否在下拉選單內', 'error');
+    }
   }
   async function bulkDelete(source){
     const items = selectedItems(source);
@@ -553,7 +577,7 @@
       const matSel = ev.target?.closest?.('select[id^="yx113-"][id$="-material"]');
       if (matSel) {
         const m = matSel.id.match(/^yx113-(inventory|orders|master_order)-material$/);
-        if (m) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try { await bulkMaterial(m[1]); } catch(e) { YX.toast(e.message || '批量材質失敗','error'); } return; }
+        if (m) { return; }
       }
       const supportInput = ev.target?.closest?.('[data-yx128-field="support"],[data-yx128-card-field="support"]');
       if (supportInput) {

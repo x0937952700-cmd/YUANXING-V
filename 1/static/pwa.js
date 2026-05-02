@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'html-lock-products-warehouse-v11-submit-render';
+  const PWA_VERSION = 'html-lock-products-warehouse-v14-final-submit';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

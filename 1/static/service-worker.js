@@ -1,37 +1,37 @@
-/* 沅興木業 PWA Service Worker - html-lock-products-warehouse-v11-submit-render */
-const YX_PWA_VERSION='html-lock-products-warehouse-v11-submit-render';
-const STATIC_CACHE=`yuanxing-pwa-static-${YX_PWA_VERSION}`;
+/* 沅興木業 PWA Service Worker - html-lock-products-warehouse-v16-final-submit */
+const YX_PWA_VERSION='html-lock-products-warehouse-v16-final-submit';
+const STATIC_CACHE=`yuanxing-v16-final-submit${YX_PWA_VERSION}`;
 const PRECACHE_ASSETS=[
   '/static/manifest.webmanifest','/static/favicon.png',
-  '/static/style.css?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/final_mother_lock.css?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/home_background_hardlock.css?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/pwa.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/core_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/settings_manual.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/ship_single_lock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-products-warehouse-v11-submit-render',
-  '/static/yx_modules/button_repair_v9.js?v=html-lock-products-warehouse-v11-submit-render',
+  '/static/style.css?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/final_mother_lock.css?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/ornate_label_hardlock.css?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/home_background_hardlock.css?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_assets/home_cloud_background.jpg?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/pwa.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/core_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/ornate_label_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/quantity_rule_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/product_sort_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/product_actions_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/customer_regions_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/warehouse_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/today_changes_hardlock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/settings_manual.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/ship_single_lock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/html_direct_master_lock.js?v=html-lock-products-warehouse-v16-final-submit',
+  '/static/yx_modules/button_repair_v9.js?v=html-lock-products-warehouse-v16-final-submit',
   '/static/icons/icon-192x192.png','/static/icons/icon-512x512.png','/static/icons/icon-maskable-192x192.png','/static/icons/icon-maskable-512x512.png'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(PRECACHE_ASSETS).catch(()=>{})).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-pwa-')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('yuanxing-v16-final-submit')&&key!==STATIC_CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));
 });
 self.addEventListener('message',event=>{
   if(event.data&&event.data.type==='SKIP_WAITING') self.skipWaiting();
-  if(event.data&&event.data.type==='CLEAR_YX_CACHES') event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-pwa-')).map(k=>caches.delete(k)))));
+  if(event.data&&event.data.type==='CLEAR_YX_CACHES') event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yuanxing-v16-final-submit')).map(k=>caches.delete(k)))));
 });
 self.addEventListener('fetch',event=>{
   const req=event.request;

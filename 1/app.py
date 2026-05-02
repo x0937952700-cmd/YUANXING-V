@@ -1718,6 +1718,94 @@ def api_customer_items_batch_delete():
         log_error("customer_items_batch_delete", str(e))
         return error_response(str(e) or "批量刪除失敗")
 
+
+@app.route("/api/customer-items/batch-update", methods=["POST"])
+@login_required_json
+def api_customer_items_batch_update():
+    """v15：庫存 / 訂單 / 總單批量編輯單次 API。
+    前端一次送出多筆 rows，後端在同一個 transaction 內更新，避免逐筆等待 HTTP API。
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        rows = data.get("items") or data.get("rows") or []
+        if not rows:
+            return error_response("沒有可儲存的批量編輯資料")
+        table_map = {
+            "庫存": "inventory", "inventory": "inventory",
+            "訂單": "orders", "orders": "orders",
+            "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
+        }
+        conn = get_db(); cur = conn.cursor()
+        before_items = []
+        updated = 0
+        changed = []
+        ts = now()
+        try:
+            for it in rows:
+                source = (it.get("source") or "").strip()
+                table = table_map.get(source)
+                item_id = int(it.get("id") or 0)
+                if not table or item_id <= 0:
+                    continue
+                cur.execute(sql(f"SELECT * FROM {table} WHERE id = ?"), (item_id,))
+                before = fetchone_dict(cur)
+                if not before:
+                    continue
+                before_items.append({"source": source, "table": table, "id": item_id, "row": before})
+                product_text = format_product_text_height2((it.get("product_text") or before.get("product_text") or "").strip())
+                if not product_text:
+                    continue
+                qty = int(it.get("qty") if it.get("qty") is not None else before.get("qty") or 0)
+                if qty < 0:
+                    qty = 0
+                material = clean_material_value(it.get("material") if it.get("material") is not None else (before.get("material") or before.get("product_code") or ""), product_text)
+                product_code = material or product_text
+                customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
+                location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
+                if table == "inventory":
+                    cur.execute(sql("""
+                        UPDATE inventory
+                        SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        WHERE id = ?
+                    """), (product_text, product_code, material, qty, location, customer_name, current_username(), ts, item_id))
+                else:
+                    # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
+                    try:
+                        cur.execute(sql(f"""
+                            UPDATE {table}
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            WHERE id = ?
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
+                    except Exception:
+                        try:
+                            cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                        except Exception:
+                            pass
+                        cur.execute(sql(f"""
+                            UPDATE {table}
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            WHERE id = ?
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
+                if cur.rowcount:
+                    updated += cur.rowcount or 0
+                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
+            conn.commit()
+        except Exception:
+            conn.rollback(); raise
+        finally:
+            conn.close()
+        grouped = {}
+        for x in before_items:
+            grouped.setdefault(x.get("table") or "customer_items", []).append(x)
+        for entity, rows_before in grouped.items():
+            add_audit_trail(current_username(), "update", entity, "batch_update", before_json=rows_before, after_json={"count": updated, "items": changed})
+        log_action(current_username(), f"批量編輯商品，共 {updated} 筆")
+        notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated})
+        return jsonify(success=True, count=updated, items=changed)
+    except Exception as e:
+        log_error("customer_items_batch_update", str(e))
+        return error_response(str(e) or "批量編輯失敗")
+
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
 def api_backup():
