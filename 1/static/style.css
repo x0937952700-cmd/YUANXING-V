@@ -4590,7 +4590,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag-list .yx-ship-selected-html-card{width:100%; display:block;}
 
 
-/* ===== full-master-v11-real-master-fixed: real loaded HTML/JS/CSS fixes ===== */
+/* ===== full-master-v13-real-customer-delete: real loaded HTML/JS/CSS fixes ===== */
 #ship-customer-item-select[hidden], .ship-customer-item-select[hidden]{display:none!important;}
 .yx-final-ship-tag-menu{display:block!important;max-height:none!important;overflow:visible!important;padding:6px 0!important;}
 .yx-ship-product-option-row{width:100%;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;margin:8px 0;padding:10px 12px;border:1px solid rgba(180,112,40,.35);border-radius:14px;background:#fffdf8;box-shadow:0 4px 14px rgba(20,20,20,.05);cursor:pointer;}
@@ -4634,3 +4634,19 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
   .yx-ship-product-option-row { grid-template-columns:1fr!important; gap:4px!important; }
   .yx-ship-selected-main { grid-template-columns:1fr!important; }
 }
+
+/* V13 real loaded customer/delete fix: make inserted north/center/south customer cards visible and stable */
+.customer-list .customer-region-card,
+.customer-list .yx113-customer-card,
+.customer-list .yx114-customer-card{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  max-width:100%;
+  visibility:visible;
+  opacity:1;
+}
+.customer-list .empty-state-card:empty{display:none;}
+.yx113-summary-row.is-removing,
+.yx113-summary-row.yx-row-deleted{display:none!important;}
