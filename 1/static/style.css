@@ -4590,18 +4590,18 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag-list .yx-ship-selected-html-card{width:100%; display:block;}
 
 
-/* ===== FULL MASTER V10 requested cleanup / no CSS eating JS ===== */
-#warehouse-unplaced-list-inline,
-#today-unplaced-list,
-[data-today-panel="unplaced"],
-#today-filter-unplaced{display:none!important;}
-.yx-ship-hidden-chip-source,.yx-ship-open-product-list-old{display:none!important;}
-#ship-customer-item-select[hidden]{display:none!important;}
-.yx-ship-tag-dropdown-button{width:100%;text-align:left;display:block;cursor:pointer;background:#fff;}
-.yx-ship-tag-dropdown-panel{display:block!important;max-height:none!important;overflow:visible!important;margin-top:8px;}
-.yx-ship-tag-option{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;border-radius:14px;border:1px solid rgba(180,112,40,.35);background:#fffdf8;box-shadow:0 4px 12px rgba(20,20,20,.04);font-weight:800;white-space:normal;}
-.yx-ship-tag-option:hover{background:#fff7e6;}
-#ship-selected-items,.yx-ship-selected-tag-list{display:flex!important;flex-direction:column!important;gap:10px!important;grid-template-columns:none!important;}
-.yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;max-width:none!important;grid-column:1 / -1!important;}
-.yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto minmax(120px,auto) 1fr auto auto auto;gap:8px;align-items:center;}
-@media (max-width:800px){.yx-ship-selected-main{grid-template-columns:1fr;}.yx-ship-support-editor{width:100%;}}
+/* ===== full-master-v11-real-master-fixed: real loaded HTML/JS/CSS fixes ===== */
+#ship-customer-item-select[hidden], .ship-customer-item-select[hidden]{display:none!important;}
+.yx-final-ship-tag-menu{display:block!important;max-height:none!important;overflow:visible!important;padding:6px 0!important;}
+.yx-ship-product-option-row{width:100%;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;margin:8px 0;padding:10px 12px;border:1px solid rgba(180,112,40,.35);border-radius:14px;background:#fffdf8;box-shadow:0 4px 14px rgba(20,20,20,.05);cursor:pointer;}
+.yx-ship-product-option-row:hover{background:#fff7e8;}
+.yx-ship-option-source,.yx-ship-option-material{font-weight:800;color:#0f766e;background:#ecfdf5;border-radius:999px;padding:3px 8px;white-space:nowrap;}
+.yx-ship-option-text{font-weight:700;color:#111827;min-width:0;overflow-wrap:anywhere;}
+.yx-ship-product-option-row strong{color:#1d4ed8;white-space:nowrap;}
+.yx-ship-product-option-row em{font-style:normal;color:#92400e;font-weight:800;white-space:nowrap;}
+.yx-ship-selected-tag-list{display:block!important;grid-template-columns:none!important;max-height:none!important;overflow:visible!important;}
+.yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:8px 0!important;}
+.yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto auto 1fr auto auto!important;gap:8px;align-items:center;width:100%;}
+@media(max-width:760px){.yx-ship-product-option-row{grid-template-columns:1fr;}.yx-ship-selected-main{grid-template-columns:1fr!important;}}
+/* 刪除今日異動的未錄入倉庫圖區塊；倉庫圖本身的未錄入批量加入不受影響 */
+#today-filter-unplaced,[data-today-panel="unplaced"],#today-unplaced-list{display:none!important;}

@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v9-actions-ship-select';
+  const PWA_VERSION = 'full-master-v11-real-master-fixed';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

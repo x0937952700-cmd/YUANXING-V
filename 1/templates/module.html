@@ -18,13 +18,12 @@
     <label class="field-label">客戶商品清單</label>
     <div class="ship-customer-picker yx-ship-single-html yx-ship-html-open-list-lock" id="ship-customer-picker" data-html-locked="ship-open-product-list">
       <input type="hidden" id="ship-customer-search" value="">
-      <select id="ship-customer-item-select" class="text-input ship-customer-item-select yx-final-ship-product-select" data-html-locked="ship-customer-all-items" hidden aria-hidden="true"><option value="">請先點選北 / 中 / 南客戶</option></select>
-      <button type="button" id="ship-product-dropdown-button" class="text-input yx-ship-tag-dropdown-button">請先點選北 / 中 / 南客戶</button>
+      <select id="ship-customer-item-select" class="text-input ship-customer-item-select yx-final-ship-product-select" data-html-locked="ship-customer-all-items"><option value="">請先點選北 / 中 / 南客戶</option></select>
       <div class="yx-ship-open-list-head yx-final-ship-select-head">
-        <strong>下拉式商品標籤</strong>
+        <strong>下拉選擇商品</strong>
         <span id="ship-customer-item-count" class="muted">請先點選北 / 中 / 南客戶</span>
       </div>
-      <div id="ship-customer-item-list" class="yx-ship-open-product-list yx-ship-tag-dropdown-panel" data-html-locked="ship-customer-open-items"></div>
+      <div id="ship-customer-item-list" class="yx-ship-open-product-list yx-final-ship-product-list-hidden" data-html-locked="ship-customer-open-items"></div>
       <div class="yx-ship-selected-inline-html" data-html-locked="ship-selected-tags-below-list">
         <div class="yx-ship-selected-inline-head">
           <strong>已加入出貨商品</strong>
@@ -236,7 +235,7 @@
     </div>
 
     <div id="warehouse-search-results" class="search-results hidden"></div>
-    <div id="warehouse-unplaced-list-inline" class="search-results hidden" hidden></div>
+    <div id="warehouse-unplaced-list-inline" class="search-results hidden"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
     <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true">

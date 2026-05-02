@@ -275,7 +275,6 @@
     {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
     {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
     {key:'orders', label:'新增訂單', list:'today-order-list', empty:'今天沒有新增訂單'},
-    {key:'unplaced', label:'未錄入倉庫圖', list:'today-unplaced-list', empty:'目前沒有未錄入倉庫圖商品'},
   ];
   const countMap = {inbound:'inbound_count', outbound:'outbound_count', orders:'new_order_count', unplaced:'unplaced_count'};
 
@@ -495,7 +494,7 @@
     if (!isToday()) return;
     if (!state.filter) state.filter = 'all';
     try { state.filter = localStorage.getItem('yx112TodayFilter') || 'all'; } catch(_e) { state.filter = 'all'; }
-    if (!['all','inbound','outbound','orders','unplaced'].includes(state.filter)) state.filter = 'all';
+    if (!['all','inbound','outbound','orders'].includes(state.filter)) state.filter = 'all';
     YX.cancelLegacyTimers('today_changes');
     document.documentElement.dataset.yx112Today = 'locked';
     document.documentElement.dataset.yx114Today = 'locked';

@@ -1,6 +1,6 @@
-/* 沅興木業 PWA Service Worker - full-master-v10-final-actions
+/* 沅興木業 PWA Service Worker - full-master-v11-real-master-fixed
    V5：不再快取 JS/CSS/HTML，避免舊版覆蓋與跳版。 */
-const YX_PWA_VERSION='full-master-v10-final-actions';
+const YX_PWA_VERSION='full-master-v11-real-master-fixed';
 self.addEventListener('install', event => { event.waitUntil(self.skipWaiting()); });
 self.addEventListener('activate', event => {
   event.waitUntil(
