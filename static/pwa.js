@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v13-real-customer-delete';
+  const PWA_VERSION = 'full-master-v14-real-delete-customer';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
