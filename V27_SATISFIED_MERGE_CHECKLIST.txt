@@ -1,7 +1,0 @@
-V27 satisfied redo
-- 使用 v26 清潔版當底。
-- 對照「目前滿意」把 CSS 合併進 static/style.css。
-- 不恢復多支舊 FIX JS/CSS 載入。
-- 每頁仍只從 base.html 載入自己的 1 支 yx_pages JS。
-- 舊入口函式以 wrapper 方式補進各頁 JS，事件仍走 clean 單頁邏輯。
-- service worker / manifest / base 版本同步 clean-events-v28-event-complete。
