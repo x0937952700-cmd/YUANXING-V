@@ -46,3 +46,12 @@
 })();
 
 (function(){'use strict'; if(window.__YX_PAGE_HOME__) return; window.__YX_PAGE_HOME__=true; async function loadBadge(){try{const d=await yxApi('/api/today-changes'); const btn=$('#today-changes-btn'); const n=d.unread_count||0; if(btn){btn.dataset.count=n; if(n) btn.textContent='今日異動 '+n;}}catch(_e){}} document.addEventListener('DOMContentLoaded',loadBadge); if(document.readyState!=='loading') loadBadge();})();
+
+
+// V28_EVENT_COMPLETE_HOME_COMPAT: 補回目前滿意的首頁介面狀態，不另載入舊 JS。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_HOME_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_HOME_COMPAT__=true;
+  document.documentElement.dataset.yx117AppleUi='locked';
+  document.documentElement.dataset.yx118AppleUi='locked';
+  document.documentElement.dataset.yx124OrnateLabel='locked';
+  document.addEventListener('DOMContentLoaded',()=>{document.body.classList.add('yx124-ornate-scope','yx-v27-satisfied-home');});
+})();

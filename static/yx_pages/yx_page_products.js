@@ -105,3 +105,31 @@ document.addEventListener('change',e=>{ if(e.target && e.target.id===cfg.mat.sli
 document.addEventListener('input',e=>{ if(e.target && e.target.id===cfg.search.slice(1)) render(); if(e.target && e.target.id==='customer-name'){ activeCustomer=e.target.value.trim(); render(); } });
 document.addEventListener('DOMContentLoaded',load); if(document.readyState!=='loading') load();
 })();
+
+
+// V28_EVENT_COMPLETE_PRODUCTS_COMPAT: 補回目前滿意的舊入口名稱，但實際走本頁 clean 事件/API。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_PRODUCTS_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_PRODUCTS_COMPAT__=true;
+  function clickSel(sel){ const el=document.querySelector(sel); if(el){ el.click(); return true; } return false; }
+  window.yxProductSubmit = window.confirmSubmit || window.yxProductSubmit;
+  window.submitProductText = window.confirmSubmit || window.submitProductText;
+  window.applyBatchMaterial = function(source){ const map={inventory:'#yx113-inventory-material',orders:'#yx113-orders-material',master_order:'#yx113-master_order-material'}; const el=document.querySelector(map[source]||''); if(el) el.dispatchEvent(new Event('change',{bubbles:true})); };
+  window.batchDeleteProducts = function(source){ clickSel('[data-yx113-batch-delete="'+source+'"]'); };
+  window.toggleBatchEdit = function(source){ clickSel('[data-yx128-edit-all="'+source+'"]'); };
+  window.moveSelectedToZone = function(source,zone){ clickSel('[data-source="'+source+'"][data-yx132-batch-zone="'+zone+'"]'); };
+  window.addSelectedOrdersToMaster = function(){ clickSel('[data-yx132-batch-transfer][data-source="orders"]'); };
+  document.addEventListener('DOMContentLoaded',()=>{document.body.classList.add('yx-v27-products-satisfied');});
+})();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊產品頁所有 HTML 按鈕/事件入口；不恢復舊 FIX 多支載入。
+(function(){'use strict'; if(window.__YX_V28_PRODUCTS_EVENT_COMPLETE__) return; window.__YX_V28_PRODUCTS_EVENT_COMPLETE__=true;
+  function call(fn){ try{ if(typeof window[fn]==='function') return window[fn](); if(window.yxToast) yxToast(fn+' 尚未接上'); }catch(e){ if(window.yxErr) yxErr(e); else console.error(e); } }
+  document.addEventListener('click', function(e){
+    const a=e.target.closest('[data-yx-action]');
+    if(a){
+      if(a.dataset.yxAction==='confirm-submit'){ e.preventDefault(); call('confirmSubmit'); return; }
+      if(a.dataset.yxAction==='reverse-lookup'){ e.preventDefault(); call('reverseLookup'); return; }
+    }
+  }, true);
+  window.reverseLookup = window.reverseLookup || function(){ if(window.yxToast) yxToast('請到倉庫圖搜尋商品位置'); };
+})();

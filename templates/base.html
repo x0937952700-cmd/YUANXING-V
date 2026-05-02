@@ -10,46 +10,51 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=clean-events-v25">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=clean-events-v25">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=clean-events-v25">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=clean-events-v25">
-  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";</script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=clean-events-v25">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/final_mother_lock.css') }}?v=clean-events-v25">
-  <!-- CLEAN_EVENTS_V25：舊 FIX JS/CSS 全部停止載入，檔案保留不刪。每頁只載入一支頁面 JS。 -->
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=clean-events-v28-event-complete">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=clean-events-v28-event-complete">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=clean-events-v28-event-complete">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=clean-events-v28-event-complete">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=clean-events-v28-event-complete">
+  <!-- CLEAN_EVENTS_V28_EVENT_COMPLETE：舊 FIX JS/CSS 全部停止載入，檔案保留不刪。每頁只載入一支頁面 JS；登入頁也獨立。 -->
   <script>
-    window.__YX_MASTER_BRIDGE_VERSION__='clean-events-v25';
+    window.__YX_MASTER_BRIDGE_VERSION__='clean-events-v28-event-complete';
     window.__YX_STOP_OLD_FIX_LOAD__=true;
     window.__YX_DISABLE_LEGACY_LAYOUT_RENDER__=true;
+    document.documentElement.dataset.yx117AppleUi='locked';
+    document.documentElement.dataset.yx118AppleUi='locked';
+    document.documentElement.dataset.yx124OrnateLabel='locked';
+    window.__YX_V28_EVENT_COMPLETE_MERGE__=true;
     window.__YX_USERNAME__ = {{ (username or '')|tojson }};
     window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }};
   </script>
-  {% if (request.endpoint or '') not in ['login_page'] %}
-    <!-- CLEAN_EVENTS_V25：每頁只載入自己的 1 支 JS；按鈕不再用 inline onclick，改由本頁 JS 統一綁定一次。 -->
+  {% if request.endpoint == 'login_page' %}
+    <!-- CLEAN_EVENTS_V28_EVENT_COMPLETE：登入頁也改成獨立 JS，不再有 inline script。 -->
+    <script defer src="{{ url_for('static', filename='yx_pages/yx_page_login.js') }}?v=clean-events-v28-event-complete"></script>
+  {% else %}
+    <!-- CLEAN_EVENTS_V28_EVENT_COMPLETE：每頁只載入自己的 1 支 JS；按鈕不再用 inline onclick，改由本頁 JS 統一綁定一次。 -->
     {% if request.endpoint == 'home' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_home.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_home.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint in ['inventory_page', 'orders_page', 'master_order_page'] %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_products.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_products.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'ship_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_ship.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_ship.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'warehouse_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_warehouse.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_warehouse.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'customers_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_customers.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_customers.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'todos_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_todos.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_todos.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'settings_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_settings.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_settings.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'today_changes_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_today.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_today.js') }}?v=clean-events-v28-event-complete"></script>
     {% elif request.endpoint == 'shipping_query_page' %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_shipping_query.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_shipping_query.js') }}?v=clean-events-v28-event-complete"></script>
     {% else %}
-      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_empty.js') }}?v=clean-events-v25"></script>
+      <script defer src="{{ url_for('static', filename='yx_pages/yx_page_empty.js') }}?v=clean-events-v28-event-complete"></script>
     {% endif %}
   {% endif %}
-  <!-- CLEAN_EVENTS_V25：pwa.js 不載入，service worker unregister 由瀏覽器舊註冊自動清掉。 -->
+  <!-- CLEAN_EVENTS_V28_EVENT_COMPLETE：pwa.js 不載入，service worker unregister 由瀏覽器舊註冊自動清掉。 -->
   <!-- FIX128_INLINE_EDIT_FULL_LIST_HARDLOCK -->
 </head>
 <body>

@@ -51,3 +51,9 @@ async function load(){try{const d=await yxApi('/api/today-changes'); const items
 function applyFilter(){ $$('[data-today-panel]').forEach(p=>p.style.display=(filter==='all'||p.dataset.todayPanel===filter)?'':'none'); $$('[data-today-filter]').forEach(b=>b.classList.toggle('active',b.dataset.todayFilter===filter));}
 document.addEventListener('click',e=>{const f=e.target.closest('[data-today-filter]'); if(f){filter=f.dataset.todayFilter; applyFilter();} if(e.target.id==='yx112-refresh-today') load();}); document.addEventListener('DOMContentLoaded',load); if(document.readyState!=='loading') load();
 })();
+
+
+// V28_EVENT_COMPLETE_TODAY_COMPAT: 固定目前滿意今日異動直列卡片樣式。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_TODAY_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_TODAY_COMPAT__=true;
+  document.addEventListener('DOMContentLoaded',()=>{document.body.classList.add('yx112-today-locked','yx-v27-today-satisfied');});
+})();

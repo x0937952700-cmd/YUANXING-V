@@ -63,3 +63,23 @@ document.addEventListener('DOMContentLoaded',load); if(document.readyState!=='lo
 function call(fn){ try{ if(typeof window[fn]==='function') return window[fn](); yxToast(fn+' 尚未接上'); }catch(e){ yxErr(e); } }
 document.addEventListener('click', function(e){ const a=e.target.closest('[data-yx-action]'); if(!a) return; const k=a.dataset.yxAction; if(k==='todo-album') call('openTodoAlbumPicker'); if(k==='todo-camera') call('openTodoCameraPicker'); if(k==='todo-save') call('saveTodoItem'); if(k==='todo-clear') call('clearTodoForm'); });
 })();
+
+
+// V28_EVENT_COMPLETE_TODOS_COMPAT: 補回目前滿意代辦按鈕舊入口。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_TODOS_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_TODOS_COMPAT__=true;
+  function clickAction(name){ const el=document.querySelector('[data-yx-action="'+name+'"]'); if(el){ el.click(); return true; } return false; }
+  window.openTodoAlbum = window.openTodoAlbum || function(){ return clickAction('todo-album'); };
+  window.openTodoCamera = window.openTodoCamera || function(){ return clickAction('todo-camera'); };
+  window.saveTodo = window.saveTodo || function(){ return clickAction('todo-save'); };
+  window.clearTodo = window.clearTodo || function(){ return clickAction('todo-clear'); };
+})();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊代辦頁所有 HTML 按鈕/事件入口。
+(function(){'use strict'; if(window.__YX_V28_TODOS_EVENT_COMPLETE__) return; window.__YX_V28_TODOS_EVENT_COMPLETE__=true;
+  function action(name){ const el=document.querySelector('[data-yx-action="'+name+'"]'); if(el){ el.click(); return true; } return false; }
+  window.openTodoAlbum = window.openTodoAlbum || function(){ return action('todo-album'); };
+  window.openTodoCamera = window.openTodoCamera || function(){ return action('todo-camera'); };
+  window.saveTodo = window.saveTodo || function(){ return action('todo-save'); };
+  window.clearTodo = window.clearTodo || function(){ return action('todo-clear'); };
+})();

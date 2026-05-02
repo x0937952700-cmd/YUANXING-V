@@ -110,3 +110,35 @@ document.addEventListener('pointerup',()=>clearTimeout(longTimer));
 document.addEventListener('input',e=>{ if(e.target.classList && e.target.classList.contains('wh-current-qty')){ const i=Number(e.target.dataset.i); if(current.items[i]) current.items[i].qty=Number(e.target.value||1); } if(e.target && e.target.id==='warehouse-item-search') fillBatchOptions(); });
 document.addEventListener('DOMContentLoaded',load); if(document.readyState!=='loading') load();
 })();
+
+
+// V28_EVENT_COMPLETE_WAREHOUSE_COMPAT: 補回目前滿意倉庫舊入口名稱，仍由本頁單 JS 管理。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_WAREHOUSE_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_WAREHOUSE_COMPAT__=true;
+  window.__YX_FINAL_WAREHOUSE_HTML_LOCK__=true;
+  function action(name){ const el=document.querySelector('[data-yx-action="'+name+'"]'); if(el){ el.click(); return true; } return false; }
+  window.searchWarehouse = window.searchWarehouse || function(){ return action('warehouse-search'); };
+  window.clearWarehouseSearch = window.clearWarehouseSearch || function(){ return action('warehouse-clear-search'); };
+  window.refreshWarehouseUnplaced = window.refreshWarehouseUnplaced || function(){ return action('warehouse-unplaced'); };
+  window.undoWarehouse = window.undoWarehouse || function(){ return action('warehouse-undo'); };
+  window.closeWarehouseModal = window.closeWarehouseModal || function(){ const m=document.getElementById('warehouse-modal'); if(m) m.classList.add('hidden'); };
+  document.addEventListener('DOMContentLoaded',()=>{document.body.classList.add('yx-v27-warehouse-satisfied');});
+})();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊倉庫頁所有 HTML 按鈕/事件入口；不恢復舊 FIX 多支載入。
+(function(){'use strict'; if(window.__YX_V28_WAREHOUSE_EVENT_COMPLETE__) return; window.__YX_V28_WAREHOUSE_EVENT_COMPLETE__=true;
+  function safe(fn){ try{ if(typeof fn==='function') return fn(); }catch(e){ if(window.yxErr) yxErr(e); else console.error(e); } }
+  window.clearWarehouseSearch = window.clearWarehouseSearch || function(){ const s=document.getElementById('warehouse-search'); if(s) s.value=''; safe(window.clearWarehouseHighlights); };
+  window.refreshWarehouseUnplaced = window.refreshWarehouseUnplaced || function(){ return safe(window.toggleWarehouseUnplacedHighlight); };
+  window.undoWarehouse = window.undoWarehouse || function(){ return safe(window.undoWarehouseMove); };
+  document.addEventListener('click', function(e){
+    const htmlLock=e.target.closest('[data-html-button-lock]');
+    if(!htmlLock) return;
+    if(htmlLock.dataset.htmlButtonLock==='warehouse-add-batch' && htmlLock.id!=='yx121-add-batch-row'){
+      document.getElementById('yx121-add-batch-row')?.click();
+    }
+    if(htmlLock.dataset.htmlButtonLock==='warehouse-save-cell' && htmlLock.id!=='yx121-save-cell'){
+      document.getElementById('yx121-save-cell')?.click();
+    }
+  }, true);
+})();

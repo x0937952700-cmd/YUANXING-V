@@ -141,3 +141,24 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('DOMContentLoaded',loadForCustomer); if(document.readyState!=='loading') loadForCustomer();
 })();
+
+
+// V28_EVENT_COMPLETE_SHIP_COMPAT: 補回目前滿意出貨舊入口；不恢復 ship_single_lock.js 多載入。
+(function(){'use strict'; if(window.__YX_V28_EVENT_COMPLETE_SHIP_COMPAT__) return; window.__YX_V28_EVENT_COMPLETE_SHIP_COMPAT__=true;
+  window.__YX_SHIP_SINGLE_LOCK__=true;
+  function clickAction(name){ const el=document.querySelector('[data-yx-action="'+name+'"]'); if(el){ el.click(); return true; } return false; }
+  window.reverseLookup = window.reverseLookup || function(){ return clickAction('reverse-lookup'); };
+  window.clearShipSelected = window.clearShipSelected || function(){ return clickAction('ship-clear-selected'); };
+  window.shipClearSelected = window.clearShipSelected;
+  document.addEventListener('DOMContentLoaded',()=>{document.body.classList.add('yx-v27-ship-single-satisfied');});
+})();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊出貨頁所有 HTML 按鈕/事件入口；不恢復舊 FIX 多支載入。
+(function(){'use strict'; if(window.__YX_V28_SHIP_EVENT_COMPLETE__) return; window.__YX_V28_SHIP_EVENT_COMPLETE__=true;
+  function clickAction(name){ const el=document.querySelector('[data-yx-action="'+name+'"]'); if(el){ el.click(); return true; } return false; }
+  window.clearShipSelectedItems = window.clearShipSelectedItems || function(){ return clickAction('ship-clear-selected'); };
+  window.clearShipSelected = window.clearShipSelected || window.clearShipSelectedItems;
+  window.reverseLookup = window.reverseLookup || function(){ if(window.yxToast) yxToast('請到倉庫圖搜尋商品位置'); return true; };
+  window.addEventListener('pageshow', function(){ const box=document.getElementById('ship-selected-items'); if(box) box.classList.add('yx-v28-one-item-per-line'); });
+})();

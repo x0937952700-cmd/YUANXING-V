@@ -62,3 +62,22 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-bloc
 function call(fn,arg){ try{ if(typeof window[fn]==='function') return window[fn](arg); yxToast(fn+' 尚未接上'); }catch(e){ yxErr(e); } }
 document.addEventListener('click', function(e){ const r=e.target.closest('[data-yx-report]'); if(r){ call('downloadReport', r.dataset.yxReport); return; } const a=e.target.closest('[data-yx-action]'); if(!a) return; const k=a.dataset.yxAction; if(k==='settings-change-password') call('changePassword'); if(k==='settings-undo-last') call('undoLastAction'); if(k==='settings-load-audit') call('loadAuditTrails'); if(k==='settings-load-users') call('loadAdminUsers'); if(k==='settings-create-backup') call('createBackup'); if(k==='logout') call('logout'); });
 })();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊設定頁所有 HTML 按鈕/事件入口；報表/備份/黑名單/登出都由本頁 JS 綁定。
+(function(){'use strict'; if(window.__YX_V28_SETTINGS_EVENT_COMPLETE__) return; window.__YX_V28_SETTINGS_EVENT_COMPLETE__=true;
+  function call(fn,arg){ try{ if(typeof window[fn]==='function') return window[fn](arg); if(window.yxToast) yxToast(fn+' 尚未接上'); }catch(e){ if(window.yxErr) yxErr(e); else console.error(e); } }
+  document.addEventListener('click', function(e){
+    const r=e.target.closest('[data-yx-report]'); if(r){ e.preventDefault(); call('downloadReport', r.dataset.yxReport); return; }
+    const a=e.target.closest('[data-yx-action]'); if(!a) return;
+    const map={
+      'settings-change-password':['changePassword'],
+      'settings-undo-last':['undoLastAction'],
+      'settings-load-audit':['loadAuditTrails'],
+      'settings-load-users':['loadAdminUsers'],
+      'settings-create-backup':['createBackup'],
+      'logout':['logout']
+    };
+    const m=map[a.dataset.yxAction]; if(m){ e.preventDefault(); call(m[0]); }
+  }, true);
+})();

@@ -54,3 +54,9 @@ window.loadShippingRecords=async function(){try{const q=new URLSearchParams({q:$
 (function(){'use strict'; if(window.__YX_V15_SHIPPING_QUERY_BIND__) return; window.__YX_V15_SHIPPING_QUERY_BIND__=true;
 document.addEventListener('click', function(e){ const a=e.target.closest('[data-yx-action="shipping-query-load"]'); if(a && typeof window.loadShippingRecords==='function') window.loadShippingRecords(); });
 })();
+
+
+// CLEAN_EVENTS_V28_EVENT_COMPLETE: 補齊出貨查詢頁查詢按鈕事件。
+(function(){'use strict'; if(window.__YX_V28_SHIPPING_QUERY_EVENT_COMPLETE__) return; window.__YX_V28_SHIPPING_QUERY_EVENT_COMPLETE__=true;
+  document.addEventListener('click', function(e){ const a=e.target.closest('[data-yx-action="shipping-query-load"]'); if(a){ e.preventDefault(); if(typeof window.loadShippingRecords==='function') window.loadShippingRecords(); } }, true);
+})();
