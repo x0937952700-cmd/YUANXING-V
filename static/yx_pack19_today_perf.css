@@ -1,8 +1,0 @@
-/* PACK19: 今日異動只顯示未錄入總件數 + 停止舊版重疊區塊 */
-.today-unplaced-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%;}
-.today-unplaced-summary .sum-card{border:1px solid rgba(148,163,184,.35);border-radius:18px;padding:14px 16px;background:linear-gradient(180deg,#fff,#f8fafc);box-shadow:0 10px 24px rgba(15,23,42,.06);}
-.today-unplaced-summary .sum-title{font-weight:800;color:#0f172a;margin-bottom:6px;}
-.today-unplaced-summary .sum-num{font-size:22px;font-weight:900;color:#1d4ed8;}
-.yx19-hidden-legacy-bottom{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;}
-body.yx19-fast *{scroll-behavior:auto!important;}
-@media(max-width:700px){.today-unplaced-summary{grid-template-columns:1fr}.today-columns{gap:12px}.glass.feature-card{padding:16px!important}}
