@@ -4668,3 +4668,10 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
   justify-content:space-between;
   gap:10px;
 }
+
+
+/* FULL MASTER V20: 操作回饋小卡 + 穩定顯示 */
+.yx-v20-toast-card{position:fixed;top:18px;right:18px;z-index:99999;min-width:240px;max-width:min(420px,calc(100vw - 36px));padding:12px 15px;border-radius:16px;background:#168653;color:#fff;box-shadow:0 14px 34px rgba(0,0,0,.18);opacity:0;transform:translateY(-10px);pointer-events:none;transition:.18s ease;font-weight:700}.yx-v20-toast-card.show{opacity:1;transform:translateY(0)}.yx-v20-toast-card div{font-weight:500;font-size:.92rem;margin-top:3px}.yx-v20-toast-card.error{background:#b83232}.yx-v20-toast-card.warn{background:#a66a00}
+.yx112-today-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.yx112-summary-card strong{font-size:1.35rem}.yx112-today-qty{color:#9b2d1c;font-weight:800}.today-filter-bar .yx112-today-label[data-today-filter="unplaced"]{display:inline-flex!important}
+.yx128-inline-table .yx128-field{min-width:86px}.yx128-edit-row td{background:#eef7ff!important}.yx131-action-cell .small-note{white-space:nowrap}.customer-region-card.is-moving{opacity:.72;transform:scale(.98)}
+#ship-customer-item-select{display:none!important;visibility:hidden!important}.yx-final-ship-tag-menu,.yx-ship-one-column-menu{display:flex!important;flex-direction:column!important;gap:8px!important;max-height:none!important;overflow:visible!important}.yx-ship-product-option-row{width:100%!important;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;white-space:normal;border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:10px 12px}.yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:0 0 10px!important}.yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto auto 1fr auto auto auto;gap:8px;align-items:center;width:100%}.ship-selected-grid,.ship-selected-list,#ship-selected-items{display:flex!important;flex-direction:column!important;gap:10px!important}

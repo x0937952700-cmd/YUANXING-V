@@ -1,0 +1,24 @@
+FULL MASTER V20 SPEED UI REAL FIX
+
+實際修改：
+- templates/base.html：實際載入 page_*_master_v20.js，快取版本 full-master-v20-speed-ui-real-fix。
+- static/yx_pages/page_inventory_master_v20.js
+- static/yx_pages/page_orders_master_v20.js
+- static/yx_pages/page_master_order_master_v20.js
+- static/yx_pages/page_ship_master_v20.js
+- static/yx_pages/page_today_changes_master_v20.js
+- static/style.css
+- static/service-worker.js / pwa.js / manifest
+
+修復：
+1. 今日異動加回「未錄入倉庫圖」總件數卡與列表。
+2. 批量編輯 A/B 區儲存後先直接反映在清單，背景再校正後端。
+3. 訂單/總單確認送出先樂觀顯示商品與客戶卡，不再等慢速 GET。
+4. 北中南客戶移動先立即移到畫面，背景保存到後端。
+5. 刪除客戶先直接從畫面移除；有商品也允許後端封存/刪除。
+6. 庫存/訂單/總單操作加入綠色小卡，顯示成功/失敗/原因。
+7. 出貨商品標籤與已選商品強制一種一排，隱藏原生文字下拉。
+
+檢查：
+- 沒有新增外部補丁 JS。
+- 實際載入為 v20。
