@@ -144,14 +144,15 @@ def duplicate_success(message='重複送出已忽略'):
 
 
 def resolve_customer_region(customer_name='', requested_region=''):
+    # v11：舊客戶保留原本區域；新客戶才用前端傳入的預設北區。
     requested = (requested_region or '').strip()
-    if requested in ['北區', '中區', '南區']:
-        return requested
     if customer_name:
         row = get_customer(customer_name, include_archived=True)
         if row and (row.get('region') or '').strip() in ['北區', '中區', '南區']:
             return (row.get('region') or '').strip()
-    return ''
+    if requested in ['北區', '中區', '南區']:
+        return requested
+    return '北區' if customer_name else ''
 
 
 def build_customer_payload_snapshot(customer_name=''):
@@ -1161,7 +1162,7 @@ def api_customers():
             common_materials=(data.get("common_materials") or "").strip(),
             common_sizes=(data.get("common_sizes") or "").strip(),
             region=resolve_customer_region(name, data.get("region")),
-            preserve_existing=bool(data.get('preserve_existing', False))
+            preserve_existing=bool(data.get('preserve_existing', True))
         )
         log_action(current_username(), f"儲存客戶 {name}")
         add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=data)
@@ -3089,6 +3090,20 @@ def api_v17_items_batch_transfer():
     except Exception as e:
         log_error('v17_items_batch_transfer', str(e))
         return error_response('批量轉入失敗')
+
+
+# V12_NO_STORE_STATIC: deploy must always load the real current HTML/JS/CSS, not old v2/v9 cache.
+@app.after_request
+def yx_v12_no_store_static(resp):
+    try:
+        p = request.path or ''
+        if p.startswith('/static/') or p.endswith('.html'):
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+    except Exception:
+        pass
+    return resp
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
