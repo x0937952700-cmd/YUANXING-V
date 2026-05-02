@@ -1,0 +1,19 @@
+FULL MASTER V8
+
+修正內容：
+1. 修正庫存/訂單/總單送出後清單沒立刻出現：
+   - 送出時讀取目前 A/B 篩選，若在 A 或 B 區，新增資料會帶 location/zone。
+   - POST 成功後先把剛送出的商品直接合併到該頁 rowsStore 並立即 render。
+   - 再抓後端資料校正；若後端回傳較慢，畫面仍保留剛新增資料。
+2. 修正倉庫格位批量加入不顯示：
+   - 移除 static/style.css 裡舊 FIX 對 #warehouse-cell-items 的 display:none 覆蓋。
+   - 新增最終 CSS override，確保目前此格商品與批量加入商品永遠顯示。
+3. 沒有新增補丁 JS。
+4. 修改檔案：
+   - static/yx_pages/page_inventory_master_v2.js
+   - static/yx_pages/page_orders_master_v2.js
+   - static/yx_pages/page_master_order_master_v2.js
+   - static/style.css
+   - templates/base.html / static/pwa.js / static/service-worker.js / static/manifest.webmanifest 只更新快取版本。
+
+檢查：新增 script 0；新增 renderer 0；新增 MutationObserver 0；新增 setTimeout 0。

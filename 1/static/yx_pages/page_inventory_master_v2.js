@@ -903,7 +903,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v7-submit-refresh', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v8-immediate-visible', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     // V6：不再掃 DOM 隱藏舊版，也不再二次 render，避免庫存/訂單/總單跳版。
@@ -994,23 +994,68 @@
       qty:qtyFromProduct(x.product_text)
     })).filter(x=>x.qty>0);
   }
-  async function refreshAfterSubmit(m, customer, posted){
+  function activeZoneForSource(m){
+    try {
+      const btn = document.querySelector(`[data-yx132-zone-filter].is-active[data-source="${m}"]`);
+      const z = (btn?.dataset?.yx132ZoneFilter || '').toUpperCase();
+      return (z === 'A' || z === 'B') ? z : '';
+    } catch(_e) { return ''; }
+  }
+  function submittedRowsFor(m, customer, submittedItems, location){
+    const now = Date.now();
+    return (Array.isArray(submittedItems) ? submittedItems : []).map((it, idx) => ({
+      id: `tmp-${now}-${idx}`,
+      product_text: it.product_text || '',
+      product_code: it.product_code || it.material || '',
+      material: it.material || it.product_code || '',
+      qty: Number(it.qty || 1),
+      customer_name: customer || '',
+      location: location || '',
+      zone: location || '',
+      warehouse_zone: location || '',
+      __optimistic: true
+    })).filter(r => r.product_text);
+  }
+  function mergeSubmittedRows(baseRows, submittedRows){
+    const out = Array.isArray(baseRows) ? baseRows.slice() : [];
+    for (const nr of submittedRows) {
+      const exists = out.some(r => String(r.product_text || '') === String(nr.product_text || '') &&
+        String((r.material || r.product_code || '')).toUpperCase() === String((nr.material || nr.product_code || '')).toUpperCase() &&
+        String(r.customer_name || '') === String(nr.customer_name || '') &&
+        String(r.location || r.zone || r.warehouse_zone || '') === String(nr.location || nr.zone || nr.warehouse_zone || ''));
+      if (!exists) out.unshift(nr);
+    }
+    return out;
+  }
+  async function refreshAfterSubmit(m, customer, posted, submittedItems, location){
     try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
     try { if (customer && $('customer-name')) $('customer-name').value = customer; } catch(_e) {}
     const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-    // V7：新增成功後先用 POST 回傳的後端清單立即重畫，再補一次 GET 校正。
-    // 這樣庫存、客戶訂單、客戶總單都會馬上出現在下方清單，不等舊流程或客戶區重選。
+    const optimistic = submittedRowsFor(m, customer, submittedItems, location);
+
+    // V8：先把剛送出的商品直接放進目前頁面的 rowsStore，立刻重畫；避免等後端 GET 或被目前 A/B 篩選擋住。
     try {
-      const rows = Array.isArray(posted?.items) ? posted.items : [];
-      if (rows.length && act?.rowsStore) {
-        act.rowsStore(m, rows);
+      if (act?.rowsStore) {
+        const serverRows = Array.isArray(posted?.items) ? posted.items : [];
+        const currentRows = serverRows.length ? serverRows : (act.rowsStore(m) || []);
+        act.rowsStore(m, mergeSubmittedRows(currentRows, optimistic));
         act.renderSummary?.(m);
         act.renderCards?.(m);
       }
-    } catch(e){ console.warn('[YX v7 immediate render]', e); }
+    } catch(e){ console.warn('[YX v8 immediate optimistic render]', e); }
+
     try { if (customer) window.dispatchEvent(new CustomEvent('yx:customer-selected', {detail:{name:customer, source:m}})); } catch(_e) {}
-    try { if (act?.loadSource) await act.loadSource(m, {force:true, afterSubmit:true}); } catch(e){ console.warn('[YX v7 loadSource]', e); }
-    try { if (act?.renderSummary) act.renderSummary(m); if (act?.renderCards) act.renderCards(m); } catch(e){ console.warn('[YX v7 final render]', e); }
+
+    // 再抓一次後端資料；如果後端回來沒有剛送出的列，仍保留立即顯示列，避免使用者以為沒新增。
+    try {
+      if (act?.loadSource) {
+        const loaded = await act.loadSource(m, {force:true, afterSubmit:true});
+        if (act?.rowsStore && optimistic.length) {
+          act.rowsStore(m, mergeSubmittedRows(loaded || act.rowsStore(m) || [], optimistic));
+        }
+      }
+    } catch(e){ console.warn('[YX v8 loadSource]', e); }
+    try { if (act?.renderSummary) act.renderSummary(m); if (act?.renderCards) act.renderCards(m); } catch(e){ console.warn('[YX v8 final render]', e); }
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
   }
   async function finalConfirmSubmit(ev){
@@ -1032,9 +1077,10 @@
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
       const requestKey = `v20-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, request_key:requestKey})});
+      const activeZone = activeZoneForSource(m);
+      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, location:activeZone, zone:activeZone, request_key:requestKey})});
       if (ta) ta.value = '';
-      await refreshAfterSubmit(m, customer, posted);
+      await refreshAfterSubmit(m, customer, posted, items, activeZone);
       if (result) {
         result.classList.remove('hidden');
         result.style.display = '';
