@@ -3484,6 +3484,25 @@ def restore_customer(name):
     conn.close()
     return get_customer(name, include_archived=True)
 
+
+# ==== V40 helper: stable customer UID for final safe save overrides ====
+def customer_uid(customer_name):
+    customer_name = (customer_name or '').strip()
+    if not customer_name:
+        return ''
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        return _customer_uid_for_name_cur(cur, customer_name) or ''
+    except Exception:
+        try:
+            return _new_customer_uid(customer_name, '')
+        except Exception:
+            return ''
+    finally:
+        try: conn.close()
+        except Exception: pass
+
 # ==== V24 safe persistence overrides ====
 # These keep the original page/event logic intact, but make DB writes and submit de-dup safer.
 def register_submit_request(request_key, endpoint=''):
@@ -3789,3 +3808,44 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             'updated_at': now(),
         }
         _yx_v36_insert_or_merge('master_orders', row, duplicate_mode=duplicate_mode)
+
+# ============================================================
+# V40 FINAL WAREHOUSE SAVE OVERRIDE
+# Purpose: make warehouse cell save persist permanently with PostgreSQL/SQLite upsert.
+# The function is intentionally placed at the very end of db.py so app.py imports this final version.
+# ============================================================
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=""):
+    conn = get_db()
+    cur = conn.cursor()
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    slot_type = 'direct'
+    slot_number = int(slot_number or 0)
+    items = _normalize_warehouse_items(items)
+    note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
+    items_json = json.dumps(items, ensure_ascii=False)
+    ts = now()
+    try:
+        if USE_POSTGRES:
+            cur.execute("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (zone, column_index, slot_type, slot_number)
+                DO UPDATE SET items_json = EXCLUDED.items_json, note = EXCLUDED.note, updated_at = EXCLUDED.updated_at
+            """, (zone, column_index, slot_type, slot_number, items_json, note, ts))
+        else:
+            cur.execute("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(zone, column_index, slot_type, slot_number)
+                DO UPDATE SET items_json = excluded.items_json, note = excluded.note, updated_at = excluded.updated_at
+            """, (zone, column_index, slot_type, slot_number, items_json, note, ts))
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+

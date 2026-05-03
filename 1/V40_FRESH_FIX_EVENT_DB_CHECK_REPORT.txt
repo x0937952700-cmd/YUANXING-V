@@ -1,0 +1,9 @@
+V40 重新修正報告
+
+1. 確認送出失敗原因：V36/V38 db.py 底部最後 save_order / save_master_order 呼叫 customer_uid(customer_name)，但 customer_uid 沒有定義，導致訂單/總單後端實際回傳「建立失敗」。已新增 V40 customer_uid helper，並用 test_client 確認 /api/orders 與 /api/master_orders 可成功寫入。
+2. app.py 已把庫存/訂單/總單主資料保存與 log/audit/notify/snapshot 分離；主資料寫入成功後，附加紀錄失敗不會讓商品建立失敗。
+3. 倉庫 /api/warehouse/cell 已改成主格位先保存，recent/log/audit/notify 失敗不影響格位保存。
+4. db.py 已加入最後版 warehouse_save_cell PostgreSQL/SQLite upsert。
+5. 新增 yx_v40_submit_warehouse_lock.js 最後載入，#submit-btn / confirmSubmit 由 V40 最後接管；倉庫儲存按鈕也由最後事件保護。
+6. 新增 yx_v40_table_customer_warehouse_lock.css 最後載入：月份、總數量、A/B區、操作縮小；支數x件數欄加寬；數字與表格字放大；北中南客戶名稱放大，FOB/CNF 保留小白膠囊。
+7. 已保留 HTML / JS / CSS / app.py / db.py / requirements.txt / wsgi.py / render.yaml / PostgreSQL migration。

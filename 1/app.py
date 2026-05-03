@@ -1042,10 +1042,14 @@ def yx_v35_safe_response_payload(customer_name=''):
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
 def api_inventory():
-    try:
-        if request.method == "GET":
+    if request.method == "GET":
+        try:
             return jsonify(success=True, items=grouped_inventory())
-        data = request.get_json(silent=True) or {}
+        except Exception as e:
+            log_error("inventory_get", str(e))
+            return jsonify(success=True, items=[])
+    data = request.get_json(silent=True) or {}
+    try:
         if not request_key_from_payload(data, endpoint='/api/inventory'):
             return duplicate_success('相同庫存送出已忽略', **duplicate_current_payload('/api/inventory', data))
         items = _parse_items_from_request(data)
@@ -1056,19 +1060,22 @@ def api_inventory():
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
-            yx_v35_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            yx_v35_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')), preserve_existing=True)
         for it in items:
             save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
-        yx_v35_safe_side_effect('log_inventory', log_action, operator, "建立庫存")
-        yx_v35_safe_side_effect('audit_inventory', add_audit_trail, operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
-        yx_v35_safe_side_effect('notify_inventory', notify_sync_event, kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        payload = yx_v35_safe_response_payload(customer_name)
-        exact = yx_v35_safe_side_effect('exact_inventory', yx_v21_exact_customer_rows, 'inventory', customer_name) or []
-        return jsonify(success=True, items=grouped_inventory(), exact_customer_items=exact, **payload)
     except Exception as e:
-        log_error("inventory", str(e))
+        log_error("inventory_main_save_v40", str(e))
         return error_response("建立失敗")
-
+    yx_v35_safe_side_effect('log_inventory', log_action, current_username(), "建立庫存")
+    yx_v35_safe_side_effect('audit_inventory', add_audit_trail, current_username(), 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
+    yx_v35_safe_side_effect('notify_inventory', notify_sync_event, kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
+    payload = yx_v35_safe_response_payload(customer_name)
+    exact = yx_v35_safe_side_effect('exact_inventory', yx_v21_exact_customer_rows, 'inventory', customer_name) or []
+    try:
+        rows = grouped_inventory()
+    except Exception:
+        rows = []
+    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
 
 @app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
 @login_required_json
@@ -1180,10 +1187,14 @@ def api_inventory_item_move(item_id):
 @app.route("/api/orders", methods=["GET", "POST"])
 @login_required_json
 def api_orders():
-    try:
-        if request.method == "GET":
+    if request.method == "GET":
+        try:
             return jsonify(success=True, items=get_orders())
-        data = request.get_json(silent=True) or {}
+        except Exception as e:
+            log_error("orders_get", str(e))
+            return jsonify(success=True, items=[])
+    data = request.get_json(silent=True) or {}
+    try:
         if not request_key_from_payload(data, endpoint='/api/orders'):
             return duplicate_success('相同訂單送出已忽略', **duplicate_current_payload('/api/orders', data))
         items = _parse_items_from_request(data)
@@ -1195,23 +1206,31 @@ def api_orders():
         yx_v35_safe_side_effect('upsert_orders_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         yx_v35_safe_side_effect('upsert_orders_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
-        yx_v35_safe_side_effect('log_orders', log_action, current_username(), "建立訂單")
-        yx_v35_safe_side_effect('audit_orders', add_audit_trail, current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
-        yx_v35_safe_side_effect('notify_orders', notify_sync_event, kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        payload = yx_v35_safe_response_payload(customer_name)
-        exact = yx_v35_safe_side_effect('exact_orders', yx_v21_exact_customer_rows, 'orders', customer_name) or []
-        return jsonify(success=True, items=get_orders(), exact_customer_items=exact, **payload)
     except Exception as e:
-        log_error("orders", str(e))
+        log_error("orders_main_save_v40", str(e))
         return error_response("訂單建立失敗")
+    yx_v35_safe_side_effect('log_orders', log_action, current_username(), "建立訂單")
+    yx_v35_safe_side_effect('audit_orders', add_audit_trail, current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+    yx_v35_safe_side_effect('notify_orders', notify_sync_event, kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+    payload = yx_v35_safe_response_payload(customer_name)
+    exact = yx_v35_safe_side_effect('exact_orders', yx_v21_exact_customer_rows, 'orders', customer_name) or []
+    try:
+        rows = get_orders()
+    except Exception:
+        rows = []
+    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
 
 @app.route("/api/master_orders", methods=["GET", "POST"])
 @login_required_json
 def api_master_orders():
-    try:
-        if request.method == "GET":
+    if request.method == "GET":
+        try:
             return jsonify(success=True, items=get_master_orders())
-        data = request.get_json(silent=True) or {}
+        except Exception as e:
+            log_error("master_orders_get", str(e))
+            return jsonify(success=True, items=[])
+    data = request.get_json(silent=True) or {}
+    try:
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
             return duplicate_success('相同總單送出已忽略', **duplicate_current_payload('/api/master_orders', data))
         items = _parse_items_from_request(data)
@@ -1223,15 +1242,19 @@ def api_master_orders():
         yx_v35_safe_side_effect('upsert_master_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
         yx_v35_safe_side_effect('upsert_master_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
-        yx_v35_safe_side_effect('log_master_orders', log_action, current_username(), "更新總單")
-        yx_v35_safe_side_effect('audit_master_orders', add_audit_trail, current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
-        yx_v35_safe_side_effect('notify_master_orders', notify_sync_event, kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        payload = yx_v35_safe_response_payload(customer_name)
-        exact = yx_v35_safe_side_effect('exact_master_orders', yx_v21_exact_customer_rows, 'master_orders', customer_name) or []
-        return jsonify(success=True, items=get_master_orders(), exact_customer_items=exact, **payload)
     except Exception as e:
-        log_error("master_orders", str(e))
+        log_error("master_orders_main_save_v40", str(e))
         return error_response("總單失敗")
+    yx_v35_safe_side_effect('log_master_orders', log_action, current_username(), "更新總單")
+    yx_v35_safe_side_effect('audit_master_orders', add_audit_trail, current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+    yx_v35_safe_side_effect('notify_master_orders', notify_sync_event, kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+    payload = yx_v35_safe_response_payload(customer_name)
+    exact = yx_v35_safe_side_effect('exact_master_orders', yx_v21_exact_customer_rows, 'master_orders', customer_name) or []
+    try:
+        rows = get_master_orders()
+    except Exception:
+        rows = []
+    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
 
 @app.route("/api/ship", methods=["POST"])
 @login_required_json
@@ -1481,16 +1504,14 @@ def api_warehouse():
 @app.route("/api/warehouse/cell", methods=["POST"])
 @login_required_json
 def api_warehouse_cell():
+    data = request.get_json(silent=True) or {}
     try:
-        data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
         slot_number = int(data.get("slot_number") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
             return error_response("格位參數錯誤")
-        # V23：畫面上已有格位但 DB 尚未補到時，允許 warehouse_save_cell 自動 upsert；
-        # 仍擋掉明顯異常的超大格號，避免手動輸入 A-1-999 把倉庫圖拉長。
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
         if not previous_cell:
@@ -1504,16 +1525,21 @@ def api_warehouse_cell():
             return error_response(msg)
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
-        if items:
-            top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
-            record_recent_slot(current_username(), top_customer, zone, column_index, slot_number)
-        log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
-        add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
-        notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+    except Exception as e:
+        log_error("warehouse_cell_main_save_v40", str(e))
+        return error_response("格位更新失敗")
+    # Side effects must not make saved cell look failed.
+    if items:
+        top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
+        yx_v35_safe_side_effect('warehouse_recent_slot', record_recent_slot, current_username(), top_customer, zone, column_index, slot_number)
+    yx_v35_safe_side_effect('warehouse_log', log_action, current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
+    yx_v35_safe_side_effect('warehouse_audit', add_audit_trail, current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
+    yx_v35_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+    try:
         return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
-        log_error("warehouse_cell", str(e))
-        return error_response("格位更新失敗")
+        log_error('warehouse_cell_response_v40', str(e))
+        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
