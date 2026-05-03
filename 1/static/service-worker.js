@@ -1,4 +1,4 @@
-const CACHE_VERSION='full-master-v47_real_rewrite_no_append';
+const CACHE_VERSION='full-master-v49_warehouse_real_persist_ab_unassigned';
 self.addEventListener('install', event => { self.skipWaiting(); });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {

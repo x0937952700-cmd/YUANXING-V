@@ -18,7 +18,7 @@
     if (!right) return raw ? 1 : (fb || 0);
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (rightForCanonical === canonical) return 10;
+    if (rightForCanonical === canonical) return 15;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return raw ? 1 : (fb || 0);
     const xParts = parts.filter(isSingleQtyX);
@@ -2297,8 +2297,8 @@
       const d = await api('/api/audit-trails?limit=80&undo=1');
       const items = (Array.isArray(d.items)?d.items:[]).filter(x=>x.action_type!=='undo' && x.entity_type!=='undo' && actionAllowed(x.action_type,x.entity_type)).slice(0,10);
       list.innerHTML = items.length ? items.map(x=>{
-        const a = x.action_type || ''; const e = x.entity_type || ''; const k = x.entity_key || ''; const at = x.created_at || x.timestamp || '';
-        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k)}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
+        const a = x.action_label || x.action_type || '操作'; const e = x.entity_label || x.entity_type || '資料'; const k = x.summary_text || x.entity_key || ''; const at = x.created_at || x.timestamp || '';
+        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k || '這一步可還原')}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
       }).join('') : '<div class="empty-state-card compact-empty">目前頁面沒有可還原的最近操作</div>';
     } catch(e){ list.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message||'載入失敗')}</div>`; }
   }

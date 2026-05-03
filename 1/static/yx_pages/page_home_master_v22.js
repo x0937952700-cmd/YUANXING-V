@@ -18,7 +18,7 @@
     if (!right) return raw ? 1 : (fb || 0);
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (rightForCanonical === canonical) return 10;
+    if (rightForCanonical === canonical) return 15;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return raw ? 1 : (fb || 0);
     const xParts = parts.filter(isSingleQtyX);
