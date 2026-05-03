@@ -43,8 +43,12 @@
       <input class="text-input small" id="report-end" type="date">
       <button class="ghost-btn" onclick="downloadReport('inventory')">庫存報表</button>
       <button class="ghost-btn" onclick="downloadReport('shipping')">出貨報表</button>
+      <button class="ghost-btn" onclick="downloadReport('orders')">訂單報表</button>
       <button class="ghost-btn" onclick="downloadReport('master_orders')">總單報表</button>
+      <button class="ghost-btn" onclick="downloadReport('warehouse')">倉庫報表</button>
       <button class="ghost-btn" onclick="downloadReport('unplaced')">未錄入報表</button>
+      <button class="ghost-btn" onclick="downloadReport('customers')">客戶資料</button>
+      {% if is_admin %}<button class="ghost-btn" onclick="downloadReport('audit_trails')">操作紀錄</button>{% endif %}
     </div>
   </div>
 
@@ -85,9 +89,9 @@
         <div class="section-title">資料備份</div>
         <div class="muted">可手動建立備份並查看最近備份清單。</div>
       </div>
-      <button class="primary-btn" onclick="createBackup()">立即備份</button>
+      <div class="btn-row compact"><button class="primary-btn" onclick="createBackup()">立即備份</button><button class="ghost-btn" type="button" onclick="loadBackupsManual()">載入備份清單</button></div>
     </div>
-    <div id="backup-panel" class="table-card">按「立即備份」才會建立或載入備份，不再自動抓資料。</div><div class="small-note">還原前請先下載備份保留一份。</div>
+    <div id="backup-panel" class="table-card" data-yx28-backup-actions="true">按「立即備份」才會建立或載入備份，不再自動抓資料。</div><div class="small-note">備份列會顯示「下載 / 還原」；還原前請先下載備份保留一份。</div>
   </div>
   {% endif %}
 

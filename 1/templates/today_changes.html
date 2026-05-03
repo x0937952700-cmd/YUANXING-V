@@ -19,12 +19,14 @@
       <button class="chip" id="today-filter-inbound" type="button" data-today-filter="inbound">進貨</button>
       <button class="chip" id="today-filter-outbound" type="button" data-today-filter="outbound">出貨</button>
       <button class="chip" id="today-filter-orders" type="button" data-today-filter="orders">新增訂單</button>
+      <button class="chip" id="today-filter-unplaced" type="button" data-today-filter="unplaced">未錄入倉庫圖</button>
     </div>
     <div id="today-summary-cards" class="card-list"></div>
     <div class="today-columns today-columns-4 today-columns-vertical">
       <div class="glass panel" data-today-panel="inbound"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"></div></div>
       <div class="glass panel" data-today-panel="outbound"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"></div></div>
       <div class="glass panel" data-today-panel="orders"><div class="section-title">新增訂單</div><div id="today-order-list" class="chip-list stacked-list"></div></div>
+      <div class="glass panel yx26-unplaced-panel" data-today-panel="unplaced"><div class="section-title">未錄入倉庫圖</div><div class="small-note">此區由「庫存 + 訂單 + 總單」扣掉已放入倉庫圖數量計算。</div><div id="today-unplaced-list" class="chip-list stacked-list"></div></div>
     </div>
   </div>
   <div id="fix28-operation-anchor"></div>

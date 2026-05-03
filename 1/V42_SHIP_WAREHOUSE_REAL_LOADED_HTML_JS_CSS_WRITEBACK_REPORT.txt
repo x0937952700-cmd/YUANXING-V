@@ -1,0 +1,12 @@
+V42 出貨＋倉庫圖實際載入母版寫回報告
+
+已寫進實際載入檔案：
+- templates/base.html：ship/warehouse 實際 script 改為 page_*_master_v42.js，快取版本同步 V42。
+- templates/module.html：出貨位置搜尋結果 HTML 面板、倉庫圖與彈窗 data-version 同步 V42。
+- static/yx_pages/page_ship_master_v42.js：切換客戶清空舊已選/預覽、出貨位置搜尋面板、可開啟倉庫圖並帶入搜尋。
+- static/yx_pages/page_warehouse_master_v42.js：接收出貨頁帶入的 warehouse_q/localStorage 搜尋；彈窗背景載入不覆蓋已關閉或新開格位；不存在格位搜尋不再新增假 DOM 格子。
+- static/style.css：V42 出貨位置面板與倉庫 V42 樣式鎖。
+- static/pwa.js / static/service-worker.js / manifest：快取版本同步 V42。
+- app.py：/api/warehouse/search 支援「客戶 + 商品」token 搜尋，避免出貨頁組合關鍵字找不到。
+
+測試：JS syntax check、Python compileall、Flask smoke test。

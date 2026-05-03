@@ -4590,7 +4590,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag-list .yx-ship-selected-html-card{width:100%; display:block;}
 
 
-/* ===== full-master-v19-clean-real-fix: real loaded HTML/JS/CSS fixes ===== */
+/* ===== full-master-v28-real-loaded-html-js-css-audit: actual loaded HTML/JS/CSS fixes ===== */
 #ship-customer-item-select[hidden], .ship-customer-item-select[hidden]{display:none!important;}
 .yx-final-ship-tag-menu{display:block!important;max-height:none!important;overflow:visible!important;padding:6px 0!important;}
 .yx-ship-product-option-row{width:100%;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;margin:8px 0;padding:10px 12px;border:1px solid rgba(180,112,40,.35);border-radius:14px;background:#fffdf8;box-shadow:0 4px 14px rgba(20,20,20,.05);cursor:pointer;}
@@ -4603,8 +4603,8 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:8px 0!important;}
 .yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto auto 1fr auto auto!important;gap:8px;align-items:center;width:100%;}
 @media(max-width:760px){.yx-ship-product-option-row{grid-template-columns:1fr;}.yx-ship-selected-main{grid-template-columns:1fr!important;}}
-/* 刪除今日異動的未錄入倉庫圖區塊；倉庫圖本身的未錄入批量加入不受影響 */
-#today-filter-unplaced,[data-today-panel="unplaced"],#today-unplaced-list{display:none!important;}
+/* V26：今日異動已恢復「未錄入倉庫圖」實際 HTML 面板；只隱藏舊版殘留 filter id。 */
+#today-filter-unplaced.yx-old-unplaced-filter{display:none!important;}
 
 
 /* ===== V12 REAL LOADED FIX: HTML/JS/CSS aligned, no v2/v9 residue ===== */
@@ -4675,3 +4675,432 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx112-today-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.yx112-summary-card strong{font-size:1.35rem}.yx112-today-qty{color:#9b2d1c;font-weight:800}.today-filter-bar .yx112-today-label[data-today-filter="unplaced"]{display:inline-flex!important}
 .yx128-inline-table .yx128-field{min-width:86px}.yx128-edit-row td{background:#eef7ff!important}.yx131-action-cell .small-note{white-space:nowrap}.customer-region-card.is-moving{opacity:.72;transform:scale(.98)}
 #ship-customer-item-select{display:none!important;visibility:hidden!important}.yx-final-ship-tag-menu,.yx-ship-one-column-menu{display:flex!important;flex-direction:column!important;gap:8px!important;max-height:none!important;overflow:visible!important}.yx-ship-product-option-row{width:100%!important;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;white-space:normal;border:1px solid rgba(0,0,0,.08);border-radius:16px;background:#fff;padding:10px 12px}.yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:0 0 10px!important}.yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto auto 1fr auto auto auto;gap:8px;align-items:center;width:100%}.ship-selected-grid,.ship-selected-list,#ship-selected-items{display:flex!important;flex-direction:column!important;gap:10px!important}
+
+
+/* V21_REAL_PERSIST_FAST_UI: operation result green/red card */
+#yx-v20-toast{position:fixed;right:18px;top:18px;z-index:99999;min-width:220px;max-width:min(420px,calc(100vw - 32px));padding:12px 14px;border-radius:16px;background:#ecfdf5;border:1px solid #34d399;color:#064e3b;box-shadow:0 16px 40px rgba(15,23,42,.18);opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease;font-weight:700}#yx-v20-toast.show{opacity:1;transform:translateY(0)}#yx-v20-toast.error{background:#fff1f2;border-color:#fb7185;color:#991b1b}#yx-v20-toast.warn{background:#fffbeb;border-color:#f59e0b;color:#92400e}#yx-v20-toast div{font-weight:500;margin-top:3px;line-height:1.35}.yx113-summary-row .small-note.warn{color:#b45309;font-weight:800}.yx131-hidden-card-list{display:none!important}.customer-region-card.yx121-dragging-customer{opacity:.65;transform:scale(.98)}.category-box.yx121-drop-target{outline:3px solid rgba(245,158,11,.55);outline-offset:4px}
+
+
+/* ===== V24 real loaded UI guards ===== */
+#yx-v20-toast{position:fixed;right:18px;top:18px;z-index:99999;min-width:220px;max-width:min(420px,calc(100vw - 32px));padding:12px 14px;border-radius:16px;background:#ecfdf5;border:1px solid #34d399;color:#064e3b;box-shadow:0 16px 40px rgba(15,23,42,.18);opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease;font-weight:700}
+#yx-v20-toast.show{opacity:1;transform:translateY(0)}
+#yx-v20-toast.error{background:#fff1f2;border-color:#fb7185;color:#991b1b}
+#yx-v20-toast.warn{background:#fffbeb;border-color:#f59e0b;color:#92400e}
+.yx113-summary-row[data-source] .yx113-row-check{width:18px;height:18px;vertical-align:middle;margin-right:8px}
+.yx128-edit-row td{background:#eef7ff!important}
+.yx131-hidden-card-list{display:none!important}
+.customer-list .customer-region-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+.category-box.yx121-drop-target{outline:3px solid rgba(245,158,11,.55);outline-offset:4px}
+.customer-region-card.is-moving,.customer-region-card.yx121-dragging-customer{opacity:.65;transform:scale(.98)}
+#ship-customer-item-select{display:none!important;visibility:hidden!important}
+.yx-final-ship-tag-menu,.yx-ship-one-column-menu{display:flex!important;flex-direction:column!important;gap:8px!important;max-height:none!important;overflow:visible!important}
+.yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:0 0 10px!important}
+
+/* V24 real loaded final audit: deleted/archived customers must not flash back from virtual rows. */
+.customer-region-card.yx-customer-hidden,[data-customer-hidden="1"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+
+/* ===== V25 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
+   This block is intentionally written into the actual loaded static/style.css.
+   It protects the final one-page-per-script layout and fixes the real home action row. */
+html[data-yx-v25-home-logout="locked"] .home-top-actions,
+.home-top-actions.centered-actions{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:10px!important;
+  align-items:stretch!important;
+  width:min(560px,100%)!important;
+  margin:0 auto!important;
+}
+.home-logout-btn{
+  border:1px solid rgba(126,88,56,.22)!important;
+  background:rgba(255,255,255,.74)!important;
+  color:#8f2e21!important;
+  cursor:pointer!important;
+  font:inherit!important;
+  -webkit-appearance:none!important;
+  appearance:none!important;
+}
+.home-logout-btn:disabled{opacity:.55!important;cursor:wait!important;}
+html[data-yx-html-direct-master="locked"] .yx-html-direct-disabled-legacy,
+.yx-html-direct-disabled-legacy{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+html[data-yx-html-direct-master="locked"] .module-screen[data-module="ship"] #ship-selected-section{display:none!important;}
+html[data-yx-html-direct-master="locked"] .module-screen[data-module="ship"] #ship-selected-items{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;}
+@media (max-width:520px){
+  html[data-yx-v25-home-logout="locked"] .home-top-actions,
+  .home-top-actions.centered-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+}
+/* ===== END V25 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
+
+/* ===== V26 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
+   Written into actual loaded static/style.css. Fixes settings actions and Today Changes unplaced panel. */
+html[data-yx-v26-settings-fixes="locked"] #backup-panel .yx26-backup-row{display:block!important;visibility:visible!important;height:auto!important;}
+.today-columns.today-columns-4{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important;align-items:start!important;}
+.today-columns.today-columns-4 .yx26-unplaced-panel{display:block!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
+#today-unplaced-list{display:grid!important;gap:8px!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
+.yx26-unplaced-panel .section-title{color:#8f2e21!important;}
+@media (max-width:980px){.today-columns.today-columns-4{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
+@media (max-width:620px){.today-columns.today-columns-4{grid-template-columns:1fr!important;}}
+/* Keep V25 home fix active under V26 version as well. */
+html[data-yx-v26-home-logout="locked"] .home-top-actions,
+.home-top-actions.centered-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;align-items:stretch!important;width:min(560px,100%)!important;margin:0 auto!important;}
+@media (max-width:520px){html[data-yx-v26-home-logout="locked"] .home-top-actions,.home-top-actions.centered-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
+/* ===== END V26 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
+
+/* ===== V27 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
+   Written into actual loaded static/style.css, not an unused overlay. */
+html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
+  display:grid!important;
+  grid-template-columns:minmax(180px,1.4fr) minmax(120px,.7fr) minmax(140px,.75fr) minmax(140px,.75fr) auto!important;
+  gap:10px!important;
+  align-items:center!important;
+}
+html[data-yx-v27-shipping-query="locked"] #shipping-query-section .yx27-date-disabled{
+  opacity:.45!important;
+  background:#f1f5f9!important;
+  pointer-events:none!important;
+}
+html[data-yx-v27-shipping-query="locked"] #ship-query-range-note{
+  display:block!important;
+  color:#64748b!important;
+  font-weight:700!important;
+  margin-top:3px!important;
+}
+html[data-yx-v27-shipping-query="locked"] .yx27-shipping-results{
+  margin-top:12px!important;
+  overflow:auto!important;
+}
+.yx27-shipping-table{
+  width:100%!important;
+  border-collapse:separate!important;
+  border-spacing:0!important;
+  min-width:760px!important;
+}
+.yx27-shipping-table th,
+.yx27-shipping-table td{
+  padding:12px 14px!important;
+  border-bottom:1px solid #edf0f3!important;
+  text-align:center!important;
+  vertical-align:middle!important;
+}
+.yx27-shipping-table th{
+  background:#f3f7fb!important;
+  color:#26364a!important;
+  font-weight:900!important;
+}
+html[data-yx-v27-today-unplaced="locked"] #today-filter-unplaced,
+html[data-yx-v27-today-unplaced="locked"] [data-today-filter="unplaced"]{
+  display:inline-flex!important;
+}
+@media(max-width:860px){
+  html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
+    grid-template-columns:1fr 1fr!important;
+  }
+  html[data-yx-v27-shipping-query="locked"] #shipping-query-section .yx27-shipping-query-bar .primary-btn{
+    grid-column:1/-1!important;
+  }
+}
+@media(max-width:520px){
+  html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
+    grid-template-columns:1fr!important;
+  }
+}
+/* ===== END V27 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
+
+/* ===== V28 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
+   1) warehouse-unplaced-list-inline is now a real HTML panel, so it must override older V12 hide rules.
+   2) settings backup rows expose real download / restore actions.
+   3) audit rows use backend action_label / entity_label fields. */
+html[data-yx-v28-loaded-audit="locked"] #warehouse-unplaced-list-inline,
+#warehouse-unplaced-list-inline.yx28-warehouse-unplaced-inline:not(.hidden){
+  display:block!important;
+  visibility:visible!important;
+  height:auto!important;
+  overflow:visible!important;
+  margin:12px 0!important;
+}
+#warehouse-unplaced-list-inline.hidden{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;}
+.yx28-warehouse-unplaced-inline{border:1px solid rgba(180,112,40,.28);border-radius:20px;background:#fffdf8;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.06);}
+.yx28-unplaced-head{margin-bottom:10px;align-items:center;}
+.yx28-unplaced-row{width:100%;text-align:left;cursor:pointer;margin:8px 0;}
+.yx28-backup-row{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.yx28-backup-main{min-width:0;overflow-wrap:anywhere;}
+.yx28-backup-actions{flex:0 0 auto;justify-content:flex-end;}
+.yx28-audit-row .small-note{margin-top:4px;}
+@media(max-width:720px){.yx28-backup-row{display:block}.yx28-backup-actions{margin-top:8px;justify-content:flex-start}.yx28-unplaced-head{display:block}.yx28-unplaced-head .ghost-btn{margin-top:8px}}
+
+/* ===== V29 REAL LOADED HTML / JS / CSS WRITEBACK =====
+   這段寫在實際載入的 static/style.css 檔尾，覆蓋舊 FIX 樣式，不另外塞未載入檔。 */
+html[data-yx-v29-real-writeback="locked"] #yx113-customer-actions.modal.hidden{display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}
+html[data-yx-v29-real-writeback="locked"] #yx113-customer-actions.modal:not(.hidden){display:flex!important;visibility:visible!important;pointer-events:auto!important;opacity:1!important;}
+#yx113-customer-actions .yx113-customer-action-card{width:min(440px,calc(100vw - 28px));}
+#yx113-customer-actions .yx113-action-stack{display:grid;gap:10px;}
+#yx113-customer-actions .yx113-action-stack .ghost-btn{width:100%;justify-content:center;}
+#ship-preview-panel.ship-preview-panel:not(.hidden){display:block!important;visibility:visible!important;}
+#ship-preview-panel.ship-preview-panel.hidden{display:none!important;}
+#warehouse-unplaced-list-inline:not(.hidden){display:block!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
+html[data-yx-v29-real-writeback="locked"] .yx-html-direct-disabled-legacy,
+html[data-yx-v29-real-writeback="locked"] .yx-retired-customer-modal,
+html[data-yx-v29-real-writeback="locked"] #customer-modal{display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important;}
+
+
+/* ==== V32 REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   寫在實際載入的 static/style.css 檔尾，不是外掛補丁。
+   目的：避免舊版動態外殼、舊 customer modal、舊出貨/倉庫容器在頁面切換時短暫顯示。 */
+html[data-yx-v32-real-writeback="locked"] .yx-html-direct-disabled-legacy,
+html[data-yx-v32-real-writeback="locked"] .customer-modal:not(#yx113-customer-actions),
+html[data-yx-v32-real-writeback="locked"] .old-customer-modal,
+html[data-yx-v32-real-writeback="locked"] .legacy-render-shell,
+html[data-yx-v32-real-writeback="locked"] [data-legacy-render="true"]{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx-v32-real-writeback="locked"] #yx113-customer-actions:not(.hidden){
+  display:flex!important;
+  align-items:center;
+  justify-content:center;
+}
+html[data-yx-v32-real-writeback="locked"] #ship-preview-panel:not(.hidden){
+  display:block!important;
+}
+html[data-yx-v32-real-writeback="locked"] #warehouse-unplaced-list-inline:not(.hidden){
+  display:grid!important;
+}
+html[data-yx-v32-real-writeback="locked"] #warehouse-unplaced-list-inline.hidden{
+  display:none!important;
+}
+html[data-yx-v32-real-writeback="locked"] .yx-final-ship-product-list-hidden{
+  min-height:42px;
+}
+
+/* V32 hidden-state hard lock for existing HTML shells */
+html[data-yx-v32-real-writeback="locked"] #yx113-customer-actions.hidden,
+html[data-yx-v32-real-writeback="locked"] #ship-preview-panel.hidden,
+html[data-yx-v32-real-writeback="locked"] #warehouse-unplaced-list-inline.hidden{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  opacity:0!important;
+}
+
+/* ==== V32 asset-load failure banner: written into actual loaded CSS ==== */
+html[data-yx-asset-load-error="true"] .yx-asset-error-banner,
+.yx-asset-error-banner{
+  position:fixed!important;
+  left:12px!important;
+  right:12px!important;
+  bottom:12px!important;
+  z-index:999999!important;
+  padding:12px 14px!important;
+  border-radius:14px!important;
+  background:#fff7ed!important;
+  color:#9a3412!important;
+  border:1px solid rgba(154,52,18,.22)!important;
+  box-shadow:0 12px 32px rgba(15,23,42,.18)!important;
+  font-weight:800!important;
+  font-size:14px!important;
+  line-height:1.45!important;
+}
+
+
+/* ==== V40 WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   寫在實際載入的 static/style.css 檔尾，專門鎖定倉庫圖最終版。 */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-section.yx-final-warehouse-lock{
+  display:block;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root.warehouse-fixed-layout{
+  display:grid!important;
+  grid-template-columns:1fr 1fr!important;
+  gap:16px!important;
+  align-items:start!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #zone-A[style*="display: none"] + #zone-B,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root #zone-A:not([style*="display: none"]):not(.hidden-zone),
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root #zone-B:not([style*="display: none"]):not(.hidden-zone){
+  min-width:0!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .vertical-slot{
+  min-height:58px!important;
+  padding:8px 10px!important;
+  border-radius:14px!important;
+  text-align:left!important;
+  overflow:hidden!important;
+  touch-action:manipulation!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-row{
+  display:flex!important;
+  justify-content:space-between!important;
+  align-items:center!important;
+  gap:8px!important;
+  width:100%!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-no{
+  flex:0 0 auto!important;
+  font-size:18px!important;
+  font-weight:950!important;
+  color:#111827!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-customers{
+  flex:1 1 auto!important;
+  text-align:right!important;
+  color:#b91c1c!important;
+  font-weight:950!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-empty{
+  color:#9ca3af!important;
+  font-weight:800!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-sum{
+  color:#334155!important;
+  font-weight:900!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .yx108-slot-total{
+  color:#1d4ed8!important;
+  font-weight:950!important;
+  white-space:nowrap!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .warehouse-col-tools,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .warehouse-add-slot,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .warehouse-remove-slot,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .warehouse-plusminus-btn,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root [data-action="add-slot"],
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root [data-action="remove-slot"]{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #yx121-batch-rows .yx121-batch-row{
+  display:grid!important;
+  grid-template-columns:64px minmax(0,1fr) 96px!important;
+  gap:8px!important;
+  align-items:center!important;
+  margin:8px 0!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #yx121-batch-rows option:disabled{
+  color:#9ca3af!important;
+}
+@media(max-width:900px){
+  html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root.warehouse-fixed-layout{grid-template-columns:1fr!important;}
+}
+@media(max-width:520px){
+  html[data-yx-v40-warehouse-writeback="locked"] #yx121-batch-rows .yx121-batch-row{grid-template-columns:1fr!important;}
+}
+
+
+/* ==== V40 WAREHOUSE REAL LOADED WRITEBACK: batch preservation + safer modal controls ==== */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal .modal-card{
+  max-height:min(92vh,880px)!important;
+  overflow:auto!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #yx121-save-cell:disabled{
+  opacity:.58!important;
+  cursor:wait!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-search-results .yx-search-hit,
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-unplaced-list-inline .yx28-unplaced-row{
+  width:100%!important;
+  text-align:left!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .vertical-slot.flash-highlight{
+  box-shadow:0 0 0 4px rgba(37,99,235,.22),0 10px 24px rgba(15,23,42,.12)!important;
+}
+
+
+/* ===== V40 WAREHOUSE REAL LOADED HTML/JS/CSS WRITEBACK LOCK =====
+   修正：刪除格子不再被前端補回 20 格、批量搜尋保留已選商品、拖拉移動失敗自動回補原格資料。 */
+.yx-final-warehouse-root .vertical-slot-list { align-items: stretch; }
+.yx-final-warehouse-root .vertical-slot.yx121-warehouse-dragging { opacity: .72; transform: scale(.985); }
+.yx-final-warehouse-root .vertical-slot.yx121-warehouse-drop-target { outline: 3px solid rgba(37, 99, 235, .28); outline-offset: 2px; }
+#yx121-batch-rows .yx121-batch-select option:disabled { color: #aaa; }
+html[data-yx-warehouse-v40-fix="delete-grid-drag-rollback-preserve-selected"] #warehouse-section::after { content: ""; display:none; }
+
+
+/* ===== V40 WAREHOUSE REAL LOADED HTML/JS/CSS WRITEBACK LOCK =====
+   修正：倉庫圖只允許單一重整寫回、批量同商品用同 key 合計限制、插格/刪格防連點。 */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v40"]{
+  scroll-margin-top: 18px;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v40"] #yx121-batch-rows .yx121-batch-select option:disabled{
+  opacity:.55;
+}
+html[data-yx-warehouse-v40-fix="single-render-key-limit-insert-delete-lock"] #yx-final-warehouse-menu button{
+  min-height:42px;
+}
+
+
+/* ==== V40 WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   目的：鎖定目前實際載入的倉庫 HTML/JS/CSS，並補強格位儲存與批量加入視覺狀態。 */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v40"]{
+  --yx-warehouse-writeback-version: "v40";
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v40"] #yx121-save-cell[disabled]{
+  opacity:.58!important;
+  cursor:wait!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v40"] .yx121-batch-select option:disabled{
+  color:#9ca3af!important;
+  background:#f3f4f6!important;
+}
+html[data-yx-warehouse-v40-fix="queued-render-placement-safe-save"] #warehouse-root .vertical-slot.highlight{
+  outline:3px solid rgba(37,99,235,.42)!important;
+  outline-offset:2px!important;
+}
+
+/* V40 warehouse real loaded writeback lock: modal save target + drag op lock + empty-slot delete safe */
+.yx-final-warehouse-lock[data-warehouse-version="v40"] .yx108-slot-total{font-weight:900;}
+#warehouse-modal[data-warehouse-modal-version="v40"] .yx121-batch-qty:disabled{opacity:.55;}
+
+
+/* ==== V40 WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ==== */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v40"]{--yx-warehouse-writeback-version:"v40";}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-root .vertical-slot{touch-action:none;}
+html[data-yx-warehouse-v40-fix="loading-unlock-delete-sync"] #warehouse-root .vertical-slot.flash-highlight{outline:3px solid rgba(255,77,77,.45);}
+#warehouse-modal[data-warehouse-modal-version="v40"] #yx121-save-cell:disabled{opacity:.62;cursor:wait;}
+
+/* ==== V40 WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   修正：A-3-07 / A307 格位搜尋、批量下拉穩定 key、未錄入 source/material 顯示。 */
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v40"]{
+  --yx-warehouse-writeback-version:"v40";
+}
+html[data-yx-warehouse-v40-fix="stable-batch-key-location-search-api-normalize"] #warehouse-search-results .yx-search-hit[data-hit-loc="1"]{
+  border:1px solid rgba(37,99,235,.28)!important;
+  background:rgba(37,99,235,.06)!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v40"] .yx121-batch-select{
+  min-height:44px!important;
+}
+html[data-yx-v40-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v40"] .yx121-batch-qty{
+  min-height:44px!important;
+}
+
+
+/* ==== V41 SHIP + WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   實際載入頁面：page_ship_master_v41.js + page_warehouse_master_v41.js。
+   出貨預覽位置按鈕、出貨請求防舊回應覆蓋、倉庫搜尋跳轉同步鎖。 */
+html[data-yx-v41-ship-warehouse-writeback="locked"] .ship-preview-panel{scroll-margin-top:18px}
+.yx22-location-btn{cursor:pointer;box-shadow:0 6px 14px rgba(29,78,216,.10)}
+.yx22-location-btn:active{transform:scale(.97)}
+html[data-yx-v41-ship-warehouse-writeback="locked"] #warehouse-root[data-yx41-warehouse-html="real-loaded"] .yx-final-slot.highlight{outline:3px solid rgba(37,99,235,.45);outline-offset:2px}
+
+
+/* ==== V42 SHIP + WAREHOUSE REAL LOADED HTML / JS / CSS WRITEBACK LOCK ====
+   實際載入頁面：page_ship_master_v42.js + page_warehouse_master_v42.js。
+   修正：出貨換客戶清空舊已選/預覽、出貨位置帶入倉庫圖搜尋、倉庫彈窗背景載入不覆蓋目前格位。 */
+html[data-yx-v42-ship-warehouse-writeback="locked"] .ship-preview-panel{scroll-margin-top:18px}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .ship-warehouse-link-panel{margin-top:12px;border:1px solid rgba(37,99,235,.16)!important;background:rgba(255,255,255,.88)!important;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .ship-warehouse-link-panel.hidden{display:none!important;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .ship-warehouse-link-panel .mini-head{margin-bottom:8px;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .yx42-ship-warehouse-hit{width:100%;text-align:left;border:1px solid rgba(37,99,235,.18)!important;background:rgba(239,246,255,.72)!important;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .yx42-ship-warehouse-hit strong{color:#1d4ed8;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .yx22-location-btn{cursor:pointer;box-shadow:0 6px 14px rgba(29,78,216,.10)}
+html[data-yx-v42-ship-warehouse-writeback="locked"] .yx22-location-btn:active{transform:scale(.97)}
+html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-root[data-yx42-warehouse-html="real-loaded"] .yx-final-slot.highlight{outline:3px solid rgba(37,99,235,.45);outline-offset:2px}
+html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v42"]{--yx-warehouse-writeback-version:"v42";}
+html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v42"] #yx121-save-cell:disabled{opacity:.62;cursor:wait;}
+html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v42"] .yx121-batch-select option:disabled{color:#94a3b8;background:#f1f5f9;}

@@ -1684,6 +1684,15 @@ def get_customers(active_only=True):
         count_map = {}
         key_name_map = {}
         key_uid_map = {}
+        archived_names = set()
+        archived_uids = set()
+        try:
+            cur.execute(sql("SELECT name, customer_uid FROM customer_profiles WHERE COALESCE(is_archived, 0) = 1"))
+            for ar in rows_to_dict(cur):
+                if (ar.get('name') or '').strip(): archived_names.add((ar.get('name') or '').strip())
+                if (ar.get('customer_uid') or '').strip(): archived_uids.add((ar.get('customer_uid') or '').strip())
+        except Exception:
+            pass
         def add_grouped_counts(table, prefix):
             try:
                 cur.execute(sql(f"""
@@ -1750,6 +1759,9 @@ def get_customers(active_only=True):
                 continue
             cname = (key_name_map.get(key) or '').strip()
             if not cname:
+                continue
+            # V21：若使用者刪除/封存了仍有商品的客戶，不要再從關聯商品補成 virtual customer，避免刪除後又跳回來。
+            if cname in archived_names or key in archived_uids:
                 continue
             customers.append({
                 'id': 0,
@@ -2835,7 +2847,18 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
             items = json.loads(target.get('items_json') or '[]')
         except Exception:
             items = []
-        if items:
+        # V38：只要實際件數大於 0 才阻擋刪除；舊資料若殘留 qty=0 空項，不應讓空格刪不掉。
+        active_items = []
+        for it in (items or []):
+            if not isinstance(it, dict):
+                continue
+            try:
+                q = int(float(it.get('qty') or it.get('piece_count') or it.get('count') or 0))
+            except Exception:
+                q = 0
+            if q > 0:
+                active_items.append(it)
+        if active_items:
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
         slots.pop(slot_number - 1)
         _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
