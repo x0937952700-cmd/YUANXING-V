@@ -1,0 +1,12 @@
+V52 最後確認報告
+
+1. 已把 service-worker / manifest / base / pwa 版本改為 full-master-v52_final_verified_main_rewrite，啟動後會 unregister 舊 SW 並清全部 caches。
+2. pwa.js 已重寫成乾淨版本，沒有 V45 追加鎖註記；復原前一步仍保留最近 10 筆 audit 操作選擇。
+3. page_* 主 JS 已移除 V44/V45 追加鎖區塊。
+4. 庫存/訂單/總單的 pushProductUndo 呼叫改成 safePushProductUndo，避免送出商品時出現 pushProductUndo is not defined。
+5. 倉庫圖仍使用主檔 page_warehouse_master_v22.js 的直接格位儲存：/api/warehouse/cell -> warehouse_save_cell -> UPSERT -> 讀回驗證。
+6. 倉庫可選商品由 /api/warehouse/available-items 產生，會把 61x12x10=750x21+822... 拆成不同支數列，不再用總件數隨機套到某支數。
+7. 放入格位後，下拉來源以來源總量 - 全倉已放數量計算；剩餘 0 不再出現在其他格。
+8. 退回該格使用 /api/warehouse/return-unplaced 清空格位，商品回到未錄入清單。
+9. CSS 已移除 FIX113/FIX131/FIX132 舊硬鎖區塊，保留 V52 乾淨規則：縮小材質/月/總量/A-B 區，隱藏操作欄，放大支數x件數欄與北中南客戶名。
+10. db.py 最後版 warehouse_save_cell 仍是檔案最後定義，支援 PostgreSQL / SQLite UPSERT、補欄位、補唯一索引、讀回驗證。

@@ -4022,3 +4022,142 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
     finally:
         try: conn.close()
         except Exception: pass
+
+# ============================================================
+# V51 FINAL CLEAN WAREHOUSE PERSISTENCE OVERRIDE
+# This is the final definition imported by app.py. It replaces prior V40/V48/V49 duplicates.
+# ============================================================
+def _yx_v51_ensure_warehouse_schema(cur):
+    if USE_POSTGRES:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_cells (
+                id SERIAL PRIMARY KEY,
+                zone TEXT NOT NULL DEFAULT 'A',
+                column_index INTEGER NOT NULL DEFAULT 1,
+                slot_type TEXT NOT NULL DEFAULT 'direct',
+                slot_number INTEGER NOT NULL DEFAULT 1,
+                items_json TEXT DEFAULT '[]',
+                note TEXT DEFAULT '',
+                updated_at TEXT
+            )
+        """)
+        for ddl in (
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS zone TEXT DEFAULT 'A'",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS column_index INTEGER DEFAULT 1",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_type TEXT DEFAULT 'direct'",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS slot_number INTEGER DEFAULT 1",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS items_json TEXT DEFAULT '[]'",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS note TEXT DEFAULT ''",
+            "ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS updated_at TEXT"
+        ):
+            cur.execute(ddl)
+        cur.execute("UPDATE warehouse_cells SET zone=COALESCE(NULLIF(TRIM(zone),''),'A'), slot_type=COALESCE(NULLIF(TRIM(slot_type),''),'direct'), items_json=COALESCE(NULLIF(items_json,''),'[]'), note=COALESCE(note,'')")
+        cur.execute("""
+            SELECT zone, column_index, slot_type, slot_number, array_agg(id ORDER BY id) AS ids,
+                   array_agg(COALESCE(items_json,'[]') ORDER BY id) AS item_values, MAX(COALESCE(note,'')) AS keep_note
+            FROM warehouse_cells
+            GROUP BY zone, column_index, slot_type, slot_number
+            HAVING COUNT(*) > 1
+        """)
+        for row in cur.fetchall():
+            ids = list(row[4] or [])
+            if len(ids) <= 1:
+                continue
+            keep_id = ids[-1]
+            merged_json = _yx_v49_merge_items_json(list(row[5] or [])) if '_yx_v49_merge_items_json' in globals() else json.dumps([], ensure_ascii=False)
+            cur.execute("UPDATE warehouse_cells SET items_json=%s, note=%s, updated_at=%s WHERE id=%s", (merged_json, row[6] or '', now(), keep_id))
+            cur.execute("DELETE FROM warehouse_cells WHERE id = ANY(%s)", (ids[:-1],))
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_zone_col_type_slot_v51 ON warehouse_cells(zone, column_index, slot_type, slot_number)")
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_cells (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                zone TEXT NOT NULL DEFAULT 'A',
+                column_index INTEGER NOT NULL DEFAULT 1,
+                slot_type TEXT NOT NULL DEFAULT 'direct',
+                slot_number INTEGER NOT NULL DEFAULT 1,
+                items_json TEXT DEFAULT '[]',
+                note TEXT DEFAULT '',
+                updated_at TEXT
+            )
+        """)
+        cur.execute("PRAGMA table_info(warehouse_cells)")
+        cols = {str(r[1]) for r in cur.fetchall()}
+        add_cols = {
+            'zone': "ALTER TABLE warehouse_cells ADD COLUMN zone TEXT DEFAULT 'A'",
+            'column_index': "ALTER TABLE warehouse_cells ADD COLUMN column_index INTEGER DEFAULT 1",
+            'slot_type': "ALTER TABLE warehouse_cells ADD COLUMN slot_type TEXT DEFAULT 'direct'",
+            'slot_number': "ALTER TABLE warehouse_cells ADD COLUMN slot_number INTEGER DEFAULT 1",
+            'items_json': "ALTER TABLE warehouse_cells ADD COLUMN items_json TEXT DEFAULT '[]'",
+            'note': "ALTER TABLE warehouse_cells ADD COLUMN note TEXT DEFAULT ''",
+            'updated_at': "ALTER TABLE warehouse_cells ADD COLUMN updated_at TEXT",
+        }
+        for k, ddl in add_cols.items():
+            if k not in cols:
+                cur.execute(ddl)
+        cur.execute("UPDATE warehouse_cells SET zone=COALESCE(NULLIF(TRIM(zone),''),'A'), slot_type=COALESCE(NULLIF(TRIM(slot_type),''),'direct'), items_json=COALESCE(NULLIF(items_json,''),'[]'), note=COALESCE(note,'')")
+        cur.execute("""
+            SELECT zone, column_index, slot_type, slot_number, GROUP_CONCAT(id) AS ids
+            FROM warehouse_cells
+            GROUP BY zone, column_index, slot_type, slot_number
+            HAVING COUNT(*) > 1
+        """)
+        for d in rows_to_dict(cur):
+            ids = [int(x) for x in str(d.get('ids') or '').split(',') if str(x).strip().isdigit()]
+            if len(ids) <= 1:
+                continue
+            q = ','.join(['?']*len(ids))
+            cur.execute(f"SELECT id, items_json, note FROM warehouse_cells WHERE id IN ({q}) ORDER BY id", tuple(ids))
+            rows = rows_to_dict(cur)
+            keep_id = ids[-1]
+            merged_json = _yx_v49_merge_items_json([r.get('items_json') for r in rows]) if '_yx_v49_merge_items_json' in globals() else json.dumps([], ensure_ascii=False)
+            keep_note = next((r.get('note') for r in rows if r.get('note')), '')
+            cur.execute("UPDATE warehouse_cells SET items_json=?, note=?, updated_at=? WHERE id=?", (merged_json, keep_note or '', now(), keep_id))
+            cur.execute("DELETE FROM warehouse_cells WHERE id IN (%s)" % ','.join(['?']*(len(ids)-1)), tuple(ids[:-1]))
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_zone_col_type_slot_v51 ON warehouse_cells(zone, column_index, slot_type, slot_number)")
+
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=""):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        _yx_v51_ensure_warehouse_schema(cur)
+        zone = (zone or 'A').strip().upper()
+        column_index = int(column_index or 0)
+        slot_type = 'direct'
+        slot_number = int(slot_number or 0)
+        items = _normalize_warehouse_items(items)
+        note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
+        items_json = json.dumps(items, ensure_ascii=False)
+        ts = now()
+        if USE_POSTGRES:
+            cur.execute("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (zone, column_index, slot_type, slot_number)
+                DO UPDATE SET items_json = EXCLUDED.items_json, note = EXCLUDED.note, updated_at = EXCLUDED.updated_at
+            """, (zone, column_index, slot_type, slot_number, items_json, note, ts))
+            cur.execute("SELECT items_json FROM warehouse_cells WHERE zone=%s AND column_index=%s AND slot_type=%s AND slot_number=%s", (zone, column_index, slot_type, slot_number))
+        else:
+            cur.execute("""
+                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(zone, column_index, slot_type, slot_number)
+                DO UPDATE SET items_json = excluded.items_json, note = excluded.note, updated_at = excluded.updated_at
+            """, (zone, column_index, slot_type, slot_number, items_json, note, ts))
+            cur.execute("SELECT items_json FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_type=? AND slot_number=?", (zone, column_index, slot_type, slot_number))
+        row = fetchone_dict(cur) or {}
+        try:
+            saved = json.loads(row.get('items_json') or '[]')
+        except Exception:
+            saved = []
+        if saved != json.loads(items_json or '[]'):
+            raise RuntimeError('warehouse_cells save verification failed')
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass

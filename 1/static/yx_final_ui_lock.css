@@ -542,7 +542,7 @@ html[data-yx117-customers="locked"] .yx113-customer-card,
 .yx113-customer-tag,
 .yx116-customer-tag{font-size:1em!important;border-radius:999px!important;background:rgba(255,255,255,.88)!important;border:1px solid rgba(15,23,42,.12)!important;color:#111827!important;box-shadow:none!important;padding:.18em .9em!important;min-width:3.8em!important;text-align:center!important;}
 
-/* ===== V44 MAINFILE REAL FIX: table width/customer/toast/undo hard lock ===== */
+
 .yx113-summary-controls,.yx128-summary-controls{display:none!important;}
 .yx113-product-actions,.yx128-card-edit-btn{display:none!important;}
 .yx113-table.yx128-inline-table{table-layout:auto!important;width:100%!important;border-collapse:separate!important;}
@@ -567,7 +567,7 @@ html[data-yx117-customers="locked"] .yx113-customer-card,
 @media(max-width:760px){.yx113-table.yx128-inline-table th,.yx113-table.yx128-inline-table td{font-size:15px!important;padding:4px 4px!important}.yx113-table.yx128-inline-table th:nth-child(4),.yx113-table.yx128-inline-table td:nth-child(4){min-width:260px!important;font-size:17px!important}.customer-region-card .yx113-customer-left,.customer-region-card .yx116-customer-name,.yx113-customer-card .yx113-customer-left,.yx113-customer-card .yx116-customer-name,.yx-v43-big-customer-name{font-size:34px!important}.customer-region-card .yx113-customer-count,.customer-region-card .yx116-customer-count{font-size:18px!important}}
 
 
-/* ===== V45 REAL MAINFILE REPAIR LOCK: table widths, no focus toast, big customer names, undo button ===== */
+
 #yx-v20-toast,.yx-v20-toast-card,#yx-ship-toast,.yx-ship-toast{pointer-events:none!important;user-select:none!important;touch-action:none!important;tab-index:-1!important;}
 .yx-v20-toast-card:focus,#yx-v20-toast:focus,#yx-ship-toast:focus,.yx-ship-toast:focus{outline:none!important;}
 .yx113-table.yx128-inline-table{table-layout:auto!important;width:100%!important;}
@@ -604,3 +604,59 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx-final-warehouse-menu.hidden{display:none!important;}
 .yx-final-warehouse-menu button{font-size:17px!important;font-weight:900!important;min-width:140px!important;padding:10px 14px!important;border-radius:999px!important;border:2px solid #d6a331!important;background:linear-gradient(120deg,#eef9ff,#fff1fb)!important;color:#111827!important;}
 /* ===== END V47 REAL REWRITE UI ===== */
+
+
+/* ===== V50 DIRECT REWRITE STYLE ALIGNMENT ===== */
+/* 商品表：材質 / 月份 / 總數量 / A-B區 縮到剛好包文字，支數x件數拉長，操作欄完全隱藏 */
+.yx113-table.yx128-inline-table{table-layout:auto!important;width:100%!important;border-collapse:collapse!important;}
+.yx113-table.yx128-inline-table th,.yx113-table.yx128-inline-table td{font-size:20px!important;line-height:1.35!important;vertical-align:middle!important;}
+.yx113-table.yx128-inline-table th:nth-child(1),.yx113-table.yx128-inline-table td:nth-child(1){width:1%!important;min-width:70px!important;max-width:104px!important;white-space:nowrap!important;padding-left:8px!important;padding-right:8px!important;}
+.yx113-table.yx128-inline-table th:nth-child(2),.yx113-table.yx128-inline-table td:nth-child(2){width:1%!important;min-width:48px!important;max-width:68px!important;white-space:nowrap!important;text-align:center!important;padding-left:6px!important;padding-right:6px!important;}
+.yx113-table.yx128-inline-table th:nth-child(3),.yx113-table.yx128-inline-table td:nth-child(3){width:15%!important;min-width:150px!important;white-space:nowrap!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(4),.yx113-table.yx128-inline-table td:nth-child(4){width:auto!important;min-width:560px!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;text-align:left!important;}
+.yx113-table.yx128-inline-table th:nth-child(5),.yx113-table.yx128-inline-table td:nth-child(5){width:1%!important;min-width:54px!important;max-width:76px!important;white-space:nowrap!important;text-align:center!important;padding-left:6px!important;padding-right:6px!important;}
+.yx113-table.yx128-inline-table th:nth-child(6),.yx113-table.yx128-inline-table td:nth-child(6){width:1%!important;min-width:56px!important;max-width:78px!important;white-space:nowrap!important;text-align:center!important;padding-left:6px!important;padding-right:6px!important;}
+.yx113-table.yx128-inline-table th:nth-child(n+7),.yx113-table.yx128-inline-table td:nth-child(n+7),.yx131-action-cell{display:none!important;width:0!important;min-width:0!important;max-width:0!important;padding:0!important;border:0!important;}
+.yx128-summary-controls{display:none!important;}
+/* 北中南客戶名放大兩倍 */
+.customer-region-card .yx116-customer-name,.customer-region-card .yx113-customer-left,.customer-region-card [class*="customer-name"]{font-size:44px!important;font-weight:950!important;line-height:1.08!important;letter-spacing:.02em!important;}
+.customer-region-card .yx116-customer-count,.customer-region-card .yx113-customer-count{font-size:24px!important;font-weight:900!important;white-space:nowrap!important;}
+.customer-region-card{min-height:96px!important;}
+/* 提示卡不吃焦點、不阻擋輸入 */
+#yx-v20-toast,.yx-v20-toast-card,#yx-ship-toast,.yx-ship-toast{pointer-events:none!important;user-select:none!important;-webkit-user-select:none!important;touch-action:none!important;}
+#yx-v20-toast *,.yx-v20-toast-card *,#yx-ship-toast *,.yx-ship-toast *{pointer-events:none!important;user-select:none!important;}
+/* 長按格子選單可點、永遠在最上層 */
+#yx-final-warehouse-menu{position:fixed!important;z-index:2147483600!important;display:flex!important;flex-direction:column!important;gap:8px!important;background:rgba(255,255,255,.97)!important;border:1px solid rgba(148,163,184,.45)!important;border-radius:18px!important;padding:10px!important;box-shadow:0 20px 50px rgba(15,23,42,.22)!important;transform:translate(-8px,-8px)!important;pointer-events:auto!important;}
+#yx-final-warehouse-menu.hidden{display:none!important;}
+#yx-final-warehouse-menu button{pointer-events:auto!important;min-width:132px!important;height:38px!important;border-radius:999px!important;border:2px solid #d6a441!important;background:linear-gradient(135deg,#eef8ff,#ffeaf6)!important;font-weight:900!important;color:#111827!important;}
+@media(max-width:760px){.yx113-table.yx128-inline-table th,.yx113-table.yx128-inline-table td{font-size:18px!important}.yx113-table.yx128-inline-table th:nth-child(4),.yx113-table.yx128-inline-table td:nth-child(4){min-width:360px!important}.customer-region-card .yx116-customer-name,.customer-region-card .yx113-customer-left{font-size:34px!important}}
+/* ===== END V50 DIRECT REWRITE STYLE ALIGNMENT ===== */
+
+/* V51 主檔對齊：商品表格欄寬，材質/月/總數量/A-B 區縮到剛好，支數 x 件數加寬 */
+.yx113-table th:nth-child(1), .yx113-table td:nth-child(1),
+.yx113-table th:nth-child(2), .yx113-table td:nth-child(2),
+.yx113-table th:nth-child(5), .yx113-table td:nth-child(5),
+.yx113-table th:nth-child(6), .yx113-table td:nth-child(6){
+  width:1%!important; white-space:nowrap!important; padding-left:6px!important; padding-right:6px!important;
+}
+.yx113-table th:nth-child(4), .yx113-table td:nth-child(4){
+  min-width:260px!important; width:34%!important; white-space:nowrap!important;
+}
+.yx113-table th:nth-child(7), .yx113-table td:nth-child(7),
+.yx113-table .operation-cell,.yx113-table .actions-cell{display:none!important;}
+.customer-chip,.customer-card,.region-customer,.yx-region-customer,[data-customer-name]{font-size:clamp(22px,2.4vw,32px)!important;font-weight:900!important;line-height:1.18!important;}
+.yx-v20-toast-card,#yx-v20-toast,#yx-ship-toast,.yx-ship-toast{pointer-events:none!important;user-select:none!important;touch-action:none!important;outline:none!important;}
+.yx-v20-toast-card *{pointer-events:none!important;user-select:none!important;}
+
+
+/* V52 final main CSS rules: compact columns, focus-safe toast, large region customers */
+.yx-product-table th.col-material,.yx-product-table td.col-material,
+.yx-product-table th.col-month,.yx-product-table td.col-month,
+.yx-product-table th.col-total,.yx-product-table td.col-total,
+.yx-product-table th.col-zone,.yx-product-table td.col-zone,
+.yx-table-material,.yx-table-month,.yx-table-total,.yx-table-zone{width:1%;white-space:nowrap;padding-left:6px!important;padding-right:6px!important;}
+.yx-product-table th.col-actions,.yx-product-table td.col-actions,.yx-table-actions,.action-column{display:none!important;}
+.yx-product-table th.col-qty,.yx-product-table td.col-qty,.yx-table-qty,.qty-column{min-width:230px!important;width:auto!important;}
+.customer-tag,.customer-card,.region-customer,.yx-customer-pill,.customer-name-pill{font-size:clamp(28px,4.8vw,42px)!important;line-height:1.15!important;font-weight:900!important;}
+.toast,.yx-toast,.notice-toast{pointer-events:none!important;user-select:none!important;}
+.toast button,.yx-toast button,.notice-toast button{pointer-events:auto!important;}

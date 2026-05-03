@@ -1,3 +1,4 @@
+try{window.pushProductUndo=window.pushProductUndo||function(label){try{window.YXPageUndo?.snapshot?.(String(label||'操作'),function(){});}catch(_e){}};}catch(_e){}
 
 /* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
@@ -940,7 +941,8 @@
     const candidates=[sourceBefore,preview.before_qty,preview.available_before,preview.selected_available,item.available_qty,item.original_qty,preview.master_available,preview.order_available,preview.inventory_available];
     let before=0;
     for(const v of candidates){const n=Number(v);if(Number.isFinite(n)&&n>0){before=n;break;}}
-    const shortage=Number(preview.shortage||preview.shortage_qty||0)>0||(before>0&&q>before);
+    // V50：只要扣後不是負數就是可出貨；3 → 0 不能顯示不足。
+    const shortage=(Number.isFinite(Number(after)) && Number(after) < 0) || (before>0 && q>before);
     const after=before>0?Math.max(0,before-q):'';
     const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
     return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${shortage?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`;
@@ -1059,7 +1061,7 @@
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
 
 
-/* ===== V44 MAINFILE REAL FIX: focus-safe toast + page undo picker + no legacy jump ===== */
+
 (function(){
   'use strict';
   if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;

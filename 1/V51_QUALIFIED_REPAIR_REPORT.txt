@@ -1,0 +1,43 @@
+V51 合格修復對照報告
+
+這版不是只回覆完成；已針對 V50 內實際沒過的點做主檔修正。
+
+1) 倉庫下拉「25 件隨機放」問題
+- 問題：後端把 61x12x10=750x21+822+610... 聚合成同一筆 25 件，前端只能選 25 件，無法選每一個支數。
+- 修改：app.py 新增 warehouse_split_support_components()，warehouse_source_totals() 改成拆支數來源。
+- 現在：61x12x10=750x21+822+610 會拆成：
+  61x12x10=750 可加入 21 件
+  61x12x10=822 可加入 1 件
+  61x12x10=610 可加入 1 件
+  不再讓你拿 25 件亂放到任一支數。
+
+2) 加入倉庫圖後重新整理不見
+- 問題：db.py 有多個 warehouse_save_cell()，而且部分舊版本互相覆蓋，PostgreSQL/SQLite UPSERT 與索引不穩。
+- 修改：db.py 檔尾新增 V51 FINAL CLEAN WAREHOUSE PERSISTENCE OVERRIDE，最後定義才是 app.py 匯入實際使用的版本。
+- 修改內容：自動建 warehouse_cells、補欄位、修 slot_type、合併重複格位、建立唯一索引 ux_warehouse_cells_zone_col_type_slot_v51、UPSERT 後立即讀回驗證。
+
+3) 加入倉庫圖後下拉選單仍看到同商品
+- 問題：可加入清單扣除邏輯沒有用 exact 支數 + source_id 拆分。
+- 修改：app.py /api/warehouse/available-items 用 exact_key + customer + source + source_id 逐支數扣除；已放入的支數會從同區與其他格子的下拉移除。
+
+4) 同一種商品沒數量仍可重複放入
+- 問題：前端與後端都需要擋；只靠前端不夠。
+- 修改：page_warehouse_master_v22.js 原本已有同 modal 的剩餘數限制；後端 validate_warehouse_cell_quantities() 現在會吃拆支數後 source_totals，超過來源就拒絕。
+
+5) 送出商品 pushProductUndo is not defined
+- 問題：部分頁面函式是區域函式，其他 inline/事件呼叫時找不到。
+- 修改：page_inventory_master_v22.js、page_orders_master_v22.js、page_master_order_master_v22.js 把 pushProductUndo 掛到 window，避免送出商品斷掉。
+
+6) service-worker 快取
+- 修改：service-worker/base/pwa/manifest 版本改成 full-master-v52_final_verified_main_rewrite。
+- service-worker 仍使用 skipWaiting + delete all caches + fetch cache reload。
+
+7) 表格欄位寬度與客戶字體
+- 修改：yx_final_ui_lock.css 寫入主 CSS：材質、月份、總數量、A/B 區縮到 nowrap 小欄；支數 x 件數加寬；隱藏操作欄；北中南客戶字體加大。
+
+8) 檢查結果
+- python3 -m py_compile app.py db.py wsgi.py 通過
+- node --check 主要 JS 通過
+- tools/smoke_test.py 通過並改成 V51 檢查
+
+注意：若 Render/GitHub root directory 指錯，任何 ZIP 都不會生效。這版 ZIP 根目錄直接包含 app.py、db.py、templates、static、render.yaml、Procfile，不要再多包一層資料夾丟錯 root。

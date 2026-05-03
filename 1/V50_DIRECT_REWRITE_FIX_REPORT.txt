@@ -1,0 +1,63 @@
+V50 直接重寫主檔修復報告
+
+本版不是新增外掛補丁；修改都寫入實際載入主檔：
+- templates/base.html
+- static/service-worker.js
+- static/pwa.js
+- static/yx_final_ui_lock.css
+- static/yx_pages/page_inventory_master_v22.js
+- static/yx_pages/page_orders_master_v22.js
+- static/yx_pages/page_master_order_master_v22.js
+- static/yx_pages/page_ship_master_v22.js
+- static/yx_pages/page_warehouse_master_v22.js
+- app.py
+- tools/smoke_test.py
+
+逐項對照：
+1. 商品表格欄寬
+   - 改 yx_final_ui_lock.css。
+   - 材質、月份、總數量、A/B區縮小到包文字。
+   - 支數 x 件數欄拉長。
+   - 操作欄與上方操作列隱藏。
+
+2. 綠色提示不吃焦點
+   - 改 yx_final_ui_lock.css：toast 全部 pointer-events:none。
+   - 改 page_warehouse_master_v22.js：開格位視窗不再自動 focus 搜尋框，避免打斷目前輸入。
+
+3. 北中南客戶名放大
+   - 改 yx_final_ui_lock.css：customer-region-card 內客戶名 44px，手機 34px。
+
+4. 訂單 / 總單送出商品壞掉
+   - 改 page_inventory_master_v22.js / page_orders_master_v22.js / page_master_order_master_v22.js。
+   - 修正 pushProductUndo is not defined，改成 safePushProductUndo，不會因復原函式未載入導致送出失敗。
+
+5. 移動區域後客戶與商品被清掉
+   - 保留原本 moveCustomerCardNow / moveCustomer 只改客戶區域，不刪 rowsStore 商品資料。
+   - 送出商品後仍呼叫 refreshCustomerBoardsSafe / forceCustomerCardVisible，讓客戶卡立即補上件數 / 筆數。
+
+6. 出貨 3 → 0 被判不足
+   - 改 page_ship_master_v22.js。
+   - 出貨預覽狀態改成「扣後不是負數就是可出貨」，所以 3 → 0 不會顯示不足。
+
+7. 倉庫批量加入 4 件變 12 件 / 同一商品重複放入
+   - 改 page_warehouse_master_v22.js。
+   - 新增 itemStableKey。
+   - collectBatchItems 直接重寫：會扣掉目前格內已放數量，同一商品剩餘 0 直接禁止再選 / 再放。
+   - syncBatchSelectLimits 會依目前格內數量重新計算剩餘數量。
+   - saveWarehouseCell 送出前合併同一來源同一商品，避免前/中/後重複列被加總成 12。
+
+8. PostgreSQL / 後端驗證
+   - 改 app.py。
+   - normalize_warehouse_payload_items 合併 key 移除 placement_label，避免同商品因後排 / 中間 / 前排被當三筆。
+   - validate_warehouse_cell_quantities 的尺寸總量驗證改成 exact 支數已有驗證時不再重複用尺寸層誤判。
+
+9. Service Worker / 快取
+   - service-worker.js 改 V50。
+   - fetch static/js/css/html 使用 cache:'reload'。
+   - activate 會清所有 cache 並通知前台 reload。
+   - base.html / pwa.js 版本同步 V50。
+
+10. 檢查結果
+   - python -m py_compile app.py db.py wsgi.py 通過。
+   - node --check 主要 JS 通過。
+   - tools/smoke_test.py 通過。

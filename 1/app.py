@@ -433,6 +433,42 @@ def warehouse_support_text(text):
         return ''
     return raw.split('=', 1)[1].strip()
 
+
+
+def warehouse_split_support_components(product_text, row_qty):
+    """把 61x12x10=750x21+822+610 拆成可獨立入倉的支數項。
+    回傳每一支數自己的 product_text / support_text / qty。若沒有 =，維持原商品與資料庫 qty。
+    """
+    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
+    try:
+        row_qty = int(row_qty or 0)
+    except Exception:
+        row_qty = 0
+    if not raw or '=' not in raw:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    size = warehouse_item_size_key(raw)
+    right = raw.split('=', 1)[1].strip()
+    parts = [x.strip() for x in re.split(r'[+＋]', right) if x and x.strip()]
+    if not size or not parts:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    out = []
+    for part in parts:
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', part.lower())
+        if m:
+            support = str(int(float(m.group(1)))) if float(m.group(1)).is_integer() else m.group(1)
+            qty = int(m.group(2) or 1)
+        else:
+            support = part
+            qty = 1
+        if qty > 0:
+            out.append({'product_text': f'{size}={support}', 'support_text': support, 'qty': qty})
+    if not out:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    # 若右側拆出的件數明顯不是 row_qty，而且只有一項，採資料庫 qty；多項維持支數表達本身，避免「可加入 25 件」亂選。
+    if len(out) == 1 and row_qty > 0:
+        out[0]['qty'] = row_qty
+    return out
+
 def safe_cell_items(cell):
     try:
         return json.loads(cell.get('items_json') or '[]')
@@ -473,40 +509,50 @@ def warehouse_source_totals():
         for row in get_master_orders():
             source_rows.append(('總單', row))
     for source_label, row in source_rows:
-        product = (row.get('product_text') or row.get('product') or '').strip()
-        size = warehouse_item_size_key(product)
-        exact = warehouse_item_exact_key(product)
-        if not size:
-            continue
+        original_product = (row.get('product_text') or row.get('product') or '').strip()
         customer = warehouse_customer_key(row.get('customer_name') or '')
         try:
-            qty = int(row.get('qty') or 0)
+            row_qty = int(row.get('qty') or 0)
         except Exception:
-            qty = 0
-        if qty <= 0:
+            row_qty = 0
+        if row_qty <= 0:
             continue
-        exact_key = (exact, customer)
-        size_key = (size, customer)
-        totals[exact_key] = totals.get(exact_key, 0) + qty
-        if size_key != exact_key:
-            totals[size_key] = totals.get(size_key, 0) + qty
-        detail_key = (exact, customer, source_label, str(row.get('id') or ''))
-        details.setdefault(detail_key, []).append({
-            'source': source_label,
-            'source_table': source_label,
-            'source_id': row.get('id'),
-            'id': row.get('id'),
-            'product_text': product,
-            'product_size': size,
-            'support_text': warehouse_support_text(product),
-            'exact_key': exact,
-            'size_key': size,
-            'qty': qty,
-            'customer_name': customer,
-            'material': (row.get('material') or row.get('product_code') or '').strip(),
-            'product_code': (row.get('material') or row.get('product_code') or '').strip(),
-            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper(),
-        })
+        material = (row.get('material') or row.get('product_code') or '').strip()
+        zone_text = (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper()
+        components = warehouse_split_support_components(original_product, row_qty)
+        for comp_i, comp in enumerate(components):
+            product = (comp.get('product_text') or original_product).strip()
+            qty = int(comp.get('qty') or 0)
+            size = warehouse_item_size_key(product)
+            exact = warehouse_item_exact_key(product)
+            if not size or qty <= 0:
+                continue
+            exact_key = (exact, customer)
+            totals[exact_key] = totals.get(exact_key, 0) + qty
+            # 注意：有支數的商品不再累加 size_key，避免 25 件總數被隨機套到任一支數。
+            if '=' not in exact:
+                size_key = (size, customer)
+                totals[size_key] = totals.get(size_key, 0) + qty
+            source_id = f"{row.get('id') or ''}:{comp_i}:{comp.get('support_text') or ''}" if len(components) > 1 else str(row.get('id') or '')
+            detail_key = (exact, customer, source_label, source_id)
+            details.setdefault(detail_key, []).append({
+                'source': source_label,
+                'source_table': source_label,
+                'source_id': source_id,
+                'origin_source_id': row.get('id'),
+                'id': source_id,
+                'product_text': product,
+                'original_product_text': original_product,
+                'product_size': size,
+                'support_text': comp.get('support_text') or warehouse_support_text(product),
+                'exact_key': exact,
+                'size_key': size,
+                'qty': qty,
+                'customer_name': customer,
+                'material': material,
+                'product_code': material,
+                'zone': zone_text,
+            })
     return totals, details
 
 def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
@@ -557,7 +603,8 @@ def normalize_warehouse_payload_items(items):
         source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
         source_id = str(it.get('source_id') or it.get('id') or '').strip()
         placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
-        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id, placement_label)
+        # V50：同一來源同一商品禁止因前/中/後不同列重複放入；合併成同一筆數量。
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
         row = out_map.get(key)
         if row:
             row['qty'] = int(row.get('qty') or 0) + qty
@@ -599,6 +646,10 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
             if already + proposed_qty > source_qty:
                 return False, f"{key[0]} 的入倉數量超過此支數來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
     for key, proposed_qty in proposed_size.items():
+        # V50：若有 exact 支數驗證，尺寸總量只當 fallback；避免同一筆 exact 又被尺寸層重複誤判。
+        has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
+        if has_exact_for_size:
+            continue
         source_qty = int(source_totals.get(key, 0) or 0)
         if source_qty <= 0:
             return False, f"{key[0]} 沒有可加入來源數量"

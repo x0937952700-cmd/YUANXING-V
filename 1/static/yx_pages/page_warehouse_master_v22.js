@@ -523,6 +523,7 @@
   function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return availableListForCurrent().map((it,i)=>({it,index:i,key:itemKey(it)})).filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
   function itemKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
+  function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
   function snapshotBatchRows(){
     const rows=[];
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach((row,i)=>{
@@ -572,7 +573,7 @@
     const search=$('warehouse-item-search'); if(search) search.value='';
     $('warehouse-modal')?.classList.remove('hidden');
     renderCellItems(false);
-    try { if(search) search.focus(); } catch(_e) {}
+    // V50：不自動 focus 搜尋框，避免綠色提示 / 開窗打斷正在編輯的輸入焦點。
     // 先立刻開啟格位批量加入畫面，再背景抓 A/B 區未錄入商品；保留使用者已選下拉與件數。
     try { await loadAvailable(); renderCellItems(true); } catch(e){ toast(e.message||'未錄入商品載入失敗','error'); }
   }
@@ -604,29 +605,41 @@
         o.disabled = !!(chosen.get(k)>0 && k!==keyNow);
       });
       const max=Number(opt?.dataset?.max||0);
-      if(max>0){ qty.max=String(max); qty.dataset.yx121Max=String(max); if(fillEmpty && !qty.value) qty.value=String(max); if(Number(qty.value)>max) qty.value=String(max); }
-      else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; if(!sel.value) qty.value=''; }
+      const kNow = opt?.dataset?.itemKey || sel.value || '';
+      let existing = 0;
+      if(kNow){ const poolItem = availableListForCurrent().find(x=>itemKey(x)===kNow || itemStableKey(x)===kNow); const stable = poolItem ? itemStableKey(poolItem) : kNow; (state.current?.items||[]).forEach(it=>{ if(itemStableKey(it)===stable) existing += itemQty(it); }); }
+      const remaining = max>0 ? Math.max(0, max-existing) : 0;
+      if(max>0){ qty.max=String(remaining); qty.dataset.yx121Max=String(remaining); if(remaining<=0){ qty.value=''; qty.placeholder='已無剩餘'; qty.disabled=true; } else { qty.disabled=false; qty.placeholder='加入件數'; if(fillEmpty && !qty.value) qty.value=String(remaining); if(Number(qty.value)>remaining) qty.value=String(remaining); } }
+      else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; qty.disabled=false; if(!sel.value) qty.value=''; }
     });
   }
   function collectBatchItems(){
     const pool=availableListForCurrent();
+    const byStable = new Map(pool.map(x => [itemStableKey(x), x]));
+    const existingQty = new Map();
+    (state.current?.items || []).forEach(it=>{
+      const k=itemStableKey(it);
+      existingQty.set(k, (existingQty.get(k)||0) + itemQty(it));
+    });
     const collected = new Map();
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
       const sel=row.querySelector('.yx121-batch-select'); const raw=sel?.value; if(raw==='') return;
-      const opt=sel?.options?.[sel.selectedIndex]; const stableKey=opt?.dataset?.itemKey || raw;
-      let it=pool.find(x=>itemKey(x)===stableKey);
+      const opt=sel?.options?.[sel.selectedIndex];
+      let it=null;
+      const stableKey=opt?.dataset?.itemKey || raw;
+      it=pool.find(x=>itemKey(x)===stableKey || itemStableKey(x)===stableKey);
       if(!it){ const idx=Number(opt?.dataset?.index ?? raw); if(Number.isFinite(idx)) it=pool[idx]; }
       if(!it) return;
+      const k=itemStableKey(it);
       const max=itemQty(it)||1;
-      let qty=Math.max(1, Math.floor(Number(row.querySelector('.yx121-batch-qty')?.value||max)));
-      const existed=collected.get(stableKey);
-      if(existed){
-        // 同一種商品只允許出現一次，數量上限是未錄入剩餘量；避免 4 件被三列重複算成 12 件。
-        existed.qty = Math.min(max, existed.qty + qty);
-        return;
-      }
-      qty=Math.min(max,qty);
-      collected.set(stableKey, normalizedItem(it,qty,placementForBatch(Number(row.dataset.batchIndex||collected.size))));
+      const alreadyInCell=existingQty.get(k)||0;
+      const alreadyNew=collected.get(k)?.qty || 0;
+      const remaining=Math.max(0, max - alreadyInCell - alreadyNew);
+      if(remaining <= 0) return;
+      let qty=Math.max(1, Math.floor(Number(row.querySelector('.yx121-batch-qty')?.value||remaining)));
+      qty=Math.min(qty, remaining);
+      if(qty <= 0) return;
+      collected.set(k, normalizedItem(it, (alreadyNew + qty), placementForBatch(Number(row.dataset.batchIndex||collected.size))));
     });
     return Array.from(collected.values());
   }
@@ -635,7 +648,10 @@
     if(!state.current) return toast('請先開啟格位','warn');
     const added=collectBatchItems();
     const beforeItems=JSON.parse(JSON.stringify(state.current.items||[])); const beforeNote=$('warehouse-note')?.value||'';
-    const items=[...(state.current.items||[]),...added];
+    if(!added.length){ toast('沒有可加入的商品；同一商品已無剩餘數量時會禁止重複放入','warn'); return; }
+    const merged = new Map();
+    [...(state.current.items||[]),...added].forEach(it=>{ const k=itemStableKey(it); const old=merged.get(k); if(old){ old.qty = itemQty(old) + itemQty(it); } else merged.set(k, {...it, qty:itemQty(it)}); });
+    const items=Array.from(merged.values());
     const btn=$('yx121-save-cell');
     try{
       if(btn){ btn.disabled=true; btn.textContent='儲存中…'; }
@@ -700,7 +716,7 @@
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){ ev.preventDefault(); state.current.items.splice(Number(rm.dataset.removeCellItem),1); renderCellItems(); return; }
     },true);
     document.addEventListener('change', ev=>{ const sel=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-select'); if(sel){ syncBatchSelectLimits(); } }, true);
-    document.addEventListener('input', ev=>{ const qty=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-qty'); if(qty){ const max=Number(qty.dataset.yx121Max||qty.max||0); if(max>0 && Number(qty.value)>max){ qty.value=String(max); toast('加入件數不可超過該商品可加入數量','warn'); } } }, true);
+    document.addEventListener('input', ev=>{ const qty=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-qty'); if(qty){ const max=Number(qty.dataset.yx121Max||qty.max||0); if(max<=0 && qty.value){ qty.value=''; toast('此商品已無剩餘數量，禁止重複放入','warn'); } else if(max>0 && Number(qty.value)>max){ qty.value=String(max); toast('加入件數不可超過該商品可加入數量','warn'); } } }, true);
     $('warehouse-item-search')?.addEventListener('input',renderCellItems);
     updateUndoButton();
   }
@@ -832,7 +848,7 @@
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
 
 
-/* ===== V44 MAINFILE REAL FIX: focus-safe toast + page undo picker + no legacy jump ===== */
+
 (function(){
   'use strict';
   if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;
