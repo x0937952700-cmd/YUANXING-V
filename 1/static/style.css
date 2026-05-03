@@ -5002,3 +5002,290 @@ body[data-yx-dream-ui="v26"] *{
   .home-menu.vertical .menu-btn,.menu-btn{min-height:76px;}
 }
 
+
+
+/* ===== V27 FULL-PAGE DREAM BACKGROUND + INNER-PILL BUTTON LOCK =====
+   只鎖外觀與已知問題：不新增舊 renderer、不改頁面事件流程。 */
+:root{
+  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v27-redo-full-bg-buttons-warehouse-fix');
+  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v27-redo-full-bg-buttons-warehouse-fix');
+  --yx-dream-normal-text:#111111;
+  --yx-dream-important-text:#c02020;
+  --yx-dream-gold:#d7a64f;
+  --yx-dream-gold-dark:#a87523;
+  --yx-dream-btn-shadow:0 9px 20px rgba(84,64,106,.14), inset 0 1px 0 rgba(255,255,255,.94);
+}
+html,
+body{
+  min-height:100%!important;
+  margin:0!important;
+  background:#fbfdff var(--yx-dream-bg) center center / cover fixed no-repeat!important;
+}
+body{
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  position:relative!important;
+  isolation:isolate!important;
+}
+body::before{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-2!important;
+  pointer-events:none!important;
+  background:#fbfdff var(--yx-dream-bg) center center / cover no-repeat!important;
+  transform:translateZ(0)!important;
+}
+body::after{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-1!important;
+  pointer-events:none!important;
+  background:rgba(255,255,255,.10)!important;
+}
+.page-shell,
+.module-screen,
+.home-screen,
+.auth-screen,
+.home-shell,
+.warehouse-page-shell,
+#warehouse-section,
+#customers-section,
+#todos-section,
+#shipping-query-section,
+#region-picker-section,
+.subsection{
+  background:transparent!important;
+}
+.page-shell{
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  background:transparent!important;
+}
+.home-screen{
+  min-height:calc(100vh - 36px)!important;
+  min-height:calc(100dvh - 36px)!important;
+}
+
+/* 按鈕：只把白色內圈換成夢幻膠囊圖，保留金色外圈語意 */
+button,
+a.menu-btn,
+a.back-btn,
+a.home-mini-btn,
+.home-mini-btn,
+.primary-btn,
+.ghost-btn,
+.menu-btn,
+.back-btn,
+.icon-btn,
+.chip,
+.pill,
+.user-pill,
+.pwa-install-btn,
+#yx-final-warehouse-menu button,
+.yx-ship-product-option-row,
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card{
+  color:var(--yx-dream-normal-text)!important;
+  border:2px solid var(--yx-dream-gold)!important;
+  border-radius:999px!important;
+  background-color:rgba(255,255,255,.72)!important;
+  background-image:var(--yx-dream-pill)!important;
+  background-size:100% 100%!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.88), 0 0 0 3px rgba(168,117,35,.20), var(--yx-dream-btn-shadow)!important;
+  text-shadow:none!important;
+  overflow:hidden;
+}
+button *,
+a.menu-btn *,
+a.back-btn *,
+a.home-mini-btn *,
+.home-mini-btn *,
+.primary-btn *,
+.ghost-btn *,
+.menu-btn *,
+.back-btn *,
+.icon-btn *,
+.chip *,
+.pill *,
+.user-pill *,
+.pwa-install-btn *,
+#yx-final-warehouse-menu button *,
+.customer-region-card *{
+  color:inherit!important;
+}
+.primary-btn,
+.danger-btn,
+.warning-red,
+button.danger,
+button.delete,
+button.remove,
+button[id*="delete"],button[id*="Delete"],
+button[id*="save"],button[id*="Save"],
+button[id*="submit"],button[id*="Submit"],
+button[id*="confirm"],button[id*="Confirm"],
+button[id*="ship"],button[id*="Ship"],
+button[data-yx113-batch-delete],
+button[data-yx112-delete-today],
+button[data-selected-remove],
+button[data-yx113-action="delete"],
+button[data-yx113-customer-act="delete"],
+button[data-wh-act="delete"],
+button[data-wh-act="return"],
+button[data-todo-action="delete"],
+button[data-todo-action="complete"],
+button[data-yx128-card-save],
+button[data-yx121-save],
+#submit-btn,
+#confirm-ok-btn,
+#yx22-confirm-ship,
+#yx121-save-cell,
+#yx121-add-batch-row{
+  color:var(--yx-dream-important-text)!important;
+}
+.ghost-btn:not(.danger-btn),
+.back-btn,
+.icon-btn,
+.menu-btn,
+.home-mini-btn,
+.chip:not(.danger-btn),
+.pill:not(.danger-btn),
+.user-pill,
+#yx-final-warehouse-menu button:not([data-wh-act="delete"]):not([data-wh-act="return"]),
+button[data-yx113-customer-act]:not([data-yx113-customer-act="delete"]),
+button[data-yx113-action]:not([data-yx113-action="delete"]),
+button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action="complete"]){
+  color:var(--yx-dream-normal-text)!important;
+}
+
+/* 圖三：商品工具列按鈕全部靠左，不再置中或被舊版版面推開 */
+.module-screen .yx-html-direct-toolbar,
+.module-screen .yx113-toolbar,
+.module-screen .yx114-toolbar,
+.module-screen .yx114-batch-actions,
+.module-screen .yx-direct-batch-actions,
+.module-screen .yx-html-one-row-actions,
+.module-screen .query-bar,
+.module-screen .search-row,
+.module-screen .btn-row,
+.module-screen .warehouse-zone-nav,
+.module-screen .warehouse-meta-bar,
+.module-screen .warehouse-search-toolbar{
+  justify-content:flex-start!important;
+  align-items:center!important;
+  text-align:left!important;
+}
+.module-screen .yx-html-direct-toolbar{
+  align-items:stretch!important;
+}
+.module-screen .yx-html-direct-toolbar .yx114-batch-actions,
+.module-screen .yx-html-direct-toolbar .yx114-toolbar-main{
+  width:100%!important;
+  justify-content:flex-start!important;
+  align-items:center!important;
+}
+.module-screen .yx-html-direct-toolbar .yx113-search{
+  flex:0 1 240px!important;
+  width:240px!important;
+  max-width:min(42vw,260px)!important;
+  order:0!important;
+}
+@media(max-width:760px){
+  html,body,body::before{background-attachment:scroll!important;}
+  .module-screen .yx-html-direct-toolbar .yx113-search{width:100%!important;max-width:100%!important;flex-basis:100%!important;}
+}
+
+/* 倉庫長按選單固定新版，不讓舊選單蓋出來 */
+#yx-final-warehouse-menu{
+  position:fixed!important;
+  display:flex!important;
+  flex-direction:column!important;
+  gap:8px!important;
+  min-width:210px!important;
+  padding:12px!important;
+  border-radius:20px!important;
+  background:rgba(255,255,255,.92)!important;
+  border:1px solid rgba(215,166,79,.45)!important;
+  box-shadow:0 18px 48px rgba(15,23,42,.20)!important;
+  z-index:99999!important;
+  transform:translate(-12px,-12px)!important;
+}
+#yx-final-warehouse-menu.hidden{display:none!important;}
+#yx-final-warehouse-menu button{width:100%!important;min-height:40px!important;justify-content:center!important;}
+
+/* 今日異動仍然只顯示新版圖三，不讓舊版先閃 */
+body[data-module="today_changes"] #today-summary-cards,
+body[data-module="today_changes"] .yx112-today-summary,
+html.yx112-today-locked #today-summary-cards,
+html.yx112-today-locked .yx112-today-summary,
+.yx112-today-initial #today-summary-cards,
+.yx112-today-initial .yx112-today-summary{
+  display:none!important;
+  visibility:hidden!important;
+  height:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+body[data-yx-dream-ui="v27"] *{-webkit-tap-highlight-color:transparent;}
+
+
+/* V27-redo 強鎖：全頁背景、按鈕內圈、工具列靠左、倉庫長按新版 */
+:root{
+  --yx-v27-redo-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v27-redo-full-bg-buttons-warehouse-fix');
+  --yx-v27-redo-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v27-redo-full-bg-buttons-warehouse-fix');
+}
+html{
+  min-height:100%!important;
+  background:#fbfdff var(--yx-v27-redo-bg) center center/cover fixed no-repeat!important;
+}
+body{
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  background:transparent!important;
+}
+body::before{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-2!important;
+  pointer-events:none!important;
+  background:#fbfdff var(--yx-v27-redo-bg) center center/cover no-repeat!important;
+}
+.page-shell{
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  background:transparent!important;
+}
+body[data-module],
+.auth-screen,.home-screen,.module-screen,.panel,.subsection,.home-shell,.warehouse-page-shell{
+  background-color:transparent!important;
+}
+/* 所有按鈕只換內圈底圖；外圈金色框保留 */
+button,a.menu-btn,a.back-btn,a.home-mini-btn,.home-mini-btn,.primary-btn,.ghost-btn,.menu-btn,.back-btn,.icon-btn,.chip,.pill,.user-pill,.pwa-install-btn,.yx-ship-product-option-row,.customer-region-card{
+  background-image:var(--yx-v27-redo-pill)!important;
+  background-size:100% 100%!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  color:#111827!important;
+}
+.primary-btn,.danger-btn,.warning-red,button.danger,button.delete,button.remove,button[id*="delete"],button[id*="Delete"],button[id*="save"],button[id*="Save"],button[id*="submit"],button[id*="Submit"],button[id*="confirm"],button[id*="Confirm"],button[id*="ship"],button[id*="Ship"],button[data-wh-act="return"],button[data-wh-act="delete"],#yx22-confirm-ship,#yx121-save-cell,#yx121-add-batch-row{
+  color:#c42323!important;
+}
+.module-screen .yx-html-direct-toolbar,.module-screen .yx113-toolbar,.module-screen .yx114-toolbar,.module-screen .yx114-batch-actions,.module-screen .yx-direct-batch-actions,.module-screen .yx-html-one-row-actions,.module-screen .query-bar,.module-screen .search-row,.module-screen .btn-row,.module-screen .warehouse-zone-nav,.module-screen .warehouse-meta-bar,.module-screen .warehouse-search-toolbar{
+  justify-content:flex-start!important;
+  text-align:left!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu{
+  display:flex!important;
+  flex-direction:column!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{display:none!important;}
+@media(max-width:760px){
+  html,body::before{background-attachment:scroll!important;}
+}

@@ -488,8 +488,10 @@
     const btn=$('yx121-save-cell');
     try{
       if(btn){ btn.disabled=true; btn.textContent='儲存中…'; }
-      await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
+      const saved=await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
+      if(saved && Array.isArray(saved.cells)) state.data.cells=saved.cells;
       state.current.items=items;
+      updateSlotUI(state.current.zone,state.current.col,state.current.slot);
       toast(`格位已永久儲存${added.length?`，新增 ${added.length} 筆`:''}`,'ok');
       closeWarehouseModal();
       await renderWarehouse(true);
@@ -508,8 +510,9 @@
   }
   async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原上一步','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
   async function insertWarehouseCell(z,c,s){ const d=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),insert_after:Number(s||0),slot_type:'direct'})}); toast('已插入格子','ok'); state.data.cells=Array.isArray(d.cells)?d.cells:state.data.cells; await renderWarehouse(true); highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); }
-  async function deleteWarehouseCell(z,c,s){ if(cellItems(z,c,s).length) return toast('格子內還有商品，請先移除商品後再刪除','warn'); if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return; await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s),slot_type:'direct'})}); toast('已刪除格子','ok'); await renderWarehouse(true); }
-  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">開啟 / 編輯格位</button><button data-wh-act="insert">在此格後插入格子</button><button data-wh-act="delete">刪除此格</button>'; document.body.appendChild(m); return m; }
+  async function deleteWarehouseCell(z,c,s){ if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn'); if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return; const d=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s),slot_type:'direct'})}); if(Array.isArray(d.cells)) state.data.cells=d.cells; toast('已刪除格子','ok'); await renderWarehouse(true); }
+  async function returnWarehouseCell(z,c,s){ const items=cellItems(z,c,s); if(!items.length) return toast('此格沒有商品可退回','warn'); if(!confirm(`確定將 ${z} 區第 ${c} 欄第 ${s} 格商品退回未錄入倉庫圖？`)) return; const d=await api('/api/warehouse/return-unplaced',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s)})}); if(Array.isArray(d.cells)) state.data.cells=d.cells; toast('已退回該格','ok'); await renderWarehouse(true); highlightWarehouseCell(z,c,s); }
+  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">編輯格子</button><button data-wh-act="return">退回該格</button><button data-wh-act="insert">插入格子</button><button data-wh-act="delete">刪除格子</button>'; document.body.appendChild(m); return m; }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }
   function bindSlot(slot){
     if(!slot || slot.dataset.yxFinalBound==='1') return; slot.dataset.yxFinalBound='1'; let press=null;
@@ -526,7 +529,7 @@
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
     document.addEventListener('click',async ev=>{
-      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
+      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='return') await returnWarehouseCell(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) menu().classList.add('hidden');
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); return; }
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }
@@ -551,6 +554,7 @@
   window.saveWarehouseCell=saveWarehouseCell;
   window.insertWarehouseCell=insertWarehouseCell;
   window.deleteWarehouseCell=deleteWarehouseCell;
+  window.returnWarehouseCell=returnWarehouseCell;
   window.jumpProductToWarehouse=jumpProductToWarehouse;
   window.highlightWarehouseCell=highlightWarehouseCell;
   window.YXFinalWarehouse={render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse};

@@ -1,4 +1,4 @@
-# V26 dream-ui lock: PostgreSQL/SQLite migration helpers unchanged; auto補表補欄位補索引 retained.
+# V27 redo full-bg buttons warehouse fix: PostgreSQL/SQLite migration helpers unchanged; auto補表補欄位補索引 retained.
 
 import os
 import json
@@ -2696,14 +2696,25 @@ def _normalize_warehouse_items(items):
         customer_name = str(raw.get('customer_name') or '').strip()
         # FIX80：格位批量加入需保留 後排 / 中間 / 前排 顯示層，不同層不可被合併。
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
-        key = (_warehouse_size_key(product_text), customer_name, placement_label)
+        material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product_text)
+        source_table = str(raw.get('source_table') or raw.get('source') or '').strip()
+        source_id = str(raw.get('source_id') or raw.get('id') or '').strip()
+        key = (_warehouse_size_key(product_text), customer_name, placement_label, material, source_table, source_id)
         if key not in merged:
             next_item = dict(raw)
             next_item['product_text'] = product_text
-            next_item['product_code'] = str(raw.get('product_code') or product_text).strip()
+            next_item['product'] = product_text
+            next_item['product_code'] = material or str(raw.get('product_code') or product_text).strip()
+            next_item['material'] = material
             next_item['customer_name'] = customer_name
             if placement_label:
                 next_item['placement_label'] = placement_label
+                next_item['layer_label'] = placement_label
+            if source_table:
+                next_item['source'] = str(raw.get('source') or source_table).strip()
+                next_item['source_table'] = source_table
+            if source_id:
+                next_item['source_id'] = source_id
             next_item['qty'] = qty
             merged[key] = next_item
         else:

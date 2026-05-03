@@ -1,4 +1,4 @@
-# V26 dream-ui lock: keep existing app entrypoint, no page/event logic changes.
+# V27 redo full-bg buttons warehouse fix: keep existing app entrypoint, no page/event logic changes.
 """
 Render / Gunicorn entrypoint. V23 persistence/warehouse/today build.
 This file exists so both of these start commands work:

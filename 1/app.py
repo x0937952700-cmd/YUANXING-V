@@ -1,4 +1,4 @@
-# V26 dream-ui lock: backend routes/migrations unchanged; frontend style lock applied through templates/static.
+# V27 redo full-bg buttons warehouse fix: backend routes/migrations retained; fixes source labels and warehouse return/save behavior.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -349,6 +349,17 @@ def normalize_item_for_save(item):
     qty = normalize_item_quantity(product_text, item.get('qty') or 0)
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
+
+
+def customer_item_deduct_source_label(source=''):
+    raw = str(source or '').strip()
+    if re.search(r'總單|master_order|master_orders|master', raw, re.I):
+        return '該客戶總單'
+    if re.search(r'訂單|orders|order', raw, re.I):
+        return '該客戶訂單'
+    if re.search(r'庫存|inventory|stock', raw, re.I):
+        return '庫存'
+    return raw or '自動判斷'
 
 def aggregate_customer_items(items):
     """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
@@ -1653,7 +1664,10 @@ def api_customer_items():
         pull('inventory', '庫存')
     finally:
         conn.close()
-    return jsonify(success=True, items=aggregate_customer_items(items))
+    aggregated = aggregate_customer_items(items)
+    for _it in aggregated:
+        _it['deduct_source_label'] = customer_item_deduct_source_label(_it.get('source') or _it.get('source_label') or _it.get('source_preference'))
+    return jsonify(success=True, items=aggregated)
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
@@ -2031,13 +2045,13 @@ def api_warehouse_return_unplaced():
         items = safe_cell_items(cell)
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
-        log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
+        log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
         add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
         return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
-        return error_response("返回上一步失敗")
+        return error_response("退回該格失敗")
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json

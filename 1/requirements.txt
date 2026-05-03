@@ -1,4 +1,4 @@
-# V26 dream-ui lock: dependency set kept stable; no new runtime packages.
+# V27 redo full-bg buttons warehouse fix: dependency set kept stable; no new runtime packages.
 Flask==3.0.3
 gunicorn==22.0.0
 Werkzeug==3.0.6

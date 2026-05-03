@@ -202,7 +202,7 @@
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
-        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可插入格子或刪除格子。</span>
+        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可編輯、退回該格、插入格子或刪除格子。</span>
       </div>
     </div>
 
@@ -241,7 +241,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
@@ -262,7 +262,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">

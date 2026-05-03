@@ -1,4 +1,4 @@
-# V26 dream-ui lock: Render build/start kept stable; smoke test retained.
+# V27 redo full-bg buttons warehouse fix: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing
