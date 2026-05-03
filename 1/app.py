@@ -3526,3 +3526,7 @@ def notify_sync_event(*args, **kwargs):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+# V53_WAREHOUSE_CURRENT_EDIT_MAINFILE_MARKER
+# - 倉庫格位目前商品由前端主檔直接編輯尺寸/支數/件數後送回 /api/warehouse/cell。
+# - /api/warehouse/available-items 維持用 warehouse_placed_totals 扣除所有已入倉數量，所以下拉只列剩餘未錄入數量。

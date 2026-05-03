@@ -1,0 +1,22 @@
+V54 修正報告
+
+1. 63x30x125=240x49(東昇-8) 件數修正
+- 檔案：static/yx_pages/page_warehouse_master_v22.js
+- 函式：itemQty(it)
+- 原因：原本先吃後端 qty/quantity，該筆殘留 qty=1 時下拉只顯示可加入 1 件。
+- 修正：只要 = 右側有「支數x件數」，先移除括弧再解析件數。
+- 結果：63x30x125=240x49(東昇-8) 會顯示/限制為 49 件。
+
+2. 儲存格位後可以繼續添加其他格子
+- 檔案：static/yx_pages/page_warehouse_master_v22.js
+- 函式：saveWarehouseCell()
+- 原本：按儲存後 disabled 按鈕並等待 API 完成，操作被卡住。
+- 修正：前端先更新格子、關閉視窗，背景繼續呼叫 /api/warehouse/cell 存 DB；按鈕不鎖住。
+- 結果：儲存後可立刻點其他格子繼續新增，後台完成後會提示已永久存入資料庫。
+
+3. 快取
+- service-worker / pwa / manifest / base 版本改 V54，避免繼續吃 V53 舊快取。
+
+檢查
+- node --check page_warehouse_master_v22.js：通過
+- py_compile app.py/db.py/wsgi.py：通過

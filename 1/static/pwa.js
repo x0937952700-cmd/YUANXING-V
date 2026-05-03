@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v52_final_verified_main_rewrite';
+  const PWA_VERSION = 'V55';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

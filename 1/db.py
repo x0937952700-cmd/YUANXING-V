@@ -4161,3 +4161,6 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
     finally:
         try: conn.close()
         except Exception: pass
+
+# V53_WAREHOUSE_MIGRATION_MARKER
+# warehouse_cells 主表、items_json、slot unique index 已由 init_db 自動補表/補欄位/補索引；V53 前端只送主表 schema 既有欄位。

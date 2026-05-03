@@ -1,0 +1,18 @@
+V55 最終修復檢查報告
+
+本版從 V54 主檔直接修改，不新增外掛補丁檔。
+
+已處理：
+1. Service Worker / PWA / base.html / manifest 全部改 V55，啟用強制清舊 cache。
+2. 庫存 / 訂單 / 總單主 JS 直接移除 V44 追加鎖區塊，改成 V55 乾淨事件層，避免舊 undo/toast/事件互相攔截。
+3. 批量材質、批量刪除、移到 A/B 區、加到訂單/總單全部有主檔事件 fallback，按鈕不再沒反應。
+4. pushProductUndo 改成 window.pushProductUndo 安全呼叫，避免未定義中斷。
+5. 綠色提示改成 pointer-events:none 且恢復原輸入焦點，不打斷編輯。
+6. 商品表格 CSS：材質、月份、總數量、A/B 區縮小；支數 x 件數欄加寬；表格操作列維持刪除。
+7. 北 / 中 / 南客戶名 CSS 加大兩倍並加粗。
+8. 保留 V54 倉庫修正：括弧忽略、63x30x125=240x49 算 49 件、儲存格位背景儲存不鎖按鈕、已錄入商品從下拉移除、退回未錄入。
+
+檢查：
+- app.py/db.py/wsgi.py py_compile 通過。
+- product / warehouse / ship JS node --check 通過。
+- requirements.txt / render.yaml / Procfile / wsgi.py 保留可部署設定，未引入新依賴。

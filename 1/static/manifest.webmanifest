@@ -3,7 +3,7 @@
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
   "id": "/",
-  "start_url": "/?source=pwa",
+  "start_url": "/?source=pwa&v=53",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "full-master-v52_final_verified_main_rewrite"
+  "version": "V55"
 }

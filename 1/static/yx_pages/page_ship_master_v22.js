@@ -1,4 +1,4 @@
-try{window.pushProductUndo=window.pushProductUndo||function(label){try{window.YXPageUndo?.snapshot?.(String(label||'操作'),function(){});}catch(_e){}};}catch(_e){}
+try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{window.YXPageUndo?.snapshot?.(String(label||source||'操作'),function(){});}catch(_e){}};}catch(_e){}
 
 /* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
@@ -1062,88 +1062,18 @@ try{window.pushProductUndo=window.pushProductUndo||function(label){try{window.YX
 
 
 
+
+/* ===== V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
 (function(){
   'use strict';
-  if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;
-  window.__YX_V44_COMMON_MAINFILE_FIX__ = true;
-  const clean = v => String(v ?? '').trim();
-  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const mod = () => document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || '';
-  let toastTimer = null;
-  function focusSnapshot(){
-    const a = document.activeElement;
-    if (!a || !a.matches?.('input,textarea,select,[contenteditable="true"]')) return null;
-    let s = null, e = null;
-    try { s = a.selectionStart; e = a.selectionEnd; } catch(_e) {}
-    return {el:a, s, e, v:a.value};
-  }
-  function restoreFocus(snap){
-    if (!snap || !snap.el || !document.contains(snap.el)) return;
-    const a = document.activeElement;
-    if (a === snap.el) return;
-    try { snap.el.focus({preventScroll:true}); if (snap.s != null && snap.el.setSelectionRange) snap.el.setSelectionRange(snap.s, snap.e ?? snap.s); } catch(_e) {}
-  }
-  window.toast = window.showToast = window.notify = function(message, kind='ok'){
-    const snap = focusSnapshot();
-    let box = document.getElementById('yx-v20-toast');
-    if (!box) { box = document.createElement('div'); box.id = 'yx-v20-toast'; document.body.appendChild(box); }
-    box.setAttribute('aria-live','polite'); box.setAttribute('role','status'); box.tabIndex = -1;
-    box.className = 'yx-v20-toast-card ' + (kind || 'ok');
-    box.innerHTML = `<strong>${kind==='error'?'錯誤':kind==='warn'?'提醒':'完成'}</strong><span>${esc(message || '')}</span>`;
-    box.style.display = 'block';
-    box.style.pointerEvents = 'none';
-    box.querySelectorAll('*').forEach(x=>x.style.pointerEvents='none');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(()=>{ try{ box.style.display='none'; }catch(_e){} }, 2300);
-    restoreFocus(snap);
+  if(window.__YX_V55_COMMON_CLEAN__) return; window.__YX_V55_COMMON_CLEAN__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  window.toast=window.showToast=window.notify=function(message,kind='ok'){
+    const a=document.activeElement; const editable=a&&a.matches?.('input,textarea,select,[contenteditable="true"]'); let s=null,e=null; try{if(editable&&'selectionStart'in a){s=a.selectionStart;e=a.selectionEnd;}}catch(_e){}
+    let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML='<strong>'+(kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功')+'</strong><div>'+esc(message||'')+'</div>'; box.style.display='block'; box.classList.add('show'); clearTimeout(window.__YX_V55_COMMON_TOAST__); window.__YX_V55_COMMON_TOAST__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);
+    if(editable&&document.contains(a)) setTimeout(()=>{try{a.focus({preventScroll:true}); if(s!=null&&a.setSelectionRange)a.setSelectionRange(s,e??s);}catch(_e){}},0);
   };
-  if (window.YXHardLock) window.YXHardLock.toast = window.toast;
-  async function api(url,opt={}){
-    const r = await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
-    const t = await r.text(); let d={}; try{ d=t?JSON.parse(t):{}; }catch(_e){ d={success:false,error:t}; }
-    if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d;
-  }
-  function actionAllowed(a,e){
-    const m = mod();
-    if (m === 'inventory') return e === 'inventory';
-    if (m === 'orders') return e === 'orders' || e === 'customer_profiles' || e === 'customer_items';
-    if (m === 'master_order') return e === 'master_orders' || e === 'customer_profiles' || e === 'customer_items';
-    if (m === 'ship') return e === 'shipping_records' || a === 'ship' || e === 'orders' || e === 'master_orders' || e === 'inventory';
-    if (m === 'warehouse') return e === 'warehouse_cells';
-    return true;
-  }
-  async function openUndoPicker(){
-    let modal = document.getElementById('yx-v44-undo-modal');
-    if (!modal) {
-      modal = document.createElement('div'); modal.id='yx-v44-undo-modal'; modal.className='modal hidden yx-v44-undo-modal';
-      modal.innerHTML = '<div class="modal-card glass yx-v44-undo-card"><div class="modal-head"><div class="section-title">復原前一步操作</div><button class="ghost-btn small-btn" type="button" data-yx44-close-undo>關閉</button></div><div class="small-note">只顯示目前頁面最近 10 筆可還原操作，點哪一筆就還原哪一筆。</div><div id="yx-v44-undo-list" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>';
-      document.body.appendChild(modal);
-      modal.addEventListener('click', async ev=>{
-        if (ev.target.matches('[data-yx44-close-undo]') || ev.target === modal) { modal.classList.add('hidden'); return; }
-        const btn = ev.target.closest('[data-yx44-undo-id]'); if(!btn) return;
-        const id = btn.dataset.yx44UndoId; btn.disabled=true; btn.textContent='還原中…';
-        try{ const d = await api('/api/undo-last',{method:'POST',body:JSON.stringify({id})}); window.toast(d.message||'已還原','ok'); modal.classList.add('hidden'); setTimeout(()=>location.reload(),280); }
-        catch(e){ window.toast(e.message||'還原失敗','error'); btn.disabled=false; }
-      }, true);
-    }
-    const list = modal.querySelector('#yx-v44-undo-list'); list.innerHTML='<div class="empty-state-card compact-empty">載入中…</div>'; modal.classList.remove('hidden');
-    try{
-      const d = await api('/api/audit-trails?limit=80&undo=1');
-      const items = (Array.isArray(d.items)?d.items:[]).filter(x=>x.action_type!=='undo' && x.entity_type!=='undo' && actionAllowed(x.action_type,x.entity_type)).slice(0,10);
-      list.innerHTML = items.length ? items.map(x=>{
-        const a = x.action_label || x.action_type || '操作'; const e = x.entity_label || x.entity_type || '資料'; const k = x.summary_text || x.entity_key || ''; const at = x.created_at || x.timestamp || '';
-        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k || '這一步可還原')}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
-      }).join('') : '<div class="empty-state-card compact-empty">目前頁面沒有可還原的最近操作</div>';
-    } catch(e){ list.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message||'載入失敗')}</div>`; }
-  }
-  window.YXPageUndo = window.YXPageUndo || {};
-  window.YXPageUndo.open = openUndoPicker;
-  document.addEventListener('click', ev=>{ const b=ev.target.closest('.yx-page-undo-btn,#yx-page-undo-btn'); if(b){ ev.preventDefault(); openUndoPicker(); } }, true);
-  document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('.yx-page-undo-btn,#yx-page-undo-btn').forEach(b=>{ b.disabled=false; b.textContent='復原前一步'; }); }, {once:true});
+  if(window.YXHardLock) window.YXHardLock.toast=window.toast;
 })();
-
-
-
-
-
+/* ===== END V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
 

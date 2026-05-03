@@ -1,0 +1,26 @@
+V53 倉庫圖主檔確認報告
+
+本版針對使用者最新回報的 3 個問題直接改主檔，不用追加鎖：
+
+1. 已經錄入的商品不要再出現在下拉選單
+   - 後端 /api/warehouse/available-items 繼續以 warehouse_placed_totals() 扣掉所有 warehouse_cells 已放入件數。
+   - 前端下拉只使用 available-items 回傳的剩餘 qty。
+   - 同一支數商品剩餘 0 時不會列入批量加入下拉。
+
+2. 目前此格商品可以改商品資料
+   - static/yx_pages/page_warehouse_master_v22.js
+   - 目前此格商品改為可編輯欄位：材質、尺寸/支數、件數、前/中/後。
+   - 按「儲存格位」即使沒有新增批量商品，只要目前商品有修改或刪除，也會送 /api/warehouse/cell 永久保存。
+   - X 刪除後按儲存，會把該商品退回未錄入數量計算。
+
+3. 批量加入有商品時搜尋新商品，不要把已錄入商品移除掉
+   - 搜尋框 input 重新渲染批量下拉前，會先讀回目前商品編輯欄位並保存到 state.current.items。
+   - 搜尋只更新下方批量加入選項，不會清空「目前此格商品」。
+
+快取：
+- static/service-worker.js 版本改為 full-master-v53_warehouse_current_edit_verified，會清舊 cache。
+- manifest start_url 改為 ?v=53。
+
+檢查：
+- app.py / db.py / wsgi.py py_compile 通過。
+- 主要 JS node --check 通過。
