@@ -12,8 +12,8 @@
     "minimal-ui"
   ],
   "orientation": "any",
-  "background_color": "#eefcff",
-  "theme_color": "#d9a449",
+  "background_color": "#f6f1e9",
+  "theme_color": "#7b4a26",
   "lang": "zh-Hant",
   "dir": "ltr",
   "categories": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "full-master-v34_real_submit_table_customer_lock"
+  "version": "full-master-v24-safe-persist-no-event-change"
 }

@@ -1,4 +1,3 @@
-# V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -25,7 +24,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, product_month_tag, recover_customer_profiles_from_relation_tables, customer_merge_variants
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables, customer_merge_variants
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -350,17 +349,6 @@ def normalize_item_for_save(item):
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
 
-
-def customer_item_deduct_source_label(source=''):
-    raw = str(source or '').strip()
-    if re.search(r'總單|master_order|master_orders|master', raw, re.I):
-        return '該客戶總單'
-    if re.search(r'訂單|orders|order', raw, re.I):
-        return '該客戶訂單'
-    if re.search(r'庫存|inventory|stock', raw, re.I):
-        return '庫存'
-    return raw or '自動判斷'
-
 def aggregate_customer_items(items):
     """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
     buckets = {}
@@ -475,24 +463,11 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
     return placed
 
 def normalize_warehouse_payload_items(items):
-    """Normalize warehouse modal payload without changing the existing UI/event flow.
-
-    V25 safe fix: the frontend can submit the same product in 後排 / 中間 / 前排.
-    The previous app-layer merge only used (size, customer), so different batch rows
-    could be collapsed before db.py received their placement_label, making save look
-    like it had no effect or causing selected rows to disappear.  Keep placement,
-    material and source identity in the merge key; db.py still performs its own
-    final normalization and quantity checks.
-    """
     merged = {}
-
-    def _clean(v):
-        return str(v or '').strip()
-
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
-        product = _clean(raw.get('product_text') or raw.get('product'))
+        product = (raw.get('product_text') or raw.get('product') or '').strip()
         if not product:
             continue
         try:
@@ -501,32 +476,14 @@ def normalize_warehouse_payload_items(items):
             qty = 0
         if qty <= 0:
             continue
-
-        customer = _clean(raw.get('customer_name'))
-        placement_label = _clean(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label'))
-        material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product)
-        source = _clean(raw.get('source') or raw.get('source_table'))
-        source_table = _clean(raw.get('source_table') or source)
-        source_id = _clean(raw.get('source_id') or raw.get('id'))
-
-        key = (warehouse_item_size_key(product), customer, placement_label, material, source_table, source_id)
+        customer = (raw.get('customer_name') or '').strip()
+        key = (warehouse_item_size_key(product), customer)
         if key not in merged:
             item = dict(raw)
             item['product_text'] = product
-            item['product'] = product
-            item['product_code'] = material or _clean(raw.get('product_code')) or product
-            item['material'] = material
+            item['product_code'] = (raw.get('product_code') or product)
             item['customer_name'] = customer
             item['qty'] = qty
-            if placement_label:
-                item['placement_label'] = placement_label
-                item['layer_label'] = placement_label
-            if source:
-                item['source'] = source
-            if source_table:
-                item['source_table'] = source_table
-            if source_id:
-                item['source_id'] = source_id
             merged[key] = item
         else:
             merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
@@ -1020,13 +977,12 @@ def api_inventory():
         if not items:
             return error_response("請輸入商品資料")
         operator = current_username()
-        duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
             upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""))
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -1063,7 +1019,6 @@ def api_inventory_item(item_id):
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
-        month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
@@ -1076,9 +1031,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -1666,10 +1621,7 @@ def api_customer_items():
         pull('inventory', '庫存')
     finally:
         conn.close()
-    aggregated = aggregate_customer_items(items)
-    for _it in aggregated:
-        _it['deduct_source_label'] = customer_item_deduct_source_label(_it.get('source') or _it.get('source_label') or _it.get('source_preference'))
-    return jsonify(success=True, items=aggregated)
+    return jsonify(success=True, items=aggregate_customer_items(items))
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
@@ -1903,38 +1855,33 @@ def api_customer_items_batch_update():
                 if qty < 0:
                     qty = 0
                 material = clean_material_value(it.get("material") if it.get("material") is not None else (before.get("material") or before.get("product_code") or ""), product_text)
-                month_tag = product_month_tag(product_text)
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
                 location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, qty, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
                         except Exception:
                             pass
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN month_tag TEXT")
-                        except Exception:
-                            pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
                     changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
@@ -2052,13 +1999,13 @@ def api_warehouse_return_unplaced():
         items = safe_cell_items(cell)
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
-        log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
+        log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
         add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
         return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
-        return error_response("退回該格失敗")
+        return error_response("返回上一步失敗")
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
