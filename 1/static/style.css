@@ -5104,3 +5104,62 @@ html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-root[data-yx42-wa
 html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-section[data-warehouse-version="v42"]{--yx-warehouse-writeback-version:"v42";}
 html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v42"] #yx121-save-cell:disabled{opacity:.62;cursor:wait;}
 html[data-yx-v42-ship-warehouse-writeback="locked"] #warehouse-modal[data-warehouse-modal-version="v42"] .yx121-batch-select option:disabled{color:#94a3b8;background:#f1f5f9;}
+
+
+/* ===== V44 PRODUCT SUBMIT REAL LOADED WRITEBACK =====
+   寫入實際載入的 style.css：庫存 / 訂單 / 總單送出失敗提示與按鈕鎖定樣式。 */
+:root[data-yx-v44-product-submit-writeback="locked"],
+html[data-yxV44ProductSubmit="locked"] {
+  --yx-v44-submit-lock: 1;
+}
+.yx-v46-submit-btn[disabled],
+#submit-btn[disabled] {
+  opacity: .68;
+  cursor: wait;
+  transform: none !important;
+}
+.yx-v44-submit-debug {
+  margin-top: 6px;
+  color: #9a6a1f;
+}
+#module-result strong[style*="b91c1c"] + .small-note {
+  word-break: break-word;
+}
+
+
+/* ===== V45 PRODUCTS REAL LOADED HTML / JS / CSS WRITEBACK LOCK ===== */
+html[data-yx-v45-products-writeback="locked"], html[data-yx-v45-products="locked"] { --yx-v45-products-lock: 1; }
+.yx-v46-submit-btn[disabled], #submit-btn[disabled] { opacity: .65; pointer-events: none; transform: none !important; }
+.yx-v46-duplicate-panel { border: 1px solid rgba(185, 28, 28, .18); background: rgba(255, 247, 237, .86); }
+.yx-v45-dup-title { display:block; color:#b45309; font-weight:900; margin-bottom:6px; }
+.yx-v45-dup-title.warn { color:#b91c1c; }
+.yx-v45-dup-list { white-space: pre-wrap; margin:8px 0 0; padding:10px; border-radius:14px; background:rgba(255,255,255,.72); font-family:inherit; line-height:1.6; }
+.yx-v45-row-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; justify-content:flex-start; }
+.yx-v45-row-actions .tiny-btn { min-height:30px; padding:5px 8px; }
+.yx113-table .yx131-action-cell { min-width: 190px; }
+/* ===== END V45 PRODUCTS REAL LOADED WRITEBACK LOCK ===== */
+
+
+/* ===== V46 products real-loaded writeback: submit guard + product table stability ===== */
+html[data-yx-v46-products-writeback="locked"], html[data-yx-v46-products="locked"] { --yx-v46-products-lock: 1; }
+.yx-v46-submit-btn[disabled], #submit-btn[disabled], #submit-btn.yx-v46-submitting { opacity:.62; pointer-events:none; transform:none!important; }
+.yx-v46-duplicate-panel { border:1px solid rgba(217,148,35,.28); background:linear-gradient(180deg,#fffaf0,#fff7e6); }
+.yx-v46-submit-debug { color:#9a3412; }
+.yx113-table .yx-row-actions, .yx128-inline-table .yx-row-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+
+
+/* ===== V47 PRODUCTS REAL LOADED HTML / JS / CSS WRITEBACK LOCK ===== */
+html[data-yx-v47-products-writeback="locked"], html[data-yx-v47-products="locked"] { --yx-v47-products-lock: 1; }
+.yx-v47-submit-btn[disabled], #submit-btn[data-yx-product-submitting="1"] { opacity:.62; pointer-events:none; transform:none!important; }
+.yx-v47-duplicate-panel { border:1px solid rgba(217,148,35,.32); background:linear-gradient(180deg,#fffaf0,#fff7e6); }
+.yx128-card-edit select[data-yx128-card-field="material"], .yx128-inline-table select[data-yx128-field="material"] { min-width: 7.5rem; }
+.yx-v47-submit-btn::after { content: attr(data-yx-v47-state); font-size: 0; }
+
+
+/* ===== V48 products real-loaded HTML/JS/CSS writeback ===== */
+.module-screen[data-yx-v48-products="real-loaded"] #submit-btn,
+.yx-v48-submit-btn{position:relative;}
+.yx-v48-submit-btn[data-yx-v48-submitting="1"],
+.yx-v48-submit-btn.yx-v48-submitting{opacity:.72;pointer-events:none;filter:grayscale(.08);}
+.yx-v48-duplicate-panel{border:1px solid rgba(180,125,39,.28);background:rgba(255,252,246,.88);border-radius:18px;padding:12px;margin-top:12px;}
+.yx-v48-submit-debug{color:#8a5a10;font-weight:700;}

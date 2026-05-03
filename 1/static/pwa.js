@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v42-ship-warehouse-real-loaded-html-js-css-writeback';
+  const PWA_VERSION = 'full-master-v48-products-real-loaded-html-js-css-writeback';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -40,7 +40,8 @@
   function yxV33CleanupLegacyShells(){
     try{
       document.documentElement.dataset.yxV38RealWriteback='locked';
-      document.documentElement.dataset.yxV42ShipWarehouseWriteback='locked';
+      document.documentElement.dataset.yxV44ProductSubmitWriteback='locked';
+      document.documentElement.dataset.yxV48ProductsWriteback='locked';
       document.querySelectorAll('.customer-modal:not(#yx113-customer-actions),.old-customer-modal,.legacy-render-shell,[data-legacy-render="true"]').forEach(el=>{
         el.classList.add('yx-html-direct-disabled-legacy');
         el.setAttribute('aria-hidden','true');

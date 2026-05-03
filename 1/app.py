@@ -344,7 +344,12 @@ def normalize_item_for_save(item):
     material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
     product_code = material
     qty = normalize_item_quantity(product_text, item.get('qty') or 0)
-    return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+    out = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+    # V47：保留前端送出的 A/B 區、來源與 source_id；前端送出 product-only ocr_text，避免客戶名被當商品解析。
+    for _k in ('location', 'zone', 'source', 'source_id', 'placement_label'):
+        if isinstance(item, dict) and item.get(_k) not in (None, ''):
+            out[_k] = item.get(_k)
+    return out
 
 
 def aggregate_customer_items(items):

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="module-screen" data-module="{{ module_key }}">
+<div class="module-screen" data-module="{{ module_key }}" data-yx-v44-product-submit="real-loaded" data-yx-v46-products="real-loaded" data-yx-v47-products="real-loaded" data-yx-v48-products="real-loaded">
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
@@ -53,12 +53,12 @@
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     {% endif %}
     <div class="btn-row">
-      <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
+      <button class="primary-btn yx-v46-submit-btn yx-v47-submit-btn yx-v48-submit-btn" id="submit-btn" type="button" data-yx-v44-submit="real-loaded" data-yx-v46-submit="real-loaded" data-yx-v47-submit="real-loaded" data-yx-v48-submit="real-loaded">確認送出</button>
       {% if module_key == 'ship' %}
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
       {% endif %}
     </div>
-    <div id="duplicate-action-panel" class="result-card hidden"></div>
+    <div id="duplicate-action-panel" class="result-card hidden yx-v46-duplicate-panel yx-v47-duplicate-panel yx-v48-duplicate-panel" data-yx-v46-duplicate-panel="real-loaded" data-yx-v47-duplicate-panel="real-loaded" data-yx-v48-duplicate-panel="real-loaded"></div>
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
     <div id="module-result" class="result-card hidden" style="display:none"></div>
     {% if module_key == 'inventory' %}
@@ -205,7 +205,7 @@
   </section>
 
   
-  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v42" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v42" data-yx-v44-audited="product-submit" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
