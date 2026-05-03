@@ -1,0 +1,9 @@
+V46 PostgreSQL / SQLite migration
+
+init_db() and ensure_fixed_warehouse_grid() already auto-create/auto-fill these tables and indexes:
+- warehouse_cells zone / column_index / slot_type / slot_number / items_json / note / updated_at
+- audit_trails before_json / after_json for undo picker
+- customer_profiles region / customer_uid / archive columns
+- unique warehouse slot index after duplicate cleanup
+
+V46 did not add a separate patch file. Warehouse quantity, return-unplaced, long-press, and cache version fixes are written into the loaded main files.

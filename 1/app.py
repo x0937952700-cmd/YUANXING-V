@@ -1652,6 +1652,7 @@ def api_warehouse_available_items():
             items.append({
                 'product_text': size,
                 'product_size': size,
+                'material': next((d.get('material') or d.get('product_code') or '' for d in details_for_item if d), ''),
                 'customer_name': customer,
                 'total_qty': int(total_qty or 0),
                 'placed_qty': placed_qty,
@@ -2114,7 +2115,7 @@ def api_warehouse_return_unplaced():
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
         log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
-        yx_v35_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        yx_v35_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'return_unplaced', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         yx_v35_safe_side_effect('warehouse_return_notify', notify_sync_event, kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
         return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:

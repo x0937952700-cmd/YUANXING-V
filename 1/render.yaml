@@ -1,4 +1,4 @@
-# V44 mainfile real repaired lock: Render build/start kept stable; smoke test retained.
+# V46 real mainfile fixed lock: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing

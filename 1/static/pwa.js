@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v45_real_mainfile_repaired';
+  const PWA_VERSION = 'full-master-v46_real_mainfile_fixed';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -18,7 +18,7 @@
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      window.__YX_PWA_VERSION__='full-master-v45_real_mainfile_repaired';
+      window.__YX_PWA_VERSION__='full-master-v46_real_mainfile_fixed';
       try { caches?.keys?.().then(keys=>Promise.all(keys.filter(k=>String(k).startsWith('yuanxing-')).map(k=>caches.delete(k)))); } catch(_){}
       navigator.serviceWorker.getRegistrations?.().then(regs=>{
         regs.forEach(r=>{ try{ (r.active||r.waiting||r.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){} });
