@@ -1,0 +1,8 @@
+V35 修正紀錄
+
+1. 對照 V24/V25 後，確認「確認送出」目前不是單純按鈕沒綁定，而是後面補丁覆蓋 submit handler，且後端建立流程任一 log/audit/snapshot/舊欄位錯誤都會回傳「建立失敗」。
+2. 新增最後載入 yx_v35_submit_backend_fix.js，最後接管 #submit-btn / confirmSubmit，避免舊版 handler 中斷。
+3. app.py 的 /api/inventory、/api/orders、/api/master_orders 改成：主 save_* 失敗時走安全直接寫入；log/audit/notify/snapshot 失敗不再阻止商品建立。
+4. 表格欄寬：材質、月份、總數量、A/B區、操作縮小，支數 x 件數放大。
+5. 北中南客戶名稱字體放大兩倍，FOB/CNF 恢復小白膠囊。
+6. DB migration 自動補表補欄位補索引保留。

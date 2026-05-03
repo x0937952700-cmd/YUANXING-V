@@ -12,8 +12,8 @@
     "minimal-ui"
   ],
   "orientation": "any",
-  "background_color": "#f6f1e9",
-  "theme_color": "#7b4a26",
+  "background_color": "#eefcff",
+  "theme_color": "#d9a449",
   "lang": "zh-Hant",
   "dir": "ltr",
   "categories": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "full-master-v24-safe-persist-no-event-change"
+  "version": "full-master-v38_real_db_persistence_submit_move_ship_lock"
 }

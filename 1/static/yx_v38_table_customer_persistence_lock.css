@@ -1,0 +1,26 @@
+/* V38 final table/customer/UI persistence lock: loaded after style.css and yx_final_ui_lock.css. */
+:root{--yx-v38-version:'full-master-v38_real_db_persistence_submit_move_ship_lock'}
+
+/* Product table: shrink non-essential columns, make 支數 x 件數 wider. */
+.product-table{table-layout:fixed!important;width:100%!important;}
+.product-table th,.product-table td{font-size:20px!important;line-height:1.55!important;vertical-align:middle!important;}
+.product-table th:nth-child(1),.product-table td:nth-child(1){width:15%!important;min-width:90px!important;}
+.product-table th:nth-child(2),.product-table td:nth-child(2){width:8%!important;min-width:54px!important;text-align:center!important;}
+.product-table th:nth-child(3),.product-table td:nth-child(3){width:20%!important;min-width:135px!important;}
+.product-table th:nth-child(4),.product-table td:nth-child(4){width:30%!important;min-width:240px!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
+.product-table th:nth-child(5),.product-table td:nth-child(5){width:8%!important;min-width:64px!important;text-align:center!important;}
+.product-table th:nth-child(6),.product-table td:nth-child(6){width:8%!important;min-width:64px!important;text-align:center!important;}
+.product-table th:nth-child(7),.product-table td:nth-child(7){width:11%!important;min-width:92px!important;font-size:14px!important;white-space:normal!important;}
+.product-table .qty-expr,.product-table [data-field="quantity_expr"],.product-table [data-col="qty_expr"]{white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;line-height:1.45!important;}
+
+/* Customer cards: only customer names are enlarged; FOB/CNF keep original small white capsule style. */
+.customer-card .customer-name,.customer-card .cust-name,.customer-chip .customer-name,.customer-chip .cust-name,.customer-row .customer-name,.customer-row .cust-name,.customer-card [data-customer-name],.customer-chip [data-customer-name]{font-size:200%!important;font-weight:900!important;line-height:1.15!important;letter-spacing:.02em!important;}
+.customer-card .customer-count,.customer-chip .customer-count,.customer-row .customer-count{font-size:18px!important;font-weight:800!important;}
+.customer-card .price-tag,.customer-card .term-tag,.customer-card .fob-tag,.customer-card .cnf-tag,.customer-chip .price-tag,.customer-chip .term-tag,.customer-chip .fob-tag,.customer-chip .cnf-tag,.customer-card .tag,.customer-chip .tag{font-size:12px!important;font-weight:700!important;background:rgba(255,255,255,.86)!important;color:#111827!important;border:1px solid rgba(15,23,42,.12)!important;border-radius:999px!important;box-shadow:none!important;padding:3px 14px!important;min-width:56px!important;text-align:center!important;}
+
+/* Ensure success toasts never steal focus or interrupt editing. */
+.toast,.toast-success,.yx-toast,.yx-success-toast,#toast,#yx-toast{pointer-events:none!important;user-select:none!important;}
+
+/* Final button event safety: never let visual overlays block clicks. */
+button::before,button::after,.menu-btn::before,.menu-btn::after,.primary-btn::before,.primary-btn::after,.ghost-btn::before,.ghost-btn::after{pointer-events:none!important;}
+#submit-btn{pointer-events:auto!important;cursor:pointer!important;}

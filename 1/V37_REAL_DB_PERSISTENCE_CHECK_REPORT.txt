@@ -1,0 +1,42 @@
+V37_REAL_DB_PERSISTENCE_CHECK_REPORT
+
+Checked and fixed from V36:
+
+1) Confirm submit / add product path
+- Frontend: templates/module.html keeps #submit-btn type=button and onclick=confirmSubmit(event).
+- Final JS: static/yx_v36_submit_backend_fix.js remains the last submit owner, version bumped to V37 request key.
+- API endpoints used by submit:
+  inventory -> POST /api/inventory
+  orders -> POST /api/orders
+  master_order -> POST /api/master_orders
+- Backend final save functions at the end of db.py are the active functions imported by app.py:
+  save_inventory_item
+  save_order
+  save_master_order
+- The V36 final DB fallback is kept: it reads real table columns and inserts/updates only existing columns, so old PostgreSQL schemas with missing optional fields do not block saving.
+
+2) Actual failure found during review
+- There were older duplicate save_order / save_master_order definitions above the final override. Those older copies referenced month_tag in SQL and could fail if they were ever used.
+- V37 patched those older copies too, and the final override already computes product_month_tag(product_text). This prevents NameError / missing month issues if any old import path reaches an older function.
+
+3) Edit / move / delete / shipping persistence
+- Main DB operations commit before UI-side refresh payloads.
+- V37 added a final safe side-effect override in app.py for log_action / add_audit_trail / notify_sync_event.
+- This means create / edit / move / ship will not be reported as failed just because logs, audit, notify, snapshots, or old optional tables/columns fail.
+
+4) Shipping
+- /api/ship still calls ship_order() for the real deduction/write.
+- After ship_order succeeds, log/audit/notify are now safe side effects, not blockers.
+
+5) File deletion comparison
+- No existing source files from V36 were removed.
+- V37 only modifies existing files and adds this report file.
+
+6) UI / old-new conflict prevention
+- Cache version bumped to full-master-v37_real_db_persistence_submit_move_ship_lock in base.html, PWA/service-worker related files.
+- Old disabled v34 file remains disabled (.disabled.js) and is not loaded by base.html.
+
+7) Verification performed in this package
+- Python source compile check
+- JavaScript syntax check for final submit JS
+- ZIP integrity check

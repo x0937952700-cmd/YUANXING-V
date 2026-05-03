@@ -1,0 +1,42 @@
+V36_REAL_BACKEND_SUBMIT_TABLE_CUSTOMER_LOCK
+
+對照來源：
+- V34: yuanxing_v34_real_submit_table_customer_lock(1).zip
+- V33: yuanxing_v33_submit_customer_table_fix(1).zip
+- V24: 側二_v24_只修問題_永久保存_不動功能版(5).zip
+
+本版實際修正：
+1. templates/base.html
+   - 最後載入 static/yx_v36_submit_backend_fix.js
+   - 停止載入舊 yx_v34_submit_table_customer_lock.js
+   - 最後載入 static/yx_v36_table_customer_submit_lock.css
+   - 全部 CSS/JS/PWA 版本改成 full-master-v36_real_backend_submit_table_customer_lock，避免舊快取覆蓋。
+
+2. static/yx_v36_submit_backend_fix.js
+   - #submit-btn / window.confirmSubmit 最後接管。
+   - 按下確認送出會阻止舊 onclick / 舊捕獲事件繼續吃掉流程。
+   - 庫存 / 訂單 / 總單分別送到 /api/inventory、/api/orders、/api/master_orders。
+   - 送出成功後只更新資料列與統計，不做整頁 reload，不打斷正在編輯的欄位。
+
+3. app.py
+   - 庫存 / 訂單 / 總單建立時，upsert_customer 改成安全 side effect，不再因客戶補資料失敗而導致商品建立失敗。
+   - log / audit / notify / snapshot 仍然使用 safe side effect，不再影響商品建立。
+
+4. db.py
+   - 檔案最後新增 V36 FINAL SAFE SAVE OVERRIDE。
+   - 覆寫 save_inventory_item / save_order / save_master_order。
+   - 會先讀真實資料表欄位，只寫入現有欄位；舊 PostgreSQL 缺欄位時不會整個失敗。
+   - merge 查詢失敗會 fallback 成 insert，不會讓新增商品失敗。
+   - inventory / orders / master_orders 都支援 product_text、material、month_tag、qty、customer_name、operator、時間欄位；不存在的欄位自動略過。
+
+5. static/yx_v36_table_customer_submit_lock.css
+   - 北中南客戶名稱（全和、四方這類）放大兩倍，FOB/CNF 維持原本小白膠囊。
+   - 表格欄寬調整：材質/月分/總數量/A-B區/操作縮小，支數 x 件數加大。
+
+驗證：
+- Python py_compile 通過：app.py / db.py / wsgi.py
+- JS syntax check 通過：static/yx_v36_submit_backend_fix.js
+- ZIP 完整性通過。
+
+注意：
+- 舊 yx_v34_submit_table_customer_lock.js 沒有被 base.html 載入；檔案改名為 .disabled.js，避免舊版再接管確認送出。

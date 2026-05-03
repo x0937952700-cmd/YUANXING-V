@@ -510,3 +510,34 @@ html[data-yx117-customers="locked"] .yx113-customer-card,
 }
 #submit-btn{ pointer-events:auto!important; cursor:pointer!important; touch-action:manipulation!important; position:relative!important; z-index:5!important; }
 #submit-btn::before,#submit-btn::after{ pointer-events:none!important; }
+
+/* V35 table/customer hard lock: make support column wider, other columns tighter, enlarge customer names */
+.yx113-table.yx128-inline-table{table-layout:fixed!important;width:100%!important;}
+.yx113-table.yx128-inline-table th:nth-child(1),
+.yx113-table.yx128-inline-table td:nth-child(1){width:12%!important;min-width:92px!important;}
+.yx113-table.yx128-inline-table th:nth-child(2),
+.yx113-table.yx128-inline-table td:nth-child(2){width:8%!important;min-width:62px!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(3),
+.yx113-table.yx128-inline-table td:nth-child(3){width:18%!important;min-width:130px!important;}
+.yx113-table.yx128-inline-table th:nth-child(4),
+.yx113-table.yx128-inline-table td:nth-child(4){width:34%!important;min-width:260px!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;line-height:1.45!important;}
+.yx113-table.yx128-inline-table th:nth-child(5),
+.yx113-table.yx128-inline-table td:nth-child(5){width:8%!important;min-width:64px!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(6),
+.yx113-table.yx128-inline-table td:nth-child(6){width:8%!important;min-width:64px!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(7),
+.yx113-table.yx128-inline-table td:nth-child(7){width:12%!important;min-width:92px!important;}
+.yx113-table.yx128-inline-table .support,
+.yx113-table.yx128-inline-table .yx-support-wrap{font-size:1.05em!important;}
+.customer-region-card .yx113-customer-left,
+.customer-region-card .yx116-customer-name,
+.yx113-customer-card .yx113-customer-left,
+.yx113-customer-card .yx116-customer-name,
+.yx114-customer-card .yx113-customer-left,
+.yx114-customer-card .yx116-customer-name,
+.yx-v15-force-customer-card .yx113-customer-left,
+.yx-v15-force-customer-card .yx116-customer-name{font-size:2em!important;font-weight:900!important;line-height:1.15!important;letter-spacing:.02em!important;}
+.customer-region-card .yx113-customer-count,
+.customer-region-card .yx116-customer-count{font-size:1.15em!important;font-weight:800!important;}
+.yx113-customer-tag,
+.yx116-customer-tag{font-size:1em!important;border-radius:999px!important;background:rgba(255,255,255,.88)!important;border:1px solid rgba(15,23,42,.12)!important;color:#111827!important;box-shadow:none!important;padding:.18em .9em!important;min-width:3.8em!important;text-align:center!important;}

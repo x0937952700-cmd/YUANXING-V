@@ -1,0 +1,60 @@
+V38 真實對照與修正報告
+
+一、這次確認到的事件問題
+1. 庫存 / 訂單 / 總單「確認送出」不是單純按鈕沒反應：
+   - module.html 的 #submit-btn 原本會呼叫 confirmSubmit(event)。
+   - 各頁 v22 JS 裡也有自己的 submit handler。
+   - V34 / V35 / V36 又追加 submit lock，舊新版 handler 疊在一起時，畫面可能有點擊但中途被 stopPropagation / 錯誤 catch / 後端錯誤中斷。
+2. V37 仍載入 yx_v36_submit_backend_fix.js，版本命名與最後接管不一致，導致後續排查容易以為 V37 已接管，但實際最後檔案仍是 V36。
+3. 後端 /api/ship 在 ship_order 成功後，build_customer_payload_snapshot 如果遇到舊欄位或快照錯誤，仍可能把已完成的出貨回覆成失敗。
+
+二、V38 實際修正
+1. templates/base.html
+   - 最後載入改成 static/yx_v38_submit_persistence_final_lock.js。
+   - 表格 / 客戶字體最後鎖定改成 static/yx_v38_table_customer_persistence_lock.css。
+   - 快取版本更新成 full-master-v38_real_db_persistence_submit_move_ship_lock。
+   - 沒有載入 yx_v34_submit_table_customer_lock.js。
+
+2. static/yx_v38_submit_persistence_final_lock.js
+   - 最後接管 window.confirmSubmit 與 #submit-btn click。
+   - #submit-btn 強制 type=button，避免表單預設 submit 造成中斷。
+   - 庫存 / 訂單 / 總單送出統一打：/api/inventory、/api/orders、/api/master_orders。
+   - 使用 v38 request_key 防止重複送出。
+   - 送出後不強制整頁 reload，避免打斷正在編輯或選取。
+   - 送出成功才清空文字框；失敗會移除暫時列，不會假顯示成功。
+
+3. app.py
+   - /api/inventory、/api/orders、/api/master_orders 保留安全寫入流程。
+   - log / audit / notify / snapshot 出錯不再拖垮新增商品。
+   - /api/ship 已修正：upsert_customer 與 snapshot 改成 safe side-effect / safe payload，避免出貨主流程成功後被快照錯誤判成失敗。
+   - V37 global wrappers 保留，修改 / 移動 / 出貨的 log/audit/notify 出錯不會讓主資料庫操作失敗。
+
+4. db.py
+   - 保留 V36 final safe save override。
+   - save_inventory_item / save_order / save_master_order 會讀取實際表欄位，只寫入存在欄位。
+   - 舊 PostgreSQL 如果缺 month_tag / material / customer_uid / updated_at 等欄位，會 fallback 寫入現有欄位。
+   - migration 自動補表、補欄位、補索引保留。
+
+5. static/yx_v38_table_customer_persistence_lock.css
+   - 材質、月份、總數量、A/B區、操作欄縮小。
+   - 支數 x 件數欄放大並允許換行。
+   - 北中南客戶名稱放大兩倍。
+   - FOB / CNF 改回小白膠囊樣式。
+
+三、檔案刪除 / 新增比對
+- 以 V24 可用版為基準，沒有刪除主要功能檔：HTML / JS / CSS / app.py / db.py / requirements.txt / wsgi.py / render.yaml 都保留。
+- V34 舊 submit lock 沒載入，檔案改名為 static/yx_v34_submit_table_customer_lock.disabled.js，避免舊版再接管。
+- 新增 V38 最後鎖定檔：
+  static/yx_v38_submit_persistence_final_lock.js
+  static/yx_v38_table_customer_persistence_lock.css
+
+四、檢查結果
+- Python compile：app.py / db.py / wsgi.py 通過。
+- 主要頁面 JS syntax check：通過。
+- V38 submit final JS syntax check：通過。
+- ZIP 完整性：重新打包後可解壓。
+
+五、仍需你部署後檢查的重點
+1. Render 環境是否真的連到 PostgreSQL DATABASE_URL。
+2. 部署後請先硬重新整理或清 PWA 快取，因為舊版曾用過 service worker。
+3. 若 PostgreSQL 既有資料表有非常舊的欄位結構，V38 會 fallback 寫入現有欄位，但建議打開 /api/health?force=1 確認 migration 已補完。

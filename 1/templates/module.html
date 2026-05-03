@@ -53,7 +53,7 @@
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     {% endif %}
     <div class="btn-row">
-      <button class="primary-btn" id="submit-btn" onclick="confirmSubmit()">確認送出</button>
+      <button class="primary-btn" id="submit-btn" type="button" onclick="confirmSubmit(event)">確認送出</button>
       {% if module_key == 'ship' %}
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
       {% endif %}
@@ -84,7 +84,7 @@
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
         <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
-        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="7">資料載入中…</td></tr></tbody></table></div>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
     </div>
@@ -115,7 +115,7 @@
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="7">資料載入中…</td></tr></tbody></table></div>
     </div>
     <div id="orders-list" class="card-list" style="display:none"></div>
   </section>
@@ -142,7 +142,7 @@
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="7">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
     </div>
     <div id="master-list" class="card-list" style="display:none"></div>
   </section>
@@ -202,7 +202,7 @@
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
-        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可插入格子或刪除格子。</span>
+        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可編輯、退回該格、插入格子或刪除格子。</span>
       </div>
     </div>
 
@@ -241,7 +241,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
@@ -262,7 +262,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
