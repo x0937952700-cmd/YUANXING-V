@@ -1038,7 +1038,7 @@ def api_inventory():
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
-        return jsonify(success=True, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
@@ -1172,7 +1172,7 @@ def api_orders():
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), customer_items=yx_v21_exact_customer_rows('orders', customer_name), verified_customer_rows=yx_v21_exact_customer_rows('orders', customer_name), after_write_count=len(yx_v21_exact_customer_rows('orders', customer_name)), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
     except Exception as e:
         log_error("orders", str(e))
         return error_response("訂單建立失敗")
@@ -1199,7 +1199,7 @@ def api_master_orders():
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), verified_customer_rows=yx_v21_exact_customer_rows('master_orders', customer_name), after_write_count=len(yx_v21_exact_customer_rows('master_orders', customer_name)), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
     except Exception as e:
         log_error("master_orders", str(e))
         return error_response("總單失敗")
@@ -1224,8 +1224,11 @@ def api_ship():
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
-        if isinstance(result, dict) and customer_name and not data.get('skip_snapshot'):
+        if isinstance(result, dict) and customer_name:
             result.update(build_customer_payload_snapshot(customer_name))
+            result['snapshots'] = yx_v24_product_snapshots()
+            result['customer_items'] = yx_v21_exact_customer_rows('orders', customer_name) + yx_v21_exact_customer_rows('master_orders', customer_name)
+            result['warehouse_refresh'] = True
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
@@ -3296,4 +3299,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+# V51_PRODUCTS_REAL_LOADED_WRITEBACK
 # V50_PRODUCTS_LOGIN_CUSTOMER_WRITEBACK: login owner override + inventory move snapshots + real loaded product pages.
+
+# V52_PRODUCTS_SHIP_WAREHOUSE_REAL_LOADED_WRITEBACK: home no logout, product no row actions, ship submit binding, warehouse root dynamic style.

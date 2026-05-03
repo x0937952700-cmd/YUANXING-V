@@ -1,0 +1,6 @@
+V52 writeback completed. Version=full-master-v52-products-ship-warehouse-real-loaded-html-js-css-app-writeback
+- Home logout removed; username/settings/today centered.
+- Inventory/orders/master_order row action buttons removed in HTML, JS renderer and CSS.
+- Product submit refresh hardened against frontend/backend stale state.
+- Ship submit button bound in real loaded JS.
+- Warehouse HTML restored to root dynamic slot style from 根本.zip.

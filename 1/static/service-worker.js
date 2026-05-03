@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'full-master-v50-products-login-customer-real-loaded-html-js-css-writeback';
+const CACHE_VERSION = 'full-master-v52-products-ship-warehouse-real-loaded-html-js-css-app-writeback';
 const STATIC_CACHE = `yuanxing-static-${CACHE_VERSION}`;
 
 self.addEventListener('install', event => {

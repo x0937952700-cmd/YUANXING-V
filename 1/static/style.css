@@ -5181,3 +5181,63 @@ html[data-yx-v50-products-writeback="locked"], .module-screen[data-yx-v50-produc
 .module-screen[data-module="inventory"] #yx113-inventory-summary .yx113-summary-row td{vertical-align:middle;}
 .yx-v50-force-customer-card{outline:2px solid rgba(217,148,35,.28);}
 .yx-v50-submit-btn[disabled], .yx-v50-submit-btn[data-yx-v50-submitting="1"]{opacity:.68;pointer-events:none;filter:grayscale(.06);}
+
+
+/* ===== V51 PRODUCTS REAL LOADED HTML-JS-CSS WRITEBACK =====
+   庫存列操作欄已從實際 renderer 移除；這裡只做保險防舊快取。 */
+html[data-yx-v51-products-writeback="locked"], .module-screen[data-yx-v51-products="real-loaded"]{--yx-v51-products-lock:1;}
+.module-screen[data-module="inventory"] #yx113-inventory-summary .yx131-action-cell,
+.module-screen[data-module="inventory"] #yx113-inventory-summary .yx-v45-row-actions,
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx131-row-action],
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx113-action="to-orders"],
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx113-action="to-master"]{display:none!important;}
+.module-screen[data-module="inventory"] #yx113-inventory-summary table.yx-v51-inventory-no-actions th:nth-child(6),
+.module-screen[data-module="inventory"] #yx113-inventory-summary table.yx-v51-inventory-no-actions td:nth-child(6){display:none!important;}
+.yx-v51-selected-customer-products{border:1px solid rgba(217,148,35,.26);}
+.yx-v51-immediate-customer-item{animation:yx-v51-soft-pop .18s ease-out;}
+.yx-v51-submit-btn[disabled], .yx-v51-submit-btn[data-yx-v51-submitting="1"]{opacity:.68;pointer-events:none;filter:grayscale(.06);}
+@keyframes yx-v51-soft-pop{from{transform:translateY(3px);opacity:.72}to{transform:none;opacity:1}}
+
+
+/* ===== V52 PRODUCTS / SHIP / WAREHOUSE REAL LOADED HTML-JS-CSS-APP WRITEBACK ===== */
+html[data-yx-v52-products-writeback="locked"], .module-screen[data-yx-v52-products="real-loaded"]{--yx-v52-products-lock:1;}
+/* 首頁移除登出後，陳韋廷 / 設定 / 今日異動 置中三欄 */
+.yx-v52-home-centered-actions,.home-top-actions.yx-v52-centered-home-actions{display:grid!important;grid-template-columns:repeat(3,minmax(92px,1fr))!important;gap:12px!important;max-width:460px!important;margin:18px auto 0!important;justify-items:stretch!important;align-items:center!important;}
+#home-logout-btn,.home-logout-btn{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+/* 庫存 / 訂單 / 總單單列操作欄永久移除：之後修復不得再加回 */
+.module-screen[data-module="inventory"] .yx131-action-cell,
+.module-screen[data-module="orders"] .yx131-action-cell,
+.module-screen[data-module="master_order"] .yx131-action-cell,
+.module-screen[data-module="inventory"] .yx-v45-row-actions,
+.module-screen[data-module="orders"] .yx-v45-row-actions,
+.module-screen[data-module="master_order"] .yx-v45-row-actions,
+.module-screen[data-module="inventory"] [data-yx131-row-action],
+.module-screen[data-module="orders"] [data-yx131-row-action],
+.module-screen[data-module="master_order"] [data-yx131-row-action],
+.module-screen[data-module="inventory"] [data-yx113-action="ship"],
+.module-screen[data-module="orders"] [data-yx113-action="ship"],
+.module-screen[data-module="master_order"] [data-yx113-action="ship"],
+.module-screen[data-module="inventory"] [data-yx113-action="delete"],
+.module-screen[data-module="orders"] [data-yx113-action="delete"],
+.module-screen[data-module="master_order"] [data-yx113-action="delete"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+.module-screen[data-yx-v52-no-row-actions="locked"] #yx113-inventory-summary th:last-child,
+.module-screen[data-yx-v52-no-row-actions="locked"] #yx113-orders-summary th:last-child,
+.module-screen[data-yx-v52-no-row-actions="locked"] #yx113-master_order-summary th:last-child{display:none!important;}
+.yx-v52-submit-btn[disabled],.yx-v52-ship-submit-btn[disabled]{opacity:.68!important;pointer-events:none!important;cursor:wait!important;}
+.yx-v52-force-customer-card{outline:2px solid rgba(217,148,35,.30)!important;}
+.yx-v52-selected-customer-products{border:1px solid rgba(217,148,35,.26)!important;}
+/* 倉庫圖從根本檔案拉回：HTML 只保留 6 欄容器，格位由 JS/DB 動態產生 */
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-section[data-warehouse-version="v52"]{--yx-warehouse-writeback-version:"v52";}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root.yx-v52-root-warehouse{display:grid!important;grid-template-columns:1fr!important;gap:18px!important;max-width:100%!important;overflow:visible!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .warehouse-zone-card{width:100%!important;max-width:100%!important;overflow:visible!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-card-grid{display:grid!important;grid-template-columns:repeat(6,minmax(132px,1fr))!important;gap:14px!important;align-items:start!important;overflow:visible!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-column-card{min-width:0!important;padding:12px!important;border-radius:16px!important;background:#fff!important;border:1px solid rgba(17,24,39,.08)!important;box-shadow:0 8px 22px rgba(15,23,42,.06)!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-slot-list{display:flex!important;flex-direction:column!important;gap:8px!important;align-items:stretch!important;min-height:80px!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-slot{min-height:58px!important;border-radius:12px!important;padding:8px 10px!important;background:#fff!important;border:1px solid rgba(17,24,39,.10)!important;box-shadow:0 3px 10px rgba(15,23,42,.04)!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .yx108-slot-row{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .yx108-slot-no{font-size:1rem!important;color:#111827!important;font-weight:950!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .yx108-slot-customers{color:#b91c1c!important;font-weight:950!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;text-align:right!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .yx108-slot-total{color:#1d4ed8!important;font-weight:950!important;}
+html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .yx108-slot-sum{color:#334155!important;font-weight:900!important;}
+@media(max-width:1100px){html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-card-grid{grid-template-columns:repeat(3,minmax(132px,1fr))!important;}}
+@media(max-width:680px){html[data-yx-v52-warehouse-root-style="locked"] #warehouse-root .vertical-card-grid{grid-template-columns:repeat(2,minmax(126px,1fr))!important;}}

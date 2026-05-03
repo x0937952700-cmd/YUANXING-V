@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="module-screen" data-module="{{ module_key }}" data-yx-v44-product-submit="real-loaded" data-yx-v46-products="real-loaded" data-yx-v47-products="real-loaded" data-yx-v48-products="real-loaded" data-yx-v50-products="real-loaded">
+<div class="module-screen" data-module="{{ module_key }}" data-yx-v44-product-submit="real-loaded" data-yx-v46-products="real-loaded" data-yx-v47-products="real-loaded" data-yx-v48-products="real-loaded" data-yx-v50-products="real-loaded" data-yx-v51-products="real-loaded" data-yx-v52-products="real-loaded">
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
@@ -53,12 +53,12 @@
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     {% endif %}
     <div class="btn-row">
-      <button class="primary-btn yx-v46-submit-btn yx-v47-submit-btn yx-v48-submit-btn yx-v50-submit-btn" id="submit-btn" type="button" data-yx-v44-submit="real-loaded" data-yx-v46-submit="real-loaded" data-yx-v47-submit="real-loaded" data-yx-v48-submit="real-loaded" data-yx-v50-submit="real-loaded">確認送出</button>
+      <button class="primary-btn yx-v46-submit-btn yx-v47-submit-btn yx-v48-submit-btn yx-v50-submit-btn yx-v51-submit-btn" id="submit-btn" type="button" data-yx-v44-submit="real-loaded" data-yx-v46-submit="real-loaded" data-yx-v47-submit="real-loaded" data-yx-v48-submit="real-loaded" data-yx-v50-submit="real-loaded" data-yx-v51-submit="real-loaded" data-yx-v52-submit="real-loaded">確認送出</button>
       {% if module_key == 'ship' %}
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
       {% endif %}
     </div>
-    <div id="duplicate-action-panel" class="result-card hidden yx-v46-duplicate-panel yx-v47-duplicate-panel yx-v48-duplicate-panel" data-yx-v46-duplicate-panel="real-loaded" data-yx-v47-duplicate-panel="real-loaded" data-yx-v48-duplicate-panel="real-loaded" data-yx-v50-duplicate-panel="real-loaded"></div>
+    <div id="duplicate-action-panel" class="result-card hidden yx-v46-duplicate-panel yx-v47-duplicate-panel yx-v48-duplicate-panel" data-yx-v46-duplicate-panel="real-loaded" data-yx-v47-duplicate-panel="real-loaded" data-yx-v48-duplicate-panel="real-loaded" data-yx-v50-duplicate-panel="real-loaded" data-yx-v51-duplicate-panel="real-loaded" data-yx-v52-duplicate-panel="real-loaded"></div>
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
     <div id="module-result" class="result-card hidden" style="display:none"></div>
     {% if module_key == 'inventory' %}
@@ -84,7 +84,7 @@
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
         <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
-        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table yx-v50-inventory-no-actions"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">資料載入中…</td></tr></tbody></table></div>
+        <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table yx-v50-inventory-no-actions yx-v51-inventory-no-actions"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">資料載入中…</td></tr></tbody></table></div>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
     </div>
@@ -115,7 +115,7 @@
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">資料載入中…</td></tr></tbody></table></div>
     </div>
     <div id="orders-list" class="card-list" style="display:none"></div>
   </section>
@@ -142,7 +142,7 @@
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
       <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
-      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
+      <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody><tr><td colspan="5">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
     </div>
     <div id="master-list" class="card-list" style="display:none"></div>
   </section>
@@ -205,7 +205,7 @@
   </section>
 
   
-  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v42" data-yx-v44-audited="product-submit" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v52" data-yx-v44-audited="product-submit" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
@@ -240,7 +240,7 @@
     <div id="warehouse-unplaced-list-inline" class="search-results hidden yx28-warehouse-unplaced-inline" data-html-locked="warehouse-unplaced-inline-list"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
-    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true" data-yx42-warehouse-html="real-loaded" data-yx41-warehouse-html="real-loaded">
+    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true" data-yx52-warehouse-html="root-style-restored" data-yx42-warehouse-html="real-loaded" data-yx41-warehouse-html="real-loaded">
       <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
@@ -250,13 +250,7 @@
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
-            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 21) %}
-              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
-              </button>
-              {% endfor %}
-            </div>
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list" data-html-locked="warehouse-dynamic-slot-list"><div class="empty-state-card compact-empty">格位載入中…</div></div>
           </div>
           {% endfor %}
         </div>
@@ -271,13 +265,7 @@
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
             <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按格子插入 / 刪除</span></div>
-            <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
-              {% for slot in range(1, 21) %}
-              <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
-                <div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">{{ slot }}</span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>
-              </button>
-              {% endfor %}
-            </div>
+            <div class="yx106-slot-list yx116-slot-list vertical-slot-list" data-html-locked="warehouse-dynamic-slot-list"><div class="empty-state-card compact-empty">格位載入中…</div></div>
           </div>
           {% endfor %}
         </div>
@@ -353,7 +341,7 @@
   </section>
 
   <input id="selected-item-json" type="hidden">
-  <div id="warehouse-modal" class="modal hidden" data-warehouse-modal-version="v42">
+  <div id="warehouse-modal" class="modal hidden" data-warehouse-modal-version="v52">
     <div class="modal-card glass">
       <div class="modal-head">
         <div class="section-title">格位編輯</div>
