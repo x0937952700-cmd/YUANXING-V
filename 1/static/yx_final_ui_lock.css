@@ -1,11 +1,11 @@
 /* V29 FINAL UI LOCK: loaded after style.css to prevent legacy FIX CSS from covering button/background. */
 :root{
-  --yx-v29-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-v29-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-v29-gold:#d9a449;
-  --yx-v29-gold-dark:#a87523;
-  --yx-v29-red:#c42323;
-  --yx-v29-black:#111827;
+  --yx-v30-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-v30-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-v30-gold:#d9a449;
+  --yx-v30-gold-dark:#a87523;
+  --yx-v30-red:#c42323;
+  --yx-v30-black:#111827;
 }
 html,
 body{
@@ -13,7 +13,7 @@ body{
   min-height:100%!important;
   margin:0!important;
   background-color:#eefcff!important;
-  background-image:var(--yx-v29-bg)!important;
+  background-image:var(--yx-v30-bg)!important;
   background-size:cover!important;
   background-position:center center!important;
   background-repeat:no-repeat!important;
@@ -31,7 +31,7 @@ body::before{
   z-index:-2!important;
   pointer-events:none!important;
   background-color:#eefcff!important;
-  background-image:var(--yx-v29-bg)!important;
+  background-image:var(--yx-v30-bg)!important;
   background-size:cover!important;
   background-position:center center!important;
   background-repeat:no-repeat!important;
@@ -85,13 +85,13 @@ a.home-mini-btn,
   isolation:isolate!important;
   overflow:hidden!important;
   border-radius:999px!important;
-  border:2px solid var(--yx-v29-gold)!important;
+  border:2px solid var(--yx-v30-gold)!important;
   background-color:transparent!important;
-  background-image:var(--yx-v29-pill)!important;
+  background-image:var(--yx-v30-pill)!important;
   background-size:100% 100%!important;
   background-position:center center!important;
   background-repeat:no-repeat!important;
-  color:var(--yx-v29-black)!important;
+  color:var(--yx-v30-black)!important;
   text-shadow:none!important;
   box-shadow:0 0 0 1px rgba(255,255,255,.92),0 0 0 3px rgba(168,117,35,.20),0 10px 22px rgba(80,62,36,.12)!important;
   backdrop-filter:none!important;
@@ -113,13 +113,13 @@ html[data-yx118-apple-ui="locked"] .tiny-btn,
 html[data-yx118-apple-ui="locked"] .small-btn,
 html[data-yx118-apple-ui="locked"] [role="button"]{
   border-radius:999px!important;
-  border:2px solid var(--yx-v29-gold)!important;
+  border:2px solid var(--yx-v30-gold)!important;
   background-color:transparent!important;
-  background-image:var(--yx-v29-pill)!important;
+  background-image:var(--yx-v30-pill)!important;
   background-size:100% 100%!important;
   background-position:center center!important;
   background-repeat:no-repeat!important;
-  color:var(--yx-v29-black)!important;
+  color:var(--yx-v30-black)!important;
   box-shadow:0 0 0 1px rgba(255,255,255,.92),0 0 0 3px rgba(168,117,35,.20),0 10px 22px rgba(80,62,36,.12)!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
@@ -144,7 +144,7 @@ button::before,
   border-radius:inherit!important;
   border:1px solid rgba(255,255,255,.78)!important;
   background-color:transparent!important;
-  background-image:var(--yx-v29-pill)!important;
+  background-image:var(--yx-v30-pill)!important;
   background-size:100% 100%!important;
   background-position:center center!important;
   background-repeat:no-repeat!important;
@@ -223,7 +223,7 @@ button[data-yx121-save],
 #yx22-confirm-ship,
 #yx121-save-cell,
 #yx121-add-batch-row{
-  color:var(--yx-v29-red)!important;
+  color:var(--yx-v30-red)!important;
 }
 .ghost-btn:not(.danger-btn),
 .back-btn,
@@ -239,7 +239,7 @@ button[data-yx121-save],
 button[data-yx113-customer-act]:not([data-yx113-customer-act="delete"]),
 button[data-yx113-action]:not([data-yx113-action="delete"]),
 button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action="complete"]){
-  color:var(--yx-v29-black)!important;
+  color:var(--yx-v30-black)!important;
 }
 .module-screen .yx-html-direct-toolbar,
 .module-screen .yx113-toolbar,
@@ -274,4 +274,134 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
 @media(max-width:760px){
   html,body{background-attachment:scroll!important;background-size:cover!important;}
   body::before{background-attachment:scroll!important;background-size:cover!important;}
+}
+
+/* ===== V30 支數x件數長清單換行鎖定：太長自動兩排，不擠壓同一行 ===== */
+.yx113-table td.support,
+.yx113-table .yx-support-wrap{
+  max-width: 420px !important;
+  min-width: 220px !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  line-height: 1.45 !important;
+}
+.yx-support-line{
+  display: block !important;
+  line-height: 1.45 !important;
+}
+.yx-support-wrap-inline{
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 1px !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+
+/* ===== V31 編輯不中斷 + 月份欄 + 字體放大鎖定 ===== */
+#yx-v20-toast {
+  position: fixed !important;
+  top: max(14px, env(safe-area-inset-top)) !important;
+  right: max(14px, env(safe-area-inset-right)) !important;
+  z-index: 2147483000 !important;
+  pointer-events: none !important;
+}
+.yx-v20-toast-card {
+  pointer-events: none !important;
+  min-width: 220px !important;
+  max-width: min(360px, calc(100vw - 28px)) !important;
+  border-radius: 16px !important;
+  padding: 12px 16px !important;
+  border: 1px solid rgba(16,185,129,.55) !important;
+  background: rgba(236,253,245,.96) !important;
+  color: #065f46 !important;
+  box-shadow: 0 14px 30px rgba(15,23,42,.16) !important;
+  font-size: 18px !important;
+  line-height: 1.35 !important;
+}
+.yx-v20-toast-card strong { display:block !important; font-size: 18px !important; font-weight: 900 !important; margin-bottom: 2px !important; }
+.yx-v20-toast-card.error { border-color: rgba(220,38,38,.55) !important; background: rgba(254,242,242,.96) !important; color:#991b1b !important; }
+.yx-v20-toast-card.warn { border-color: rgba(245,158,11,.58) !important; background: rgba(255,251,235,.96) !important; color:#92400e !important; }
+
+.yx113-table-wrap { overflow-x: auto !important; }
+.yx113-table th,
+.yx128-inline-table th {
+  font-size: 20px !important;
+  line-height: 1.45 !important;
+  font-weight: 950 !important;
+  white-space: nowrap !important;
+}
+.yx113-table td,
+.yx128-inline-table td {
+  font-size: 20px !important;
+  line-height: 1.55 !important;
+  font-weight: 750 !important;
+  vertical-align: middle !important;
+}
+.yx113-table td.mat,
+.yx113-table td.month,
+.yx113-table td.size,
+.yx113-table td.support,
+.yx113-table td.qty,
+.yx113-table td.zone,
+.yx113-table .total-qty {
+  font-size: 20px !important;
+}
+.yx113-table td.month {
+  min-width: 72px !important;
+  text-align: center !important;
+}
+.yx-month-tag {
+  margin-left: 0 !important;
+  margin-right: 8px !important;
+  font-size: 18px !important;
+  line-height: 1.25 !important;
+  padding: 4px 10px !important;
+}
+.yx-month-empty {
+  color: rgba(15,23,42,.35) !important;
+  font-size: 18px !important;
+}
+.yx-size-with-month {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card,
+.yx116-customer-card,
+.customer-region-card .yx116-customer-name,
+.customer-region-card .yx113-customer-left,
+.customer-region-card .yx116-customer-count,
+.customer-region-card .yx113-customer-count,
+.yx113-customer-card .yx116-customer-name,
+.yx113-customer-card .yx113-customer-left,
+.yx113-customer-card .yx116-customer-count,
+.yx113-customer-card .yx113-customer-count {
+  font-size: 24px !important;
+  line-height: 1.35 !important;
+  font-weight: 900 !important;
+}
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card,
+.yx116-customer-card {
+  min-height: 58px !important;
+  padding: 14px 18px !important;
+}
+@media(max-width:760px) {
+  .yx113-table th, .yx128-inline-table th { font-size: 18px !important; }
+  .yx113-table td, .yx128-inline-table td { font-size: 18px !important; }
+  .customer-region-card,
+  .yx113-customer-card,
+  .yx114-customer-card,
+  .yx116-customer-card,
+  .customer-region-card .yx116-customer-name,
+  .customer-region-card .yx113-customer-left,
+  .customer-region-card .yx116-customer-count,
+  .customer-region-card .yx113-customer-count { font-size: 22px !important; }
 }

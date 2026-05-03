@@ -1,4 +1,4 @@
-# V29 button/month/edit/merge lock: PostgreSQL/SQLite migration helpers retained; month_tag column auto補欄位 added.
+# V31 edit-safe/month-left/font lock: PostgreSQL/SQLite migration helpers retained; month_tag column auto補欄位 kept.
 
 import os
 import json
@@ -396,11 +396,9 @@ def product_support_text(text):
 
 def effective_product_qty(product_text, fallback_qty=0):
     """
-    FIX126 件數規則：
-    - 數量一律由商品文字判定，不再依賴手動輸入數量。
-    - 等號右側有「長度xN」才算 N 件；右側只有支數/長度數字就算 1 件。
-    - 例如：132x23x05=249x3 -> 3 件；132x23x05=249 -> 1 件；60+54+50 -> 3 件。
-    - 只有尺寸、沒有等號或沒有可判定件數時，預設 1 件，避免把尺寸 100x30x63 誤判成 63 件。
+    V30 件數規則：
+    - 等號右側「支數x件數」算件數；單獨支數算 1 件。
+    - 括號備註只做顯示，不參與件數，例如 240x49(東昇-8) = 49 件、168x7(-1永松) = 7 件。
     - 保留超長清單特例：504x5+後面多個長度，第一段不當成 5 件。
     """
     raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
@@ -415,8 +413,11 @@ def effective_product_qty(product_text, fallback_qty=0):
     if not right:
         return 1
 
+    def _strip_qty_notes(seg):
+        return re.sub(r'[\(（][^\)）]*[\)）]', '', str(seg or ''))
+
     canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
-    if right.replace(' ', '').lower() == canonical:
+    if _strip_qty_notes(right).replace(' ', '').lower() == canonical:
         return 10
 
     segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
@@ -424,30 +425,30 @@ def effective_product_qty(product_text, fallback_qty=0):
         return 1
 
     def _is_single_qty_x(seg):
-        clean_seg = str(seg or '').replace(' ', '').lower()
-        return clean_seg.count('x') == 1 and re.search(r'x\s*\d+\s*$', seg, flags=re.I)
+        clean_seg = _strip_qty_notes(seg).replace(' ', '').lower()
+        return clean_seg.count('x') == 1 and re.search(r'x\s*\d+\s*$', clean_seg, flags=re.I)
 
     x_segments = [seg for seg in segments if _is_single_qty_x(seg)]
-    bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', seg)]
+    bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', _strip_qty_notes(seg))]
     if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
-            and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
+            and re.match(r'^\d{3,}\s*x\s*\d+\s*$', _strip_qty_notes(x_segments[0]).replace(' ', ''), flags=re.I)
             and len(bare_segments) >= 8):
         return len(bare_segments)
 
     total = 0
     parsed = False
     for seg in segments:
-        if re.search(r'[件片]', seg):
-            nums = [int(x) for x in re.findall(r'\d+', seg)]
-            if nums:
-                total += nums[-1]
-                parsed = True
+        plain = _strip_qty_notes(seg)
+        explicit = re.search(r'(\d+)\s*[件片]', plain)
+        if explicit:
+            total += int(explicit.group(1) or 0)
+            parsed = True
             continue
-        m = re.search(r'x\s*(\d+)\s*$', seg, flags=re.I) if _is_single_qty_x(seg) else None
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I) if _is_single_qty_x(seg) else None
         if m:
             total += int(m.group(1))
             parsed = True
-        elif re.search(r'\d+', seg):
+        elif re.search(r'\d+', plain):
             total += 1
             parsed = True
     return total if parsed else 1

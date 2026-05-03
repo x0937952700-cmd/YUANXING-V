@@ -4766,8 +4766,8 @@ body[data-module="today_changes"] .yx112-today-summary{
 
 /* ===== V26 DREAM UI LOCK: 全頁背景 + 圖一膠囊按鈕；只改外觀，不改事件/資料邏輯 ===== */
 :root{
-  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v31-edit-safe-month-left-submit-lock');
   --yx-dream-normal-text:#111111;
   --yx-dream-important-text:#c02020;
   --yx-dream-border:rgba(255,255,255,.82);
@@ -5007,8 +5007,8 @@ body[data-yx-dream-ui="v26"] *{
 /* ===== V27 FULL-PAGE DREAM BACKGROUND + INNER-PILL BUTTON LOCK =====
    只鎖外觀與已知問題：不新增舊 renderer、不改頁面事件流程。 */
 :root{
-  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v31-edit-safe-month-left-submit-lock');
   --yx-dream-normal-text:#111111;
   --yx-dream-important-text:#c02020;
   --yx-dream-gold:#d7a64f;
@@ -5237,8 +5237,8 @@ body[data-yx-dream-ui="v28"] *{-webkit-tap-highlight-color:transparent;}
 
 /* V27-redo 強鎖：全頁背景、按鈕內圈、工具列靠左、倉庫長按新版 */
 :root{
-  --yx-v27-redo-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-v27-redo-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-v27-redo-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-v27-redo-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v31-edit-safe-month-left-submit-lock');
 }
 html{
   min-height:100%!important;
@@ -5295,8 +5295,8 @@ body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{display:none!impor
    修正：背景鋪滿整個介面、按鈕白色內圈改為夢幻膠囊圖、避免舊樣式覆蓋。
 ========================================================= */
 :root{
-  --yx-v28-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
-  --yx-v28-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-v28-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v31-edit-safe-month-left-submit-lock');
+  --yx-v28-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v31-edit-safe-month-left-submit-lock');
 }
 html,
 body{

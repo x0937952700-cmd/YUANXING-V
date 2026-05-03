@@ -1,3 +1,126 @@
+
+/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+(function(){
+  'use strict';
+  if (window.YX30EffectiveQty) return;
+  function clean(v){ return String(v == null ? '' : v).trim(); }
+  function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function isSingleQtyX(seg){
+    const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
+    return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
+  }
+  function effectiveQty(text, fallback){
+    const raw = norm(text || '');
+    const fb = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
+    if (!raw) return fb || 0;
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
+    if (!right) return raw ? 1 : (fb || 0);
+    const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (rightForCanonical === canonical) return 10;
+    const parts = right.split('+').map(clean).filter(Boolean);
+    if (!parts.length) return raw ? 1 : (fb || 0);
+    const xParts = parts.filter(isSingleQtyX);
+    const bare = parts.filter(p => !isSingleQtyX(p) && /\d/.test(stripParen(p)));
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0]
+        && /^\d{3,}\s*x\s*\d+\s*$/i.test(stripParen(xParts[0]).replace(/\s+/g,''))
+        && bare.length >= 8) return bare.length;
+    let total = 0;
+    let hit = false;
+    for (const seg of parts){
+      const plain = stripParen(seg);
+      const explicit = plain.match(/(\d+)\s*[件片]/);
+      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
+      if (m){ total += Number(m[1] || 0); hit = true; }
+      else if (/\d/.test(plain)){ total += 1; hit = true; }
+    }
+    return hit ? total : (raw ? 1 : (fb || 0));
+  }
+  function splitSupportLines(value){
+    const raw = String(value == null ? '' : value);
+    const parts = raw.split('+').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 5) {
+      const cut = Math.ceil(parts.length / 2);
+      return [parts.slice(0, cut).join('+'), parts.slice(cut).join('+')].filter(Boolean);
+    }
+    if (raw.length > 34 && raw.includes('+')) {
+      const cut = Math.ceil(parts.length / 2);
+      return [parts.slice(0, cut).join('+'), parts.slice(cut).join('+')].filter(Boolean);
+    }
+    return [raw];
+  }
+  function supportHTML(value, esc){
+    const escape = typeof esc === 'function' ? esc : (s => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])));
+    return splitSupportLines(value).map(line => `<span class="yx-support-line">${escape(line)}</span>`).join('');
+  }
+  function numberFromToken(token){
+    const s = String(token ?? '').replace(/[^\d.]/g, '');
+    if (!s) return Number.POSITIVE_INFINITY;
+    const n = Number.parseFloat(s);
+    return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  }
+  function splitProductText(row){
+    const t = norm(row?.product_text || row?.size || '');
+    const left = (t.split('=')[0] || t || '');
+    const mm = left.match(/^(\d{1,2})月(.+)$/);
+    const month = mm ? Math.max(1, Math.min(12, Number(mm[1] || 99))) : 99;
+    const body = mm ? (mm[2] || '') : left;
+    const parts = body.split('x').filter(Boolean);
+    return {
+      month,
+      length:numberFromToken(parts[0]),
+      width:numberFromToken(parts[1]),
+      height:numberFromToken(parts[2]),
+      body
+    };
+  }
+  function materialOf(row){
+    const text = norm(row?.product_text || '');
+    const raw = clean(row?.material || row?.product_code || '').toLocaleUpperCase('zh-Hant');
+    const rr = norm(raw);
+    if (!raw || raw === text || rr.includes('=') || /^\d+(?:x|×)/i.test(rr)) return '未填材質';
+    return raw;
+  }
+  function supportSticks(row){
+    const raw = norm(row?.product_text || row?.support || '');
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : norm(row?.support || '');
+    let sticks = 0;
+    right.split('+').map(stripParen).map(s=>s.trim()).filter(Boolean).forEach(seg => {
+      const m = seg.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/i);
+      if (m) sticks += (Number(m[1] || 0) || 0) * (Number(m[2] || 0) || 0);
+      else {
+        const n = Number((seg.match(/\d+(?:\.\d+)?/) || ['0'])[0]) || 0;
+        if (n > 0) sticks += n;
+      }
+    });
+    return sticks || Number(row?.sticks ?? row?.quantity ?? 0) || 0;
+  }
+  function compareRows(a,b){
+    const ma = materialOf(a) === '未填材質' ? 'ZZZ_未填材質' : materialOf(a);
+    const mb = materialOf(b) === '未填材質' ? 'ZZZ_未填材質' : materialOf(b);
+    const mc = ma.localeCompare(mb, 'zh-Hant', {numeric:true, sensitivity:'base'});
+    if (mc) return mc;
+    const da = splitProductText(a), db = splitProductText(b);
+    if (da.month !== db.month) return da.month - db.month;
+    if (da.height !== db.height) return da.height - db.height;
+    if (da.width !== db.width) return da.width - db.width;
+    if (da.length !== db.length) return da.length - db.length;
+    const qa = effectiveQty(a?.product_text || a?.support || '', a?.qty ?? a?.effective_qty ?? 0);
+    const qb = effectiveQty(b?.product_text || b?.support || '', b?.qty ?? b?.effective_qty ?? 0);
+    if (qa !== qb) return qb - qa;
+    const sa = supportSticks(a), sb = supportSticks(b);
+    if (sa !== sb) return sb - sa;
+    return String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'zh-Hant', {numeric:true});
+  }
+  window.YX30EffectiveQty = effectiveQty;
+  window.YX30SupportHTML = supportHTML;
+  window.YX30CompareRows = compareRows;
+  window.YX30SortRows = rows => Array.isArray(rows) ? [...rows].sort(compareRows) : [];
+})();
+/* ===== END V30 quantity/month/support display lock ===== */
+
 /* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_settings_master_v22 */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_settings_master_v22'; })();
 
@@ -127,29 +250,7 @@
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function qty(text, fallback){
-    const raw = norm(text || '');
-    const fb = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
-    if (!raw) return fb || 0;
-    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
-    if (!right) return 1;
-    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
-    const parts = right.split('+').map(clean).filter(Boolean);
-    if (!parts.length) return 1;
-    const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
-    const xParts = parts.filter(isSingleQtyX);
-    const bare = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
-    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bare.length >= 8) return bare.length;
-    let total = 0;
-    let hit = false;
-    for (const seg of parts){
-      const explicit = seg.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
-      const m = isSingleQtyX(seg) ? seg.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
-      else if (/\d/.test(seg)){ total += 1; hit = true; }
-    }
-    return hit ? total : 1;
+    return window.YX30EffectiveQty ? window.YX30EffectiveQty(text, fallback) : 0;
   }
   window.YX126Qty = qty;
   window.yxEffectiveQty = qty;
@@ -353,4 +454,21 @@
 
 /* ===== END static/yx_pages/page_bootstrap_master.js ===== */
 
+/* ===== V30 final product sort override: month asc, parenthetical qty safe ===== */
+(function(){
+  'use strict';
+  if (!window.YX30CompareRows) return;
+  window.YX118ProductSort = {
+    compareRows: window.YX30CompareRows,
+    sortRows: window.YX30SortRows,
+    parseSupport: function(row){ return {pieces: window.YX30EffectiveQty(row?.product_text || row?.support || '', row?.qty ?? row?.effective_qty ?? 0), sticks: 0}; },
+    materialOf: function(row){
+      const raw = String(row?.material || row?.product_code || '').trim().toLocaleUpperCase('zh-Hant');
+      const txt = String(row?.product_text || '').trim().toLocaleUpperCase('zh-Hant');
+      return (!raw || raw === txt || raw.includes('=')) ? '未填材質' : raw;
+    }
+  };
+  document.documentElement.dataset.yx30QtyParenMonthSort = 'locked';
+})();
+/* ===== END V30 final product sort override ===== */
 

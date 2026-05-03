@@ -1,0 +1,1 @@
+V31: button inner image lock retained; toast is fixed/no-focus; product list table adds 月份 column before 尺寸; table/customer fonts enlarged; submit button type fixed and robust bound; list refresh is edit-safe to avoid interrupting active input/select/textarea; PostgreSQL/SQLite migration retained.
