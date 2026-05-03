@@ -1,4 +1,4 @@
-# V27 redo full-bg buttons warehouse fix: PostgreSQL/SQLite migration helpers unchanged; auto補表補欄位補索引 retained.
+# V29 button/month/edit/merge lock: PostgreSQL/SQLite migration helpers retained; month_tag column auto補欄位 added.
 
 import os
 import json
@@ -216,6 +216,20 @@ def clean_material_value(value='', product_text=''):
     if not v or looks_like_product_value(v, product_text):
         return ''
     return v.upper() if re.fullmatch(r'[A-Za-z0-9_\-\/]+', v) else v
+
+
+def product_month_tag(product_text=''):
+    """Return '8月' from '8月80x12x10=750x2'. Kept as DB column for migration/readiness; UI also parses product_text."""
+    try:
+        left = product_display_size(product_text or '')
+        m = re.match(r'^\s*(\d{1,2})月', str(left or ''))
+        if m:
+            n = int(m.group(1))
+            if 1 <= n <= 12:
+                return f"{n}月"
+    except Exception:
+        pass
+    return ''
 
 
 # FIX84：月份前綴排序 / 顯示支援，例如「12月132x50x06=294x8」。
@@ -623,6 +637,7 @@ def init_db():
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
+            month_tag {text},
             qty INTEGER DEFAULT 0,
             location {text},
             customer_name {text},
@@ -639,6 +654,7 @@ def init_db():
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
+            month_tag {text},
             qty INTEGER DEFAULT 0,
             status {text} DEFAULT 'pending',
             operator {text},
@@ -652,6 +668,7 @@ def init_db():
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
+            month_tag {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             created_at {text},
@@ -664,6 +681,7 @@ def init_db():
             product_text {text} NOT NULL,
             product_code {text},
             material {text},
+            month_tag {text},
             qty INTEGER DEFAULT 0,
             operator {text},
             shipped_at {text},
@@ -763,10 +781,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     _schema_columns = {
         'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
         'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('common_materials','TEXT'),('common_sizes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
         'customer_aliases': [('alias','TEXT'),('target_name','TEXT'),('updated_at','TEXT')],
@@ -2159,31 +2177,32 @@ def _deduct_from_inventory_size_material(cur, product_text, material='', qty_nee
     return True, used
 
 
-def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
+def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material="", duplicate_mode="merge"):
     conn = get_db()
     cur = conn.cursor()
     product_text = format_product_text_height2((product_text or '').strip())
+    month_tag = product_month_tag(product_text)
     material = clean_material_value(material or product_code or '', product_text)
     product_code = material
     location = (location or '').strip()
     customer_name = (customer_name or '').strip()
     customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     qty = int(qty or 0)
-    rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location)
+    rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location) if (duplicate_mode or 'merge') == 'merge' else []
     matched = rows[-1] if rows else None
     if matched:
         rid = matched["id"]
         merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, month_tag = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+        """), (qty, product_code, material, month_tag, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, month_tag, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, month_tag, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2220,12 +2239,12 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
                 matched = rows[-1]
                 rid = matched['id']
                 merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, month_tag = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, month_tag, order_customer_uid, operator, now(), rid))
                 continue
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, month_tag, qty, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, order_customer_uid, product_text, product_code, material, month_tag, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2253,14 +2272,14 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             rid = matched['id']
             merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, month_tag = ?, customer_uid = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
+            """), (qty, merged_product_text, product_code, material, month_tag, master_customer_uid, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, month_tag, qty, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, master_customer_uid, product_text, product_code, material, month_tag, qty, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -3274,11 +3293,12 @@ def update_customer_item(source, item_id, product_text, qty, operator='', materi
     if qty < 0:
         qty = 0
     product_text = format_product_text_height2(product_text)
+    month_tag = product_month_tag(product_text)
     if material is None:
-        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, row.get('product_code') or product_text, qty, now(), item_id))
+        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, month_tag = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, row.get('product_code') or product_text, month_tag, qty, now(), item_id))
     else:
         material = (material or '').strip().upper()
-        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, material = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, material or product_text, material, qty, now(), item_id))
+        cur.execute(sql(f"UPDATE {table} SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, updated_at = ? WHERE id = ?"), (product_text, material or product_text, material, month_tag, qty, now(), item_id))
     conn.commit()
     conn.close()
 
@@ -3493,32 +3513,33 @@ def register_submit_request(request_key, endpoint=''):
     return created
 
 
-def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
+def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material="", duplicate_mode="merge"):
     conn = get_db()
     cur = conn.cursor()
     try:
         product_text = format_product_text_height2((product_text or '').strip())
+        month_tag = product_month_tag(product_text)
         material = clean_material_value(material or product_code or '', product_text)
         product_code = material
         location = (location or '').strip()
         customer_name = (customer_name or '').strip()
         customer_uid = _customer_uid_for_name_cur(cur, customer_name)
         qty = int(qty or 0)
-        rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location)
+        rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location) if (duplicate_mode or 'merge') == 'merge' else []
         matched = rows[-1] if rows else None
         if matched:
             rid = matched["id"]
             merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
             cur.execute(sql("""
                 UPDATE inventory
-                SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
+                SET qty = qty + ?, product_code = ?, material = ?, month_tag = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+            """), (qty, product_code, material, month_tag, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
+                INSERT INTO inventory(product_text, product_code, material, month_tag, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (product_text, product_code, material, month_tag, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
         conn.commit()
     except Exception:
         try:
@@ -3542,6 +3563,7 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
                     cur.execute(sql("DELETE FROM orders WHERE id = ?"), (row['id'],))
         for item in items:
             product_text = format_product_text_height2((item.get('product_text') or '').strip())
+            month_tag = product_month_tag(product_text)
             if not product_text:
                 continue
             material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
@@ -3555,12 +3577,12 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
                     matched = rows[-1]
                     rid = matched['id']
                     merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
-                    cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                    cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, month_tag = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, month_tag, order_customer_uid, operator, now(), rid))
                     continue
             cur.execute(sql("""
-                INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-            """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+                INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, month_tag, qty, status, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+            """), (customer_name, order_customer_uid, product_text, product_code, material, month_tag, qty, operator, now(), now()))
         conn.commit()
     except Exception:
         try:
@@ -3584,6 +3606,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
                     cur.execute(sql("DELETE FROM master_orders WHERE id = ?"), (row['id'],))
         for item in items:
             product_text = format_product_text_height2((item.get('product_text') or '').strip())
+            month_tag = product_month_tag(product_text)
             if not product_text:
                 continue
             material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
@@ -3597,14 +3620,14 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
                 rid = matched['id']
                 merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
                 cur.execute(sql("""
-                    UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
+                    UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, month_tag = ?, customer_uid = ?, operator = ?, updated_at = ?
                     WHERE id = ?
-                """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
+                """), (qty, merged_product_text, product_code, material, month_tag, master_customer_uid, operator, now(), rid))
             else:
                 cur.execute(sql("""
-                    INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+                    INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, month_tag, qty, operator, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """), (customer_name, master_customer_uid, product_text, product_code, material, month_tag, qty, operator, now(), now()))
         conn.commit()
     except Exception:
         try:

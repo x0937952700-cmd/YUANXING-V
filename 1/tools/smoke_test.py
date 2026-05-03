@@ -1,17 +1,18 @@
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'full-master-v28-full-page-bg-inner-button-lock'
+VERSION = 'full-master-v29-button-month-edit-merge-lock'
 for rel in ['app.py','db.py','backup.py','ocr.py','wsgi.py']:
     path = ROOT / rel
     compile(path.read_text(encoding='utf-8', errors='ignore'), str(path), 'exec')
 required = {
-    'templates/base.html': [VERSION, 'page_inventory_master_v22.js', 'page_orders_master_v22.js', 'page_master_order_master_v22.js', 'page_ship_master_v22.js', 'page_warehouse_master_v22.js'],
+    'templates/base.html': [VERSION, 'yx_final_ui_lock.css', 'page_inventory_master_v22.js', 'page_orders_master_v22.js', 'page_master_order_master_v22.js', 'page_ship_master_v22.js', 'page_warehouse_master_v22.js'],
     'static/service-worker.js': [VERSION, "cache:'no-store'"],
     'static/pwa.js': [VERSION, '__YX_PWA_VERSION__'],
-    'app.py': ['/api/customers/ensure', '/api/customers/move', 'yx_v22_product_snapshots', 'snapshots=yx_v22_product_snapshots()'],
-    'static/yx_pages/page_orders_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse'],
-    'static/yx_pages/page_master_order_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse'],
-    'static/yx_pages/page_inventory_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'applySnapshotFromResponse'],
+    'static/yx_final_ui_lock.css': ['--yx-v29-pill', 'button::before', 'yx-month-tag'],
+    'app.py': ['/api/customers/ensure', '/api/customers/move', 'yx_v22_product_snapshots', 'snapshots=yx_v22_product_snapshots()', 'duplicate_mode'],
+    'static/yx_pages/page_orders_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse', 'decideDuplicateMode', 'yx-month-tag'],
+    'static/yx_pages/page_master_order_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse', 'decideDuplicateMode', 'yx-month-tag'],
+    'static/yx_pages/page_inventory_master_v22.js': ['YX113ProductActions', 'bulkDelete', 'applySnapshotFromResponse', 'decideDuplicateMode', 'yx-month-tag'],
 }
 for rel, toks in required.items():
     path = ROOT / rel
@@ -26,4 +27,4 @@ for js in (ROOT/'static/yx_pages').glob('*.js'):
     txt = js.read_text(encoding='utf-8', errors='ignore')
     if 'window.__YX_full-master' in txt:
         raise SystemExit(f'invalid window flag remains: {js}')
-print('v28 full-page bg inner-button lock smoke test OK')
+print('v29 button/month/edit/merge lock smoke test OK')

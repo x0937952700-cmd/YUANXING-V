@@ -1,0 +1,277 @@
+/* V29 FINAL UI LOCK: loaded after style.css to prevent legacy FIX CSS from covering button/background. */
+:root{
+  --yx-v29-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-v29-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v29-button-month-edit-merge-lock');
+  --yx-v29-gold:#d9a449;
+  --yx-v29-gold-dark:#a87523;
+  --yx-v29-red:#c42323;
+  --yx-v29-black:#111827;
+}
+html,
+body{
+  min-width:100%!important;
+  min-height:100%!important;
+  margin:0!important;
+  background-color:#eefcff!important;
+  background-image:var(--yx-v29-bg)!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  background-attachment:fixed!important;
+}
+body{
+  min-height:100vh!important;
+  min-height:100dvh!important;
+  isolation:isolate!important;
+}
+body::before{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-2!important;
+  pointer-events:none!important;
+  background-color:#eefcff!important;
+  background-image:var(--yx-v29-bg)!important;
+  background-size:cover!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  transform:translateZ(0)!important;
+}
+body::after{display:none!important;content:none!important;}
+.page-shell,
+.module-screen,
+.home-screen,
+.auth-screen,
+.home-shell,
+.warehouse-page-shell,
+#warehouse-section,
+#customers-section,
+#todos-section,
+#shipping-query-section,
+#region-picker-section,
+.subsection{
+  background:transparent!important;
+  background-color:transparent!important;
+}
+.page-shell{position:relative!important;z-index:1!important;min-height:100vh!important;min-height:100dvh!important;}
+.glass,.panel,.table-card,.category-box,.zone-card,.customer-detail,.card-list .card,.search-results .search-card,.yx-html-direct-summary,.modal-card,.result-card{
+  background-color:rgba(255,255,255,.68)!important;
+  backdrop-filter:blur(14px) saturate(1.08)!important;
+  -webkit-backdrop-filter:blur(14px) saturate(1.08)!important;
+}
+/* Every real button/tag keeps the gold outer ring; the inner white area is replaced by the dream pill image. */
+button,
+a.menu-btn,
+a.back-btn,
+a.home-mini-btn,
+.home-mini-btn,
+.primary-btn,
+.ghost-btn,
+.menu-btn,
+.back-btn,
+.icon-btn,
+.chip,
+.pill,
+.tiny-btn,
+.small-btn,
+.user-pill,
+.pwa-install-btn,
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card,
+.yx-ship-product-option-row,
+#yx-final-warehouse-menu button{
+  position:relative!important;
+  isolation:isolate!important;
+  overflow:hidden!important;
+  border-radius:999px!important;
+  border:2px solid var(--yx-v29-gold)!important;
+  background-color:transparent!important;
+  background-image:var(--yx-v29-pill)!important;
+  background-size:100% 100%!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  color:var(--yx-v29-black)!important;
+  text-shadow:none!important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.92),0 0 0 3px rgba(168,117,35,.20),0 10px 22px rgba(80,62,36,.12)!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+html[data-yx118-apple-ui="locked"] button,
+html[data-yx118-apple-ui="locked"] a.menu-btn,
+html[data-yx118-apple-ui="locked"] a.home-mini-btn,
+html[data-yx118-apple-ui="locked"] a.back-btn,
+html[data-yx118-apple-ui="locked"] .primary-btn,
+html[data-yx118-apple-ui="locked"] .ghost-btn,
+html[data-yx118-apple-ui="locked"] .home-mini-btn,
+html[data-yx118-apple-ui="locked"] .menu-btn,
+html[data-yx118-apple-ui="locked"] .back-btn,
+html[data-yx118-apple-ui="locked"] .icon-btn,
+html[data-yx118-apple-ui="locked"] .chip,
+html[data-yx118-apple-ui="locked"] .pill,
+html[data-yx118-apple-ui="locked"] .tiny-btn,
+html[data-yx118-apple-ui="locked"] .small-btn,
+html[data-yx118-apple-ui="locked"] [role="button"]{
+  border-radius:999px!important;
+  border:2px solid var(--yx-v29-gold)!important;
+  background-color:transparent!important;
+  background-image:var(--yx-v29-pill)!important;
+  background-size:100% 100%!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  color:var(--yx-v29-black)!important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.92),0 0 0 3px rgba(168,117,35,.20),0 10px 22px rgba(80,62,36,.12)!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+html[data-yx118-apple-ui="locked"] .menu-btn::before,
+html[data-yx118-apple-ui="locked"] .home-mini-btn::before,
+html[data-yx118-apple-ui="locked"] .primary-btn::before,
+html[data-yx118-apple-ui="locked"] .ghost-btn::before,
+html[data-yx118-apple-ui="locked"] .back-btn::before,
+html[data-yx118-apple-ui="locked"] .chip::before,
+html[data-yx118-apple-ui="locked"] .pill::before,
+html[data-yx118-apple-ui="locked"] .tiny-btn::before,
+html[data-yx118-apple-ui="locked"] .small-btn::before,
+html[data-yx118-apple-ui="locked"] .icon-btn::before,
+button::before,
+.pwa-install-btn::before{
+  content:""!important;
+  position:absolute!important;
+  inset:5px!important;
+  z-index:-1!important;
+  pointer-events:none!important;
+  border-radius:inherit!important;
+  border:1px solid rgba(255,255,255,.78)!important;
+  background-color:transparent!important;
+  background-image:var(--yx-v29-pill)!important;
+  background-size:100% 100%!important;
+  background-position:center center!important;
+  background-repeat:no-repeat!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75), inset 0 -10px 18px rgba(255,255,255,.20)!important;
+}
+html[data-yx118-apple-ui="locked"] .menu-btn::after,
+html[data-yx118-apple-ui="locked"] .home-mini-btn::after,
+html[data-yx118-apple-ui="locked"] .primary-btn::after,
+html[data-yx118-apple-ui="locked"] .ghost-btn::after,
+html[data-yx118-apple-ui="locked"] .back-btn::after,
+html[data-yx118-apple-ui="locked"] .chip::after,
+html[data-yx118-apple-ui="locked"] .pill::after,
+html[data-yx118-apple-ui="locked"] .tiny-btn::after,
+html[data-yx118-apple-ui="locked"] .small-btn::after,
+html[data-yx118-apple-ui="locked"] .icon-btn::after,
+button::after,
+.pwa-install-btn::after{
+  content:""!important;
+  position:absolute!important;
+  left:15%!important;
+  right:15%!important;
+  top:7px!important;
+  height:1px!important;
+  z-index:0!important;
+  pointer-events:none!important;
+  border-radius:999px!important;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.95),transparent)!important;
+}
+button *,
+a.menu-btn *,
+a.back-btn *,
+a.home-mini-btn *,
+.home-mini-btn *,
+.primary-btn *,
+.ghost-btn *,
+.menu-btn *,
+.back-btn *,
+.icon-btn *,
+.chip *,
+.pill *,
+.tiny-btn *,
+.small-btn *,
+.user-pill *,
+.pwa-install-btn *,
+.customer-region-card *,
+.yx-ship-product-option-row *,
+#yx-final-warehouse-menu button *{
+  position:relative!important;
+  z-index:2!important;
+  color:inherit!important;
+}
+.primary-btn,
+.danger-btn,
+.warning-red,
+button.danger,
+button.delete,
+button.remove,
+button[id*="delete"],button[id*="Delete"],
+button[id*="save"],button[id*="Save"],
+button[id*="submit"],button[id*="Submit"],
+button[id*="confirm"],button[id*="Confirm"],
+button[id*="ship"],button[id*="Ship"],
+button[data-yx113-batch-delete],
+button[data-yx112-delete-today],
+button[data-selected-remove],
+button[data-yx113-action="delete"],
+button[data-yx113-customer-act="delete"],
+button[data-wh-act="return"],
+button[data-wh-act="delete"],
+button[data-todo-action="delete"],
+button[data-todo-action="complete"],
+button[data-yx128-card-save],
+button[data-yx121-save],
+#submit-btn,
+#confirm-ok-btn,
+#yx22-confirm-ship,
+#yx121-save-cell,
+#yx121-add-batch-row{
+  color:var(--yx-v29-red)!important;
+}
+.ghost-btn:not(.danger-btn),
+.back-btn,
+.icon-btn,
+.menu-btn,
+.home-mini-btn,
+.chip:not(.danger-btn),
+.pill:not(.danger-btn),
+.tiny-btn:not(.danger-btn),
+.small-btn:not(.danger-btn),
+.user-pill,
+#yx-final-warehouse-menu button:not([data-wh-act="return"]):not([data-wh-act="delete"]),
+button[data-yx113-customer-act]:not([data-yx113-customer-act="delete"]),
+button[data-yx113-action]:not([data-yx113-action="delete"]),
+button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action="complete"]){
+  color:var(--yx-v29-black)!important;
+}
+.module-screen .yx-html-direct-toolbar,
+.module-screen .yx113-toolbar,
+.module-screen .yx114-toolbar,
+.module-screen .yx114-batch-actions,
+.module-screen .yx-direct-batch-actions,
+.module-screen .yx-html-one-row-actions,
+.module-screen .query-bar,
+.module-screen .search-row,
+.module-screen .btn-row,
+.module-screen .warehouse-zone-nav,
+.module-screen .warehouse-meta-bar,
+.module-screen .warehouse-search-toolbar{
+  justify-content:flex-start!important;
+  align-items:center!important;
+  text-align:left!important;
+}
+.yx-month-tag{
+  display:inline-flex!important;
+  align-items:center!important;
+  margin-left:6px!important;
+  padding:2px 8px!important;
+  border-radius:999px!important;
+  font-size:12px!important;
+  line-height:1.4!important;
+  font-weight:900!important;
+  color:#7c3aed!important;
+  border:1px solid rgba(167,139,250,.55)!important;
+  background:rgba(245,243,255,.86)!important;
+  white-space:nowrap!important;
+}
+@media(max-width:760px){
+  html,body{background-attachment:scroll!important;background-size:cover!important;}
+  body::before{background-attachment:scroll!important;background-size:cover!important;}
+}

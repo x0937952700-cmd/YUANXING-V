@@ -395,6 +395,25 @@
     return '';
   }
   function zoneLabel(r){ return zoneOf(r) ? zoneOf(r) + '區' : '未分區'; }
+  function monthInfoFromText(text){
+    const p = splitProduct(text || '');
+    const rawSize = String(p.size || '').replace(/^\s+|\s+$/g,'');
+    const m = rawSize.match(/^(\d{1,2})月(.+)$/);
+    if (!m) return {tag:'', size:rawSize};
+    return {tag:`${m[1]}月`, size:m[2] || rawSize};
+  }
+  function displaySizeText(r){
+    const p = splitProduct(r?.product_text || '');
+    const info = monthInfoFromText(r?.product_text || '');
+    return info.size || p.size || r?.product_text || '';
+  }
+  function monthTagHTML(r){
+    const info = monthInfoFromText(r?.product_text || '');
+    return info.tag ? `<span class="yx-month-tag">${YX.esc(info.tag)}</span>` : '';
+  }
+  function materialWithMonthHTML(r){
+    return `${YX.esc(materialOf(r))}${monthTagHTML(r)}`;
+  }
   function customerMergeKey(v){
     const raw = YX.clean(v || '');
     const tags = [];
@@ -563,6 +582,27 @@
       return moveInventory(pseudo, 'master_order');
     }
   }
+  function updateSummaryHeaderOnly(source){
+    try {
+      const box = document.getElementById(`yx113-${source}-summary`);
+      if (!box) return;
+      const rows = filteredRows(source);
+      const total = rows.reduce((sum, r) => sum + qtyOf(r), 0);
+      const strong = box.querySelector('.yx132-summary-title strong');
+      if (strong) strong.textContent = `${total}件 / ${rows.length}筆`;
+    } catch(_e) {}
+  }
+  function mergeSnapshotQuiet(data, source){
+    try {
+      const snaps = data?.snapshots || {};
+      let rows = Array.isArray(snaps[source]) ? snaps[source] : null;
+      if (!rows && source === 'master_order' && Array.isArray(snaps.master_orders)) rows = snaps.master_orders;
+      if (!rows && Array.isArray(data?.items)) rows = data.items;
+      if (Array.isArray(rows)) rowsStore(source, rows);
+      updateSummaryHeaderOnly(source);
+      return Array.isArray(rows);
+    } catch(_e) { return false; }
+  }
   function applySnapshotFromResponse(data, source){
     const snaps = data?.snapshots || {};
     let rows = Array.isArray(snaps[source]) ? snaps[source] : null;
@@ -570,6 +610,11 @@
     if (!rows && Array.isArray(data?.items) && data.items.length && (source === sourceFromModule() || source)) rows = data.items;
     if (Array.isArray(rows)) {
       rowsStore(source, rows);
+      if (state.editAll[source]) {
+        updateSummaryHeaderOnly(source);
+        try { if (Array.isArray(data?.customers) && window.YX113CustomerRegions?.renderBoards) window.YX113CustomerRegions.renderBoards(data.customers); } catch(_e) {}
+        return true;
+      }
       clearSelected(source);
       renderSummary(source);
       renderCards(source);
@@ -631,7 +676,7 @@
       const p = splitProduct(r.product_text || '');
       const id = idOf(r);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${YX.esc(materialOf(r))}</td><td class="size">${YX.esc(p.size || r.product_text || '')}</td><td class="support">${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td><td class="yx131-action-cell">${r.__pending_server_id ? '<span class="small-note warn">寫入中，請稍候</span>' : rowActionsHTML(source, id)}</td></tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support">${YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td><td class="yx131-action-cell">${r.__pending_server_id ? '<span class="small-note warn">寫入中，請稍候</span>' : rowActionsHTML(source, id)}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><select class="text-input small yx128-field" data-yx128-field="material"><option value="">不指定材質</option>${materialOptions(materialOf(r)==='未填材質'?'':materialOf(r))}</select></td>
@@ -665,7 +710,7 @@
     const actions = source === 'inventory'
       ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master">加到總單</button>`
       : `<button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
-    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${idOf(r)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
+    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${idOf(r)}"><div class="yx128-card-top"><strong class="material-text">${materialWithMonthHTML(r)}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(displaySizeText(r))}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
   function renderCards(source){
     // FIX131：庫存 / 訂單 / 總單不再產生下方小卡，所有操作統一移到上方完整清單。
@@ -687,8 +732,12 @@
       pruneSelected(source);
       ensureBatchToolbar(source);
       ensureSummary(source);
-      renderSummary(source);
-      renderCards(source);
+      if (state.editAll[source]) {
+        updateSummaryHeaderOnly(source);
+      } else {
+        renderSummary(source);
+        renderCards(source);
+      }
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length, rows}})); } catch(_e) {}
       try {
         if ((source === 'orders' || source === 'master_order') && window.YX113CustomerRegions?.renderFromCurrentRows) {
@@ -794,17 +843,15 @@
       items.push({source:apiSource(source), id, ...payload});
     }
     if (!items.length) return YX.toast('沒有可儲存的商品', 'warn');
-    state.editAll[source] = false;
-    state.editScope[source] = null;
-    renderSummary(source);
-    renderCards(source);
+    // V29：儲存批量編輯時不退出編輯模式、不重畫整個表格，避免正在選取/輸入的欄位被刷新打斷。
+    updateSummaryHeaderOnly(source);
     try{
       const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
-      YX.toast(`已批量更新 ${d.count || items.length} 筆商品，已立即反映在清單`, 'ok');
-      clearSelected(source);
-      if (!applySnapshotFromResponse(d, source)) { renderSummary(source); renderCards(source); loadSource(source).catch(()=>{}); }
+      YX.toast(`已批量更新 ${d.count || items.length} 筆商品，可繼續編輯其他欄位`, 'ok');
+      mergeSnapshotQuiet(d, source);
       try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
     }catch(e){
+      // 失敗時才重新讀後端；成功時完全不打斷目前編輯。
       await loadSource(source);
       YX.toast(e.message || '批量編輯儲存失敗', 'error');
     }
@@ -1082,11 +1129,23 @@
     }
     return hit ? total : 1;
   }
+  function normalizeProductTextWithMonth(value){
+    let raw = clean(value || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+');
+    const mm = raw.match(/(?:^|[\s,，\/])([1-9]|1[0-2])\s*(?:月|月份)(?=\s|\d|x|X|$)/);
+    let month = '';
+    if (mm) {
+      month = `${Number(mm[1])}月`;
+      raw = raw.slice(0, mm.index) + ' ' + raw.slice(mm.index + mm[0].length);
+    }
+    raw = raw.replace(/\s+/g,'');
+    if (month && !raw.startsWith(month)) raw = month + raw;
+    return raw;
+  }
   function splitMaterial(line){
     line = clean(line);
     const m = line.match(/^([A-Za-z\u4e00-\u9fff]{1,8})\s+(.+?=.+)$/);
-    if (m && !/^\d/.test(m[1])) return {material:m[1].toUpperCase(), product_text:norm(m[2])};
-    return {material:'', product_text:norm(line)};
+    if (m && !/^\d/.test(m[1])) return {material:m[1].toUpperCase(), product_text:normalizeProductTextWithMonth(m[2])};
+    return {material:'', product_text:normalizeProductTextWithMonth(line)};
   }
   function parseItems(text){
     return clean(text).split(/\n+/).map(splitMaterial).filter(x=>x.product_text).map(x=>({
@@ -1219,6 +1278,38 @@
     }
   }
   
+  function duplicateSizeKey(productText){
+    const p = splitProduct(productText || '');
+    return String(p.size || productText || '').replace(/\s+/g,'').toLowerCase();
+  }
+  function duplicateMaterialKey(v){ return YX.clean(v || '').toUpperCase() || '未填材質'; }
+  function findDuplicateMergeGroups(m, customer, items){
+    const groups = new Map();
+    const add = (key, label) => {
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, {key, labels:[]});
+      groups.get(key).labels.push(label);
+    };
+    (Array.isArray(items) ? items : []).forEach((it, idx) => {
+      const key = `${duplicateSizeKey(it.product_text)}|${duplicateMaterialKey(it.material || it.product_code)}`;
+      add(key, `新增第${idx+1}筆 ${it.material || '未填材質'} ${it.product_text}`);
+    });
+    const rows = (() => { try { return (window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions)?.rowsStore?.(m) || []; } catch(_e) { return []; } })();
+    const cust = clean(customer || '');
+    (Array.isArray(rows) ? rows : []).forEach(r => {
+      if ((m === 'orders' || m === 'master_order') && cust && clean(r.customer_name || '') !== cust) return;
+      const key = `${duplicateSizeKey(r.product_text)}|${duplicateMaterialKey(r.material || r.product_code)}`;
+      if (groups.has(key)) add(key, `既有 ${r.material || r.product_code || '未填材質'} ${r.product_text}`);
+    });
+    return Array.from(groups.values()).filter(g => g.labels.length > 1).slice(0, 8);
+  }
+  function decideDuplicateMode(m, customer, items){
+    const groups = findDuplicateMergeGroups(m, customer, items);
+    if (!groups.length) return 'merge';
+    const lines = groups.map(g => '・' + g.labels.slice(0, 4).join(' / '));
+    const msg = `偵測到相同尺寸＋材質的商品，是否要合併？\n\n${lines.join('\n')}\n\n按「確定」＝合併數量。\n按「取消」＝不要合併，分開新增保存。`;
+    return window.confirm(msg) ? 'merge' : 'separate';
+  }
   async function finalConfirmSubmit(ev){
     if (ev) { ev.preventDefault?.(); ev.stopPropagation?.(); ev.stopImmediatePropagation?.(); }
     const m = page();
@@ -1234,6 +1325,7 @@
     if (m !== 'inventory' && !customer) return toast('請輸入客戶名稱','warn');
     const items = parseItems(text);
     if (!items.length) return toast('商品格式無法辨識，請確認有尺寸與支數','warn');
+    const duplicateMode = decideDuplicateMode(m, customer, items);
     submitting = true;
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
@@ -1253,7 +1345,7 @@
         }
         YX.toast('送出中，已先顯示；成功後會換成後端真實資料', 'ok');
       } catch(e){ console.warn('[YX v20 optimistic submit]', e); }
-      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})});
+      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, duplicate_mode:duplicateMode, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})});
       if (ta) ta.value = '';
       await refreshAfterSubmit(m, customer, posted, items, activeZone);
       // V23：後端已回傳 DB 真實清單後，背景再強制讀一次來源資料；不阻塞畫面，但可確認刷新後仍是永久資料。

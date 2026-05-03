@@ -1,4 +1,4 @@
-# V27 redo full-bg buttons warehouse fix: backend routes/migrations retained; fixes source labels and warehouse return/save behavior.
+# V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -25,7 +25,7 @@ from db import (
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables, customer_merge_variants
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, product_month_tag, recover_customer_profiles_from_relation_tables, customer_merge_variants
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
@@ -1020,12 +1020,13 @@ def api_inventory():
         if not items:
             return error_response("請輸入商品資料")
         operator = current_username()
+        duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
         location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
             upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""))
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
         log_action(operator, "建立庫存")
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
@@ -1062,6 +1063,7 @@ def api_inventory_item(item_id):
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
+        month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
@@ -1074,9 +1076,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -1901,33 +1903,38 @@ def api_customer_items_batch_update():
                 if qty < 0:
                     qty = 0
                 material = clean_material_value(it.get("material") if it.get("material") is not None else (before.get("material") or before.get("product_code") or ""), product_text)
+                month_tag = product_month_tag(product_text)
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
                 location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, qty, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
                         except Exception:
                             pass
+                        try:
+                            cur.execute(f"ALTER TABLE {table} ADD COLUMN month_tag TEXT")
+                        except Exception:
+                            pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
                     changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
