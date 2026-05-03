@@ -235,14 +235,17 @@
   }
 
   function ensureVisualToast(){
-    if (window.__YX_V20_VISUAL_TOAST__) return;
-    window.__YX_V20_VISUAL_TOAST__ = true;
+    if (window.__YX_V42_VISUAL_TOAST__) return;
+    window.__YX_V42_VISUAL_TOAST__ = true;
     window.toast = window.showToast = window.notify = function(message, kind='ok'){
       try{
         let box = document.getElementById('yx-v20-toast');
-        if(!box){ box=document.createElement('div'); box.id='yx-v20-toast'; document.body.appendChild(box); }
+        if(!box){ box=document.createElement('div'); box.id='yx-v20-toast'; box.setAttribute('aria-live','polite'); document.body.appendChild(box); }
         box.className = 'yx-v20-toast-card ' + (kind || 'ok');
-        box.innerHTML = `<strong>${kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功')}</strong><div>${String(message||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}</div>`;
+        box.setAttribute('tabindex','-1');
+        box.style.pointerEvents = 'none';
+        const safe = String(message||'').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        box.innerHTML = `<strong>${kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功')}</strong><div>${safe}</div>`;
         box.classList.add('show');
         clearTimeout(window.__YX_V20_TOAST_TIMER__);
         window.__YX_V20_TOAST_TIMER__ = setTimeout(()=>box.classList.remove('show'), 2600);
@@ -522,6 +525,7 @@
     window.__YX112_ROWS__ = window.__YX112_ROWS__ || {};
     window.__yx63Rows = window.__yx63Rows || {};
     if (Array.isArray(rows)) {
+      try { window.YXPageUndo?.snapshot?.('product:'+source, ()=>{ rowsStore(source, JSON.parse(JSON.stringify(window.__YX_V42_UNDO_ROWS__||[]))); renderSummary(source); renderCards(source); }); window.__YX_V42_UNDO_ROWS__ = JSON.parse(JSON.stringify(state.rows[source] || [])); } catch(_e) {}
       state.rows[source] = rows;
       window.__YX112_ROWS__[source] = rows;
       window.__yx63Rows[source] = rows;
@@ -783,7 +787,7 @@
       const p = splitProduct(r.product_text || '');
       const id = idOf(r);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td><td class="yx131-action-cell">${r.__pending_server_id ? '<span class="small-note warn">寫入中，請稍候</span>' : rowActionsHTML(source, id)}</td></tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><select class="text-input small yx128-field" data-yx128-field="material"><option value="">不指定材質</option>${materialOptions(materialOf(r)==='未填材質'?'':materialOf(r))}</select></td>
@@ -791,10 +795,10 @@
         <td><input class="text-input small yx128-field" data-yx128-field="size" value="${YX.esc(p.size || r.product_text || '')}" placeholder="尺寸，可含 8月"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="總數量"></td>
-        <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td><td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
+        <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="7">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
@@ -998,7 +1002,7 @@
       if ((id && idSet.has(id)) || checked) tr.remove();
     });
     const tbody = box.querySelector('tbody');
-    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="7">目前沒有資料</td></tr>';
+    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="6">目前沒有資料</td></tr>';
   }
   async function bulkDelete(source){
     // v11：有勾選刪勾選；沒勾選則刪除目前清單可見商品，並立即從畫面消失。
@@ -1447,11 +1451,13 @@
       // V23：後端已回傳 DB 真實清單後，背景再強制讀一次來源資料；不阻塞畫面，但可確認刷新後仍是永久資料。
       try {
         const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-        const verify = act?.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer});
-        if (verify && typeof verify.catch === 'function') verify.catch(e => console.warn('[YX v23 persistent verify]', e));
+        if (!document.activeElement || !document.activeElement.matches('input,textarea,select,[contenteditable="true"]')) {
+          const verify = act?.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer});
+          if (verify && typeof verify.catch === 'function') verify.catch(e => console.warn('[YX v42 persistent verify]', e));
+        }
       } catch(_e) {}
       try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
-      try { if (m === 'orders' || m === 'master_order') await refreshCustomerBoardsSafe(customer); } catch(_e) {}
+      try { if ((m === 'orders' || m === 'master_order') && (!document.activeElement || !document.activeElement.matches('input,textarea,select,[contenteditable="true"]'))) refreshCustomerBoardsSafe(customer).catch(()=>{}); } catch(_e) {}
       try { if (m === 'orders' || m === 'master_order') forceCustomerCardVisible(customer, m); } catch(_e) {}
       if (result) {
         result.classList.remove('hidden');
@@ -2194,3 +2200,18 @@
 })();
 /* ===== END V30 final product sort override ===== */
 
+
+/* ===== V42 MAINFILE UNDO MANAGER ===== */
+(function(){
+  if (window.YXPageUndo) return;
+  const stack=[];
+  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
+  window.YXPageUndo={
+    snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
+    undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
+    size(){ return stack.length; }
+  };
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
+})();
+/* ===== END V42 MAINFILE UNDO MANAGER ===== */

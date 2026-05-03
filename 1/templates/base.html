@@ -10,49 +10,43 @@
   <meta name="apple-mobile-web-app-title" content="沅興木業">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=full-master-v41_fresh_ui_event_db_lock">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=full-master-v42_mainfile_integrated_fix">
   <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";</script>
-  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_starry_background.png') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_pill_button.png') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_final_ui_lock.css') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_v38_table_customer_persistence_lock.css') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_v40_table_customer_warehouse_lock.css') }}?v=full-master-v41_fresh_ui_event_db_lock">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_v41_fresh_ui_event_db_lock.css') }}?v=full-master-v41_fresh_ui_event_db_lock">
+  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_starry_background.png') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_pill_button.png') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=full-master-v42_mainfile_integrated_fix">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_final_ui_lock.css') }}?v=full-master-v42_mainfile_integrated_fix">
   <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }}; window.__YX_SHIP_SINGLE_LOCK__ = {{ 'true' if (request.endpoint or '') == 'ship_page' else 'false' }}; window.__YX_HTML_DIRECT_MASTER__ = true; window.__YX_FINAL_WAREHOUSE_HTML_LOCK__ = {{ 'true' if (request.endpoint or '') == 'warehouse_page' else 'false' }};</script>
   {% set _ep = request.endpoint or '' %}
   {% if _ep == 'login_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_login_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_login_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'home' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_home_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_home_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'inventory_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_inventory_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_inventory_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'orders_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_orders_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_orders_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'master_order_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_master_order_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_master_order_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'ship_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_ship_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_ship_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'warehouse_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_warehouse_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_warehouse_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'today_changes_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_today_changes_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_today_changes_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'settings_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_settings_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_settings_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'shipping_query_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_shipping_query_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_shipping_query_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'todos_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_todos_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_todos_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% elif _ep == 'customers_page' %}
-  <script defer src="{{ url_for('static', filename='yx_pages/page_customers_master_v22.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='yx_pages/page_customers_master_v22.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
-  <script defer src="{{ url_for('static', filename='yx_v38_submit_persistence_final_lock.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
-  <script defer src="{{ url_for('static', filename='yx_v40_submit_warehouse_lock.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
-  <script defer src="{{ url_for('static', filename='yx_v41_fresh_event_db_lock.js') }}?v=full-master-v41_fresh_ui_event_db_lock"></script>
+  <script defer src="{{ url_for('static', filename='pwa.js') }}?v=full-master-v42_mainfile_integrated_fix"></script>
 </head>
   {% set _yx_body_module = {
     'home':'home', 'login_page':'login', 'settings_page':'settings', 'today_changes_page':'today_changes',

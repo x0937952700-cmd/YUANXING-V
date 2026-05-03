@@ -1415,11 +1415,11 @@ def api_customers_move():
         # v18：客戶可能是從訂單/總單關聯表產生的 virtual customer，customer_profiles 尚未有實體列。
         # 移動區域時必須先把它確實寫入 customer_profiles，不能只做前端暫存。
         if not row:
-            item = upsert_customer(name, region=region, preserve_existing=False)
+            item = upsert_customer(name, region=region, preserve_existing=True)
             before_region = ''
         else:
             before_region = (row.get("region") or "").strip()
-            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
+            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
         yx_v35_safe_side_effect('customer_move_log', log_action, current_username(), f"移動客戶 {name} 到 {region}")
         yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         yx_v35_safe_side_effect('customer_move_notify', notify_sync_event, kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})

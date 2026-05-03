@@ -5470,3 +5470,26 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
   html,body{background-attachment:scroll!important;background-size:cover!important;}
   body::before{background-attachment:scroll!important;background-size:cover!important;}
 }
+
+
+/* ===== V42 MAINFILE INTEGRATED: table widths, toast focus-safe, customer font ===== */
+html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;background-image:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v42_mainfile_integrated_fix')!important;background-size:cover!important;background-position:center center!important;background-repeat:no-repeat!important;background-attachment:fixed!important;}
+.yx-v20-toast-card,#yx-ship-toast,.yx-ship-toast{position:fixed!important;right:18px!important;top:18px!important;z-index:999999!important;pointer-events:none!important;user-select:none!important;touch-action:none!important;max-width:min(320px,calc(100vw - 36px))!important;}
+.yx-v20-toast-card *,.yx-ship-toast *{pointer-events:none!important;}
+.yx113-table-wrap{overflow-x:auto!important;}
+.yx113-table,.yx128-inline-table{table-layout:fixed!important;width:100%!important;font-size:24px!important;line-height:1.35!important;}
+.yx113-table th,.yx113-table td,.yx128-inline-table th,.yx128-inline-table td{font-size:24px!important;line-height:1.35!important;padding:18px 12px!important;vertical-align:middle!important;}
+.yx113-table th:nth-child(1),.yx113-table td:nth-child(1),.yx128-inline-table th:nth-child(1),.yx128-inline-table td:nth-child(1){width:88px!important;min-width:88px!important;max-width:88px!important;}
+.yx113-table th:nth-child(2),.yx113-table td:nth-child(2),.yx128-inline-table th:nth-child(2),.yx128-inline-table td:nth-child(2){width:82px!important;min-width:82px!important;max-width:82px!important;text-align:center!important;}
+.yx113-table th:nth-child(3),.yx113-table td:nth-child(3),.yx128-inline-table th:nth-child(3),.yx128-inline-table td:nth-child(3){width:190px!important;min-width:190px!important;}
+.yx113-table th:nth-child(4),.yx113-table td:nth-child(4),.yx128-inline-table th:nth-child(4),.yx128-inline-table td:nth-child(4){width:auto!important;min-width:360px!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;}
+.yx113-table th:nth-child(5),.yx113-table td:nth-child(5),.yx128-inline-table th:nth-child(5),.yx128-inline-table td:nth-child(5){width:92px!important;min-width:92px!important;max-width:92px!important;text-align:center!important;}
+.yx113-table th:nth-child(6),.yx113-table td:nth-child(6),.yx128-inline-table th:nth-child(6),.yx128-inline-table td:nth-child(6){width:90px!important;min-width:90px!important;max-width:90px!important;text-align:center!important;}
+.yx113-table th:nth-child(7),.yx113-table td:nth-child(7),.yx128-inline-table th:nth-child(7),.yx128-inline-table td:nth-child(7),.yx131-action-cell{display:none!important;width:0!important;max-width:0!important;padding:0!important;border:0!important;}
+.yx-support-wrap,.yx-support-wrap-inline{white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;display:block!important;}
+.customer-region-card .yx113-customer-left,.customer-region-card .yx116-customer-name,.yx113-customer-card .yx113-customer-left,.yx114-customer-card .yx116-customer-name{font-size:32px!important;font-weight:900!important;line-height:1.25!important;letter-spacing:.02em!important;}
+.customer-region-card .yx113-customer-count,.customer-region-card .yx116-customer-count{font-size:22px!important;font-weight:800!important;}
+.yx113-customer-tag,.yx116-customer-tag{font-size:15px!important;background:#fff!important;border:1px solid rgba(15,23,42,.12)!important;border-radius:999px!important;color:#1f2937!important;padding:3px 20px!important;min-width:72px!important;text-align:center!important;}
+.yx-page-undo-btn{margin-left:8px!important;}
+@media (max-width: 760px){.yx113-table,.yx128-inline-table,.yx113-table th,.yx113-table td{font-size:20px!important;}.yx113-table th:nth-child(4),.yx113-table td:nth-child(4){min-width:300px!important;}.customer-region-card .yx113-customer-left,.customer-region-card .yx116-customer-name{font-size:28px!important;}}
+/* ===== END V42 MAINFILE INTEGRATED ===== */

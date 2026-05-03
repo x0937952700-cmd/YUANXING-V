@@ -1,0 +1,13 @@
+V42 主檔案整合修正版
+
+實際改入主檔案，不再靠 V38/V40/V41 補丁疊加。
+
+- base.html 移除 yx_v38/yx_v40/yx_v41 補丁 CSS/JS 載入，只保留主頁 JS。
+- module.html 表格標頭刪除「操作」欄，新增復原前一步按鈕。
+- style.css 直接寫入欄寬、字體、客戶名稱放大、toast 不吃焦點。
+- page_inventory/orders/master_order 主 JS 直接修改 renderSummary，支數 x 件數欄加寬，送出後不打斷正在編輯的欄位。
+- orders/master_order/ship 主 JS 移動客戶區域後不再強制重載客戶清單，避免商品被清掉。
+- ship 主 JS 保留出貨預覽流程並修正 toast 不吃焦點。
+- warehouse 主 JS 儲存格位按下後立即更新格子並永久寫入 /api/warehouse/cell。
+- app.py /api/customers/move 改 preserve_existing=True，避免移動區域覆蓋/清空客戶資料。
+- 保留 db.py / requirements.txt / wsgi.py / render.yaml / PostgreSQL migration。

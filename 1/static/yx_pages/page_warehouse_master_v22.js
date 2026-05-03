@@ -585,21 +585,26 @@
   async function saveWarehouseCell(){
     if(!state.current) return toast('請先開啟格位','warn');
     const added=collectBatchItems();
+    const beforeItems=JSON.parse(JSON.stringify(state.current.items||[])); const beforeNote=$('warehouse-note')?.value||'';
     const items=[...(state.current.items||[]),...added];
     const btn=$('yx121-save-cell');
     try{
       if(btn){ btn.disabled=true; btn.textContent='儲存中…'; }
+      try { window.YXPageUndo?.snapshot?.('warehouse-cell', async()=>{ if(!state.current) return; state.current.items=beforeItems; await saveCellRaw(state.current.zone,state.current.col,state.current.slot,beforeItems,beforeNote); await renderWarehouse(true); highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot); }); } catch(_e) {}
+      state.current.items=items;
+      let localCell=(state.data.cells||[]).find(c=>clean(c.zone).toUpperCase()===state.current.zone&&Number(c.column_index)===state.current.col&&Number(c.slot_number)===state.current.slot);
+      if(!localCell){ localCell={zone:state.current.zone,column_index:state.current.col,slot_type:'direct',slot_number:state.current.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(localCell); }
+      localCell.items=items; localCell.items_json=JSON.stringify(items); localCell.note=$('warehouse-note')?.value||'';
+      updateSlotUI(state.current.zone,state.current.col,state.current.slot);
       const saved=await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
       if(saved && Array.isArray(saved.cells)) state.data.cells=saved.cells;
-      state.current.items=items;
       updateSlotUI(state.current.zone,state.current.col,state.current.slot);
       toast(`格位已永久儲存${added.length?`，新增 ${added.length} 筆`:''}`,'ok');
       closeWarehouseModal();
       await renderWarehouse(true);
       highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot);
-    }finally{
-      if(btn){ btn.disabled=false; btn.textContent='儲存格位'; }
-    }
+    }catch(e){ toast(e.message||'儲存格位失敗','error'); throw e; }
+    finally{ if(btn){ btn.disabled=false; btn.textContent='儲存格位'; } }
   }
   function updateUndoButton(){ const b=$('yx121-warehouse-undo'); if(b) b.disabled=!state.undoStack.length; }
   async function moveCellContents(from,to){
@@ -752,3 +757,18 @@
 })();
 /* ===== END V30 final product sort override ===== */
 
+
+/* ===== V42 MAINFILE UNDO MANAGER ===== */
+(function(){
+  if (window.YXPageUndo) return;
+  const stack=[];
+  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
+  window.YXPageUndo={
+    snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
+    undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
+    size(){ return stack.length; }
+  };
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
+})();
+/* ===== END V42 MAINFILE UNDO MANAGER ===== */
