@@ -5163,3 +5163,21 @@ html[data-yx-v47-products-writeback="locked"], html[data-yx-v47-products="locked
 .yx-v48-submit-btn.yx-v48-submitting{opacity:.72;pointer-events:none;filter:grayscale(.08);}
 .yx-v48-duplicate-panel{border:1px solid rgba(180,125,39,.28);background:rgba(255,252,246,.88);border-radius:18px;padding:12px;margin-top:12px;}
 .yx-v48-submit-debug{color:#8a5a10;font-weight:700;}
+
+
+/* ===== V50 PRODUCTS / LOGIN / CUSTOMER REAL LOADED HTML-JS-CSS WRITEBACK =====
+   庫存單列操作按鈕永久移除；訂單/總單新增後立即顯示北區客戶與該客戶清單。 */
+html[data-yx-v50-products-writeback="locked"], .module-screen[data-yx-v50-products="real-loaded"]{--yx-v50-products-lock:1;}
+.module-screen[data-module="inventory"] #yx113-inventory-summary th:last-child,
+.module-screen[data-module="inventory"] #yx113-inventory-summary td.yx131-action-cell,
+.module-screen[data-module="inventory"] #yx113-inventory-summary .yx-v45-row-actions,
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx132-batch-transfer],
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx132-batch-zone],
+.module-screen[data-module="inventory"] #yx113-inventory-summary [data-yx131-row-action],
+.module-screen[data-module="inventory"] #inventory-inline-list .yx113-product-actions,
+.module-screen[data-module="inventory"] #inventory-inline-list [data-yx113-action="to-orders"],
+.module-screen[data-module="inventory"] #inventory-inline-list [data-yx113-action="to-master"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+.module-screen[data-module="inventory"] #yx113-inventory-summary .yx113-table{table-layout:auto;}
+.module-screen[data-module="inventory"] #yx113-inventory-summary .yx113-summary-row td{vertical-align:middle;}
+.yx-v50-force-customer-card{outline:2px solid rgba(217,148,35,.28);}
+.yx-v50-submit-btn[disabled], .yx-v50-submit-btn[data-yx-v50-submitting="1"]{opacity:.68;pointer-events:none;filter:grayscale(.06);}

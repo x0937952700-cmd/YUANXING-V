@@ -727,6 +727,31 @@ def api_todo_delete(todo_id):
         log_error('api_todo_delete', str(e))
         return error_response('代辦事項刪除失敗')
 
+
+
+def yx_v50_owner_login_override(username, password):
+    """V50：修復老闆帳號因舊 hash / 錯誤密碼殘留而無法登入。
+    可用環境變數 YX_OWNER_PASSWORD 覆蓋預設值；成功後會重設 hash、解除停用並固定 admin。"""
+    username = (username or '').strip()
+    password = (password or '').strip()
+    owner_password = (os.getenv('YX_OWNER_PASSWORD') or 'zzxxcc888').strip()
+    if username != '陳韋廷' or not owner_password or password != owner_password:
+        return None
+    try:
+        user = get_user(username)
+        if not user:
+            create_user(username, password)
+        else:
+            update_password(username, password)
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(sql("UPDATE users SET role = ?, is_blocked = 0, updated_at = ? WHERE username = ?"), ('admin', now(), username))
+        conn.commit(); conn.close()
+    except Exception as e:
+        try: log_error('v50_owner_login_override', str(e))
+        except Exception: pass
+    return get_user(username) or {'username': username, 'role': 'admin', 'is_blocked': 0}
+
 @app.route("/api/login", methods=["POST"])
 def api_login():
     try:
@@ -736,6 +761,9 @@ def api_login():
         if not username or not password:
             return error_response("帳號密碼不可空白")
         user = get_user(username)
+        owner_user = yx_v50_owner_login_override(username, password)
+        if owner_user:
+            user = owner_user
         if user and int(user.get('is_blocked') or 0) == 1:
             try:
                 log_action(username or 'unknown', '黑名單登入攔截')
@@ -747,7 +775,7 @@ def api_login():
             log_action(username, "建立帳號")
             user = get_user(username) or {}
         else:
-            if not verify_password(user.get('password'), password):
+            if not owner_user and not verify_password(user.get('password'), password):
                 return error_response("密碼錯誤", 403)
             # 舊明碼資料第一次成功登入後自動升級為 hash
             if user.get('password') == password:
@@ -1118,7 +1146,7 @@ def api_inventory_item_move(item_id):
         notify_sync_event(kind='refresh', module='inventory', message=f'庫存已移到{target_label}', extra={'id': item_id, 'customer_name': customer_name, 'qty': move_qty})
         notify_sync_event(kind='refresh', module=module, message=f'{target_label}已更新', extra={'customer_name': customer_name, 'qty': move_qty})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=grouped_inventory(), customer_name=customer_name, target=target_label, **snap)
+        return jsonify(success=True, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('orders' if module == 'orders' else 'master_orders', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), customer_name=customer_name, selected_customer=customer_name, target=target_label, **snap)
     except Exception as e:
         log_error('inventory_item_move', str(e))
         return error_response('庫存移動失敗')
@@ -3267,3 +3295,5 @@ def yx_v12_no_store_static(resp):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+# V50_PRODUCTS_LOGIN_CUSTOMER_WRITEBACK: login owner override + inventory move snapshots + real loaded product pages.

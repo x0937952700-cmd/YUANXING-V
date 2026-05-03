@@ -1,0 +1,15 @@
+V50_PRODUCTS_LOGIN_CUSTOMER_REAL_LOADED_HTML_JS_CSS_WRITEBACK
+
+來源：V48 使用者上傳檔。
+
+已寫回實際載入母版：
+- templates/base.html：庫存/訂單/總單改載入 page_*_master_v50.js，登入改載入 page_login_master_v50.js，快取版本 full-master-v50-products-login-customer-real-loaded-html-js-css-writeback
+- templates/module.html：庫存 HTML 表格移除「操作」欄；送出與重複合併標記升 V50。
+- static/yx_pages/page_inventory_master_v50.js：庫存單列「編輯/刪除/加到訂單/加到總單」永久移除，並加上舊 renderer 重新插入時自動清除保護。
+- static/yx_pages/page_orders_master_v50.js / page_master_order_master_v50.js：送出後強制確保客戶寫入北區、刷新客戶板與該客戶商品清單。
+- static/yx_pages/page_login_master_v50.js：登入頁實際載入版本升 V50。
+- static/style.css：庫存操作欄/按鈕永久隱藏樣式，V50 送出/客戶卡樣式。
+- app.py：老闆帳號登入覆寫修復；庫存移到訂單/總單後回傳 snapshots/customers/exact_customer_items。
+- pwa.js / service-worker.js / manifest.webmanifest：快取版本升 V50。
+
+注意：V50 不再保留 v48 產品頁 JS，避免誤接回舊清單按鈕。
