@@ -414,21 +414,48 @@
   }
   function optionLabel(it){ const mat=materialOf(it); return `${cleanCustomer(it.customer_name||'')}｜${mat?mat+'｜':''}${productText(it)}｜${itemQty(it)}件｜${sourceOf(it)}`; }
   function availableListForCurrent(){ const z=clean(state.current?.zone||state.activeZone||'A').toUpperCase(); return z==='B'?state.availableByZone.B:state.availableByZone.A; }
-  function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return availableListForCurrent().map((it,i)=>({it,index:i})).filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
+  function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return availableListForCurrent().map((it,i)=>({it,index:i,key:itemKey(it)})).filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
-  function renderCellItems(){
+  function itemKey(it){ return [cleanCustomer(it?.customer_name||''), productText(it), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
+  function snapshotBatchRows(){
+    const rows=[];
+    document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach((row,i)=>{
+      const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty');
+      const opt=sel?.options?.[sel.selectedIndex];
+      rows[i]={value:sel?.value||'', key:opt?.dataset?.itemKey||'', qty:qty?.value||'', placement:placementForBatch(i)};
+    });
+    return rows;
+  }
+  function restoreBatchRows(saved){
+    if(!Array.isArray(saved)) return;
+    document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach((row,i)=>{
+      const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty'); const old=saved[i]||{};
+      if(sel){
+        let chosen='';
+        if(old.key){ const opt=Array.from(sel.options).find(o=>o.dataset.itemKey===old.key); if(opt) chosen=opt.value; }
+        if(!chosen && old.value !== '' && Array.from(sel.options).some(o=>o.value===old.value)) chosen=old.value;
+        sel.value=chosen;
+      }
+      if(qty && old.qty) qty.value=old.qty;
+    });
+    syncBatchSelectLimits(false);
+  }
+  function renderCellItems(preserve=true){
     const box=$('warehouse-cell-items'); if(!box) return;
-    // 批量加入面板已直接寫在 templates/module.html；這裡只更新「目前商品」與「每列選項」，不再整塊覆蓋 HTML。
+    const saved = preserve ? snapshotBatchRows() : [];
+    // 批量加入面板已直接寫在 templates/module.html；這裡只更新「目前商品」與「每列選項」，不清掉已選下拉。
     if(!$('warehouse-current-items-html') || !$('yx121-batch-rows')){
       box.innerHTML=`<div class="yx-direct-section" data-html-locked="warehouse-current-items-html"><div class="yx-direct-section-title">目前此格商品</div><div id="warehouse-current-items-html" class="yx-direct-current-list"></div></div><div class="yx-direct-batch-panel" data-html-locked="warehouse-batch-html-fixed"><div class="yx-direct-section-title">批量加入商品</div><div class="small-note">A / B 區各自只顯示尚未錄入倉庫圖商品；第 1 筆後排、第 2 筆中間、第 3 筆前排。</div><div id="yx121-batch-rows"></div><div class="btn-row compact-row"><button class="ghost-btn small-btn" type="button" id="yx121-add-batch-row">新增更多批量</button><button class="primary-btn small-btn" type="button" id="yx121-save-cell">儲存格位</button></div></div>`;
     }
     const current=(state.current.items||[]).map((it,i)=>{ const mat=materialOf(it), place=clean(it.placement_label||it.layer_label||''); return `<div class="yx-direct-current-item" data-idx="${i}"><div class="yx-direct-current-main"><span class="yx-direct-source">${esc(sourceOf(it))}</span>${mat?`<span class="yx-direct-material">${esc(mat)}</span>`:''}<strong>${esc(cleanCustomer(it.customer_name))}</strong><span class="yx-direct-product">${esc(productText(it))}</span></div><div class="yx-direct-current-side"><span>${place?esc(place)+'｜':''}${itemQty(it)}件</span><button class="remove yx-direct-remove" type="button" data-remove-cell-item="${i}">×</button></div></div>`; }).join('') || '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
     const currentBox=$('warehouse-current-items-html'); if(currentBox) currentBox.innerHTML=current;
-    const opts=availableRows().map(r=>`<option value="${r.index}" data-max="${itemQty(r.it)}">${esc(optionLabel(r.it))}｜可加入 ${itemQty(r.it)} 件</option>`).join('');
+    const rowsData=availableRows();
+    const opts=rowsData.map(r=>`<option value="${esc(r.key)}" data-index="${r.index}" data-max="${itemQty(r.it)}" data-item-key="${esc(r.key)}">${esc(optionLabel(r.it))}｜可加入 ${itemQty(r.it)} 件</option>`).join('');
     const emptyHint = opts ? '' : '<option value="">此區目前沒有未錄入商品，或請換 A/B 區</option>';
-    const rows=Array.from({length:Math.max(3,Number(state.batchCount||3))},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts || emptyHint}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
+    const rowCount=Math.max(3,Number(state.batchCount||3),saved.length||0);
+    const rows=Array.from({length:rowCount},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts || emptyHint}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
     const rowsBox=$('yx121-batch-rows'); if(rowsBox) rowsBox.innerHTML=rows;
-    syncBatchSelectLimits();
+    restoreBatchRows(saved);
   }
   async function openWarehouseModal(z,c,s){
     z=clean(z).toUpperCase();
@@ -438,23 +465,39 @@
     const note=$('warehouse-note'); if(note) note.value=state.current.note||'';
     const search=$('warehouse-item-search'); if(search) search.value='';
     $('warehouse-modal')?.classList.remove('hidden');
-    renderCellItems();
+    renderCellItems(false);
     try { if(search) search.focus(); } catch(_e) {}
-    // V7：先立刻開啟格位批量加入畫面，再背景抓 A/B 區未錄入商品，下拉選單抓完即刷新。
-    try { await loadAvailable(); renderCellItems(); } catch(e){ toast(e.message||'未錄入商品載入失敗','error'); }
+    // 先立刻開啟格位批量加入畫面，再背景抓 A/B 區未錄入商品；保留使用者已選下拉與件數。
+    try { await loadAvailable(); renderCellItems(true); } catch(e){ toast(e.message||'未錄入商品載入失敗','error'); }
   }
   function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); }
-  function syncBatchSelectLimits(){
+  function syncBatchSelectLimits(fillEmpty=true){
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
       const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty'); if(!sel||!qty) return;
       const opt=sel.options[sel.selectedIndex]; const max=Number(opt?.dataset?.max||0);
-      if(max>0){ qty.max=String(max); qty.dataset.yx121Max=String(max); if(!qty.value) qty.value=String(max); if(Number(qty.value)>max) qty.value=String(max); }
+      if(max>0){ qty.max=String(max); qty.dataset.yx121Max=String(max); if(fillEmpty && !qty.value) qty.value=String(max); if(Number(qty.value)>max) qty.value=String(max); }
       else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; if(!sel.value) qty.value=''; }
     });
   }
-  function collectBatchItems(){ const added=[]; const pool=availableListForCurrent(); document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{ const raw=row.querySelector('.yx121-batch-select')?.value; if(raw==='') return; const idx=Number(raw); if(!Number.isFinite(idx)) return; const it=pool[idx]; if(!it) return; let qty=Number(row.querySelector('.yx121-batch-qty')?.value||itemQty(it)||1); qty=Math.max(1,Math.min(itemQty(it)||qty,qty)); added.push(normalizedItem(it,qty,placementForBatch(Number(row.dataset.batchIndex||added.length)))); }); return added; }
+  function collectBatchItems(){ const added=[]; const pool=availableListForCurrent(); document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{ const sel=row.querySelector('.yx121-batch-select'); const raw=sel?.value; if(raw==='') return; const opt=sel?.options?.[sel.selectedIndex]; const stableKey=opt?.dataset?.itemKey || raw; let it=pool.find(x=>itemKey(x)===stableKey); if(!it){ const idx=Number(opt?.dataset?.index ?? raw); if(Number.isFinite(idx)) it=pool[idx]; } if(!it) return; let qty=Number(row.querySelector('.yx121-batch-qty')?.value||itemQty(it)||1); qty=Math.max(1,Math.min(itemQty(it)||qty,qty)); added.push(normalizedItem(it,qty,placementForBatch(Number(row.dataset.batchIndex||added.length)))); }); return added; }
   async function saveCellRaw(z,c,s,items,note){ return api('/api/warehouse/cell',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:items||[],note:note||''})}); }
-  async function saveWarehouseCell(){ const items=[...(state.current.items||[]),...collectBatchItems()]; await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||''); toast('格位已儲存','ok'); closeWarehouseModal(); await renderWarehouse(true); highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot); }
+  async function saveWarehouseCell(){
+    if(!state.current) return toast('請先開啟格位','warn');
+    const added=collectBatchItems();
+    const items=[...(state.current.items||[]),...added];
+    const btn=$('yx121-save-cell');
+    try{
+      if(btn){ btn.disabled=true; btn.textContent='儲存中…'; }
+      await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
+      state.current.items=items;
+      toast(`格位已永久儲存${added.length?`，新增 ${added.length} 筆`:''}`,'ok');
+      closeWarehouseModal();
+      await renderWarehouse(true);
+      highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot);
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent='儲存格位'; }
+    }
+  }
   function updateUndoButton(){ const b=$('yx121-warehouse-undo'); if(b) b.disabled=!state.undoStack.length; }
   async function moveCellContents(from,to){
     const f={zone:clean(from.zone).toUpperCase(),col:Number(from.col),slot:Number(from.slot)}, t={zone:clean(to.zone).toUpperCase(),col:Number(to.col),slot:Number(to.slot)};

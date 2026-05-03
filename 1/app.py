@@ -138,8 +138,30 @@ def request_key_from_payload(data, endpoint=''):
         return key
     return False
 
-def duplicate_success(message='重複送出已忽略'):
-    return jsonify(success=True, duplicate=True, message=message)
+def duplicate_success(message='重複送出已忽略', **extra):
+    payload = dict(success=True, duplicate=True, message=message)
+    payload.update(extra or {})
+    return jsonify(**payload)
+
+
+def duplicate_current_payload(endpoint='', data=None):
+    """Return current DB-backed rows when a repeated request_key is ignored.
+    This prevents the frontend from keeping temporary rows that disappear after refresh.
+    """
+    data = data or {}
+    customer_name = (data.get('customer_name') or '').strip()
+    try:
+        if endpoint == '/api/inventory':
+            return dict(items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers())
+        if endpoint == '/api/orders':
+            return dict(items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers())
+        if endpoint == '/api/master_orders':
+            return dict(items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers())
+        if endpoint == '/api/ship':
+            return dict(snapshots=yx_v22_product_snapshots(), customers=get_customers())
+    except Exception as e:
+        log_error('duplicate_current_payload', str(e))
+    return {}
 
 
 
@@ -242,17 +264,17 @@ def login_required_json(f):
 
 @app.after_request
 def add_cache_headers(response):
-    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
-    # HTML / API 仍維持 no-store，資料不會吃舊。
+    # V23：HTML / API 永遠 no-store；靜態檔使用版本 query string 長快取。
+    # 這樣重新整理會直接向 DB 抓最新資料，但 JS/CSS 不會每頁重下載造成卡頓。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
-    if path.startswith('/static/'):
+    if path == '/sw.js' or path.endswith('service-worker.js'):
         response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
-    if path == '/sw.js':
-        response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+    if path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
         response.headers.pop('Pragma', None)
         response.headers.pop('Expires', None)
         return response
@@ -950,7 +972,7 @@ def api_inventory():
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
-            return duplicate_success('相同庫存送出已忽略')
+            return duplicate_success('相同庫存送出已忽略', **duplicate_current_payload('/api/inventory', data))
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
@@ -1085,7 +1107,7 @@ def api_orders():
             return jsonify(success=True, items=get_orders())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/orders'):
-            return duplicate_success('相同訂單送出已忽略')
+            return duplicate_success('相同訂單送出已忽略', **duplicate_current_payload('/api/orders', data))
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
@@ -1112,7 +1134,7 @@ def api_master_orders():
             return jsonify(success=True, items=get_master_orders())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
-            return duplicate_success('相同總單送出已忽略')
+            return duplicate_success('相同總單送出已忽略', **duplicate_current_payload('/api/master_orders', data))
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
@@ -1137,7 +1159,7 @@ def api_ship():
     try:
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/ship'):
-            return duplicate_success('相同出貨送出已忽略')
+            return duplicate_success('相同出貨送出已忽略', **duplicate_current_payload('/api/ship', data))
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
@@ -1387,11 +1409,15 @@ def api_warehouse_cell():
         slot_number = int(data.get("slot_number") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
             return error_response("格位參數錯誤")
-        # 防止手動輸入不存在的格位（例如 A-1-99）造成倉庫圖被拉出異常超長格數。
+        # V23：畫面上已有格位但 DB 尚未補到時，允許 warehouse_save_cell 自動 upsert；
+        # 仍擋掉明顯異常的超大格號，避免手動輸入 A-1-999 把倉庫圖拉長。
         existing_cells = warehouse_get_cells()
-        if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
-            return error_response("格位不存在，請先在格子內點「插入格子」")
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
+        if not previous_cell:
+            same_col = [c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index]
+            max_slot = max([int(c.get('slot_number') or 0) for c in same_col] or [0])
+            if max_slot and slot_number > max_slot + 1:
+                return error_response("格位不存在，請先在格子內點「插入格子」")
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
         if not ok:
@@ -1404,7 +1430,7 @@ def api_warehouse_cell():
         log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
         add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        return jsonify(success=True, zones=warehouse_summary())
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_cell", str(e))
         return error_response("格位更新失敗")

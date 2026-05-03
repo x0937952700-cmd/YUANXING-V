@@ -1,23 +1,17 @@
-FULL MASTER V22 REAL LOADED COMPLETE AUDIT
+沅興木業 FULL MASTER V24 SAFE PERSIST NO-EVENT-CHANGE AUDIT
 
-實際修正：
-1. 實際載入版本改為 full-master-v22-real-loaded-complete。
-2. base.html 只載入 page_*_master_v22.js，不再載入 page_*_master_v21 / v20 / v19 / v2。
-3. app.py 增加 yx_v22_product_snapshots()，批量材質 / 批量 A/B 區 / 批量刪除 / 批量編輯 / 批量轉入全部回傳最新清單 snapshots 與 customers。
-4. 庫存 / 訂單 / 總單頁實際載入 JS 增加 applySnapshotFromResponse()：API 成功後直接用後端最新清單重畫，不再靠下一次手動刷新。
-5. 訂單 / 總單確認送出後優先使用後端回傳的 exact_customer_items / snapshots / customers，並背景 ensure 客戶，不阻塞畫面。
-6. pwa.js 修正非法 window.__YX_full-master... 變數，避免 PWA JS 解析失敗。
-7. style.css 加入 V22 實際載入樣式守門，保留 toast、小卡、出貨一排、客戶卡、批量編輯列的顯示規則。
-8. 刪除舊 audit / README 類文字檔，避免 GitHub 包內混亂。
+本版原則：不改動既有頁面、按鈕、事件、介面流程與主要邏輯，只修復已知問題與後端永久保存 / migration / 快取版本。
 
-檢查結果：
-- 新增外部補丁 script：0
-- 實際載入 page_*_master_v2.js：0
-- 實際載入 v9～v21 快取字串：0
-- HTML / JS / CSS / app.py 已同時修改
-- Python compile OK
-- JS syntax OK
-- tools/smoke_test.py OK
+已修復：
+1. 庫存 / 訂單 / 總單送出後若遇到重複 request_key，後端會回傳目前 DB 真實清單與 snapshots，不再讓前端保留 tmp 暫存列，避免刷新後消失。
+2. 送出失敗時會清除暫時顯示的 optimistic rows，避免畫面顯示未寫入資料。
+3. 今日異動每次開啟固定先顯示「新增訂單」單一卡片新版，不再讀取上次 all/進貨/出貨篩選造成先跳舊三區塊再跳新版。
+4. 倉庫批量下拉改用穩定 item key；按「新增更多批量」、搜尋、重新載入未錄入清單時，不會因 index 改變而清空或選錯商品。
+5. 倉庫「儲存格位」仍走 /api/warehouse/cell 永久保存，保留長按開啟 / 插入 / 刪除、拖拉換位。
+6. db.py 增加 V24 safe persistence overrides：submit request 以 endpoint 分流，避免不同 API request_key 互擋；庫存 / 訂單 / 總單寫入加上 rollback/finally close，降低 PostgreSQL pool leak 風險。
+7. 靜態檔版本升級為 full-master-v24-safe-persist-no-event-change，強制 Render / 手機 / PWA 重新抓最新 HTML / JS / CSS，不吃舊快取。
 
-保留的 setTimeout：只用於 toast 自動消失、長按判定、倉庫高亮動畫，不是舊版重畫 renderer。
-保留的多個 click listener：屬於同頁母版內分區功能（商品表格、客戶區、封存客戶），不是外部補丁載入。
+驗證：
+- python -m py_compile app.py db.py wsgi.py tools/smoke_test.py：通過
+- node --check static/yx_pages/*.js static/pwa.js static/service-worker.js：通過
+- python tools/smoke_test.py：通過

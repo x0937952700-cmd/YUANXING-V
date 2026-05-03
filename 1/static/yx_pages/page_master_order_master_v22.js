@@ -1005,7 +1005,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v22-real-loaded-complete', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v24-safe-persist-no-event-change', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     // V6：不再掃 DOM 隱藏舊版，也不再二次 render，避免庫存/訂單/總單跳版。
@@ -1194,8 +1194,10 @@
       if (Array.isArray(serverRows) && serverRows.length) {
         act.rowsStore(m, serverRows);
       } else {
-        const optimistic = submittedRowsFor(m, customer, submittedItems, location).map(r => ({...r, __pending_server_id:true}));
-        act.rowsStore(m, mergeSubmittedRows(act.rowsStore(m) || [], optimistic));
+        // V24：如果後端沒有回傳真實 id 資料，不能保留 tmp 暫存列；改成立即重讀 DB，避免刷新後消失的假資料。
+        const current = (Array.isArray(act.rowsStore(m)) ? act.rowsStore(m) : []).filter(r => !r.__optimistic && !r.__pending_server_id && !String(r.id || '').startsWith('tmp-'));
+        act.rowsStore(m, current);
+        try { act.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer}); } catch(_e) {}
       }
       act.renderSummary?.(m);
       act.renderCards?.(m);
@@ -1254,6 +1256,12 @@
       const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})});
       if (ta) ta.value = '';
       await refreshAfterSubmit(m, customer, posted, items, activeZone);
+      // V23：後端已回傳 DB 真實清單後，背景再強制讀一次來源資料；不阻塞畫面，但可確認刷新後仍是永久資料。
+      try {
+        const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+        const verify = act?.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer});
+        if (verify && typeof verify.catch === 'function') verify.catch(e => console.warn('[YX v23 persistent verify]', e));
+      } catch(_e) {}
       try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
       try { if (m === 'orders' || m === 'master_order') await refreshCustomerBoardsSafe(customer); } catch(_e) {}
       try { if (m === 'orders' || m === 'master_order') forceCustomerCardVisible(customer, m); } catch(_e) {}
@@ -1264,6 +1272,14 @@
       }
       toast(`已新增 ${items.length} 筆商品`,'ok');
     } catch(e){
+      // V24：送出失敗時移除剛剛為了速度先畫出的暫存列，避免使用者誤以為已永久保存。
+      try {
+        const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+        if (act?.rowsStore) {
+          act.rowsStore(m, (act.rowsStore(m) || []).filter(r => !r.__optimistic && !r.__pending_server_id && !String(r.id || '').startsWith('tmp-')));
+          act.renderSummary?.(m); act.renderCards?.(m);
+        }
+      } catch(_cleanupErr) {}
       if (result) {
         result.classList.remove('hidden');
         result.style.display = '';

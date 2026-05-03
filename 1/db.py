@@ -1071,6 +1071,54 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
 
     ensure_fixed_warehouse_grid(conn, cur)
 
+    # V23: Render/PostgreSQL/SQLite 自動 migration。
+    # 1) 先修正 warehouse_cells 空值與重複格位。
+    # 2) 再補唯一索引與常用查詢索引，確保刷新後資料不消失，也避免重複格號讓儲存失敗。
+    try:
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET zone = COALESCE(NULLIF(zone, ''), 'A'),
+                column_index = COALESCE(column_index, 1),
+                slot_type = COALESCE(NULLIF(slot_type, ''), 'direct'),
+                slot_number = COALESCE(slot_number, 1),
+                items_json = COALESCE(NULLIF(items_json, ''), '[]'),
+                note = COALESCE(note, ''),
+                updated_at = COALESCE(NULLIF(updated_at, ''), ?)
+        """), (now(),))
+        cur.execute(sql("""
+            DELETE FROM warehouse_cells
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM warehouse_cells
+                GROUP BY zone, column_index, slot_type, slot_number
+            )
+        """))
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
+    except Exception as e:
+        log_error('v23_warehouse_slot_migration', str(e))
+
+    try:
+        _index_sqls = [
+            "CREATE INDEX IF NOT EXISTS ix_inventory_customer_updated ON inventory(customer_name, updated_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_inventory_customer_uid ON inventory(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_inventory_product_material ON inventory(product_text, material)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_customer_updated ON orders(customer_name, updated_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_customer_uid ON orders(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_orders_product_material ON orders(product_text, material)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_customer_updated ON master_orders(customer_name, updated_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_customer_uid ON master_orders(customer_uid)",
+            "CREATE INDEX IF NOT EXISTS ix_master_orders_product_material ON master_orders(product_text, material)",
+            "CREATE INDEX IF NOT EXISTS ix_shipping_records_shipped_at ON shipping_records(shipped_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_logs_created_at ON logs(created_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_today_changes_created_at ON today_changes(created_at DESC, id DESC)",
+        ]
+        for _stmt in _index_sqls:
+            try:
+                cur.execute(_stmt)
+            except Exception as _idx_e:
+                log_error('v23_index_single', f'{_stmt}: {_idx_e}')
+    except Exception as e:
+        log_error('v23_indexes', str(e))
+
     # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
     for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
         _normalize_product_texts_in_table(cur, _table)
@@ -3389,3 +3437,157 @@ def restore_customer(name):
     conn.commit()
     conn.close()
     return get_customer(name, include_archived=True)
+
+# ==== V24 safe persistence overrides ====
+# These keep the original page/event logic intact, but make DB writes and submit de-dup safer.
+def register_submit_request(request_key, endpoint=''):
+    request_key = (request_key or '').strip()
+    endpoint = (endpoint or '').strip()
+    if not request_key:
+        return True
+    # Scope request_key by endpoint so inventory/orders/master/ship cannot accidentally block each other.
+    scoped_key = f"{endpoint}::{request_key}" if endpoint else request_key
+    conn = get_db()
+    cur = conn.cursor()
+    created = False
+    try:
+        if USE_POSTGRES:
+            cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (scoped_key, endpoint, now()))
+        else:
+            cur.execute("INSERT OR IGNORE INTO submit_requests(request_key, endpoint, created_at) VALUES (?, ?, ?)", (scoped_key, endpoint, now()))
+        created = (cur.rowcount or 0) > 0
+        conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log_error('register_submit_request_v24', str(e))
+        # If the de-dup table has a transient issue, do not block the real save.
+        created = True
+    finally:
+        conn.close()
+    return created
+
+
+def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        product_text = format_product_text_height2((product_text or '').strip())
+        material = clean_material_value(material or product_code or '', product_text)
+        product_code = material
+        location = (location or '').strip()
+        customer_name = (customer_name or '').strip()
+        customer_uid = _customer_uid_for_name_cur(cur, customer_name)
+        qty = int(qty or 0)
+        rows = _fetch_matching_size_material_rows(cur, 'inventory', product_text, material, customer_name=customer_name, location=location)
+        matched = rows[-1] if rows else None
+        if matched:
+            rid = matched["id"]
+            merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
+            cur.execute(sql("""
+                UPDATE inventory
+                SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
+                WHERE id = ?
+            """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+        else:
+            cur.execute(sql("""
+                INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def save_order(customer_name, items, operator, duplicate_mode='merge'):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        customer_name = (customer_name or '').strip()
+        order_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
+        if duplicate_mode == 'replace':
+            for item in items:
+                for row in _fetch_matching_size_material_rows(cur, 'orders', item.get('product_text') or '', item.get('material') or item.get('product_code') or '', customer_name=customer_name):
+                    cur.execute(sql("DELETE FROM orders WHERE id = ?"), (row['id'],))
+        for item in items:
+            product_text = format_product_text_height2((item.get('product_text') or '').strip())
+            if not product_text:
+                continue
+            material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+            product_code = material
+            qty = int(item.get('qty') or 0)
+            if qty <= 0:
+                continue
+            if duplicate_mode == 'merge':
+                rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name)
+                if rows:
+                    matched = rows[-1]
+                    rid = matched['id']
+                    merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
+                    cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                    continue
+            cur.execute(sql("""
+                INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+            """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        customer_name = (customer_name or '').strip()
+        master_customer_uid = _customer_uid_for_name_cur(cur, customer_name)
+        if duplicate_mode == 'replace':
+            for item in items:
+                for row in _fetch_matching_size_material_rows(cur, 'master_orders', item.get('product_text') or '', item.get('material') or item.get('product_code') or '', customer_name=customer_name):
+                    cur.execute(sql("DELETE FROM master_orders WHERE id = ?"), (row['id'],))
+        for item in items:
+            product_text = format_product_text_height2((item.get('product_text') or '').strip())
+            if not product_text:
+                continue
+            material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+            product_code = material
+            qty = int(item.get('qty') or 0)
+            if qty <= 0:
+                continue
+            rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name)
+            if rows and duplicate_mode == 'merge':
+                matched = rows[-1]
+                rid = matched['id']
+                merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
+                cur.execute(sql("""
+                    UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
+                    WHERE id = ?
+                """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
+            else:
+                cur.execute(sql("""
+                    INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()

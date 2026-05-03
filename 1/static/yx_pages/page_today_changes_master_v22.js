@@ -270,7 +270,7 @@
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const state = {filter:'all', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
+  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
   const panels = [
     {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
     {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
@@ -293,7 +293,9 @@
     const summary = $('today-summary-cards');
     if (summary) {
       summary.className = 'card-list yx112-today-summary';
-      summary.style.removeProperty('display');
+      summary.hidden = true;
+      summary.setAttribute('aria-hidden','true');
+      summary.style.display = 'none';
     }
     const bar = document.querySelector('.today-filter-bar');
     if (bar) {
@@ -303,7 +305,11 @@
     }
     document.querySelectorAll('[data-today-panel]').forEach(panel => {
       panel.classList.add('yx112-today-panel');
-      panel.style.removeProperty('display');
+      const k = panel.getAttribute('data-today-panel');
+      const filter = state.filter || 'orders';
+      const show = filter === 'all' || filter === k;
+      panel.classList.toggle('yx112-filter-hidden', !show);
+      panel.style.display = show ? '' : 'none';
     });
   }
   function summaryCount(summary, key){
@@ -312,12 +318,12 @@
     return Number.isFinite(n) ? n : 0;
   }
   function setFilter(next){
-    state.filter = next || 'all';
+    state.filter = next || 'orders';
     try { localStorage.setItem('yx112TodayFilter', state.filter); } catch(_e) {}
     applyFilter();
   }
   function applyFilter(){
-    const filter = state.filter || 'all';
+    const filter = state.filter || 'orders';
     document.querySelectorAll('[data-today-filter]').forEach(btn => {
       const k = btn.getAttribute('data-today-filter') || 'all';
       btn.classList.toggle('active', k === filter);
@@ -342,7 +348,9 @@
     const box = $('today-summary-cards');
     if (!box) return;
     box.className = 'card-list yx112-today-summary';
-    box.style.removeProperty('display');
+    box.hidden = true;
+    box.setAttribute('aria-hidden','true');
+    box.style.display = 'none';
     const cards = panels.map(p => {
       const unit = p.key === 'unplaced' ? '件' : '';
       const sub = p.key === 'unplaced' ? `<div class="small-note">${Number(summary?.unplaced_row_count || 0)}筆商品</div>` : '<div class="small-note">今日紀錄</div>';
@@ -493,9 +501,10 @@
   }
   function install(){
     if (!isToday()) return;
-    if (!state.filter) state.filter = 'all';
-    try { state.filter = localStorage.getItem('yx112TodayFilter') || 'all'; } catch(_e) { state.filter = 'all'; }
-    if (!['all','inbound','outbound','orders'].includes(state.filter)) state.filter = 'all';
+    // V24：每次打開今日異動固定先顯示「新增訂單」單一卡片版，
+    // 不讀取上次 all/inbound/outbound 篩選，避免先跳舊的三區塊畫面再跳新版。
+    state.filter = 'orders';
+    try { localStorage.setItem('yx112TodayFilter', 'orders'); } catch(_e) {}
     YX.cancelLegacyTimers('today_changes');
     document.documentElement.dataset.yx112Today = 'locked';
     document.documentElement.dataset.yx114Today = 'locked';
