@@ -1,7 +1,7 @@
 from pathlib import Path
 import re
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'full-master-v53-products-ship-warehouse-fixed20-real-loaded-html-js-css-app-writeback'
+VERSION = 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback'
 
 for rel in ['app.py','db.py','backup.py','ocr.py','wsgi.py']:
     path = ROOT / rel
@@ -9,7 +9,7 @@ for rel in ['app.py','db.py','backup.py','ocr.py','wsgi.py']:
 
 required = {
     'requirements.txt': ['Flask==3.0.3', 'gunicorn==22.0.0', 'psycopg2-binary==2.9.9', 'Pillow==10.4.0', 'openpyxl==3.1.5'],
-    'templates/base.html': [VERSION, '__YX_MASTER_VERSION__', 'yxV28LoadedAudit', 'yxV32RealWriteback', 'yxV42ShipWarehouseWriteback', 'yxV44ProductSubmitWriteback', 'yxV48ProductsWriteback', 'yxV51ProductsWriteback', 'yx-asset-error-banner', 'page_inventory_master_v53.js', 'page_orders_master_v53.js', 'page_master_order_master_v53.js', 'page_login_master_v53.js', 'page_ship_master_v53.js', 'page_warehouse_master_v53.js'],
+    'templates/base.html': [VERSION, '__YX_MASTER_VERSION__', 'yxV28LoadedAudit', 'yxV32RealWriteback', 'yxV42ShipWarehouseWriteback', 'yxV44ProductSubmitWriteback', 'yxV48ProductsWriteback', 'yxV51ProductsWriteback', 'yx-asset-error-banner', 'page_inventory_master_v53.js', 'page_orders_master_v53.js', 'page_master_order_master_v53.js', 'page_login_master_v53.js', 'page_ship_master_v53.js', 'page_warehouse_master_v54.js'],
     'templates/index.html': ['today-changes-btn', 'yx-v53-home-centered-actions'],
     'templates/settings.html': ['loadBackupsManual()', '載入備份清單', "downloadReport('orders')", "downloadReport('warehouse')", 'data-yx28-backup-actions'],
     'templates/today_changes.html': ['today-unplaced-list', 'yx26-unplaced-panel', 'data-today-panel="unplaced"', 'today-filter-unplaced'],
@@ -22,7 +22,7 @@ required = {
     'static/yx_pages/page_settings_master_v32.js': ['/api/undo-last', '/api/reports/export', 'confirm_password', 'start_date', 'entity_type', 'data-backup-download', 'data-backup-restore', 'restoreBackup', 'd.files', 'data-block-next', 'V26 SETTINGS ENDPOINT LOCK'],
     'static/yx_pages/page_shipping_query_master_v32.js': ['V27 REAL LOADED SHIPPING QUERY LOCK', 'start_date', 'end_date', 'effectiveRange', 'yx27-custom-date'],
     'static/yx_pages/page_inventory_master_v53.js': ['YX113ProductActions', 'bulkDelete', 'rowActionsHTML', 'confirmDuplicateMerge', 'applySnapshotFromResponse', 'window.YX = window.YXHardLock', 'window.__YX_V51_PRODUCTS_FINAL_CAPTURE__', 'YX_V51_REMOVE_INVENTORY_ROW_ACTIONS', 'forceSelectedCustomerProductPanel', 'yx-v53-no-row-actions'],
-    'static/yx_pages/page_warehouse_master_v53.js': ['data-yx28-close-unplaced', 'clearWarehouseSearchAndReload', 'syncBatchSelectLimits', 'jumpProductToWarehouse'],
+    'static/yx_pages/page_warehouse_master_v54.js': ['data-yx28-close-unplaced', 'clearWarehouseSearchAndReload', 'syncBatchSelectLimits', 'jumpProductToWarehouse', '商品已送出並永久寫入格位', '資料庫回讀不到商品'],
     'static/yx_pages/page_orders_master_v53.js': ['YX113ProductActions', 'bulkDelete', 'rowActionsHTML', 'confirmDuplicateMerge', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse', 'window.YX = window.YXHardLock', 'window.__YX_V51_PRODUCTS_FINAL_CAPTURE__', 'YX_V53_VERIFY_PRODUCTS'],
     'static/yx_pages/page_master_order_master_v53.js': ['YX113ProductActions', 'bulkDelete', 'rowActionsHTML', 'confirmDuplicateMerge', 'refreshCustomerBoardsSafe', 'moveCustomer', 'applySnapshotFromResponse', 'window.YX = window.YXHardLock', 'window.__YX_V51_PRODUCTS_FINAL_CAPTURE__', 'YX_V53_VERIFY_PRODUCTS'],
 }
@@ -46,7 +46,7 @@ for js in (ROOT/'static/yx_pages').glob('*.js'):
     txt = js.read_text(encoding='utf-8', errors='ignore')
     if 'window.__YX_full-master' in txt:
         raise SystemExit(f'invalid window flag remains: {js}')
-print('v53 products/ship/warehouse fixed20 real loaded html/js/css/app smoke test OK')
+print('v54 warehouse batch/render/db real loaded html/js/css/app smoke test OK')
 
 for rel in ['static/yx_pages/page_inventory_master_v53.js','static/yx_pages/page_orders_master_v53.js','static/yx_pages/page_master_order_master_v53.js']:
     txt = (ROOT/rel).read_text(encoding='utf-8', errors='ignore')

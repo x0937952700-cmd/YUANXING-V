@@ -828,8 +828,24 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS common_sizes TEXT")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS is_archived INTEGER DEFAULT 0")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS archived_at TEXT")
+        # V54: ON CONFLICT 使用到的舊表若沒有唯一索引，Render 會在 init_db 直接失敗。
+        # 先清掉完全重複資料，再補齊唯一索引。
+        try:
+            cur.execute("DELETE FROM app_settings a USING app_settings b WHERE a.ctid < b.ctid AND a.key = b.key")
+            cur.execute("DELETE FROM ocr_usage a USING ocr_usage b WHERE a.ctid < b.ctid AND a.engine = b.engine AND a.period = b.period")
+            cur.execute("DELETE FROM image_hashes a USING image_hashes b WHERE a.ctid < b.ctid AND a.image_hash = b.image_hash")
+            cur.execute("DELETE FROM corrections a USING corrections b WHERE a.ctid < b.ctid AND a.wrong_text = b.wrong_text")
+            cur.execute("DELETE FROM submit_requests a USING submit_requests b WHERE a.ctid < b.ctid AND a.request_key = b.request_key")
+            cur.execute("DELETE FROM customer_aliases a USING customer_aliases b WHERE a.ctid < b.ctid AND a.alias = b.alias")
+        except Exception as e:
+            log_error('v54_pg_dedupe_unique_sources', str(e))
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_app_settings_key ON app_settings(key)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_image_hashes_hash ON image_hashes(image_hash)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_corrections_wrong_text ON corrections(wrong_text)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_submit_requests_key ON submit_requests(request_key)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_aliases_alias ON customer_aliases(alias)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid) WHERE COALESCE(customer_uid, '') <> ''")
     else:
         user_cols = _table_columns(cur, 'users')
         if 'role' not in user_cols:
@@ -847,8 +863,6 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN is_archived INTEGER DEFAULT 0")
         if 'archived_at' not in customer_cols:
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN archived_at TEXT")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
 
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
 
@@ -917,10 +931,12 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         legacy_schema = table_exists and ('area' in existing_cols or 'zone' not in existing_cols or 'column_index' not in existing_cols or 'slot_type' not in existing_cols or 'slot_number' not in existing_cols)
 
         if legacy_schema:
-            cur.execute("SELECT to_regclass('public.warehouse_cells_legacy')")
-            legacy_exists = cur.fetchone()[0] is not None
-            if not legacy_exists:
-                cur.execute('ALTER TABLE warehouse_cells RENAME TO warehouse_cells_legacy')
+            # V54 Render 修復：如果 public.warehouse_cells_legacy 已存在，舊版程式會跳過 rename，
+            # 導致 warehouse_cells 仍是舊 schema，後面的 ON CONFLICT 找不到唯一約束而讓 init_db 失敗。
+            # 這裡永遠把目前的 warehouse_cells 移到暫存表，再建立真正的新表，避免 Render 啟動卡住。
+            legacy_table = 'warehouse_cells_migrating_v54'
+            cur.execute(f'DROP TABLE IF EXISTS {legacy_table}')
+            cur.execute(f'ALTER TABLE warehouse_cells RENAME TO {legacy_table}')
             cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
                 id {pk},
                 zone {text} NOT NULL,
@@ -929,14 +945,13 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 slot_number INTEGER NOT NULL,
                 items_json {text},
                 note {text},
-                updated_at {text},
-                UNIQUE(zone, column_index, slot_type, slot_number)
+                updated_at {text}
             )""")
 
-            cur.execute("""
+            cur.execute(f"""
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'warehouse_cells_legacy'
+                WHERE table_schema = 'public' AND table_name = '{legacy_table}'
                 ORDER BY ordinal_position
             """)
             legacy_cols = {r[0] for r in cur.fetchall()}
@@ -965,8 +980,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                     COALESCE({items_expr}::text, '[]'),
                     COALESCE({note_expr}::text, ''),
                     COALESCE({updated_expr}::text, '{now()}')
-                FROM warehouse_cells_legacy
-                ON CONFLICT (zone, column_index, slot_type, slot_number) DO NOTHING
+                FROM {legacy_table}
+                ON CONFLICT DO NOTHING
             """)
         else:
             cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
@@ -977,8 +992,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 slot_number INTEGER NOT NULL,
                 items_json {text},
                 note {text},
-                updated_at {text},
-                UNIQUE(zone, column_index, slot_type, slot_number)
+                updated_at {text}
             )""")
             # FIX78: Render/PostgreSQL 不能執行 SQLite 的 PRAGMA。
             # 已存在的 PostgreSQL 表，用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 補齊欄位；
@@ -1063,10 +1077,21 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('warehouse_normalize_direct_model', str(e))
 
-    # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
+    # FIX25/V54: 清掉舊版內部備註，並補唯一索引，避免 Render/PostgreSQL ON CONFLICT 或格位儲存出錯。
     try:
         cur.execute(sql("UPDATE warehouse_cells SET note = '' WHERE note LIKE '__USER_%__' OR note IN ('__USER_ADDED__','__USER_INSERTED_SLOT__')"))
-        if not USE_POSTGRES:
+        if USE_POSTGRES:
+            cur.execute("""
+                DELETE FROM warehouse_cells a
+                USING warehouse_cells b
+                WHERE a.ctid < b.ctid
+                  AND a.zone = b.zone
+                  AND a.column_index = b.column_index
+                  AND COALESCE(a.slot_type, 'direct') = COALESCE(b.slot_type, 'direct')
+                  AND a.slot_number = b.slot_number
+            """)
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
+        else:
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
     except Exception as e:
         log_error('warehouse_final_index_cleanup', str(e))

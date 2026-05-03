@@ -5264,3 +5264,10 @@ html[data-yx-v53-products-writeback="locked"] [data-yx113-action="edit"]{display
 .yx108-slot-empty{color:#d00!important;}
 .yx108-slot-total{color:#05f!important;font-weight:900!important;}
 @media(max-width:980px){.warehouse-zone-card .zone-grid.six-grid.vertical-card-grid{grid-template-columns:repeat(6,minmax(108px,1fr))!important;}}
+
+
+/* V54 WAREHOUSE BATCH DB FIX: actually-loaded CSS lock */
+html[data-yx-v54-warehouse-batch-db-fixed="locked"] #warehouse-modal #yx121-save-cell::after{content:"";}
+#warehouse-modal .yx121-batch-row{align-items:center;}
+#warehouse-modal .yx121-batch-select:invalid{border-color:#f59e0b;}
+.yx-v54-save-locked{opacity:.65;pointer-events:none;}

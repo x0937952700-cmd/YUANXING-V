@@ -6,7 +6,7 @@
    目的：把功能拆成獨立模組，再由 各頁實際載入母版直接安裝，避免舊版函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'full-master-v53-products-ship-warehouse-fixed20-real-loaded-html-js-css-app-writeback') return;
+  if (window.YXHardLock && window.YXHardLock.version === 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -111,7 +111,7 @@
     });
   }
   window.YXHardLock = {
-    version: 'full-master-v53-products-ship-warehouse-fixed20-real-loaded-html-js-css-app-writeback',
+    version: 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback',
     register, install, installAll, registry, installed,
     clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
   };

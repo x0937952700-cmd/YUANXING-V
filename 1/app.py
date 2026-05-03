@@ -1504,13 +1504,22 @@ def api_warehouse_cell():
             return error_response(msg)
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
+        cells_after = warehouse_get_cells()
+        saved_cell = next((c for c in cells_after if str(c.get('zone')).strip().upper() == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
+        try:
+            saved_items = json.loads((saved_cell or {}).get('items_json') or '[]')
+        except Exception:
+            saved_items = []
+        if items and not saved_items:
+            log_error('warehouse_cell_verify_v54', f'{zone}-{column_index}-{slot_number} saved empty after write')
+            return error_response('倉庫格位寫入後資料庫回讀不到商品，已阻止假成功，請重新整理後再試')
         if items:
             top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
             record_recent_slot(current_username(), top_customer, zone, column_index, slot_number)
         log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
         add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        return jsonify(success=True, zones=warehouse_summary(), cells=cells_after, saved_cell=saved_cell)
     except Exception as e:
         log_error("warehouse_cell", str(e))
         return error_response("格位更新失敗")
@@ -1631,9 +1640,16 @@ def api_warehouse_available_items():
             details_all = source_details.get(key, [])
             if zone_filter:
                 zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
-                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
-                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
-                details_for_item = zone_details
+                if zone_details:
+                    total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
+                    placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
+                    details_for_item = zone_details
+                else:
+                    # V54：訂單 / 總單常沒有 A/B 欄位；若只照 zone_details 篩選，A/B 區下拉會空白，
+                    # 使用者就無法批量加入。沒有指定區域的來源允許在目前 A/B 區加入，並用全倉已放數扣除，避免重複放。
+                    total_qty = int(total_qty_all or 0)
+                    placed_qty = int(placed_all.get(key, 0) or 0)
+                    details_for_item = details_all
             else:
                 total_qty = int(total_qty_all or 0)
                 placed_qty = int(placed_all.get(key, 0) or 0)

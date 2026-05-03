@@ -1,0 +1,16 @@
+V54 倉庫圖批量加入 + Render DB 啟動修復
+
+實際寫回檔案：
+- templates/base.html：warehouse 實際載入 page_warehouse_master_v54.js，快取版本 V54。
+- templates/module.html：倉庫圖 HTML 標記升 V54，批量儲存按鈕文字改為「送出商品」。
+- static/yx_pages/page_warehouse_master_v54.js：批量加入送出後驗證資料庫回讀，成功後刷新倉庫格與未錄入清單。
+- static/style.css：加入 V54 倉庫圖批量寫入鎖定樣式。
+- app.py：/api/warehouse/cell 寫入後立刻回讀資料庫，若商品回讀不到就回錯，不再假成功；/api/warehouse/available-items 修正沒有 A/B 區欄位的訂單/總單也能在目前 A/B 區下拉加入，並用全倉已放數扣除避免重複。
+- db.py：修正 Render PostgreSQL 舊 warehouse_cells schema 造成 ON CONFLICT 無唯一約束錯誤；補齊 app_settings/ocr_usage/image_hashes/corrections/submit_requests/customer_aliases 的唯一索引；warehouse_cells 正規化後建立唯一索引，避免重複格位造成永久寫入失敗。
+- static/pwa.js / static/service-worker.js / static/manifest.webmanifest：快取版本 V54，避免瀏覽器吃舊檔。
+
+已測試：
+- Python compileall 通過。
+- 全部 JS node --check 通過。
+- tools/smoke_test.py 通過。
+- Flask test client 通過：老闆登入、建立訂單、A 區未錄入可查、批量商品寫入 A-1-1、重新呼叫 /api/warehouse 從資料庫回讀仍存在、未錄入剩餘件數正確由 5 變 2、A/B 各 1~6 欄每欄保底 20 格。

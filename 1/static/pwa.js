@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v53-products-ship-warehouse-fixed20-real-loaded-html-js-css-app-writeback';
+  const PWA_VERSION = 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
