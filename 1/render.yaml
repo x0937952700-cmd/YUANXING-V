@@ -1,4 +1,4 @@
-# V29 button/month/edit/merge lock: Render build/start kept stable; smoke test retained.
+# V44 mainfile real repaired lock: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing

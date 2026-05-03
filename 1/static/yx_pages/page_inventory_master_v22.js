@@ -239,6 +239,7 @@
     window.__YX_V42_VISUAL_TOAST__ = true;
     window.toast = window.showToast = window.notify = function(message, kind='ok'){
       try{
+        const __yxActive=document.activeElement; const __yxStart=(__yxActive&&(__yxActive.matches?.('input,textarea,select,[contenteditable=\"true\"]')))?(__yxActive.selectionStart||0):0; const __yxEnd=(__yxActive&&(__yxActive.matches?.('input,textarea,select,[contenteditable=\"true\"]')))?(__yxActive.selectionEnd||0):0;
         let box = document.getElementById('yx-v20-toast');
         if(!box){ box=document.createElement('div'); box.id='yx-v20-toast'; box.setAttribute('aria-live','polite'); document.body.appendChild(box); }
         box.className = 'yx-v20-toast-card ' + (kind || 'ok');
@@ -248,7 +249,8 @@
         box.innerHTML = `<strong>${kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功')}</strong><div>${safe}</div>`;
         box.classList.add('show');
         clearTimeout(window.__YX_V20_TOAST_TIMER__);
-        window.__YX_V20_TOAST_TIMER__ = setTimeout(()=>box.classList.remove('show'), 2600);
+        try{ if(__yxActive && document.contains(__yxActive) && __yxActive.matches?.('input,textarea,select,[contenteditable=\"true\"]')){ setTimeout(()=>{try{__yxActive.focus({preventScroll:true}); if('selectionStart' in __yxActive) __yxActive.setSelectionRange(__yxStart,__yxEnd);}catch(_e){}},0); } }catch(_e){}
+        window.__YX_V20_TOAST_TIMER__ = setTimeout(()=>box.classList.remove('show'), 1800);
       }catch(_e){ try{ console.log(message); }catch(_e2){} }
     };
   }
@@ -525,12 +527,18 @@
     window.__YX112_ROWS__ = window.__YX112_ROWS__ || {};
     window.__yx63Rows = window.__yx63Rows || {};
     if (Array.isArray(rows)) {
-      try { window.YXPageUndo?.snapshot?.('product:'+source, ()=>{ rowsStore(source, JSON.parse(JSON.stringify(window.__YX_V42_UNDO_ROWS__||[]))); renderSummary(source); renderCards(source); }); window.__YX_V42_UNDO_ROWS__ = JSON.parse(JSON.stringify(state.rows[source] || [])); } catch(_e) {}
       state.rows[source] = rows;
       window.__YX112_ROWS__[source] = rows;
       window.__yx63Rows[source] = rows;
     }
     return state.rows[source] || window.__YX112_ROWS__[source] || window.__yx63Rows[source] || [];
+  }
+  function cloneRows(rows){ try{return JSON.parse(JSON.stringify(rows||[]));}catch(_e){return Array.isArray(rows)?rows.slice():[];} }
+  function pushProductUndo(source,label){
+    try{
+      const before=cloneRows(rowsStore(source));
+      window.YXPageUndo?.snapshot?.(label||('商品操作 '+source), ()=>{ rowsStore(source, cloneRows(before)); clearSelected(source); renderSummary(source); renderCards(source); try{ window.YX113CustomerRegions?.renderFromCurrentRows?.(); }catch(_e){} });
+    }catch(_e){}
   }
   function filteredRows(source){
     let rows = [...rowsStore(source)];
@@ -601,7 +609,7 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -1045,19 +1053,19 @@
       const zf = ev.target?.closest?.('[data-yx132-zone-filter]');
       if (zf) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = zf.dataset.source || source; state.zoneFilter[s] = zf.dataset.yx132ZoneFilter || 'ALL'; syncZoneButtons(s); renderSummary(s); renderCards(s); return; }
       const bt = ev.target?.closest?.('[data-yx132-batch-transfer]');
-      if (bt) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await batchTransfer(bt.dataset.source || source, bt.dataset.yx132BatchTransfer); }catch(e){ YX.toast(e.message || '批量移動失敗','error'); } return; }
+      if (bt) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bt.dataset.source || source,'批量移動/加到清單'); await batchTransfer(bt.dataset.source || source, bt.dataset.yx132BatchTransfer); }catch(e){ YX.toast(e.message || '批量移動失敗','error'); } return; }
       const bz = ev.target?.closest?.('[data-yx132-batch-zone]');
-      if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
+      if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bz.dataset.source || source,'移動 A/B 區'); await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
       const editAll = ev.target?.closest?.('[data-yx128-edit-all]');
-      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s=editAll.dataset.yx128EditAll; try{ if(state.editAll[s]) await saveAllEdits(s); else beginBatchEdit(s); }catch(e){ YX.toast(e.message || '批量編輯失敗','error'); } return; }
+      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s=editAll.dataset.yx128EditAll; try{ if(state.editAll[s]){ pushProductUndo(s,'批量編輯儲存'); await saveAllEdits(s); } else beginBatchEdit(s); }catch(e){ YX.toast(e.message || '批量編輯失敗','error'); } return; }
       const cancelAll = ev.target?.closest?.('[data-yx128-cancel-all]');
       if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); cancelBatchEdit(cancelAll.dataset.yx128CancelAll); return; }
       const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
-      if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
+      if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(saveAll.dataset.yx128SaveAll,'批量編輯儲存'); await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
       const rowAction = ev.target?.closest?.('[data-yx131-row-action]');
       if (rowAction) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await handleRowAction(rowAction.dataset.source || source, rowAction.dataset.id, rowAction.dataset.yx131RowAction); }catch(e){ YX.toast(e.message || '清單操作失敗','error'); } return; }
       const cardSave = ev.target?.closest?.('[data-yx128-card-save]');
-      if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
+      if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(c.dataset.source,'小卡編輯儲存'); await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
       const cardCancel = ev.target?.closest?.('[data-yx128-card-cancel]');
       if (cardCancel) { const c = cardCancel.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); renderCards(c.dataset.source); return; } }
       const row = ev.target?.closest?.('.yx113-summary-row[data-source]');
@@ -1080,9 +1088,9 @@
         clearSelected(s); syncSelectButton(s); renderCards(s); return;
       }
       const bm = ev.target?.closest?.('[data-yx113-batch-material]');
-      if (bm) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await bulkMaterial(bm.dataset.yx113BatchMaterial); }catch(e){ YX.toast(e.message || '批量材質失敗','error'); } return; }
+      if (bm) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bm.dataset.yx113BatchMaterial,'批量材質'); await bulkMaterial(bm.dataset.yx113BatchMaterial); }catch(e){ YX.toast(e.message || '批量材質失敗','error'); } return; }
       const bd = ev.target?.closest?.('[data-yx113-batch-delete]');
-      if (bd) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await bulkDelete(bd.dataset.yx113BatchDelete); }catch(e){ YX.toast(e.message || '批量刪除失敗','error'); } return; }
+      if (bd) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bd.dataset.yx113BatchDelete,'批量刪除'); await bulkDelete(bd.dataset.yx113BatchDelete); }catch(e){ YX.toast(e.message || '批量刪除失敗','error'); } return; }
       const card = ev.target?.closest?.('.yx113-product-card,.yx112-product-card');
       const act = ev.target?.closest?.('[data-yx113-action],[data-yx112-action]')?.getAttribute('data-yx113-action') || ev.target?.closest?.('[data-yx112-action]')?.getAttribute('data-yx112-action');
       if (!card || !act) return;
@@ -1303,7 +1311,7 @@
       existing.querySelector('.yx113-customer-count,.yx116-customer-count')?.replaceChildren(document.createTextNode(`${qtyTotal}件 / ${rowCount}筆`));
       return existing;
     }
-    const html = `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card yx-v15-force-customer-card" data-customer-name="${esc(customer)}" data-customer="${esc(customer)}" data-region="北區"><span class="yx113-customer-left yx116-customer-name">${esc(customer)}</span><span class="yx113-customer-tag yx116-customer-tag"></span><span class="yx113-customer-count yx116-customer-count">${qtyTotal}件 / ${rowCount}筆</span></button>`;
+    const html = `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card yx-v15-force-customer-card" data-customer-name="${esc(customer)}" data-customer="${esc(customer)}" data-region="北區"><span class="yx113-customer-left yx116-customer-name yx-v43-big-customer-name">${esc(customer)}</span><span class="yx113-customer-tag yx116-customer-tag"></span><span class="yx113-customer-count yx116-customer-count">${qtyTotal}件 / ${rowCount}筆</span></button>`;
     ['region-north','customers-north'].forEach(id => {
       const box = $(id); if (!box) return;
       box.querySelector('.empty-state-card')?.remove();
@@ -1431,6 +1439,7 @@
       const requestKey = `v33-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const activeZone = activeZoneForSource(m);
       toast(`送出中：${items.length} 筆商品`, 'ok');
+      pushProductUndo(m, '新增商品');
       // v20：先把商品與客戶卡直接畫到目前頁面，使用者不用等後端 GET 才看到。
       const preOptimistic = submittedRowsFor(m, customer, items, activeZone);
       try {
@@ -1441,6 +1450,7 @@
         }
         if (customer && (m === 'orders' || m === 'master_order')) {
           forceCustomerCardVisible(customer, m);
+          try { window.YX113CustomerRegions?.renderFromCurrentRows?.(); forceCustomerCardVisible(customer, m); } catch(_e) {}
           window.__YX_SELECTED_CUSTOMER__ = customer;
         }
         YX.toast('送出中，已先顯示；成功後會換成後端真實資料', 'ok');
@@ -1614,3 +1624,104 @@
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
+
+
+/* ===== V44 MAINFILE REAL FIX: focus-safe toast + page undo picker + no legacy jump ===== */
+(function(){
+  'use strict';
+  if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;
+  window.__YX_V44_COMMON_MAINFILE_FIX__ = true;
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const mod = () => document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || '';
+  let toastTimer = null;
+  function focusSnapshot(){
+    const a = document.activeElement;
+    if (!a || !a.matches?.('input,textarea,select,[contenteditable="true"]')) return null;
+    let s = null, e = null;
+    try { s = a.selectionStart; e = a.selectionEnd; } catch(_e) {}
+    return {el:a, s, e, v:a.value};
+  }
+  function restoreFocus(snap){
+    if (!snap || !snap.el || !document.contains(snap.el)) return;
+    const a = document.activeElement;
+    if (a === snap.el) return;
+    try { snap.el.focus({preventScroll:true}); if (snap.s != null && snap.el.setSelectionRange) snap.el.setSelectionRange(snap.s, snap.e ?? snap.s); } catch(_e) {}
+  }
+  window.toast = window.showToast = window.notify = function(message, kind='ok'){
+    const snap = focusSnapshot();
+    let box = document.getElementById('yx-v20-toast');
+    if (!box) { box = document.createElement('div'); box.id = 'yx-v20-toast'; document.body.appendChild(box); }
+    box.setAttribute('aria-live','polite'); box.setAttribute('role','status'); box.tabIndex = -1;
+    box.className = 'yx-v20-toast-card ' + (kind || 'ok');
+    box.innerHTML = `<strong>${kind==='error'?'錯誤':kind==='warn'?'提醒':'完成'}</strong><span>${esc(message || '')}</span>`;
+    box.style.display = 'block';
+    box.style.pointerEvents = 'none';
+    box.querySelectorAll('*').forEach(x=>x.style.pointerEvents='none');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>{ try{ box.style.display='none'; }catch(_e){} }, 2300);
+    restoreFocus(snap);
+  };
+  if (window.YXHardLock) window.YXHardLock.toast = window.toast;
+  async function api(url,opt={}){
+    const r = await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
+    const t = await r.text(); let d={}; try{ d=t?JSON.parse(t):{}; }catch(_e){ d={success:false,error:t}; }
+    if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d;
+  }
+  function actionAllowed(a,e){
+    const m = mod();
+    if (m === 'inventory') return e === 'inventory';
+    if (m === 'orders') return e === 'orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'master_order') return e === 'master_orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'ship') return e === 'shipping_records' || a === 'ship' || e === 'orders' || e === 'master_orders' || e === 'inventory';
+    if (m === 'warehouse') return e === 'warehouse_cells';
+    return true;
+  }
+  async function openUndoPicker(){
+    let modal = document.getElementById('yx-v44-undo-modal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id='yx-v44-undo-modal'; modal.className='modal hidden yx-v44-undo-modal';
+      modal.innerHTML = '<div class="modal-card glass yx-v44-undo-card"><div class="modal-head"><div class="section-title">復原前一步操作</div><button class="ghost-btn small-btn" type="button" data-yx44-close-undo>關閉</button></div><div class="small-note">只顯示目前頁面最近 10 筆可還原操作，點哪一筆就還原哪一筆。</div><div id="yx-v44-undo-list" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', async ev=>{
+        if (ev.target.matches('[data-yx44-close-undo]') || ev.target === modal) { modal.classList.add('hidden'); return; }
+        const btn = ev.target.closest('[data-yx44-undo-id]'); if(!btn) return;
+        const id = btn.dataset.yx44UndoId; btn.disabled=true; btn.textContent='還原中…';
+        try{ const d = await api('/api/undo-last',{method:'POST',body:JSON.stringify({id})}); window.toast(d.message||'已還原','ok'); modal.classList.add('hidden'); setTimeout(()=>location.reload(),280); }
+        catch(e){ window.toast(e.message||'還原失敗','error'); btn.disabled=false; }
+      }, true);
+    }
+    const list = modal.querySelector('#yx-v44-undo-list'); list.innerHTML='<div class="empty-state-card compact-empty">載入中…</div>'; modal.classList.remove('hidden');
+    try{
+      const d = await api('/api/audit-trails?limit=80&undo=1');
+      const items = (Array.isArray(d.items)?d.items:[]).filter(x=>x.action_type!=='undo' && x.entity_type!=='undo' && actionAllowed(x.action_type,x.entity_type)).slice(0,10);
+      list.innerHTML = items.length ? items.map(x=>{
+        const a = x.action_type || ''; const e = x.entity_type || ''; const k = x.entity_key || ''; const at = x.created_at || x.timestamp || '';
+        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k)}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
+      }).join('') : '<div class="empty-state-card compact-empty">目前頁面沒有可還原的最近操作</div>';
+    } catch(e){ list.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message||'載入失敗')}</div>`; }
+  }
+  window.YXPageUndo = window.YXPageUndo || {};
+  window.YXPageUndo.open = openUndoPicker;
+  document.addEventListener('click', ev=>{ const b=ev.target.closest('.yx-page-undo-btn,#yx-page-undo-btn'); if(b){ ev.preventDefault(); openUndoPicker(); } }, true);
+  document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('.yx-page-undo-btn,#yx-page-undo-btn').forEach(b=>{ b.disabled=false; b.textContent='復原前一步'; }); }, {once:true});
+})();
+
+
+/* ===== V45 focus-safe toast override: green prompt never steals editing focus ===== */
+(function(){
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
+  window.toast=window.showToast=window.notify=function(message,kind){
+    kind=kind||'ok';
+    var active=document.activeElement, ss=0, se=0, isEdit=false;
+    try{isEdit=!!(active&&document.contains(active)&&active.matches&&active.matches('input,textarea,select,[contenteditable="true"]')); if(isEdit&&'selectionStart' in active){ss=active.selectionStart||0;se=active.selectionEnd||0;}}catch(e){}
+    var box=document.getElementById('yx-v20-toast');
+    if(!box){box=document.createElement('div');box.id='yx-v20-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
+    box.setAttribute('tabindex','-1'); box.style.pointerEvents='none'; box.style.userSelect='none';
+    box.className='yx-v20-toast-card '+kind+' show';
+    box.innerHTML='<strong>'+esc(kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功'))+'</strong><div>'+esc(message||'已完成')+'</div>';
+    try{ if(isEdit){ setTimeout(function(){try{active.focus({preventScroll:true}); if('selectionStart' in active) active.setSelectionRange(ss,se);}catch(e){}},0); } }catch(e){}
+    clearTimeout(box._yx45t); box._yx45t=setTimeout(function(){box.classList.remove('show');},1800);
+  };
+})();
+/* ===== END V45 focus-safe toast override ===== */

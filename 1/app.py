@@ -275,7 +275,7 @@ def add_cache_headers(response):
         response.headers['Expires'] = '0'
         return response
     if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'  # V43 no stale static cache
         response.headers.pop('Pragma', None)
         response.headers.pop('Expires', None)
         return response
@@ -1419,7 +1419,7 @@ def api_customers_move():
             before_region = ''
         else:
             before_region = (row.get("region") or "").strip()
-            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
+            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
         yx_v35_safe_side_effect('customer_move_log', log_action, current_username(), f"移動客戶 {name} 到 {region}")
         yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         yx_v35_safe_side_effect('customer_move_notify', notify_sync_event, kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
@@ -1859,9 +1859,9 @@ def api_customer_items_batch_zone():
             conn.rollback(); raise
         finally:
             conn.close()
-        add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
-        log_action(current_username(), f"批量移到 {zone} 區，共 {count} 筆")
-        notify_sync_event(kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
+        yx_v35_safe_side_effect('batch_zone_audit', add_audit_trail, current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
+        yx_v35_safe_side_effect('batch_zone_log', log_action, current_username(), f"批量移到 {zone} 區，共 {count} 筆")
+        yx_v35_safe_side_effect('batch_zone_notify', notify_sync_event, kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
         return jsonify(success=True, count=count, zone=zone, snapshots=yx_v22_product_snapshots(), customers=get_customers())
     except Exception as e:
         log_error("customer_items_batch_zone", str(e))
@@ -2114,8 +2114,8 @@ def api_warehouse_return_unplaced():
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
         log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
-        add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
-        notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
+        yx_v35_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        yx_v35_safe_side_effect('warehouse_return_notify', notify_sync_event, kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
         return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
@@ -2609,7 +2609,7 @@ def _delete_rows_by_ids(table, ids):
     conn.commit(); conn.close()
     return count
 
-AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells'}
+AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells', 'customer_profiles', 'customer_items'}
 AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert'}
 
 @app.route('/api/audit-trails', methods=['GET'])
@@ -2617,7 +2617,8 @@ AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship
 def api_audit_trails():
     """FIX113：差異紀錄只顯示當天：訂單 / 總單 / 庫存進貨 / 出貨 / 倉庫圖。
     客戶資料、OCR 修正、登入、代辦、customer_items 等舊雜訊一律不顯示。"""
-    if not _is_admin_user():
+    undo_mode = (request.args.get('undo') or '').strip() in ('1','true','yes')
+    if not _is_admin_user() and not undo_mode:
         return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
     limit = int(request.args.get('limit') or 200)
     username = (request.args.get('username') or '').strip()
@@ -2637,6 +2638,8 @@ def api_audit_trails():
             continue
         item = _decorate_audit_item(item)
         item['created_at'] = _format_24h(item.get('created_at'))
+        if undo_mode and (item.get('username') or '') != current_username() and not _is_admin_user():
+            continue
         if username and username not in (item.get('username') or ''):
             continue
         if entity_type and entity_type not in (item.get('entity_type') or '') and entity_type not in (item.get('entity_label') or ''):

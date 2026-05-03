@@ -1,6 +1,6 @@
-# V29 button/month/edit/merge lock: keep existing app entrypoint, no page/event logic changes.
+# V44 mainfile real repaired lock: keep existing app entrypoint, no page/event logic changes.
 """
-Render / Gunicorn entrypoint. V29 button/month/edit/merge lock build.
+Render / Gunicorn entrypoint. V44 mainfile real repaired lock build.
 This file exists so both of these start commands work:
   gunicorn wsgi:app --bind 0.0.0.0:$PORT
   gunicorn app:app --config gunicorn.conf.py

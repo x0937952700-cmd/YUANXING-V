@@ -3849,3 +3849,5 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         try: conn.close()
         except Exception: pass
 
+
+# V45_REAL_MAINFILE_REPAIR_DB_MARKER: migrations in init_db already ensure PostgreSQL/SQLite columns and warehouse unique index.

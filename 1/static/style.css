@@ -5493,3 +5493,51 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 .yx-page-undo-btn{margin-left:8px!important;}
 @media (max-width: 760px){.yx113-table,.yx128-inline-table,.yx113-table th,.yx113-table td{font-size:20px!important;}.yx113-table th:nth-child(4),.yx113-table td:nth-child(4){min-width:300px!important;}.customer-region-card .yx113-customer-left,.customer-region-card .yx116-customer-name{font-size:28px!important;}}
 /* ===== END V42 MAINFILE INTEGRATED ===== */
+
+
+/* ===== V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */
+/* 庫存 / 訂單 / 總單：縮小材質、月份、總數量、A/B區，支數x件數吃掉空間；不顯示操作欄 */
+.yx113-table-wrap{overflow-x:auto!important;}
+.yx113-table.yx128-inline-table{width:100%!important;table-layout:auto!important;border-collapse:collapse!important;}
+.yx113-table.yx128-inline-table th,
+.yx113-table.yx128-inline-table td{font-size:1.45rem!important;line-height:1.45!important;font-weight:800!important;vertical-align:middle!important;}
+.yx113-table.yx128-inline-table th:nth-child(1),
+.yx113-table.yx128-inline-table td:nth-child(1),
+.yx113-table.yx128-inline-table th:nth-child(2),
+.yx113-table.yx128-inline-table td:nth-child(2),
+.yx113-table.yx128-inline-table th:nth-child(5),
+.yx113-table.yx128-inline-table td:nth-child(5),
+.yx113-table.yx128-inline-table th:nth-child(6),
+.yx113-table.yx128-inline-table td:nth-child(6){width:1%!important;min-width:0!important;max-width:110px!important;white-space:nowrap!important;padding-left:10px!important;padding-right:10px!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(1),
+.yx113-table.yx128-inline-table td:nth-child(1){text-align:left!important;max-width:130px!important;}
+.yx113-table.yx128-inline-table th:nth-child(3),
+.yx113-table.yx128-inline-table td:nth-child(3){width:15%!important;min-width:150px!important;white-space:nowrap!important;text-align:center!important;}
+.yx113-table.yx128-inline-table th:nth-child(4),
+.yx113-table.yx128-inline-table td:nth-child(4){width:70%!important;min-width:520px!important;text-align:left!important;white-space:normal!important;word-break:break-word!important;overflow-wrap:anywhere!important;}
+.yx113-table.yx128-inline-table th:nth-child(n+7),
+.yx113-table.yx128-inline-table td:nth-child(n+7){display:none!important;}
+.yx113-table.yx128-inline-table .material-text,
+.yx113-table.yx128-inline-table .mat,
+.yx113-table.yx128-inline-table .month,
+.yx113-table.yx128-inline-table .qty,
+.yx113-table.yx128-inline-table .zone{white-space:nowrap!important;}
+.yx113-table.yx128-inline-table .yx-support-line{display:block!important;white-space:normal!important;}
+.yx113-table.yx128-inline-table input.yx113-row-check{width:20px!important;height:20px!important;margin-right:8px!important;vertical-align:middle!important;}
+/* 北中南客戶名放大兩倍；FOB/CNF 保留原本小白膠囊 */
+.customer-region-card .yx116-customer-name,
+.customer-region-card .yx113-customer-left,
+.yx114-customer-card .yx116-customer-name,
+.yx113-customer-card .yx113-customer-left,
+.customer-region-card [class*="customer-name"]{font-size:2rem!important;font-weight:900!important;line-height:1.18!important;letter-spacing:.02em!important;}
+.customer-region-card .yx116-customer-count,
+.customer-region-card .yx113-customer-count{font-size:1.35rem!important;font-weight:900!important;white-space:nowrap!important;}
+.customer-region-card .yx116-customer-tag,
+.customer-region-card .yx113-customer-tag{font-size:.95rem!important;font-weight:700!important;background:rgba(255,255,255,.86)!important;border:1px solid rgba(148,163,184,.35)!important;color:#1f2937!important;border-radius:999px!important;min-width:58px!important;height:28px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;padding:0 14px!important;}
+.customer-region-card{min-height:74px!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto auto!important;align-items:center!important;gap:12px!important;}
+/* 綠色提示完全不吃焦點，不引起版面流動 */
+#yx-v20-toast,.yx-v20-toast-card,#yx-ship-toast,.yx-ship-toast{position:fixed!important;right:18px!important;top:18px!important;z-index:2147483000!important;pointer-events:none!important;user-select:none!important;touch-action:none!important;max-width:min(360px,calc(100vw - 36px))!important;contain:layout style paint!important;will-change:opacity,transform!important;}
+#yx-v20-toast *, .yx-v20-toast-card *, #yx-ship-toast *, .yx-ship-toast *{pointer-events:none!important;user-select:none!important;}
+/* 復原按鈕 */
+.yx-page-undo-btn{margin-left:8px!important;}
+/* ===== END V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */

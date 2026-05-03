@@ -469,7 +469,7 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-customer-variants="${YX.esc(JSON.stringify(c.merge_names || [name]))}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-customer-variants="${YX.esc(JSON.stringify(c.merge_names || [name]))}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name yx-v43-big-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
 
   function qtyFromProduct(text, fallback){
@@ -567,7 +567,7 @@
     (existingItems || []).forEach(c => {
       const n = YX.clean(c.name || c.customer_name || '');
       if (!n) return;
-      byName.set(n, Object.assign({}, c, {relation_counts:{}, item_count:0, row_count:0, merge_names:Array.isArray(c.merge_names) ? c.merge_names : [n]}));
+      byName.set(n, Object.assign({}, c, {relation_counts:Object.assign({}, c.relation_counts || {}), item_count:Number(c.item_count || 0), row_count:Number(c.row_count || 0), merge_names:Array.isArray(c.merge_names) ? c.merge_names : [n]}));
     });
     const seen = new Set();
     const add = (name, source, row) => {
@@ -895,7 +895,7 @@
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean=(v)=>String(v??'').replace(/\s+/g,' ').trim();
   async function api(url,opt={}){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await res.text();let data={};try{data=txt?JSON.parse(txt):{};}catch(_){data={success:false,error:txt||'伺服器回應格式錯誤'};}if(!res.ok||data.success===false)throw new Error(data.error||data.message||`請求失敗 ${res.status}`);return data;}
-  function toast(msg,kind='ok'){let box=$('yx-ship-toast');if(!box){box=document.createElement('div');box.id='yx-ship-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}box.className='yx-ship-toast '+kind;box.style.pointerEvents='none';box.setAttribute('tabindex','-1');box.textContent=msg;clearTimeout(box._t);box._t=setTimeout(()=>box.classList.remove('ok','warn','error'),2800);}
+  function toast(msg,kind='ok'){const a=document.activeElement;let ss=0,se=0;try{if(a&&a.matches?.('input,textarea,select,[contenteditable=\"true\"]')){ss=a.selectionStart||0;se=a.selectionEnd||0;}}catch(_e){}let box=$('yx-ship-toast');if(!box){box=document.createElement('div');box.id='yx-ship-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}box.className='yx-ship-toast '+kind+' show';box.style.pointerEvents='none';box.setAttribute('tabindex','-1');box.textContent=msg;try{if(a&&document.contains(a)&&a.matches?.('input,textarea,select,[contenteditable=\"true\"]'))setTimeout(()=>{try{a.focus({preventScroll:true}); if('selectionStart' in a)a.setSelectionRange(ss,se);}catch(_e){}},0);}catch(_e){}clearTimeout(box._t);box._t=setTimeout(()=>box.classList.remove('show','ok','warn','error'),1800);}
   function normalizeText(t){return clean(t).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');}
   function splitProduct(text){const raw=normalizeText(text);const i=raw.indexOf('=');return{size:i>=0?raw.slice(0,i):raw,support:i>=0?raw.slice(i+1):''};}
   function supportSegments(support){return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).map(seg=>{const m=seg.match(/^(.*?)(?:x\s*(\d+))?$/i);const base=clean((m&&m[1])||seg).replace(/x\s*$/i,'');const mult=Number((m&&m[2])||1);return{base:base||seg.replace(/x\s*\d+$/i,''),mult:Math.max(1,Number.isFinite(mult)?mult:1)};});}
@@ -918,7 +918,7 @@
   function setCount(text){const el=$('ship-customer-item-count');if(el)el.textContent=text;}
   function syncHiddenSelect(){const select=$('ship-customer-item-select');if(!select)return;select.hidden=true;select.setAttribute('hidden','hidden');select.setAttribute('aria-hidden','true');select.style.display='none';select.innerHTML='<option value="">商品標籤清單已顯示在下方</option>';}
   function renderCustomers(){const box=$('ship-customer-quick-list');if(box)box.replaceChildren();}
-  async function loadCustomers(){try{const cards=Array.from(document.querySelectorAll('[data-customer-name]')).map(el=>({name:el.dataset.customerName||el.dataset.customer||''})).filter(x=>x.name);if(cards.length){state.customers=cards;renderCustomers();return;}const d=await api('/api/customers?ship_single=1&light=1&ts='+Date.now());state.customers=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]);renderCustomers();}catch(_){}}
+  async function loadCustomers(){try{const d=await api('/api/customers?ship_single=1&light=1&ts='+Date.now());state.customers=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]); try{ if(window.YX113CustomerRegions&&window.YX113CustomerRegions.loadCustomerBlocks) window.YX113CustomerRegions.loadCustomerBlocks(true); }catch(_e){} renderCustomers();}catch(_){}}
   function renderItems(){const box=$('ship-customer-item-list');syncHiddenSelect();if(!box){return;}box.classList.remove('yx-final-ship-product-list-hidden');box.classList.add('yx-final-ship-tag-menu','yx-ship-one-column-menu');if(!state.customer){setCount('請先點選北 / 中 / 南客戶');box.innerHTML='<div class="empty-state-card compact-empty">請先點選北 / 中 / 南客戶</div>';return;}if(state.loadingName===state.customer){setCount(`${state.customer}：商品載入中…`);box.innerHTML='<div class="empty-state-card compact-empty">商品載入中…</div>';return;}if(!state.items.length){setCount(`${state.customer}：0 筆 / 0 件`);box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>';return;}const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);setCount(`${state.customer}：${state.items.length} 筆 / ${total} 件`);box.innerHTML=state.items.map((it,i)=>`<button type="button" class="yx-ship-product-option-row" data-ship-add-index="${i}"><span class="yx-ship-option-source">出貨源：${esc(shipSourceLabel(it))}</span><span class="yx-ship-option-material">${esc(materialOf(it)||'未填材質')}</span><span class="yx-ship-option-text">${esc(it.product_text||'')}</span><strong>${qtyFromText(it.product_text,it.qty)}件</strong><em>加入</em></button>`).join('');}
   async function loadItems(name,opts={}){setCustomer(name||state.customer);renderItems();if(!state.customer)return;const key=state.customer;const cached=state.itemCache.get(key);if(!opts.force&&cached&&Date.now()-cached.at<15000){state.items=cached.items;renderItems();return;}if(state.loadingName===key)return;state.loadingName=key;renderItems();try{const d=await api('/api/customer-items?name='+encodeURIComponent(state.customer)+'&fast=1&ship_single=1'+variantsQuery()+'&ts='+Date.now());state.items=Array.isArray(d.items)?d.items:[];state.itemCache.set(key,{items:state.items,at:Date.now()});renderItems();}finally{state.loadingName='';renderItems();}}
   function selectedCardHtml(it,i){const p=splitProduct(it.product_text);const q=selectedQtyOf(it);const over=warnOverQty(it);return`<div class="yx-ship-selected-html-card yx-ship-selected-tag-card yx-ship-one-line-card ${over?'is-over-qty':''}" data-selected-card="${i}"><div class="yx-ship-selected-main yx-ship-selected-main-editable" title="直接在這一行修改支數；例如 220x12 改成 220x9，或刪掉不要的 +段"><span class="yx-ship-source-pill">出貨源：${esc(shipSourceLabel(it))}</span><span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span><span class="yx-ship-selected-size">${esc(p.size)}=</span><input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="直接改 220x12 或刪除不要的 +段"><span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span><span class="yx-ship-over-note" data-over-note="${i}">${over?`超出可出貨 ${over.max} 件`:''}</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div></div>`;}
@@ -1057,3 +1057,160 @@
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
+
+
+/* ===== V44 MAINFILE REAL FIX: focus-safe toast + page undo picker + no legacy jump ===== */
+(function(){
+  'use strict';
+  if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;
+  window.__YX_V44_COMMON_MAINFILE_FIX__ = true;
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const mod = () => document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || '';
+  let toastTimer = null;
+  function focusSnapshot(){
+    const a = document.activeElement;
+    if (!a || !a.matches?.('input,textarea,select,[contenteditable="true"]')) return null;
+    let s = null, e = null;
+    try { s = a.selectionStart; e = a.selectionEnd; } catch(_e) {}
+    return {el:a, s, e, v:a.value};
+  }
+  function restoreFocus(snap){
+    if (!snap || !snap.el || !document.contains(snap.el)) return;
+    const a = document.activeElement;
+    if (a === snap.el) return;
+    try { snap.el.focus({preventScroll:true}); if (snap.s != null && snap.el.setSelectionRange) snap.el.setSelectionRange(snap.s, snap.e ?? snap.s); } catch(_e) {}
+  }
+  window.toast = window.showToast = window.notify = function(message, kind='ok'){
+    const snap = focusSnapshot();
+    let box = document.getElementById('yx-v20-toast');
+    if (!box) { box = document.createElement('div'); box.id = 'yx-v20-toast'; document.body.appendChild(box); }
+    box.setAttribute('aria-live','polite'); box.setAttribute('role','status'); box.tabIndex = -1;
+    box.className = 'yx-v20-toast-card ' + (kind || 'ok');
+    box.innerHTML = `<strong>${kind==='error'?'錯誤':kind==='warn'?'提醒':'完成'}</strong><span>${esc(message || '')}</span>`;
+    box.style.display = 'block';
+    box.style.pointerEvents = 'none';
+    box.querySelectorAll('*').forEach(x=>x.style.pointerEvents='none');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>{ try{ box.style.display='none'; }catch(_e){} }, 2300);
+    restoreFocus(snap);
+  };
+  if (window.YXHardLock) window.YXHardLock.toast = window.toast;
+  async function api(url,opt={}){
+    const r = await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
+    const t = await r.text(); let d={}; try{ d=t?JSON.parse(t):{}; }catch(_e){ d={success:false,error:t}; }
+    if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d;
+  }
+  function actionAllowed(a,e){
+    const m = mod();
+    if (m === 'inventory') return e === 'inventory';
+    if (m === 'orders') return e === 'orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'master_order') return e === 'master_orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'ship') return e === 'shipping_records' || a === 'ship' || e === 'orders' || e === 'master_orders' || e === 'inventory';
+    if (m === 'warehouse') return e === 'warehouse_cells';
+    return true;
+  }
+  async function openUndoPicker(){
+    let modal = document.getElementById('yx-v44-undo-modal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id='yx-v44-undo-modal'; modal.className='modal hidden yx-v44-undo-modal';
+      modal.innerHTML = '<div class="modal-card glass yx-v44-undo-card"><div class="modal-head"><div class="section-title">復原前一步操作</div><button class="ghost-btn small-btn" type="button" data-yx44-close-undo>關閉</button></div><div class="small-note">只顯示目前頁面最近 10 筆可還原操作，點哪一筆就還原哪一筆。</div><div id="yx-v44-undo-list" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', async ev=>{
+        if (ev.target.matches('[data-yx44-close-undo]') || ev.target === modal) { modal.classList.add('hidden'); return; }
+        const btn = ev.target.closest('[data-yx44-undo-id]'); if(!btn) return;
+        const id = btn.dataset.yx44UndoId; btn.disabled=true; btn.textContent='還原中…';
+        try{ const d = await api('/api/undo-last',{method:'POST',body:JSON.stringify({id})}); window.toast(d.message||'已還原','ok'); modal.classList.add('hidden'); setTimeout(()=>location.reload(),280); }
+        catch(e){ window.toast(e.message||'還原失敗','error'); btn.disabled=false; }
+      }, true);
+    }
+    const list = modal.querySelector('#yx-v44-undo-list'); list.innerHTML='<div class="empty-state-card compact-empty">載入中…</div>'; modal.classList.remove('hidden');
+    try{
+      const d = await api('/api/audit-trails?limit=80&undo=1');
+      const items = (Array.isArray(d.items)?d.items:[]).filter(x=>x.action_type!=='undo' && x.entity_type!=='undo' && actionAllowed(x.action_type,x.entity_type)).slice(0,10);
+      list.innerHTML = items.length ? items.map(x=>{
+        const a = x.action_type || ''; const e = x.entity_type || ''; const k = x.entity_key || ''; const at = x.created_at || x.timestamp || '';
+        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k)}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
+      }).join('') : '<div class="empty-state-card compact-empty">目前頁面沒有可還原的最近操作</div>';
+    } catch(e){ list.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message||'載入失敗')}</div>`; }
+  }
+  window.YXPageUndo = window.YXPageUndo || {};
+  window.YXPageUndo.open = openUndoPicker;
+  document.addEventListener('click', ev=>{ const b=ev.target.closest('.yx-page-undo-btn,#yx-page-undo-btn'); if(b){ ev.preventDefault(); openUndoPicker(); } }, true);
+  document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('.yx-page-undo-btn,#yx-page-undo-btn').forEach(b=>{ b.disabled=false; b.textContent='復原前一步'; }); }, {once:true});
+})();
+
+
+/* ===== V45 focus-safe toast override: green prompt never steals editing focus ===== */
+(function(){
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
+  window.toast=window.showToast=window.notify=function(message,kind){
+    kind=kind||'ok';
+    var active=document.activeElement, ss=0, se=0, isEdit=false;
+    try{isEdit=!!(active&&document.contains(active)&&active.matches&&active.matches('input,textarea,select,[contenteditable="true"]')); if(isEdit&&'selectionStart' in active){ss=active.selectionStart||0;se=active.selectionEnd||0;}}catch(e){}
+    var box=document.getElementById('yx-v20-toast');
+    if(!box){box=document.createElement('div');box.id='yx-v20-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
+    box.setAttribute('tabindex','-1'); box.style.pointerEvents='none'; box.style.userSelect='none';
+    box.className='yx-v20-toast-card '+kind+' show';
+    box.innerHTML='<strong>'+esc(kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功'))+'</strong><div>'+esc(message||'已完成')+'</div>';
+    try{ if(isEdit){ setTimeout(function(){try{active.focus({preventScroll:true}); if('selectionStart' in active) active.setSelectionRange(ss,se);}catch(e){}},0); } }catch(e){}
+    clearTimeout(box._yx45t); box._yx45t=setTimeout(function(){box.classList.remove('show');},1800);
+  };
+})();
+/* ===== END V45 focus-safe toast override ===== */
+
+
+/* ===== V45 customer-region move safety: moving region must never clear customer goods ===== */
+(function(){
+  function clean(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
+  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
+  function normRegion(v){v=clean(v);return v.includes('中')?'中區':(v.includes('南')?'南區':'北區');}
+  function moveDom(name,region){
+    document.querySelectorAll('[data-customer-name],[data-customer]').forEach(function(card){
+      var n=clean(card.dataset.customerName||card.dataset.customer||''); if(n!==name)return; card.dataset.region=region;
+    });
+    var card=Array.from(document.querySelectorAll('[data-customer-name],[data-customer]')).find(function(el){return clean(el.dataset.customerName||el.dataset.customer||'')===name;});
+    var targetId=region==='中區'?'region-center':(region==='南區'?'region-south':'region-north');
+    var target=document.getElementById(targetId);
+    if(card&&target){var empty=target.querySelector('.empty-state-card'); if(empty)empty.remove(); if(!target.contains(card))target.appendChild(card);}
+  }
+  window.YXV45MoveCustomerSafe=async function(name,region){
+    name=clean(name); region=normRegion(region); if(!name)return;
+    var prevActive=document.querySelector('.customer-region-card.is-active,[data-customer-name].is-active');
+    moveDom(name,region);
+    try{var m=JSON.parse(localStorage.getItem('yx_customer_regions_v18')||'{}')||{};m[name]=region;localStorage.setItem('yx_customer_regions_v18',JSON.stringify(m));}catch(e){}
+    try{await api('/api/customers/move',{method:'POST',body:JSON.stringify({name:name,region:region,preserve_existing:true})}); window.toast&&window.toast(name+' 已移到'+region,'ok');}
+    catch(e){window.toast&&window.toast(e.message||'移動客戶失敗','error');}
+    try{ if(prevActive) prevActive.classList.add('is-active'); }catch(e){}
+  };
+  document.addEventListener('click',function(ev){
+    var b=ev.target&&ev.target.closest&&ev.target.closest('[data-yx113-customer-act]'); if(!b)return;
+    var act=b.dataset.yx113CustomerAct||''; if(!/^move-/.test(act))return;
+    var modal=document.getElementById('yx113-customer-actions'); var name=clean(modal&&modal.dataset.customer||''); if(!name)return;
+    ev.preventDefault();ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation(); if(modal)modal.classList.add('hidden');
+    var region=act==='move-center'?'中區':(act==='move-south'?'南區':'北區'); window.YXV45MoveCustomerSafe(name,region);
+  },true);
+})();
+/* ===== END V45 customer-region move safety ===== */
+
+
+/* ===== V45 ship preview submit lock: always show preview before deduct ===== */
+(function(){
+  function clean(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
+  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
+  function getItems(){try{var o=document.getElementById('ocr-text');var lines=(o&&o.value||'').split(/\n+/).map(clean).filter(Boolean);return lines.map(function(x){return{product_text:x,qty:(window.YX30EffectiveQty?window.YX30EffectiveQty(x,1):1)};});}catch(e){return []}}
+  document.addEventListener('click',async function(ev){
+    var btn=ev.target&&ev.target.closest&&ev.target.closest('#submit-btn,[data-ship-submit],button[type="submit"]'); if(!btn||!document.body||document.body.dataset.module!=='ship')return;
+    if(btn.id==='yx22-confirm-ship')return;
+    var panel=document.getElementById('ship-preview-panel')||document.getElementById('module-result');
+    var hasPreview=panel&&panel.textContent&&panel.textContent.indexOf('出貨預覽')>=0; if(hasPreview)return;
+    var customer=clean((document.getElementById('customer-name')||document.getElementById('ship-customer-search')||{}).value||window.__YX_SELECTED_CUSTOMER__||'');
+    var items=getItems(); if(!customer||!items.length)return;
+    ev.preventDefault(); ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
+    try{btn.disabled=true;var old=btn.textContent;btn.textContent='預覽中…';var payload={customer_name:customer,items:items,allow_inventory_fallback:true,skip_snapshot:true,request_key:'ship_v45_preview_'+Date.now()};var d=await api('/api/ship-preview',{method:'POST',body:JSON.stringify(payload)});
+      if(panel){panel.classList.remove('hidden');panel.style.display='block';var rows=Array.isArray(d.breakdown)?d.breakdown:[];panel.innerHTML='<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>客戶</span><b>'+customer+'</b><em></em></div><div><span>商品筆數</span><b>'+items.length+'</b><em>筆</em></div><div><span>確認後才扣</span><b>預覽</b><em></em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>件數</th><th>扣前→扣後</th><th>狀態</th></tr></thead><tbody>'+items.map(function(it,i){var r=rows[i]||{};var before=Number(r.before_qty||r.master_available||r.order_available||r.inventory_available||0);var q=Number(it.qty||1);return'<tr><td>'+(i+1)+'</td><td>'+it.product_text+'</td><td>'+q+'件</td><td>'+(before?before+' → '+Math.max(0,before-q):'待確認')+'</td><td>可確認</td></tr>';}).join('')+'</tbody></table><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>';panel.scrollIntoView({behavior:'smooth',block:'start'});document.getElementById('yx22-cancel-preview').onclick=function(){panel.classList.add('hidden')};document.getElementById('yx22-confirm-ship').onclick=async function(){var b=this;b.disabled=true;b.textContent='扣除中…';try{await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_v45_confirm_'+Date.now()})});panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>';window.toast&&window.toast('出貨完成','ok');}catch(e){window.toast&&window.toast(e.message||'出貨失敗','error');b.disabled=false;b.textContent='確認扣除';}};}
+    }catch(e){window.toast&&window.toast(e.message||'出貨預覽失敗','error');}
+    finally{btn.disabled=false;btn.textContent=old||'確認送出';}
+  },true);
+})();
+/* ===== END V45 ship preview submit lock ===== */

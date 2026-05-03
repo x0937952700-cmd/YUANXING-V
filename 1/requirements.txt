@@ -1,4 +1,4 @@
-# V29 button/month/edit/merge lock: dependency set kept stable; no new runtime packages.
+# V44 mainfile real repaired lock: dependency set kept stable; no new runtime packages.
 Flask==3.0.3
 gunicorn==22.0.0
 Werkzeug==3.0.6
