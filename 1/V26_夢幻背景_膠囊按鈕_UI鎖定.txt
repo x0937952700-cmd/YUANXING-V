@@ -1,0 +1,11 @@
+V26 夢幻背景 + 圖一膠囊按鈕 UI 鎖定版
+
+本版只做外觀鎖定，不改既有頁面按鈕事件、功能流程、資料庫邏輯。
+
+完成內容：
+1. 所有頁面背景改為使用「圖二_夢幻星空背景」。
+2. 所有頁面主要按鈕/功能按鈕/客戶操作按鈕/今日異動按鈕/倉庫操作按鈕套用「圖一_淡夢幻膠囊按鈕」視覺。
+3. 一般按鈕黑字；重要按鈕（確認、送出、儲存、出貨、刪除、完成、封存/黑名單類）紅字。
+4. 今日異動保留 V25 新版單一卡片鎖定，舊 summary/舊版區塊仍強制隱藏，避免舊版新版跳動。
+5. base.html / service-worker / pwa / manifest 全部更新 cache version：full-master-v26-dream-ui-lock，降低 Render/PWA/瀏覽器載入舊 CSS/JS 的機率。
+6. app.py / db.py / requirements.txt / wsgi.py / render.yaml 保留原本邏輯與啟動設定，不改功能事件，不移除 PostgreSQL migration 自動補表補欄位補索引。

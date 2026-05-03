@@ -1,3 +1,4 @@
+# V26 dream-ui lock: PostgreSQL/SQLite migration helpers unchanged; auto補表補欄位補索引 retained.
 
 import os
 import json
@@ -2714,11 +2715,22 @@ def _normalize_warehouse_items(items):
 def warehouse_get_cells():
     conn = get_db()
     cur = conn.cursor()
-    ensure_fixed_warehouse_grid(conn, cur)
-    cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
-    rows = rows_to_dict(cur)
-    conn.close()
-    return rows
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        # V25 safe fix: when missing slots are auto-completed during read, persist them
+        # immediately so PostgreSQL pooled connections do not roll them back on close.
+        conn.commit()
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        rows = rows_to_dict(cur)
+        return rows
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
 
 def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     conn = get_db()

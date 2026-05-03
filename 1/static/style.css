@@ -4750,3 +4750,255 @@ html.yx112-today-locked .yx112-today-summary,
 .yx-final-warehouse-menu{z-index:99999!important;}
 html.yx112-today-locked #today-summary-cards{display:none!important;}
 html.yx112-today-locked [data-today-panel].yx112-filter-hidden{display:none!important;}
+
+
+/* V25 known-issue safe fix: 今日異動只顯示新版單一卡片；舊 summary 不再短暫閃出 */
+body[data-module="today_changes"] #today-summary-cards,
+body[data-module="today_changes"] .yx112-today-summary{
+  display:none!important;
+  visibility:hidden!important;
+  height:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+
+/* ===== V26 DREAM UI LOCK: 全頁背景 + 圖一膠囊按鈕；只改外觀，不改事件/資料邏輯 ===== */
+:root{
+  --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v26-dream-ui-lock');
+  --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v26-dream-ui-lock');
+  --yx-dream-normal-text:#111111;
+  --yx-dream-important-text:#c02020;
+  --yx-dream-border:rgba(255,255,255,.82);
+  --yx-dream-shadow:0 10px 24px rgba(116,94,140,.12), inset 0 1px 0 rgba(255,255,255,.88);
+}
+html, body{
+  background-color:#fbfdff!important;
+  background-image:var(--yx-dream-bg)!important;
+  background-position:center center!important;
+  background-size:cover!important;
+  background-repeat:no-repeat!important;
+  min-height:100%!important;
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  background-image:var(--yx-dream-bg);
+  background-size:cover;
+  background-position:center center;
+  background-repeat:no-repeat;
+  transform:translateZ(0);
+}
+.page-shell,
+.auth-screen,
+.home-screen,
+.home-shell,
+.module-screen{
+  background:transparent!important;
+}
+.glass,
+.panel,
+.feature-card,
+.auth-card,
+.category-box,
+.zone-card,
+.customer-detail,
+.table-card,
+.card-list .card,
+.search-results .search-card,
+.modal-card,
+.result-card,
+.vertical-column-card,
+.deduct-card,
+.ship-preview-card,
+.ship-result-card{
+  background:rgba(255,255,255,.70)!important;
+  border-color:rgba(255,255,255,.78)!important;
+  backdrop-filter:blur(18px)!important;
+  -webkit-backdrop-filter:blur(18px)!important;
+}
+button,
+a.menu-btn,
+a.back-btn,
+a.home-mini-btn,
+.home-mini-btn,
+.primary-btn,
+.ghost-btn,
+.menu-btn,
+.back-btn,
+.icon-btn,
+.chip,
+.pill,
+.user-pill,
+.pwa-install-btn,
+#yx-final-warehouse-menu button,
+.yx-ship-product-option-row,
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card{
+  background-color:rgba(255,255,255,.72)!important;
+  background-image:var(--yx-dream-pill), linear-gradient(90deg, rgba(218,240,255,.75), rgba(255,224,238,.76), rgba(237,220,255,.66))!important;
+  background-position:center center!important;
+  background-size:100% 100%!important;
+  background-repeat:no-repeat!important;
+  color:var(--yx-dream-normal-text)!important;
+  border:1px solid var(--yx-dream-border)!important;
+  border-radius:999px!important;
+  box-shadow:var(--yx-dream-shadow)!important;
+  text-shadow:none!important;
+}
+button *,
+a.menu-btn *,
+a.back-btn *,
+a.home-mini-btn *,
+.home-mini-btn *,
+.primary-btn *,
+.ghost-btn *,
+.menu-btn *,
+.back-btn *,
+.icon-btn *,
+.chip *,
+.pill *,
+.user-pill *,
+.pwa-install-btn *,
+#yx-final-warehouse-menu button *,
+.customer-region-card *{
+  color:inherit!important;
+}
+button:hover,
+a.menu-btn:hover,
+a.back-btn:hover,
+a.home-mini-btn:hover,
+.home-mini-btn:hover,
+.primary-btn:hover,
+.ghost-btn:hover,
+.menu-btn:hover,
+.back-btn:hover,
+.icon-btn:hover,
+.chip:hover,
+.pill:hover,
+.pwa-install-btn:hover,
+#yx-final-warehouse-menu button:hover,
+.customer-region-card:hover{
+  transform:translateY(-1px);
+  filter:saturate(1.06) brightness(1.02);
+  box-shadow:0 14px 30px rgba(116,94,140,.18), inset 0 1px 0 rgba(255,255,255,.92)!important;
+}
+button:active,
+a.menu-btn:active,
+a.back-btn:active,
+a.home-mini-btn:active,
+.home-mini-btn:active,
+.primary-btn:active,
+.ghost-btn:active,
+.menu-btn:active,
+.back-btn:active,
+.icon-btn:active,
+.chip:active,
+.pill:active,
+.pwa-install-btn:active,
+#yx-final-warehouse-menu button:active,
+.customer-region-card:active{
+  transform:scale(.985);
+}
+button:disabled,
+button[disabled],
+.primary-btn:disabled,
+.ghost-btn:disabled{
+  opacity:.48!important;
+  cursor:not-allowed!important;
+  filter:grayscale(.15)!important;
+}
+.primary-btn,
+.danger-btn,
+.warning-red,
+button.danger,
+button.delete,
+button.remove,
+button[id*="delete"],
+button[id*="Delete"],
+button[id*="save"],
+button[id*="Save"],
+button[id*="submit"],
+button[id*="Submit"],
+button[id*="confirm"],
+button[id*="Confirm"],
+button[id*="ship"],
+button[id*="Ship"],
+button[data-yx113-batch-delete],
+button[data-yx112-delete-today],
+button[data-selected-remove],
+button[data-yx113-action="delete"],
+button[data-yx113-customer-act="delete"],
+button[data-wh-act="delete"],
+button[data-todo-action="delete"],
+button[data-todo-action="complete"],
+button[data-yx128-card-save],
+button[data-yx121-save],
+#submit-btn,
+#confirm-ok-btn,
+#yx22-confirm-ship,
+#yx121-save-cell,
+#yx121-add-batch-row{
+  color:var(--yx-dream-important-text)!important;
+}
+.primary-btn *,
+.danger-btn *,
+.warning-red *,
+button.danger *,
+button.delete *,
+button.remove *,
+#submit-btn *,
+#confirm-ok-btn *,
+#yx22-confirm-ship *,
+#yx121-save-cell *,
+#yx121-add-batch-row *{
+  color:inherit!important;
+}
+.ghost-btn:not(.danger-btn),
+.back-btn,
+.icon-btn,
+.menu-btn,
+.home-mini-btn,
+.chip:not(.danger-btn),
+.pill:not(.danger-btn),
+.user-pill,
+.yx112-today-label:not(.danger-btn),
+#yx-final-warehouse-menu button:not([data-wh-act="delete"]),
+button[data-yx113-customer-act]:not([data-yx113-customer-act="delete"]),
+button[data-yx113-action]:not([data-yx113-action="delete"]),
+button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action="complete"]){
+  color:var(--yx-dream-normal-text)!important;
+}
+.home-menu.vertical .menu-btn,
+.menu-btn{
+  min-height:88px;
+  font-weight:950!important;
+  letter-spacing:.08em;
+}
+body[data-module="today_changes"] #today-summary-cards,
+body[data-module="today_changes"] .yx112-today-summary,
+html.yx112-today-locked #today-summary-cards,
+html.yx112-today-locked .yx112-today-summary,
+.yx112-today-initial #today-summary-cards,
+.yx112-today-initial .yx112-today-summary{
+  display:none!important;
+  visibility:hidden!important;
+  height:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+body[data-yx-dream-ui="v26"] *{
+  -webkit-tap-highlight-color:transparent;
+}
+@media (max-width:640px){
+  body::before{background-attachment:scroll;}
+  .home-menu.vertical .menu-btn,.menu-btn{min-height:76px;}
+}
+

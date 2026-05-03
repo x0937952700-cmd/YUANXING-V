@@ -1,6 +1,6 @@
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'full-master-v24-safe-persist-no-event-change'
+VERSION = 'full-master-v26-dream-ui-lock'
 for rel in ['app.py','db.py','backup.py','ocr.py','wsgi.py']:
     path = ROOT / rel
     compile(path.read_text(encoding='utf-8', errors='ignore'), str(path), 'exec')
@@ -26,4 +26,4 @@ for js in (ROOT/'static/yx_pages').glob('*.js'):
     txt = js.read_text(encoding='utf-8', errors='ignore')
     if 'window.__YX_full-master' in txt:
         raise SystemExit(f'invalid window flag remains: {js}')
-print('v24 safe persist no-event-change smoke test OK')
+print('v26 dream-ui lock smoke test OK')

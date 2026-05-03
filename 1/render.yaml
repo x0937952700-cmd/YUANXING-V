@@ -1,3 +1,4 @@
+# V26 dream-ui lock: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing

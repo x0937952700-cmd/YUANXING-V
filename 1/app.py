@@ -1,3 +1,4 @@
+# V26 dream-ui lock: backend routes/migrations unchanged; frontend style lock applied through templates/static.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -463,11 +464,24 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
     return placed
 
 def normalize_warehouse_payload_items(items):
+    """Normalize warehouse modal payload without changing the existing UI/event flow.
+
+    V25 safe fix: the frontend can submit the same product in 後排 / 中間 / 前排.
+    The previous app-layer merge only used (size, customer), so different batch rows
+    could be collapsed before db.py received their placement_label, making save look
+    like it had no effect or causing selected rows to disappear.  Keep placement,
+    material and source identity in the merge key; db.py still performs its own
+    final normalization and quantity checks.
+    """
     merged = {}
+
+    def _clean(v):
+        return str(v or '').strip()
+
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
-        product = (raw.get('product_text') or raw.get('product') or '').strip()
+        product = _clean(raw.get('product_text') or raw.get('product'))
         if not product:
             continue
         try:
@@ -476,14 +490,32 @@ def normalize_warehouse_payload_items(items):
             qty = 0
         if qty <= 0:
             continue
-        customer = (raw.get('customer_name') or '').strip()
-        key = (warehouse_item_size_key(product), customer)
+
+        customer = _clean(raw.get('customer_name'))
+        placement_label = _clean(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label'))
+        material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product)
+        source = _clean(raw.get('source') or raw.get('source_table'))
+        source_table = _clean(raw.get('source_table') or source)
+        source_id = _clean(raw.get('source_id') or raw.get('id'))
+
+        key = (warehouse_item_size_key(product), customer, placement_label, material, source_table, source_id)
         if key not in merged:
             item = dict(raw)
             item['product_text'] = product
-            item['product_code'] = (raw.get('product_code') or product)
+            item['product'] = product
+            item['product_code'] = material or _clean(raw.get('product_code')) or product
+            item['material'] = material
             item['customer_name'] = customer
             item['qty'] = qty
+            if placement_label:
+                item['placement_label'] = placement_label
+                item['layer_label'] = placement_label
+            if source:
+                item['source'] = source
+            if source_table:
+                item['source_table'] = source_table
+            if source_id:
+                item['source_id'] = source_id
             merged[key] = item
         else:
             merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty

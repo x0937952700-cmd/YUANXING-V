@@ -1,0 +1,14 @@
+V25 只修已知問題，不改頁面 / 按鈕 / 事件 / 原有流程
+
+本版只做安全修復：
+1. app.py：修正倉庫批量儲存時，同尺寸同客戶但分屬 後排 / 中間 / 前排 的項目被 app 層合併，造成格位儲存後看起來沒反應或下拉選擇消失的問題。
+2. db.py：warehouse_get_cells 自動補齊缺漏格位後立即 commit，避免 PostgreSQL pooled connection 關閉時 rollback，確保補格永久保存。
+3. base.html / pwa.js / service-worker.js / manifest / JS version：升級快取版本，避免瀏覽器或 PWA 先載入舊版 JS/CSS，造成今日異動先閃舊畫面。
+4. style.css：今日異動頁只隱藏舊 summary 容器，不改 filter 按鈕與資料渲染事件。
+5. render.yaml / requirements.txt / wsgi.py：保留原本啟動設定與依賴，只加註 V25，不新增套件、不改啟動流程。
+
+已驗證：
+- python -m py_compile app.py db.py backup.py ocr.py wsgi.py
+- node --check 主要頁面 JS
+- python tools/smoke_test.py
+- 倉庫 normalize 測試：相同商品不同 後排 / 中間 / 前排 不再被合併
