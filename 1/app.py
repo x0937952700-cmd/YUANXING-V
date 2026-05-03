@@ -475,85 +475,60 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
     return placed
 
 def normalize_warehouse_payload_items(items):
-    """Normalize warehouse modal payload without changing the existing UI/event flow.
-
-    V25 safe fix: the frontend can submit the same product in 後排 / 中間 / 前排.
-    The previous app-layer merge only used (size, customer), so different batch rows
-    could be collapsed before db.py received their placement_label, making save look
-    like it had no effect or causing selected rows to disappear.  Keep placement,
-    material and source identity in the merge key; db.py still performs its own
-    final normalization and quantity checks.
-    """
-    merged = {}
-
-    def _clean(v):
-        return str(v or '').strip()
-
-    for raw in (items or []):
-        if not isinstance(raw, dict):
+    # V47: normalize warehouse modal payload and merge exact duplicate rows.
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
             continue
-        product = _clean(raw.get('product_text') or raw.get('product'))
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
         if not product:
             continue
         try:
-            qty = int(raw.get('qty') or 0)
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
         except Exception:
-            qty = 0
-        if qty <= 0:
-            continue
-
-        customer = _clean(raw.get('customer_name'))
-        placement_label = _clean(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label'))
-        material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product)
-        source = _clean(raw.get('source') or raw.get('source_table'))
-        source_table = _clean(raw.get('source_table') or source)
-        source_id = _clean(raw.get('source_id') or raw.get('id'))
-
-        key = (warehouse_item_size_key(product), customer, placement_label, material, source_table, source_id)
-        if key not in merged:
-            item = dict(raw)
-            item['product_text'] = product
-            item['product'] = product
-            item['product_code'] = material or _clean(raw.get('product_code')) or product
-            item['material'] = material
-            item['customer_name'] = customer
-            item['qty'] = qty
-            if placement_label:
-                item['placement_label'] = placement_label
-                item['layer_label'] = placement_label
-            if source:
-                item['source'] = source
-            if source_table:
-                item['source_table'] = source_table
-            if source_id:
-                item['source_id'] = source_id
-            merged[key] = item
+            qty = 1
+        qty = max(1, qty)
+        customer = (it.get('customer_name') or it.get('customer') or '庫存').strip() or '庫存'
+        material = (it.get('material') or it.get('wood_type') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_size_key(product), customer, material, source_table, source_id, placement_label)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
         else:
-            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
-            if not merged[key].get('source_summary') and raw.get('source_summary'):
-                merged[key]['source_summary'] = raw.get('source_summary')
-    return list(merged.values())
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
 
 def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
+    # V47: validate complete cell payload after merging same product/customer rows.
     source_totals, _details = warehouse_source_totals()
-    exclude_key = (str(zone), int(column_index), int(slot_number))
-    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
-    for it in items:
+    exclude_key = ((zone or '').strip().upper(), int(column_index or 0), int(slot_number or 0))
+    proposed = {}
+    for it in items or []:
         size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
         customer = (it.get('customer_name') or '').strip()
-        key = (size, customer)
-        source_total = int(source_totals.get(key, 0) or 0)
-        if source_total <= 0:
-            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
-            source_total = max(size_matches) if size_matches else 0
-        placed_total = int(placed.get(key, 0) or 0)
-        if placed_total <= 0 and size:
-            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
-        if source_total > 0 and placed_total > source_total:
-            return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
-        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
-    return True, ''
+        if not size:
+            continue
+        try:
+            q = int(it.get('qty') or it.get('quantity') or 0)
+        except Exception:
+            q = 0
+        if q <= 0:
+            continue
+        proposed[(size, customer)] = proposed.get((size, customer), 0) + q
+    placed_other = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=[])
+    for key, proposed_qty in proposed.items():
+        source_qty = int(source_totals.get(key, 0) or 0)
+        if source_qty <= 0:
+            return False, f"{key[0]} 沒有可加入來源數量"
+        already = int(placed_other.get(key, 0) or 0)
+        if already + proposed_qty > source_qty:
+            return False, f"{key[0]} 的入倉數量超過來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
+    return True, ""
 
 def grouped_inventory():
     return inventory_summary()
@@ -1421,7 +1396,7 @@ def api_customers_move():
             before_region = (row.get("region") or "").strip()
             item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
         yx_v35_safe_side_effect('customer_move_log', log_action, current_username(), f"移動客戶 {name} 到 {region}")
-        yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
+        yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json=(row or {'name': name, 'region': before_region}), after_json={'name': name, 'region': region})
         yx_v35_safe_side_effect('customer_move_notify', notify_sync_event, kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
         return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
@@ -1652,7 +1627,6 @@ def api_warehouse_available_items():
             items.append({
                 'product_text': size,
                 'product_size': size,
-                'material': next((d.get('material') or d.get('product_code') or '' for d in details_for_item if d), ''),
                 'customer_name': customer,
                 'total_qty': int(total_qty or 0),
                 'placed_qty': placed_qty,
@@ -2115,7 +2089,7 @@ def api_warehouse_return_unplaced():
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
         log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
-        yx_v35_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'return_unplaced', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        yx_v35_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         yx_v35_safe_side_effect('warehouse_return_notify', notify_sync_event, kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
         return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
@@ -2626,8 +2600,8 @@ def api_audit_trails():
     entity_type = (request.args.get('entity_type') or '').strip()
     keyword = (request.args.get('q') or '').strip().lower()
     today = _today_key()
-    start_date = (request.args.get('start_date') or today).strip() or today
-    end_date = (request.args.get('end_date') or today).strip() or today
+    start_date = (request.args.get('start_date') or ('' if undo_mode else today)).strip()
+    end_date = (request.args.get('end_date') or ('' if undo_mode else today)).strip()
     items = list_audit_trails(limit=max(limit * 6, 500))
     filtered = []
     for item in items:

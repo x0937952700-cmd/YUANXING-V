@@ -2309,54 +2309,5 @@
 })();
 
 
-/* ===== V45 focus-safe toast override: green prompt never steals editing focus ===== */
-(function(){
-  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
-  window.toast=window.showToast=window.notify=function(message,kind){
-    kind=kind||'ok';
-    var active=document.activeElement, ss=0, se=0, isEdit=false;
-    try{isEdit=!!(active&&document.contains(active)&&active.matches&&active.matches('input,textarea,select,[contenteditable="true"]')); if(isEdit&&'selectionStart' in active){ss=active.selectionStart||0;se=active.selectionEnd||0;}}catch(e){}
-    var box=document.getElementById('yx-v20-toast');
-    if(!box){box=document.createElement('div');box.id='yx-v20-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
-    box.setAttribute('tabindex','-1'); box.style.pointerEvents='none'; box.style.userSelect='none';
-    box.className='yx-v20-toast-card '+kind+' show';
-    box.innerHTML='<strong>'+esc(kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功'))+'</strong><div>'+esc(message||'已完成')+'</div>';
-    try{ if(isEdit){ setTimeout(function(){try{active.focus({preventScroll:true}); if('selectionStart' in active) active.setSelectionRange(ss,se);}catch(e){}},0); } }catch(e){}
-    clearTimeout(box._yx45t); box._yx45t=setTimeout(function(){box.classList.remove('show');},1800);
-  };
-})();
-/* ===== END V45 focus-safe toast override ===== */
 
 
-/* ===== V45 customer-region move safety: moving region must never clear customer goods ===== */
-(function(){
-  function clean(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
-  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
-  function normRegion(v){v=clean(v);return v.includes('中')?'中區':(v.includes('南')?'南區':'北區');}
-  function moveDom(name,region){
-    document.querySelectorAll('[data-customer-name],[data-customer]').forEach(function(card){
-      var n=clean(card.dataset.customerName||card.dataset.customer||''); if(n!==name)return; card.dataset.region=region;
-    });
-    var card=Array.from(document.querySelectorAll('[data-customer-name],[data-customer]')).find(function(el){return clean(el.dataset.customerName||el.dataset.customer||'')===name;});
-    var targetId=region==='中區'?'region-center':(region==='南區'?'region-south':'region-north');
-    var target=document.getElementById(targetId);
-    if(card&&target){var empty=target.querySelector('.empty-state-card'); if(empty)empty.remove(); if(!target.contains(card))target.appendChild(card);}
-  }
-  window.YXV45MoveCustomerSafe=async function(name,region){
-    name=clean(name); region=normRegion(region); if(!name)return;
-    var prevActive=document.querySelector('.customer-region-card.is-active,[data-customer-name].is-active');
-    moveDom(name,region);
-    try{var m=JSON.parse(localStorage.getItem('yx_customer_regions_v18')||'{}')||{};m[name]=region;localStorage.setItem('yx_customer_regions_v18',JSON.stringify(m));}catch(e){}
-    try{await api('/api/customers/move',{method:'POST',body:JSON.stringify({name:name,region:region,preserve_existing:true})}); window.toast&&window.toast(name+' 已移到'+region,'ok');}
-    catch(e){window.toast&&window.toast(e.message||'移動客戶失敗','error');}
-    try{ if(prevActive) prevActive.classList.add('is-active'); }catch(e){}
-  };
-  document.addEventListener('click',function(ev){
-    var b=ev.target&&ev.target.closest&&ev.target.closest('[data-yx113-customer-act]'); if(!b)return;
-    var act=b.dataset.yx113CustomerAct||''; if(!/^move-/.test(act))return;
-    var modal=document.getElementById('yx113-customer-actions'); var name=clean(modal&&modal.dataset.customer||''); if(!name)return;
-    ev.preventDefault();ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation(); if(modal)modal.classList.add('hidden');
-    var region=act==='move-center'?'中區':(act==='move-south'?'南區':'北區'); window.YXV45MoveCustomerSafe(name,region);
-  },true);
-})();
-/* ===== END V45 customer-region move safety ===== */

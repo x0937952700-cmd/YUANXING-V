@@ -1708,20 +1708,3 @@
 })();
 
 
-/* ===== V45 focus-safe toast override: green prompt never steals editing focus ===== */
-(function(){
-  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
-  window.toast=window.showToast=window.notify=function(message,kind){
-    kind=kind||'ok';
-    var active=document.activeElement, ss=0, se=0, isEdit=false;
-    try{isEdit=!!(active&&document.contains(active)&&active.matches&&active.matches('input,textarea,select,[contenteditable="true"]')); if(isEdit&&'selectionStart' in active){ss=active.selectionStart||0;se=active.selectionEnd||0;}}catch(e){}
-    var box=document.getElementById('yx-v20-toast');
-    if(!box){box=document.createElement('div');box.id='yx-v20-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
-    box.setAttribute('tabindex','-1'); box.style.pointerEvents='none'; box.style.userSelect='none';
-    box.className='yx-v20-toast-card '+kind+' show';
-    box.innerHTML='<strong>'+esc(kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功'))+'</strong><div>'+esc(message||'已完成')+'</div>';
-    try{ if(isEdit){ setTimeout(function(){try{active.focus({preventScroll:true}); if('selectionStart' in active) active.setSelectionRange(ss,se);}catch(e){}},0); } }catch(e){}
-    clearTimeout(box._yx45t); box._yx45t=setTimeout(function(){box.classList.remove('show');},1800);
-  };
-})();
-/* ===== END V45 focus-safe toast override ===== */

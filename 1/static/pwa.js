@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v46_real_mainfile_fixed';
+  const PWA_VERSION = 'full-master-v47_real_rewrite_no_append';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -18,7 +18,7 @@
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      window.__YX_PWA_VERSION__='full-master-v46_real_mainfile_fixed';
+      window.__YX_PWA_VERSION__='full-master-v47_real_rewrite_no_append';
       try { caches?.keys?.().then(keys=>Promise.all(keys.filter(k=>String(k).startsWith('yuanxing-')).map(k=>caches.delete(k)))); } catch(_){}
       navigator.serviceWorker.getRegistrations?.().then(regs=>{
         regs.forEach(r=>{ try{ (r.active||r.waiting||r.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){} });
@@ -45,3 +45,14 @@
   document.addEventListener('click',async function(ev){var item=ev.target&&ev.target.closest&&ev.target.closest('[data-yx45-undo-id]'); if(item){ev.preventDefault();ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();try{var d=await api('/api/undo-last',{method:'POST',body:JSON.stringify({id:item.dataset.yx45UndoId})}); if(window.toast)window.toast(d.message||'已還原','ok'); else alert(d.message||'已還原'); setTimeout(function(){location.reload();},250);}catch(e){if(window.toast)window.toast(e.message||'還原失敗','error'); else alert(e.message||'還原失敗');}return;} var b=ev.target&&ev.target.closest&&ev.target.closest('#yx-global-page-undo-btn,.yx-page-undo-btn,#yx-page-undo-btn'); if(!b)return; ev.preventDefault();ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation(); openUndo();},true);
 })();
 /* ===== END V45 global page undo ===== */
+
+
+/* V47 service-worker cache breaker: reload once when old PWA cache is cleared. */
+try {
+  navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', function(event){
+    if (event && event.data && event.data.type === 'YX_FORCE_RELOAD') {
+      var key = 'yx_sw_reloaded_' + (event.data.version || 'v47');
+      if (!sessionStorage.getItem(key)) { sessionStorage.setItem(key, '1'); location.reload(); }
+    }
+  });
+} catch(_e) {}
