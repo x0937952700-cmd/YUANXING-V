@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback';
+  const PWA_VERSION = 'full-master-v28-real-loaded-html-js-css-audit';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -36,31 +36,5 @@
       });
     });
   }
-
-  function yxV33CleanupLegacyShells(){
-    try{
-      document.documentElement.dataset.yxV38RealWriteback='locked';
-      document.documentElement.dataset.yxV44ProductSubmitWriteback='locked';
-      document.documentElement.dataset.yxV50ProductsWriteback='locked';
-      document.documentElement.dataset.yxV51ProductsWriteback='locked';
-      document.documentElement.dataset.yxV53ProductsWriteback='locked';
-      document.documentElement.dataset.yxV53ShipWriteback='locked';
-      document.documentElement.dataset.yxV53WarehouseRootStyle='locked';
-      document.querySelectorAll('.customer-modal:not(#yx113-customer-actions),.old-customer-modal,.legacy-render-shell,[data-legacy-render="true"]').forEach(el=>{
-        el.classList.add('yx-html-direct-disabled-legacy');
-        el.setAttribute('aria-hidden','true');
-      });
-    }catch(_){}
-  }
-  document.addEventListener('DOMContentLoaded', yxV33CleanupLegacyShells);
-  window.addEventListener('pageshow', yxV33CleanupLegacyShells);
-  document.addEventListener('click', event => {
-    const closeBtn = event.target && event.target.closest && event.target.closest('#yx113-customer-action-close');
-    const modalBg = event.target && event.target.id === 'yx113-customer-actions';
-    if (closeBtn || modalBg) {
-      const modal = document.getElementById('yx113-customer-actions');
-      if (modal) modal.classList.add('hidden');
-    }
-  }, true);
   window.addEventListener('load',()=>{ if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()){ const btn=ensureInstallButton(); btn.textContent='加入主畫面'; btn.classList.remove('hidden'); } });
 })();

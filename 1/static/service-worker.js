@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'full-master-v54-warehouse-batch-render-db-fix-real-loaded-html-js-css-app-writeback';
+const CACHE_VERSION = 'full-master-v28-real-loaded-html-js-css-audit';
 const STATIC_CACHE = `yuanxing-static-${CACHE_VERSION}`;
 
 self.addEventListener('install', event => {

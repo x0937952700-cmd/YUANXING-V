@@ -1,0 +1,46 @@
+沅興木業 FULL MASTER V28 REAL LOADED HTML / JS / CSS AUDIT
+
+本版基於最後上傳的 V27 ROOT(4) ZIP 重新檢查「templates/base.html 實際載入」的母版檔案後修正。
+
+已實際寫入的檔案：
+- templates/base.html
+- templates/module.html
+- templates/settings.html
+- static/yx_pages/page_settings_master_v24.js
+- static/yx_pages/page_warehouse_master_v24.js
+- static/style.css
+- static/pwa.js
+- static/service-worker.js
+- static/manifest.webmanifest
+- app.py
+- tools/smoke_test.py
+
+修正重點：
+1. 倉庫圖「未入倉」功能真正接上 HTML / CSS：
+   - 原本 page_warehouse_master_v24.js 會找 warehouse-unplaced-list-inline。
+   - 但 templates/module.html 沒有此容器，且 static/style.css 舊 V12 規則把它 display:none!important。
+   - 已在實際載入的 module.html 補上容器，JS 補 fallback 建立，CSS 在檔尾寫入 V28 override，避免被舊樣式隱藏。
+
+2. 設定頁「差異紀錄」篩選參數修正：
+   - 原本設定頁 JS 送 user/entity/start/end。
+   - 後端 /api/audit-trails 讀 username/entity_type/start_date/end_date。
+   - 已修前端改送正確參數，後端也保留舊參數相容，避免舊快取 JS 查詢失效。
+   - 顯示內容改用 action_label/entity_label/summary_text，避免只看到空白或不完整欄位。
+
+3. 備份清單補上真操作：
+   - 後端已有 /api/backups/download/<filename> 與 /api/backups/restore。
+   - 原本設定頁只顯示檔名，沒有下載/還原按鈕。
+   - 已在 settings.html 說明文字、settings JS 列表列、style.css 樣式中補上「下載 / 還原」。其中 PostgreSQL JSON 備份可還原；SQLite .db 備份只顯示下載，避免按了還原才出錯。
+
+4. 報表匯出補齊實際後端支援的類型：
+   - 訂單報表、倉庫報表、客戶資料、管理員操作紀錄按鈕已寫入 settings.html。
+   - 繼續使用既有 /api/reports/export 後端。
+
+5. PWA / manifest / base 載入版本更新成 V28：
+   - 避免手機或瀏覽器繼續吃 V27 的舊快取。
+
+驗證：
+- Python py_compile 通過。
+- 所有實際載入 JS 以 node --check 通過。
+- tools/smoke_test.py 通過。
+- 未連線正式 Render PostgreSQL，沒有動到正式資料庫內容。

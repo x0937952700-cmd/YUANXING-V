@@ -454,14 +454,6 @@ def material_value(row_or_value):
 
 
 def apply_effective_qty_to_rows(rows):
-    """Normalize product display rows without undoing real database deductions.
-
-    V53 permanent-write fix: once a row has a positive DB qty, that qty is
-    authoritative.  Older logic recalculated qty from product_text every time,
-    so after shipping 5 from `...=804x40`, the DB qty became 35 but the list
-    immediately jumped back to 40 because product_text still contained x40.
-    Only rows with missing/zero qty are repaired from product_text.
-    """
     out = []
     for row in rows or []:
         r = dict(row)
@@ -470,11 +462,7 @@ def apply_effective_qty_to_rows(rows):
         material = clean_material_value(r.get('material') or r.get('product_code') or '', product_text)
         r['material'] = material
         r['product_code'] = material
-        try:
-            db_qty = int(r.get('qty') or 0)
-        except Exception:
-            db_qty = 0
-        r['qty'] = db_qty if db_qty > 0 else effective_product_qty(product_text, 0)
+        r['qty'] = effective_product_qty(product_text, r.get('qty') or 0)
         out.append(r)
     return out
 
@@ -489,9 +477,7 @@ def repair_effective_qtys(cur):
                     old_qty = int(row.get('qty') or 0)
                 except Exception:
                     old_qty = 0
-                # V53 permanent-write fix: never overwrite a positive DB qty during
-                # repair, because shipping/edit/delete workflows store the true current qty.
-                if old_qty <= 0 and fixed_qty and fixed_qty != old_qty:
+                if fixed_qty and fixed_qty != old_qty:
                     cur.execute(sql(f"UPDATE {table} SET qty = ? WHERE id = ?"), (fixed_qty, row.get('id')))
         except Exception as e:
             log_error('repair_effective_qtys', f'{table}: {e}')
@@ -529,10 +515,12 @@ def log_error(source, message):
 
 
 def ensure_fixed_warehouse_grid(conn=None, cur=None):
-    """V53：固定 A/B 區 1~6 欄每欄至少 20 格。
+    """建立倉庫格位表，但不再強制每欄固定 20 格。
 
-    使用者長按插入可超過 20 格；刪除空格後會往前補位，但每欄永遠補足到 20 格，
-    避免倉庫圖只剩 6 格或版面看起來被吃掉。
+    FIX67：
+    - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 20 格作為起始版面。
+    - 之後使用者刪除或插入格子後，不再於每次啟動 / 查詢時補回 20 格。
+    - 每欄至少保留 1 格，避免前台完全無法點選插入。
     """
     own_conn = False
     if conn is None or cur is None:
@@ -573,19 +561,29 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
         row = fetchone_dict(cur) or {}
         total = int(row.get('cnt') or 0)
 
-        # V53：不管舊資料剩幾格，每欄都補足 1~20；超過 20 的使用者插入格保留。
-        for zone in ('A', 'B'):
-            for col in range(1, 7):
-                for num in range(1, 21):
-                    cur.execute(sql("""
-                        SELECT id FROM warehouse_cells
-                        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
-                    """), (zone, col, 'direct', num))
-                    if not fetchone_dict(cur):
+        # 只有全新空表時，才建立起始 20 格；後續不再強制補回 20 格。
+        if total == 0:
+            for zone in ('A', 'B'):
+                for col in range(1, 7):
+                    for num in range(1, 21):
                         cur.execute(sql("""
                             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
+        else:
+            # 不固定 20 格，但每欄至少保留 1 格，避免欄位完全空掉無法再插入。
+            for zone in ('A', 'B'):
+                for col in range(1, 7):
+                    cur.execute(sql("""
+                        SELECT COUNT(*) AS cnt FROM warehouse_cells
+                        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ?
+                    """), (zone, col, 'direct'))
+                    r = fetchone_dict(cur) or {}
+                    if int(r.get('cnt') or 0) == 0:
+                        cur.execute(sql("""
+                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """), (zone, col, 'direct', 1, '[]', '', now()))
         if own_conn:
             conn.commit()
     finally:
@@ -828,24 +826,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS common_sizes TEXT")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS is_archived INTEGER DEFAULT 0")
         cur.execute("ALTER TABLE customer_profiles ADD COLUMN IF NOT EXISTS archived_at TEXT")
-        # V54: ON CONFLICT 使用到的舊表若沒有唯一索引，Render 會在 init_db 直接失敗。
-        # 先清掉完全重複資料，再補齊唯一索引。
-        try:
-            cur.execute("DELETE FROM app_settings a USING app_settings b WHERE a.ctid < b.ctid AND a.key = b.key")
-            cur.execute("DELETE FROM ocr_usage a USING ocr_usage b WHERE a.ctid < b.ctid AND a.engine = b.engine AND a.period = b.period")
-            cur.execute("DELETE FROM image_hashes a USING image_hashes b WHERE a.ctid < b.ctid AND a.image_hash = b.image_hash")
-            cur.execute("DELETE FROM corrections a USING corrections b WHERE a.ctid < b.ctid AND a.wrong_text = b.wrong_text")
-            cur.execute("DELETE FROM submit_requests a USING submit_requests b WHERE a.ctid < b.ctid AND a.request_key = b.request_key")
-            cur.execute("DELETE FROM customer_aliases a USING customer_aliases b WHERE a.ctid < b.ctid AND a.alias = b.alias")
-        except Exception as e:
-            log_error('v54_pg_dedupe_unique_sources', str(e))
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_app_settings_key ON app_settings(key)")
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_image_hashes_hash ON image_hashes(image_hash)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_corrections_wrong_text ON corrections(wrong_text)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_submit_requests_key ON submit_requests(request_key)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_aliases_alias ON customer_aliases(alias)")
-        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid) WHERE COALESCE(customer_uid, '') <> ''")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
     else:
         user_cols = _table_columns(cur, 'users')
         if 'role' not in user_cols:
@@ -863,6 +845,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN is_archived INTEGER DEFAULT 0")
         if 'archived_at' not in customer_cols:
             cur.execute("ALTER TABLE customer_profiles ADD COLUMN archived_at TEXT")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_ocr_usage_period ON ocr_usage(engine, period)")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_profiles_uid ON customer_profiles(customer_uid)")
 
     cur.execute(sql("UPDATE users SET role = ? WHERE username = ?"), ('admin', '陳韋廷'))
 
@@ -931,12 +915,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         legacy_schema = table_exists and ('area' in existing_cols or 'zone' not in existing_cols or 'column_index' not in existing_cols or 'slot_type' not in existing_cols or 'slot_number' not in existing_cols)
 
         if legacy_schema:
-            # V54 Render 修復：如果 public.warehouse_cells_legacy 已存在，舊版程式會跳過 rename，
-            # 導致 warehouse_cells 仍是舊 schema，後面的 ON CONFLICT 找不到唯一約束而讓 init_db 失敗。
-            # 這裡永遠把目前的 warehouse_cells 移到暫存表，再建立真正的新表，避免 Render 啟動卡住。
-            legacy_table = 'warehouse_cells_migrating_v54'
-            cur.execute(f'DROP TABLE IF EXISTS {legacy_table}')
-            cur.execute(f'ALTER TABLE warehouse_cells RENAME TO {legacy_table}')
+            cur.execute("SELECT to_regclass('public.warehouse_cells_legacy')")
+            legacy_exists = cur.fetchone()[0] is not None
+            if not legacy_exists:
+                cur.execute('ALTER TABLE warehouse_cells RENAME TO warehouse_cells_legacy')
             cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
                 id {pk},
                 zone {text} NOT NULL,
@@ -945,13 +927,14 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 slot_number INTEGER NOT NULL,
                 items_json {text},
                 note {text},
-                updated_at {text}
+                updated_at {text},
+                UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
 
-            cur.execute(f"""
+            cur.execute("""
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = '{legacy_table}'
+                WHERE table_schema = 'public' AND table_name = 'warehouse_cells_legacy'
                 ORDER BY ordinal_position
             """)
             legacy_cols = {r[0] for r in cur.fetchall()}
@@ -980,8 +963,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                     COALESCE({items_expr}::text, '[]'),
                     COALESCE({note_expr}::text, ''),
                     COALESCE({updated_expr}::text, '{now()}')
-                FROM {legacy_table}
-                ON CONFLICT DO NOTHING
+                FROM warehouse_cells_legacy
+                ON CONFLICT (zone, column_index, slot_type, slot_number) DO NOTHING
             """)
         else:
             cur.execute(f"""CREATE TABLE IF NOT EXISTS warehouse_cells (
@@ -992,7 +975,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 slot_number INTEGER NOT NULL,
                 items_json {text},
                 note {text},
-                updated_at {text}
+                updated_at {text},
+                UNIQUE(zone, column_index, slot_type, slot_number)
             )""")
             # FIX78: Render/PostgreSQL 不能執行 SQLite 的 PRAGMA。
             # 已存在的 PostgreSQL 表，用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 補齊欄位；
@@ -1067,7 +1051,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         for zone in ('A','B'):
             for col in range(1, 7):
                 _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
-                max_slot = max(20, max(_slots) if _slots else 0)
+                max_slot = max(_slots) if _slots else 1
                 for num in range(1, max_slot + 1):
                     row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
                     cur.execute(sql("""
@@ -1077,21 +1061,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('warehouse_normalize_direct_model', str(e))
 
-    # FIX25/V54: 清掉舊版內部備註，並補唯一索引，避免 Render/PostgreSQL ON CONFLICT 或格位儲存出錯。
+    # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
     try:
         cur.execute(sql("UPDATE warehouse_cells SET note = '' WHERE note LIKE '__USER_%__' OR note IN ('__USER_ADDED__','__USER_INSERTED_SLOT__')"))
-        if USE_POSTGRES:
-            cur.execute("""
-                DELETE FROM warehouse_cells a
-                USING warehouse_cells b
-                WHERE a.ctid < b.ctid
-                  AND a.zone = b.zone
-                  AND a.column_index = b.column_index
-                  AND COALESCE(a.slot_type, 'direct') = COALESCE(b.slot_type, 'direct')
-                  AND a.slot_number = b.slot_number
-            """)
-            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
-        else:
+        if not USE_POSTGRES:
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
     except Exception as e:
         log_error('warehouse_final_index_cleanup', str(e))
@@ -1590,13 +1563,7 @@ def get_customer_relation_counts(name='', customer_uid=''):
                 cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE " + " OR ".join(where_parts)), tuple(params))
                 rows = rows_to_dict(cur)
             counts[f'{prefix}_rows'] = len(rows)
-            def _row_qty_for_counts(r):
-                try:
-                    q = int(r.get('qty') or 0)
-                except Exception:
-                    q = 0
-                return q if q > 0 else effective_product_qty(r.get('product_text') or '', 0)
-            counts[f'{prefix}_qty'] = sum(_row_qty_for_counts(r) for r in rows)
+            counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
         counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
         counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
         counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
@@ -2044,13 +2011,7 @@ def _merge_items_by_size_material(items):
         if not product_text:
             continue
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
-        if item.get('__explicit_qty'):
-            try:
-                qty = int(item.get('qty') or 0)
-            except Exception:
-                qty = 0
-        else:
-            qty = effective_product_qty(product_text, item.get('qty') or 0)
+        qty = effective_product_qty(product_text, item.get('qty') or 0)
         if qty <= 0:
             continue
         # FIX80：借貨出貨時，同尺寸同材質但來源客戶不同不可被合併，避免扣錯客戶。
@@ -2686,11 +2647,11 @@ def _normalize_warehouse_items(items):
         customer_name = str(raw.get('customer_name') or '').strip()
         # FIX80：格位批量加入需保留 後排 / 中間 / 前排 顯示層，不同層不可被合併。
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
-        key = (_warehouse_size_key(product_text), customer_name, placement_label, clean_material_value(raw.get('material') or raw.get('product_code') or '', product_text), str(raw.get('source') or raw.get('source_table') or '').strip(), str(raw.get('source_id') or raw.get('id') or '').strip())
+        key = (_warehouse_size_key(product_text), customer_name, placement_label)
         if key not in merged:
             next_item = dict(raw)
             next_item['product_text'] = product_text
-            next_item['product_code'] = clean_material_value(raw.get('material') or raw.get('product_code') or '', product_text)
+            next_item['product_code'] = str(raw.get('product_code') or product_text).strip()
             next_item['customer_name'] = customer_name
             if placement_label:
                 next_item['placement_label'] = placement_label
@@ -2877,9 +2838,8 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         ensure_fixed_warehouse_grid(conn, cur)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
-        if max_slot <= 20:
-            # V53：保底 20 格，不阻擋刪除動作；刪除後會自動在最後補一個空格。
-            pass
+        if max_slot <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
         if slot_number < 1 or slot_number > max_slot:
             return {'success': False, 'error': '格號超出範圍'}
         target = slots[slot_number - 1]
@@ -2887,22 +2847,9 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
             items = json.loads(target.get('items_json') or '[]')
         except Exception:
             items = []
-        # V38：只要實際件數大於 0 才阻擋刪除；舊資料若殘留 qty=0 空項，不應讓空格刪不掉。
-        active_items = []
-        for it in (items or []):
-            if not isinstance(it, dict):
-                continue
-            try:
-                q = int(float(it.get('qty') or it.get('piece_count') or it.get('count') or 0))
-            except Exception:
-                q = 0
-            if q > 0:
-                active_items.append(it)
-        if active_items:
+        if items:
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
         slots.pop(slot_number - 1)
-        while len(slots) < 20:
-            slots.append({'items_json': '[]', 'note': '', 'updated_at': now()})
         _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
         try:
             cur.execute(sql("""

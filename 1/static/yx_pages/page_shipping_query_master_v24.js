@@ -1,0 +1,422 @@
+/* 沅興木業 FULL MASTER V24 REAL LOADED FINAL AUDIT - page_shipping_query_master_v24 */
+(function(){ window.__YX_FULL_MASTER_V24_PAGE__='page_shipping_query_master_v24'; })();
+
+/* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
+/* 沅興木業 FIX118 core hard-lock registry
+   目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
+(function(){
+  'use strict';
+  if (window.YXHardLock && window.YXHardLock.version === 'fix142-speed-ship-master-hardlock') return;
+
+  const registry = Object.create(null);
+  const installed = Object.create(null);
+
+  function clean(v){ return String(v ?? '').replace(/\s+/g, ' ').trim(); }
+  function esc(v){ return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function moduleKey(){
+    const b = document.body && document.body.dataset && document.body.dataset.module;
+    if (b) return b;
+    const m = document.querySelector('.module-screen[data-module]')?.getAttribute('data-module');
+    if (m) return m;
+    const p = location.pathname || '';
+    if (p.includes('/today-changes')) return 'today_changes';
+    if (p.includes('/master-order')) return 'master_order';
+    if (p.includes('/shipping-query')) return 'shipping_query';
+    if (p.includes('/warehouse')) return 'warehouse';
+    if (p.includes('/settings')) return 'settings';
+    if (p.includes('/inventory')) return 'inventory';
+    if (p.includes('/orders')) return 'orders';
+    if (p.includes('/ship')) return 'ship';
+    if (p.includes('/customers')) return 'customers';
+    if (p.includes('/todos')) return 'todos';
+    return p === '/' ? 'home' : '';
+  }
+  function toast(message, kind='ok'){
+    try { (window.toast || window.showToast || window.notify || console.log)(message, kind); }
+    catch(_e) { try { console.log(message); } catch(_e2){} }
+  }
+  async function api(url, opt={}){
+    const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const txt = await res.text();
+    let data = {};
+    try { data = txt ? JSON.parse(txt) : {}; }
+    catch(_e) { data = {success:false, error:txt || '伺服器回應格式錯誤'}; }
+    if (!res.ok || data.success === false) {
+      const e = new Error(data.error || data.message || `請求失敗：${res.status}`);
+      e.payload = data;
+      throw e;
+    }
+    return data;
+  }
+  function hardAssign(name, value, opts={}){
+    // FIX135：硬鎖要可重複安裝。若同名屬性已是 non-configurable，
+    // 直接尊重既有母版，不再 fallback 指派，避免 readonly / __yx113HardLock 紅色錯誤。
+    try {
+      const desc = Object.getOwnPropertyDescriptor(window, name);
+      if (desc && desc.configurable === false) {
+        try {
+          const current = ('value' in desc) ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined);
+          if (current && current.__yx113HardLock) return current;
+        } catch(_e0) {}
+        return ('value' in desc) ? desc.value : value;
+      }
+      Object.defineProperty(window, name, {
+        configurable: opts.configurable !== false,
+        enumerable: false,
+        get(){ return value; },
+        set(v){
+          if (opts.allowReplace && typeof v === 'function' && v.__yx113HardLock) value = v;
+        }
+      });
+    } catch(_e) {
+      // 不做 window[name] = value；舊版唯讀 getter/setter 會在這裡噴錯。
+    }
+    return value;
+  }
+  function mark(fn, name){
+    if (typeof fn === 'function') {
+      try {
+        if (Object.prototype.hasOwnProperty.call(fn, '__yx113HardLock')) return fn;
+        Object.defineProperty(fn, '__yx113HardLock', {value:name || true, configurable:false, enumerable:false, writable:false});
+      } catch(_e) {
+        // 不直接指派唯讀屬性，避免 product_source_bridge 重複硬鎖時中斷。
+      }
+    }
+    return fn;
+  }
+  function cancelLegacyTimers(scope){
+    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入硬鎖時清掉，避免舊版延遲重畫。
+    try {
+      const nativeClear = window.__YX96_NATIVE_CLEAR_TIMEOUT__ || window.clearTimeout;
+      if (window.__YX96_TIMEOUTS__) {
+        Array.from(window.__YX96_TIMEOUTS__).forEach(id => { try { nativeClear(id); } catch(_e){} });
+        window.__YX96_TIMEOUTS__.clear();
+      }
+      if (typeof window.__YX96_CANCEL_LEGACY_TIMERS__ === 'function') window.__YX96_CANCEL_LEGACY_TIMERS__();
+    } catch(_e) {}
+    document.documentElement.dataset.yx113TimerScope = scope || 'all';
+  }
+  function register(name, mod){ registry[name] = mod || {}; return mod; }
+  function install(name, opts={}){
+    const mod = registry[name];
+    if (!mod || typeof mod.install !== 'function') return null;
+    if (installed[name] && !opts.force) return installed[name];
+    installed[name] = mod.install(opts) || true;
+    return installed[name];
+  }
+  function installAll(opts={}){
+    Object.keys(registry).forEach(name => {
+      try { install(name, opts); } catch(e) { toast(`${name} 安裝失敗：${e.message || e}`, 'error'); }
+    });
+  }
+  window.YXHardLock = {
+    version: 'fix142-speed-ship-master-hardlock',
+    register, install, installAll, registry, installed,
+    clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
+  };
+  document.documentElement.dataset.yx113Core = 'on';
+})();
+
+/* ===== END static/yx_modules/core_hardlock.js ===== */
+
+/* ===== V2 MERGED FROM static/yx_modules/quantity_rule_hardlock.js ===== */
+/* FIX126 數量規則硬鎖：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
+(function(){
+  'use strict';
+  function clean(v){ return String(v == null ? '' : v).trim(); }
+  function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
+  function qty(text, fallback){
+    const raw = norm(text || '');
+    const fb = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
+    if (!raw) return fb || 0;
+    const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
+    if (!right) return 1;
+    const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
+    if (right.toLowerCase() === canonical) return 10;
+    const parts = right.split('+').map(clean).filter(Boolean);
+    if (!parts.length) return 1;
+    const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
+    const xParts = parts.filter(isSingleQtyX);
+    const bare = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bare.length >= 8) return bare.length;
+    let total = 0;
+    let hit = false;
+    for (const seg of parts){
+      const explicit = seg.match(/(\d+)\s*[件片]/);
+      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      const m = isSingleQtyX(seg) ? seg.match(/x\s*(\d+)\s*$/i) : null;
+      if (m){ total += Number(m[1] || 0); hit = true; }
+      else if (/\d/.test(seg)){ total += 1; hit = true; }
+    }
+    return hit ? total : 1;
+  }
+  window.YX126Qty = qty;
+  window.yxEffectiveQty = qty;
+  window.calcTotalQty = qty;
+})();
+
+/* ===== END static/yx_modules/quantity_rule_hardlock.js ===== */
+
+/* ===== V5 STATIC VISUAL LOCK (replaces ornate_label_hardlock live observer) ===== */
+(function(){
+  'use strict';
+  document.documentElement.dataset.yx124OrnateLabel = 'locked';
+  document.documentElement.dataset.yx124MasterLabel = 'locked';
+  document.documentElement.dataset.yx127GrayRingEqualHome = 'locked';
+  document.documentElement.classList.add('yx124-ornate-scope');
+  window.YX124OrnateLabel = Object.freeze({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
+})();
+/* ===== END V5 STATIC VISUAL LOCK ===== */
+
+/* ===== V2 MERGED FROM static/yx_modules/product_sort_hardlock.js ===== */
+/* FIX118 商品排序母版硬鎖：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
+   排序規則：材質 → 高 → 寬 → 長 由小到大；同商品再依 件數 → 支數 由大到小。 */
+(function(){
+  'use strict';
+  const YX = window.YXHardLock;
+  if (!YX) return;
+
+  function clean(v){ return String(v ?? '').replace(/[\u3000\s]+/g, ' ').trim(); }
+  function normX(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g, 'x').replace(/[＝]/g, '=').replace(/\s+/g, ''); }
+  function naturalMaterial(v){
+    const raw = clean(v || '未填材質');
+    return raw === '未填材質' ? 'ZZZ_未填材質' : raw.toLocaleUpperCase('zh-Hant');
+  }
+  function materialOf(row){
+    const text = normX(row?.product_text || '');
+    const raw = clean(row?.material || row?.product_code || '').toLocaleUpperCase('zh-Hant');
+    const rr = normX(raw);
+    if (!raw || raw === text || rr.includes('=') || /^\d+(?:x|×)/i.test(rr)) return '未填材質';
+    return raw;
+  }
+  function parseNumber(token){
+    const s = String(token ?? '').replace(/[^\d.]/g, '');
+    if (!s) return Number.POSITIVE_INFINITY;
+    const n = Number.parseFloat(s);
+    return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  }
+  function productLeft(row){
+    return normX(row?.product_text || row?.size || '').split('=')[0] || '';
+  }
+  function productRight(row){
+    const t = normX(row?.product_text || row?.support || '');
+    const i = t.indexOf('=');
+    return i >= 0 ? t.slice(i + 1) : normX(row?.support || '');
+  }
+  function parseDims(row){
+    const parts = productLeft(row).split('x').filter(Boolean);
+    const len = parseNumber(parts[0]);
+    const wid = parseNumber(parts[1]);
+    const hei = parseNumber(parts[2]);
+    return {length:len, width:wid, height:hei, key:`${len}|${wid}|${hei}`};
+  }
+  function parseSupport(row){
+    const right = productRight(row);
+    let pieces = 0;
+    let sticks = 0;
+    if (right) {
+      right.split('+').map(s => s.trim()).filter(Boolean).forEach(seg => {
+        const m = seg.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/i);
+        if (m) {
+          const stick = Number(m[1] || 0) || 0;
+          const count = Number(m[2] || 0) || 0;
+          pieces += count;
+          sticks += stick * count;
+        } else {
+          const n = Number((seg.match(/\d+(?:\.\d+)?/) || ['0'])[0]) || 0;
+          if (n > 0) { pieces += 1; sticks += n; }
+        }
+      });
+    }
+    if (!pieces) pieces = Number(row?.qty ?? row?.effective_qty ?? 0) || 0;
+    if (!sticks) sticks = Number(row?.sticks ?? row?.quantity ?? 0) || 0;
+    return {pieces, sticks};
+  }
+  function compareRows(a, b){
+    const ma = naturalMaterial(materialOf(a));
+    const mb = naturalMaterial(materialOf(b));
+    const mcmp = ma.localeCompare(mb, 'zh-Hant', {numeric:true, sensitivity:'base'});
+    if (mcmp) return mcmp;
+
+    const da = parseDims(a);
+    const db = parseDims(b);
+    if (da.height !== db.height) return da.height - db.height;
+    if (da.width !== db.width) return da.width - db.width;
+    if (da.length !== db.length) return da.length - db.length;
+
+    const sa = parseSupport(a);
+    const sb = parseSupport(b);
+    if (sa.pieces !== sb.pieces) return sb.pieces - sa.pieces;
+    if (sa.sticks !== sb.sticks) return sb.sticks - sa.sticks;
+
+    return String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'zh-Hant', {numeric:true});
+  }
+  function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
+  function install(){
+    document.documentElement.dataset.yx118ProductSort = 'locked';
+    window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
+  }
+  YX.register('product_sort', {install, compareRows, sortRows});
+  install();
+})();
+
+/* ===== END static/yx_modules/product_sort_hardlock.js ===== */
+
+/* ===== V2 MERGED FROM static/yx_modules/shipping_query_manual.js ===== */
+(function(){'use strict';const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));async function api(url){const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}window.loadShippingRecords=async function(){const box=document.getElementById('shipping-results');if(!box)return;box.innerHTML='載入中…';try{const q=new URLSearchParams({q:document.getElementById('ship-keyword')?.value||'',range:document.getElementById('ship-range')?.value||'7',start:document.getElementById('ship-start')?.value||'',end:document.getElementById('ship-end')?.value||''});const d=await api('/api/shipping_records?'+q.toString());const rows=d.items||d.records||[];box.innerHTML=rows.length?`<table><thead><tr><th>時間</th><th>客戶</th><th>商品</th><th>件數</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.created_at||'')}</td><td>${esc(r.customer_name||'')}</td><td>${esc(r.product_text||'')}</td><td>${esc(r.qty||'')}</td></tr>`).join('')}</tbody></table>`:'沒有資料';}catch(e){box.textContent=e.message;}}})();
+
+/* ===== END static/yx_modules/shipping_query_manual.js ===== */
+
+/* ===== V27 REAL LOADED SHIPPING QUERY LOCK =====
+   Fixes the real loaded 出貨查詢 page: range now produces start_date/end_date,
+   custom date fields only apply when 自訂日期 is selected, and the table shows source/location notes when available. */
+(function(){
+  'use strict';
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const $=id=>document.getElementById(id);
+  function isoDate(d){
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    const day=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  function effectiveRange(){
+    const range=$('ship-range')?.value||'7';
+    let start=$('ship-start')?.value||'';
+    let end=$('ship-end')?.value||'';
+    if(range && range!=='custom'){
+      const days=Math.max(1,Math.min(365,Number(range)||7));
+      const today=new Date();
+      const from=new Date(today.getFullYear(),today.getMonth(),today.getDate());
+      from.setDate(from.getDate()-(days-1));
+      start=isoDate(from);
+      end=isoDate(today);
+    }
+    return {range,start_date:start,end_date:end};
+  }
+  function updateDateState(){
+    const custom=($('ship-range')?.value||'7')==='custom';
+    document.querySelectorAll('.yx27-custom-date,#ship-start,#ship-end').forEach(el=>{
+      if(!el) return;
+      el.disabled=!custom;
+      el.classList.toggle('yx27-date-disabled',!custom);
+      if(!custom) el.setAttribute('aria-disabled','true'); else el.removeAttribute('aria-disabled');
+    });
+    const note=$('ship-query-range-note');
+    if(note) note.textContent=custom?'自訂日期模式：請選開始與結束日期後查詢。':'預設查詢最近 '+($('ship-range')?.value||'7')+' 天；日期會實際送到後端篩選。';
+  }
+  async function api(url){
+    const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+    const t=await r.text();
+    let d={};
+    try{d=t?JSON.parse(t):{};}catch(_){d={success:false,error:t||'伺服器回應格式錯誤'};}
+    if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');
+    return d;
+  }
+  window.loadShippingRecords=async function(){
+    const box=$('shipping-results');
+    if(!box) return;
+    updateDateState();
+    box.innerHTML='<div class="empty-state-card compact-empty">載入中…</div>';
+    try{
+      const range=effectiveRange();
+      const q=new URLSearchParams({
+        q:$('ship-keyword')?.value||'',
+        range:range.range,
+        start_date:range.start_date||'',
+        end_date:range.end_date||''
+      });
+      const d=await api('/api/shipping_records?'+q.toString());
+      const rows=d.items||d.records||[];
+      if(!rows.length){
+        box.innerHTML='<div class="empty-state-card compact-empty">沒有出貨紀錄</div>';
+        return;
+      }
+      box.innerHTML=`<table class="yx27-shipping-table"><thead><tr><th>時間</th><th>客戶</th><th>商品</th><th>件數</th><th>備註 / 來源</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.shipped_at||r.created_at||'')}</td><td>${esc(r.customer_name||'')}</td><td>${esc(r.product_text||'')}</td><td>${esc(r.qty||r.quantity||'')}</td><td>${esc(r.note||r.source||r.location||'')}</td></tr>`).join('')}</tbody></table>`;
+    }catch(e){
+      box.innerHTML='<div class="error-card">'+esc(e.message||'查詢失敗')+'</div>';
+    }
+  };
+  function bind(){
+    if(window.__YX27_SHIPPING_QUERY_BOUND__) return;
+    window.__YX27_SHIPPING_QUERY_BOUND__=true;
+    $('ship-range')?.addEventListener('change',updateDateState);
+    $('ship-keyword')?.addEventListener('keydown',e=>{if(e.key==='Enter') window.loadShippingRecords();});
+    updateDateState();
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind,{once:true}); else bind();
+})();
+/* ===== END V27 REAL LOADED SHIPPING QUERY LOCK ===== */
+
+
+/* ===== V2 MERGED FROM static/yx_pages/page_bootstrap_master.js ===== */
+/* v18 EXACT HTML_DIRECT_MASTER_LOCK
+   只保留一套 HTML 結構；這支 JS 只負責安裝資料處理模組，不再重建頁面外殼。 */
+(function(){
+  'use strict';
+  if (window.__YX_HTML_DIRECT_MASTER_LOCK__) return;
+  window.__YX_HTML_DIRECT_MASTER_LOCK__ = true;
+  const YX = window.YXHardLock;
+  const moduleKey = () => {
+    try { return YX && YX.moduleKey ? YX.moduleKey() : ''; } catch(_e) { return ''; }
+  };
+  function safeInstall(name){
+    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name, {force:true}); }
+    catch(e){ try { (YX.toast || console.warn)(`${name} 載入失敗：${e.message || e}`, 'error'); } catch(_e){} }
+    return null;
+  }
+  function stopLegacyLayoutNames(){
+    const noop = function(){ return undefined; };
+    [
+      'renderLegacyHome','renderOldHome','renderWarehouseLegacyA','renderWarehouseLegacyB',
+      'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102',
+      'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96',
+      'mountLegacyUI','masterRender','renderFix135','renderFix138','renderFix140'
+    ].forEach(name => {
+      try {
+        const current = window[name];
+        if (typeof current === 'function' && !current.__yxHtmlDirectAllowed) {
+          Object.defineProperty(window, name, {value: noop, writable:false, configurable:false});
+        }
+      } catch(_e) {}
+    });
+  }
+  function protectStaticShell(){
+    document.documentElement.dataset.yxHtmlDirectMaster = 'locked';
+    document.querySelectorAll('[data-html-direct-shell]').forEach(el => {
+      el.dataset.htmlDirectLocked = '1';
+    });
+    // 保留 HTML 上既有外殼；只清掉舊 FIX 動態插入的重複外殼。
+    document.querySelectorAll('.yx63-toolbar,.yx62-toolbar,.fix57-toolbar,.fix56-toolbar,.fix55-toolbar,.fix57-summary-panel,.yx62-summary').forEach(el => {
+      el.classList.add('yx-html-direct-disabled-legacy');
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden','true');
+    });
+  }
+  function install(){
+    stopLegacyLayoutNames();
+    protectStaticShell();
+    const m = moduleKey();
+    safeInstall('ornate_label');
+    if (m === 'today_changes') safeInstall('today_changes');
+    if (m === 'settings') safeInstall('settings_audit');
+    if (m === 'warehouse') safeInstall('warehouse');
+    if (['orders','master_order','ship','customers'].includes(m)) safeInstall('customer_regions');
+    if (['inventory','orders','master_order'].includes(m)) {
+      safeInstall('product_sort');
+      safeInstall('product_actions');
+      safeInstall('product_source_bridge');
+    }
+    if (m === 'ship') safeInstall('ship_text_validate');
+    protectStaticShell();
+  }
+  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'v20-true-clean-master-no-pageshow', install});
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  else install();
+  // no pageshow reinstall: avoid settings -> home lag
+})();
+
+/* ===== END static/yx_pages/page_bootstrap_master.js ===== */
+
+
