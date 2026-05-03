@@ -1,0 +1,7 @@
+V34_REAL_SUBMIT_TABLE_CUSTOMER_LOCK
+- Added final loaded JS: static/yx_v34_submit_table_customer_lock.js
+- This file loads after all old page JS and replaces window.confirmSubmit / button onclick.
+- It captures #submit-btn click first, stops old duplicate handlers, parses items, asks merge question only when same size+material, posts to /api/inventory /api/orders /api/master_orders, then updates current product table from backend snapshots.
+- Table widths locked: material/month/total/zone/action smaller, support x quantity wider.
+- Customer names locked at 30px; customer count stays clear; FOB/CNF reverted to original small white pill style.
+- Cache versions bumped to full-master-v34_real_submit_table_customer_lock.
