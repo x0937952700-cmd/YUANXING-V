@@ -4590,7 +4590,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-tag-list .yx-ship-selected-html-card{width:100%; display:block;}
 
 
-/* ===== full-master-v28-real-loaded-html-js-css-audit: actual loaded HTML/JS/CSS fixes ===== */
+/* ===== full-master-v22-real-loaded-complete: actual loaded HTML/JS/CSS fixes ===== */
 #ship-customer-item-select[hidden], .ship-customer-item-select[hidden]{display:none!important;}
 .yx-final-ship-tag-menu{display:block!important;max-height:none!important;overflow:visible!important;padding:6px 0!important;}
 .yx-ship-product-option-row{width:100%;display:grid!important;grid-template-columns:auto auto 1fr auto auto;gap:8px;align-items:center;text-align:left;margin:8px 0;padding:10px 12px;border:1px solid rgba(180,112,40,.35);border-radius:14px;background:#fffdf8;box-shadow:0 4px 14px rgba(20,20,20,.05);cursor:pointer;}
@@ -4603,8 +4603,8 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 .yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:8px 0!important;}
 .yx-ship-selected-main{display:grid!important;grid-template-columns:auto auto auto 1fr auto auto!important;gap:8px;align-items:center;width:100%;}
 @media(max-width:760px){.yx-ship-product-option-row{grid-template-columns:1fr;}.yx-ship-selected-main{grid-template-columns:1fr!important;}}
-/* V26：今日異動已恢復「未錄入倉庫圖」實際 HTML 面板；只隱藏舊版殘留 filter id。 */
-#today-filter-unplaced.yx-old-unplaced-filter{display:none!important;}
+/* 刪除今日異動的未錄入倉庫圖區塊；倉庫圖本身的未錄入批量加入不受影響 */
+#today-filter-unplaced,[data-today-panel="unplaced"],#today-unplaced-list{display:none!important;}
 
 
 /* ===== V12 REAL LOADED FIX: HTML/JS/CSS aligned, no v2/v9 residue ===== */
@@ -4681,7 +4681,7 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 #yx-v20-toast{position:fixed;right:18px;top:18px;z-index:99999;min-width:220px;max-width:min(420px,calc(100vw - 32px));padding:12px 14px;border-radius:16px;background:#ecfdf5;border:1px solid #34d399;color:#064e3b;box-shadow:0 16px 40px rgba(15,23,42,.18);opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease;font-weight:700}#yx-v20-toast.show{opacity:1;transform:translateY(0)}#yx-v20-toast.error{background:#fff1f2;border-color:#fb7185;color:#991b1b}#yx-v20-toast.warn{background:#fffbeb;border-color:#f59e0b;color:#92400e}#yx-v20-toast div{font-weight:500;margin-top:3px;line-height:1.35}.yx113-summary-row .small-note.warn{color:#b45309;font-weight:800}.yx131-hidden-card-list{display:none!important}.customer-region-card.yx121-dragging-customer{opacity:.65;transform:scale(.98)}.category-box.yx121-drop-target{outline:3px solid rgba(245,158,11,.55);outline-offset:4px}
 
 
-/* ===== V24 real loaded UI guards ===== */
+/* ===== V22 real loaded UI guards ===== */
 #yx-v20-toast{position:fixed;right:18px;top:18px;z-index:99999;min-width:220px;max-width:min(420px,calc(100vw - 32px));padding:12px 14px;border-radius:16px;background:#ecfdf5;border:1px solid #34d399;color:#064e3b;box-shadow:0 16px 40px rgba(15,23,42,.18);opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .18s ease,transform .18s ease;font-weight:700}
 #yx-v20-toast.show{opacity:1;transform:translateY(0)}
 #yx-v20-toast.error{background:#fff1f2;border-color:#fb7185;color:#991b1b}
@@ -4695,135 +4695,3 @@ html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before{
 #ship-customer-item-select{display:none!important;visibility:hidden!important}
 .yx-final-ship-tag-menu,.yx-ship-one-column-menu{display:flex!important;flex-direction:column!important;gap:8px!important;max-height:none!important;overflow:visible!important}
 .yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:0 0 10px!important}
-
-/* V24 real loaded final audit: deleted/archived customers must not flash back from virtual rows. */
-.customer-region-card.yx-customer-hidden,[data-customer-hidden="1"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}
-
-/* ===== V25 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
-   This block is intentionally written into the actual loaded static/style.css.
-   It protects the final one-page-per-script layout and fixes the real home action row. */
-html[data-yx-v25-home-logout="locked"] .home-top-actions,
-.home-top-actions.centered-actions{
-  display:grid!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:10px!important;
-  align-items:stretch!important;
-  width:min(560px,100%)!important;
-  margin:0 auto!important;
-}
-.home-logout-btn{
-  border:1px solid rgba(126,88,56,.22)!important;
-  background:rgba(255,255,255,.74)!important;
-  color:#8f2e21!important;
-  cursor:pointer!important;
-  font:inherit!important;
-  -webkit-appearance:none!important;
-  appearance:none!important;
-}
-.home-logout-btn:disabled{opacity:.55!important;cursor:wait!important;}
-html[data-yx-html-direct-master="locked"] .yx-html-direct-disabled-legacy,
-.yx-html-direct-disabled-legacy{display:none!important;visibility:hidden!important;pointer-events:none!important;}
-html[data-yx-html-direct-master="locked"] .module-screen[data-module="ship"] #ship-selected-section{display:none!important;}
-html[data-yx-html-direct-master="locked"] .module-screen[data-module="ship"] #ship-selected-items{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;}
-@media (max-width:520px){
-  html[data-yx-v25-home-logout="locked"] .home-top-actions,
-  .home-top-actions.centered-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
-}
-/* ===== END V25 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
-
-/* ===== V26 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
-   Written into actual loaded static/style.css. Fixes settings actions and Today Changes unplaced panel. */
-html[data-yx-v26-settings-fixes="locked"] #backup-panel .yx26-backup-row{display:block!important;visibility:visible!important;height:auto!important;}
-.today-columns.today-columns-4{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:12px!important;align-items:start!important;}
-.today-columns.today-columns-4 .yx26-unplaced-panel{display:block!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
-#today-unplaced-list{display:grid!important;gap:8px!important;visibility:visible!important;height:auto!important;overflow:visible!important;}
-.yx26-unplaced-panel .section-title{color:#8f2e21!important;}
-@media (max-width:980px){.today-columns.today-columns-4{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
-@media (max-width:620px){.today-columns.today-columns-4{grid-template-columns:1fr!important;}}
-/* Keep V25 home fix active under V26 version as well. */
-html[data-yx-v26-home-logout="locked"] .home-top-actions,
-.home-top-actions.centered-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;align-items:stretch!important;width:min(560px,100%)!important;margin:0 auto!important;}
-@media (max-width:520px){html[data-yx-v26-home-logout="locked"] .home-top-actions,.home-top-actions.centered-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important;}}
-/* ===== END V26 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
-
-/* ===== V27 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
-   Written into actual loaded static/style.css, not an unused overlay. */
-html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
-  display:grid!important;
-  grid-template-columns:minmax(180px,1.4fr) minmax(120px,.7fr) minmax(140px,.75fr) minmax(140px,.75fr) auto!important;
-  gap:10px!important;
-  align-items:center!important;
-}
-html[data-yx-v27-shipping-query="locked"] #shipping-query-section .yx27-date-disabled{
-  opacity:.45!important;
-  background:#f1f5f9!important;
-  pointer-events:none!important;
-}
-html[data-yx-v27-shipping-query="locked"] #ship-query-range-note{
-  display:block!important;
-  color:#64748b!important;
-  font-weight:700!important;
-  margin-top:3px!important;
-}
-html[data-yx-v27-shipping-query="locked"] .yx27-shipping-results{
-  margin-top:12px!important;
-  overflow:auto!important;
-}
-.yx27-shipping-table{
-  width:100%!important;
-  border-collapse:separate!important;
-  border-spacing:0!important;
-  min-width:760px!important;
-}
-.yx27-shipping-table th,
-.yx27-shipping-table td{
-  padding:12px 14px!important;
-  border-bottom:1px solid #edf0f3!important;
-  text-align:center!important;
-  vertical-align:middle!important;
-}
-.yx27-shipping-table th{
-  background:#f3f7fb!important;
-  color:#26364a!important;
-  font-weight:900!important;
-}
-html[data-yx-v27-today-unplaced="locked"] #today-filter-unplaced,
-html[data-yx-v27-today-unplaced="locked"] [data-today-filter="unplaced"]{
-  display:inline-flex!important;
-}
-@media(max-width:860px){
-  html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
-    grid-template-columns:1fr 1fr!important;
-  }
-  html[data-yx-v27-shipping-query="locked"] #shipping-query-section .yx27-shipping-query-bar .primary-btn{
-    grid-column:1/-1!important;
-  }
-}
-@media(max-width:520px){
-  html[data-yx-v27-shipping-query="locked"] #shipping-query-section[data-v27-shipping-query="locked"] .yx27-shipping-query-bar{
-    grid-template-columns:1fr!important;
-  }
-}
-/* ===== END V27 REAL LOADED HTML / JS / CSS AUDIT LOCK ===== */
-
-/* ===== V28 REAL LOADED HTML / JS / CSS AUDIT LOCK =====
-   1) warehouse-unplaced-list-inline is now a real HTML panel, so it must override older V12 hide rules.
-   2) settings backup rows expose real download / restore actions.
-   3) audit rows use backend action_label / entity_label fields. */
-html[data-yx-v28-loaded-audit="locked"] #warehouse-unplaced-list-inline,
-#warehouse-unplaced-list-inline.yx28-warehouse-unplaced-inline:not(.hidden){
-  display:block!important;
-  visibility:visible!important;
-  height:auto!important;
-  overflow:visible!important;
-  margin:12px 0!important;
-}
-#warehouse-unplaced-list-inline.hidden{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;}
-.yx28-warehouse-unplaced-inline{border:1px solid rgba(180,112,40,.28);border-radius:20px;background:#fffdf8;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.06);}
-.yx28-unplaced-head{margin-bottom:10px;align-items:center;}
-.yx28-unplaced-row{width:100%;text-align:left;cursor:pointer;margin:8px 0;}
-.yx28-backup-row{display:flex;align-items:center;justify-content:space-between;gap:12px;}
-.yx28-backup-main{min-width:0;overflow-wrap:anywhere;}
-.yx28-backup-actions{flex:0 0 auto;justify-content:flex-end;}
-.yx28-audit-row .small-note{margin-top:4px;}
-@media(max-width:720px){.yx28-backup-row{display:block}.yx28-backup-actions{margin-top:8px;justify-content:flex-start}.yx28-unplaced-head{display:block}.yx28-unplaced-head .ghost-btn{margin-top:8px}}

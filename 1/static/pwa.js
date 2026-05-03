@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v28-real-loaded-html-js-css-audit';
+  const PWA_VERSION = 'full-master-v22-real-loaded-complete';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -18,20 +18,15 @@
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      window.__YX_PWA_VERSION__=PWA_VERSION;
-      const cacheKey='yx-pwa-cache-cleared-version';
-      const shouldClear=localStorage.getItem(cacheKey)!==PWA_VERSION;
-      const clearOnce=()=>{
-        if(!shouldClear) return Promise.resolve();
-        try {
-          return caches?.keys?.().then(keys=>Promise.all(keys.filter(k=>String(k).startsWith('yuanxing-')).map(k=>caches.delete(k)))).then(()=>{localStorage.setItem(cacheKey,PWA_VERSION);});
-        } catch(_){ return Promise.resolve(); }
-      };
-      clearOnce().finally(()=>{
+      window.__YX_PWA_VERSION__='full-master-v22-real-loaded-complete';
+      try { caches?.keys?.().then(keys=>Promise.all(keys.filter(k=>String(k).startsWith('yuanxing-')).map(k=>caches.delete(k)))); } catch(_){}
+      navigator.serviceWorker.getRegistrations?.().then(regs=>{
+        regs.forEach(r=>{ try{ (r.active||r.waiting||r.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){} });
+      }).finally(()=>{
         navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}`,{scope:'/'}).then(reg=>{
-          try{ if(shouldClear) (reg.active||reg.waiting||reg.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){}
+          try{ (reg.active||reg.waiting||reg.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){}
           if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-          if (shouldClear) reg.update().catch(()=>{});
+          reg.update().catch(()=>{});
         }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
       });
     });

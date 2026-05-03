@@ -177,27 +177,24 @@
     <div id="ship-selected-items-bottom" class="card-list"></div>
   </section>
 
-  <section class="subsection" id="shipping-query-section" data-v27-shipping-query="locked" {% if module_key != 'shipping_query' %}style="display:none"{% endif %}>
+  <section class="subsection" id="shipping-query-section" {% if module_key != 'shipping_query' %}style="display:none"{% endif %}>
     <div class="section-head">
-      <div>
-        <h3>出貨查詢</h3>
-        <span class="muted" id="ship-query-range-note">預設查詢最近 7 天；選自訂日期才使用下方日期。</span>
-      </div>
+      <h3>出貨查詢</h3>
     </div>
-    <div class="query-bar yx27-shipping-query-bar">
+    <div class="query-bar">
       <input id="ship-keyword" class="text-input small" placeholder="搜尋客戶 / 商品 / 操作人">
-      <select id="ship-range" class="text-input small" aria-label="出貨查詢範圍">
+      <select id="ship-range" class="text-input small">
         <option value="3">3 天內</option>
         <option value="7" selected>7 天內</option>
         <option value="10">10 天內</option>
         <option value="15">15 天內</option>
         <option value="custom">自訂日期</option>
       </select>
-      <input id="ship-start" class="text-input small yx27-custom-date" type="date" aria-label="出貨查詢開始日期">
-      <input id="ship-end" class="text-input small yx27-custom-date" type="date" aria-label="出貨查詢結束日期">
-      <button class="primary-btn" type="button" onclick="loadShippingRecords()">查詢</button>
+      <input id="ship-start" class="text-input small" type="date">
+      <input id="ship-end" class="text-input small" type="date">
+      <button class="primary-btn" onclick="loadShippingRecords()">查詢</button>
     </div>
-    <div id="shipping-results" class="table-card yx27-shipping-results"></div>
+    <div id="shipping-results" class="table-card"></div>
   </section>
 
   
@@ -233,7 +230,6 @@
     </div>
 
     <div id="warehouse-search-results" class="search-results hidden"></div>
-    <div id="warehouse-unplaced-list-inline" class="search-results hidden yx28-warehouse-unplaced-inline" data-html-locked="warehouse-unplaced-inline-list"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
     <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true">

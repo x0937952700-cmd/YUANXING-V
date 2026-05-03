@@ -180,49 +180,31 @@ def yx_v21_exact_customer_rows(table_name, customer_name=''):
 
 
 
-def yx_v24_product_snapshots():
+def yx_v22_product_snapshots():
     """Latest table snapshots for immediate UI refresh after batch operations."""
     try:
         inventory_rows = grouped_inventory()
     except Exception as e:
-        log_error('v24_snapshot_inventory', str(e)); inventory_rows = []
+        log_error('v22_snapshot_inventory', str(e)); inventory_rows = []
     try:
         order_rows = get_orders()
     except Exception as e:
-        log_error('v24_snapshot_orders', str(e)); order_rows = []
+        log_error('v22_snapshot_orders', str(e)); order_rows = []
     try:
         master_rows = get_master_orders()
     except Exception as e:
-        log_error('v24_snapshot_master', str(e)); master_rows = []
+        log_error('v22_snapshot_master', str(e)); master_rows = []
     try:
         customer_rows = get_customers()
     except Exception as e:
-        log_error('v24_snapshot_customers', str(e)); customer_rows = []
+        log_error('v22_snapshot_customers', str(e)); customer_rows = []
     return {
         'inventory': inventory_rows,
         'orders': order_rows,
         'master_order': master_rows,
         'master_orders': master_rows,
         'customers': customer_rows,
-        'hidden_customers': yx_v24_hidden_customer_names(),
     }
-
-
-
-def yx_v24_hidden_customer_names():
-    """Names archived/deleted by user. Frontend must not rebuild these as virtual customers from product rows."""
-    try:
-        return [
-            (c.get('name') or c.get('customer_name') or '').strip()
-            for c in get_customers(active_only=False)
-            if int(c.get('is_archived') or 0) == 1 and (c.get('name') or c.get('customer_name') or '').strip()
-        ]
-    except Exception as e:
-        try:
-            log_error('v24_hidden_customer_names', str(e))
-        except Exception:
-            pass
-        return []
 
 def safe_list_todos(fallback_item=None):
     try:
@@ -265,11 +247,9 @@ def add_cache_headers(response):
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     if path.startswith('/static/'):
-        # V25：實際載入的 CSS/JS/圖示都帶 ?v=版本號，允許瀏覽器快取，避免每次返回主頁/開功能頁重新下載大檔。
-        # 換版時 base.html 的版本號會同步變更，因此不會被舊檔覆蓋。
-        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
+        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
         return response
     if path == '/sw.js':
         response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
@@ -967,7 +947,7 @@ def api_duplicate_check():
 def api_inventory():
     try:
         if request.method == "GET":
-            return jsonify(success=True, items=grouped_inventory(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+            return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
             return duplicate_success('相同庫存送出已忽略')
@@ -985,7 +965,7 @@ def api_inventory():
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
-        return jsonify(success=True, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
@@ -1102,7 +1082,7 @@ def api_inventory_item_move(item_id):
 def api_orders():
     try:
         if request.method == "GET":
-            return jsonify(success=True, items=get_orders(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+            return jsonify(success=True, items=get_orders())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/orders'):
             return duplicate_success('相同訂單送出已忽略')
@@ -1119,7 +1099,7 @@ def api_orders():
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("orders", str(e))
         return error_response("訂單建立失敗")
@@ -1129,7 +1109,7 @@ def api_orders():
 def api_master_orders():
     try:
         if request.method == "GET":
-            return jsonify(success=True, items=get_master_orders(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+            return jsonify(success=True, items=get_master_orders())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
             return duplicate_success('相同總單送出已忽略')
@@ -1146,7 +1126,7 @@ def api_master_orders():
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), snapshots=yx_v22_product_snapshots(), customers=get_customers(), **snap)
     except Exception as e:
         log_error("master_orders", str(e))
         return error_response("總單失敗")
@@ -1181,24 +1161,11 @@ def api_ship():
 @app.route("/api/shipping_records", methods=["GET"])
 @login_required_json
 def api_shipping_records():
-    # V27：出貨查詢前端實際載入的 HTML 有「3/7/10/15 天」與自訂日期。
-    # 舊版只送 range/start/end，後端只讀 start_date/end_date，導致日期篩選看起來有按但沒有生效。
-    # 這裡同時支援新舊參數，避免快取中的舊頁面或舊 JS 查不到資料。
-    start_date = (request.args.get("start_date") or request.args.get("start") or '').strip()
-    end_date = (request.args.get("end_date") or request.args.get("end") or '').strip()
-    range_days = (request.args.get("range") or '').strip()
-    if not start_date and not end_date and range_days and range_days != 'custom':
-        try:
-            days = max(1, min(365, int(range_days)))
-            today = datetime.now().date()
-            start_date = (today - timedelta(days=days - 1)).isoformat()
-            end_date = today.isoformat()
-        except Exception:
-            start_date = ''
-            end_date = ''
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
     q = (request.args.get("q") or '').strip()
-    rows = get_shipping_records(start_date=start_date or None, end_date=end_date or None, q=q)
-    return jsonify(success=True, items=rows, records=rows, start_date=start_date, end_date=end_date)
+    rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
+    return jsonify(success=True, items=rows, records=rows)
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
@@ -1224,7 +1191,7 @@ def api_ship_preview():
 def api_customers():
     try:
         if request.method == "GET":
-            return jsonify(success=True, items=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+            return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
@@ -1246,7 +1213,7 @@ def api_customers():
         log_action(current_username(), f"儲存客戶 {name}")
         add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=data)
         notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
-        return jsonify(success=True, items=get_customers(), item=item, hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
@@ -1263,7 +1230,7 @@ def api_customers_ensure():
             return error_response('請輸入客戶名稱')
         item = upsert_customer(name, region=region, preserve_existing=bool(data.get('preserve_existing', True)))
         notify_sync_event(kind='refresh', module='customers', message=f'客戶已確實寫入：{name}', extra={'customer_name': name, 'region': item.get('region') if isinstance(item, dict) else region})
-        return jsonify(success=True, item=item, items=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, item=item, items=get_customers())
     except Exception as e:
         log_error('customers_ensure', str(e))
         return error_response('客戶確實寫入失敗')
@@ -1302,7 +1269,7 @@ def api_customer_restore(name):
         log_action(current_username(), f"復原客戶 {target_name}")
         add_audit_trail(current_username(), 'restore', 'customer_profiles', target_name, before_json={'name': target_name}, after_json={'name': target_name, 'restored': True})
         notify_sync_event(kind='refresh', module='customers', message=f'客戶已復原：{target_name}', extra={'customer_name': target_name})
-        return jsonify(success=True, item=item, items=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, item=item, items=get_customers())
     except Exception as e:
         log_error("restore_customer", str(e))
         return error_response(f"客戶復原失敗：{str(e)}")
@@ -1331,7 +1298,7 @@ def api_customers_move():
         log_action(current_username(), f"移動客戶 {name} 到 {region}")
         add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
         notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
-        return jsonify(success=True, items=get_customers(), item=item, hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("move_customer", str(e))
         return error_response("移動客戶失敗")
@@ -1702,7 +1669,7 @@ def api_customer_items_batch_material():
             add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json=before_by_entity, after_json={'material': material, 'count': count, 'items': items})
         log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
         notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
-        return jsonify(success=True, count=count, material=material, snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, count=count, material=material, snapshots=yx_v22_product_snapshots(), customers=get_customers())
     except Exception as e:
         log_error("customer_items_batch_material", str(e))
         return error_response(str(e) or "批量材質更新失敗")
@@ -1760,7 +1727,7 @@ def api_customer_items_batch_zone():
         add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
         log_action(current_username(), f"批量移到 {zone} 區，共 {count} 筆")
         notify_sync_event(kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
-        return jsonify(success=True, count=count, zone=zone, snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, count=count, zone=zone, snapshots=yx_v22_product_snapshots(), customers=get_customers())
     except Exception as e:
         log_error("customer_items_batch_zone", str(e))
         return error_response(str(e) or "批量移動 A/B 區失敗")
@@ -1816,7 +1783,7 @@ def api_customer_items_batch_delete():
             add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
         log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
         notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted})
-        return jsonify(success=True, count=deleted, snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, count=deleted, snapshots=yx_v22_product_snapshots(), customers=get_customers())
     except Exception as e:
         log_error("customer_items_batch_delete", str(e))
         return error_response(str(e) or "批量刪除失敗")
@@ -1904,7 +1871,7 @@ def api_customer_items_batch_update():
             add_audit_trail(current_username(), "update", entity, "batch_update", before_json=rows_before, after_json={"count": updated, "items": changed})
         log_action(current_username(), f"批量編輯商品，共 {updated} 筆")
         notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated})
-        return jsonify(success=True, count=updated, items=changed, snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names())
+        return jsonify(success=True, count=updated, items=changed, snapshots=yx_v22_product_snapshots(), customers=get_customers())
     except Exception as e:
         log_error("customer_items_batch_update", str(e))
         return error_response(str(e) or "批量編輯失敗")
@@ -1917,9 +1884,7 @@ def api_backup():
 @app.route("/api/backups", methods=["GET"])
 @login_required_json
 def api_backups():
-    payload = list_backups()
-    files = payload.get('files') if isinstance(payload, dict) else []
-    return jsonify(success=bool((payload or {}).get('success', True)) if isinstance(payload, dict) else True, files=files or [], items=files or [], backups=files or [])
+    return jsonify(list_backups())
 
 
 @app.route("/api/admin/users", methods=["GET"])
@@ -1963,7 +1928,7 @@ def api_admin_block():
         return error_response("權限不足", 403)
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
-    blocked = bool(data.get('blocked')) if 'blocked' in data else True
+    blocked = bool(data.get('blocked'))
     if not username or username == '陳韋廷':
         return error_response("不可操作此帳號")
     try:
@@ -2515,12 +2480,12 @@ def api_audit_trails():
     if not _is_admin_user():
         return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
     limit = int(request.args.get('limit') or 200)
-    username = (request.args.get('username') or request.args.get('user') or '').strip()
-    entity_type = (request.args.get('entity_type') or request.args.get('entity') or '').strip()
+    username = (request.args.get('username') or '').strip()
+    entity_type = (request.args.get('entity_type') or '').strip()
     keyword = (request.args.get('q') or '').strip().lower()
     today = _today_key()
-    start_date = (request.args.get('start_date') or request.args.get('start') or today).strip() or today
-    end_date = (request.args.get('end_date') or request.args.get('end') or today).strip() or today
+    start_date = (request.args.get('start_date') or today).strip() or today
+    end_date = (request.args.get('end_date') or today).strip() or today
     items = list_audit_trails(limit=max(limit * 6, 500))
     filtered = []
     for item in items:
@@ -2578,12 +2543,11 @@ def api_customer_specs():
     return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
 
 @app.route('/api/reports/export', methods=['GET'])
-@app.route('/api/report', methods=['GET'])  # V25 compatibility: older settings JS used this path; current JS uses /api/reports/export.
 @login_required_json
 def api_reports_export():
     report_type = (request.args.get('type') or 'inventory').strip()
-    start_date = (request.args.get('start_date') or request.args.get('start') or '').strip()
-    end_date = (request.args.get('end_date') or request.args.get('end') or '').strip()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
     q = (request.args.get('q') or '').strip()
 
     if report_type == 'inventory':
@@ -2821,7 +2785,6 @@ def _fix137_undo_ship_breakdown(cur, after_json):
 
 
 @app.route('/api/undo-last', methods=['POST'])
-@app.route('/api/undo', methods=['POST'])  # V25 compatibility: prevents cached old settings JS from 404.
 @login_required_json
 def api_undo_last():
     conn = None
@@ -3185,7 +3148,7 @@ def api_v17_items_batch_transfer():
         target_label = {'inventory':'庫存','orders':'訂單','master_order':'總單'}[target]
         log_action(current_username(), f'批量轉入{target_label}，共 {len(moved_rows)} 筆')
         notify_sync_event(kind='refresh', module='all', message=f'商品已批量轉入{target_label}', extra={'count': len(moved_rows), 'target': target_label})
-        payload = {'success': True, 'count': len(moved_rows), 'moved': moved_rows, 'errors': errors, 'snapshots': yx_v24_product_snapshots(), 'customers': get_customers(), 'hidden_customers': yx_v24_hidden_customer_names()}
+        payload = {'success': True, 'count': len(moved_rows), 'moved': moved_rows, 'errors': errors, 'snapshots': yx_v22_product_snapshots(), 'customers': get_customers()}
         if target == 'inventory':
             payload['items'] = grouped_inventory()
         elif target == 'orders':
