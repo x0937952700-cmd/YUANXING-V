@@ -1373,10 +1373,11 @@
   }
   
   function duplicateSizeKey(productText){
-    const p = splitProduct(productText || '');
-    return String(p.size || productText || '').replace(/\s+/g,'').toLowerCase();
+    const raw = clean(productText || '');
+    const left = raw.includes('=') ? raw.split('=')[0] : raw;
+    return String(left || raw || '').replace(/^(?:[1-9]|1[0-2])月/, '').replace(/\s+/g,'').toLowerCase();
   }
-  function duplicateMaterialKey(v){ return YX.clean(v || '').toUpperCase() || '未填材質'; }
+  function duplicateMaterialKey(v){ return clean(v || '').toUpperCase() || '未填材質'; }
   function findDuplicateMergeGroups(m, customer, items){
     const groups = new Map();
     const add = (key, label) => {
@@ -1423,7 +1424,7 @@
     submitting = true;
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
-      const requestKey = `v31-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const requestKey = `v33-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const activeZone = activeZoneForSource(m);
       toast(`送出中：${items.length} 筆商品`, 'ok');
       // v20：先把商品與客戶卡直接畫到目前頁面，使用者不用等後端 GET 才看到。
@@ -1703,9 +1704,19 @@
 
   function relationCustomersFromRows(existingItems){
     const byName = new Map();
-    (existingItems || []).forEach(c => { const n = YX.clean(c.name || c.customer_name || ''); if (n) byName.set(n, c); });
+    // V33：客戶區件數 / 筆數一律由目前商品 rowsStore 重新計算。
+    // 不沿用 /api/customers 既有 relation_counts，避免刷新或送出後被舊 counts + rowsStore 重複加總，出現 95件/2筆 變 190件/4筆。
+    (existingItems || []).forEach(c => {
+      const n = YX.clean(c.name || c.customer_name || '');
+      if (!n) return;
+      byName.set(n, Object.assign({}, c, {relation_counts:{}, item_count:0, row_count:0, merge_names:Array.isArray(c.merge_names) ? c.merge_names : [n]}));
+    });
+    const seen = new Set();
     const add = (name, source, row) => {
       name = YX.clean(name || ''); if (!name) return;
+      const key = [source, name, row.id || '', row.product_text || '', row.material || row.product_code || '', row.location || row.zone || row.warehouse_zone || ''].join('|');
+      if (seen.has(key)) return;
+      seen.add(key);
       const old = byName.get(name) || {};
       let savedRegion = '';
       try { savedRegion = (JSON.parse(localStorage.getItem('yx_customer_regions_v18') || '{}') || {})[name] || ''; } catch(_e) {}

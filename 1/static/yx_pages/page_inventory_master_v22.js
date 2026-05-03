@@ -1373,10 +1373,11 @@
   }
   
   function duplicateSizeKey(productText){
-    const p = splitProduct(productText || '');
-    return String(p.size || productText || '').replace(/\s+/g,'').toLowerCase();
+    const raw = clean(productText || '');
+    const left = raw.includes('=') ? raw.split('=')[0] : raw;
+    return String(left || raw || '').replace(/^(?:[1-9]|1[0-2])月/, '').replace(/\s+/g,'').toLowerCase();
   }
-  function duplicateMaterialKey(v){ return YX.clean(v || '').toUpperCase() || '未填材質'; }
+  function duplicateMaterialKey(v){ return clean(v || '').toUpperCase() || '未填材質'; }
   function findDuplicateMergeGroups(m, customer, items){
     const groups = new Map();
     const add = (key, label) => {
@@ -1423,7 +1424,7 @@
     submitting = true;
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
-      const requestKey = `v31-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const requestKey = `v33-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const activeZone = activeZoneForSource(m);
       toast(`送出中：${items.length} 筆商品`, 'ok');
       // v20：先把商品與客戶卡直接畫到目前頁面，使用者不用等後端 GET 才看到。
