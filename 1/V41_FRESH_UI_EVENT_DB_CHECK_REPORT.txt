@@ -1,0 +1,38 @@
+V41 fresh restart patch check report
+
+Source base: user uploaded V40 zip.
+
+Changed files:
+- templates/base.html: cache version changed to full-master-v41_fresh_ui_event_db_lock; added last CSS/JS locks.
+- static/yx_v41_fresh_ui_event_db_lock.css: final table/customer/toast style lock.
+- static/yx_v41_fresh_event_db_lock.js: final submit, toast/focus-safe, optimistic customer card, customer counts, warehouse save fallback.
+- app.py: customer move and shipping side effects changed to safe side-effects so log/audit/notify failure does not break the main DB action.
+- static/service-worker.js / static/pwa.js / static/manifest.webmanifest: version bumped to avoid old cache.
+
+Event comparison/fix points:
+1. Inventory/orders/master submit:
+   - #submit-btn and confirmSubmit are captured by V41 loaded last.
+   - Sends POST to /api/inventory, /api/orders, /api/master_orders.
+   - Adds optimistic rows first, then replaces with DB response rows.
+   - Orders/master also creates/refreshes customer cards immediately.
+2. Table layout:
+   - operation column hidden.
+   - material/month/total/A-B columns compressed.
+   - support x qty column expanded and wraps.
+3. Toast/focus:
+   - V41 toast is a fixed pointer-events:none layer.
+   - It does not focus itself and tries to preserve active input/textarea/select.
+4. Customer cards:
+   - customer name font enlarged.
+   - FOB/CNF kept as small white pill.
+   - visible customer counts refreshed from orders + master_orders.
+5. Customer move:
+   - app.py side-effects are safe; customer move no longer fails because log/audit/notify failed.
+6. Warehouse:
+   - V41 save fallback captures #yx121-save-cell and posts /api/warehouse/cell directly if needed.
+   - Existing warehouse DB upsert/migration retained.
+
+Checks run:
+- python -m py_compile app.py db.py: PASS
+- node --check static/yx_v41_fresh_event_db_lock.js: PASS
+- node --check all static JS files: PASS
