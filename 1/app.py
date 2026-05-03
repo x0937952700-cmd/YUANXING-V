@@ -32,7 +32,7 @@ from backup import run_daily_backup
 app = Flask(__name__)
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
-_SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
+_SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-v53-fixed20").encode("utf-8")).hexdigest())
 app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
 
@@ -896,6 +896,17 @@ def _parse_items_from_request(data):
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
+            # V53 ship-confirm fix: on /api/ship and /api/ship-preview, an explicit
+            # qty from the selected shipping input is the amount to ship.  Do not
+            # recalculate it back to the full product_text count such as x40.
+            try:
+                if request.path in ('/api/ship', '/api/ship-preview') and isinstance(it, dict) and it.get('qty') not in (None, ''):
+                    explicit_qty = int(float(it.get('qty') or 0))
+                    if explicit_qty > 0:
+                        fixed['qty'] = explicit_qty
+                        fixed['__explicit_qty'] = True
+            except Exception:
+                pass
             # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
             for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
                 if isinstance(it, dict) and it.get(_k) not in (None, ''):
@@ -1038,7 +1049,7 @@ def api_inventory():
         add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
         notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
         snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
-        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=grouped_inventory(), exact_customer_items=yx_v21_exact_customer_rows('inventory', customer_name), customer_items=yx_v21_exact_customer_rows('inventory', customer_name), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), permanent_write=True, **snap)
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
@@ -1171,8 +1182,11 @@ def api_orders():
         log_action(current_username(), "建立訂單")
         add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        after_rows = yx_v21_exact_customer_rows('orders', customer_name)
+        if not after_rows:
+            return error_response('訂單資料寫入後查不到，已阻止假成功，請重新送出')
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_orders(), exact_customer_items=yx_v21_exact_customer_rows('orders', customer_name), customer_items=yx_v21_exact_customer_rows('orders', customer_name), verified_customer_rows=yx_v21_exact_customer_rows('orders', customer_name), after_write_count=len(yx_v21_exact_customer_rows('orders', customer_name)), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_orders(), exact_customer_items=after_rows, customer_items=after_rows, verified_customer_rows=after_rows, after_write_count=len(after_rows), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), permanent_write=True, **snap)
     except Exception as e:
         log_error("orders", str(e))
         return error_response("訂單建立失敗")
@@ -1198,8 +1212,11 @@ def api_master_orders():
         log_action(current_username(), "更新總單")
         add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
         notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        after_rows = yx_v21_exact_customer_rows('master_orders', customer_name)
+        if not after_rows:
+            return error_response('總單資料寫入後查不到，已阻止假成功，請重新送出')
         snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_master_orders(), exact_customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), customer_items=yx_v21_exact_customer_rows('master_orders', customer_name), verified_customer_rows=yx_v21_exact_customer_rows('master_orders', customer_name), after_write_count=len(yx_v21_exact_customer_rows('master_orders', customer_name)), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), **snap)
+        return jsonify(success=True, selected_customer=customer_name, customer_name=customer_name, items=get_master_orders(), exact_customer_items=after_rows, customer_items=after_rows, verified_customer_rows=after_rows, after_write_count=len(after_rows), snapshots=yx_v24_product_snapshots(), customers=get_customers(), hidden_customers=yx_v24_hidden_customer_names(), permanent_write=True, **snap)
     except Exception as e:
         log_error("master_orders", str(e))
         return error_response("總單失敗")
@@ -2077,8 +2094,8 @@ def api_warehouse_return_unplaced():
     try:
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
-        slot_number = int(data.get("slot_number") or 0)
+        column_index = int(data.get("column_index") or data.get("band") or data.get("column") or 0)
+        slot_number = int(data.get("slot_number") or data.get("slot") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
             return error_response("格位參數錯誤")
         cells = warehouse_get_cells()
@@ -2102,13 +2119,13 @@ def api_warehouse_add_slot():
     try:
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
+        column_index = int(data.get("column_index") or data.get("band") or data.get("column") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         insert_after = data.get("insert_after", None)
-        if insert_after in (None, "") and data.get("slot_number") not in (None, ""):
-            insert_after = max(0, int(data.get("slot_number")) - 1)
+        if insert_after in (None, "") and (data.get("slot_number") not in (None, "") or data.get("slot") not in (None, "")):
+            insert_after = max(0, int(data.get("slot_number") or data.get("slot")) - 1)
         elif insert_after in (None, ""):
             insert_after = None
         else:
@@ -2128,8 +2145,8 @@ def api_warehouse_remove_slot():
     try:
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
-        slot_number = int(data.get("slot_number") or 0)
+        column_index = int(data.get("column_index") or data.get("band") or data.get("column") or 0)
+        slot_number = int(data.get("slot_number") or data.get("slot") or 0)
         if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'

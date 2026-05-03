@@ -1,0 +1,4 @@
+V53: home centered, product permanent verify render, no row actions all product pages, ship confirm fixed, warehouse A/B 1-6 columns min 20 slots. Actual loaded HTML/JS/CSS/app/db/pwa updated.
+
+V53 qty persistence addendum: positive DB qty is authoritative; shipping deductions no longer jump back from product_text.
+V53 ship qty fix: /api/ship and /api/ship-preview honor explicit selected qty instead of recalculating full product_text qty.

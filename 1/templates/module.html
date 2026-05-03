@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="module-screen" data-module="{{ module_key }}" data-yx-v44-product-submit="real-loaded" data-yx-v46-products="real-loaded" data-yx-v47-products="real-loaded" data-yx-v48-products="real-loaded" data-yx-v50-products="real-loaded" data-yx-v51-products="real-loaded" data-yx-v52-products="real-loaded">
+<div class="module-screen" data-module="{{ module_key }}" data-yx-v44-product-submit="real-loaded" data-yx-v46-products="real-loaded" data-yx-v47-products="real-loaded" data-yx-v48-products="real-loaded" data-yx-v50-products="real-loaded" data-yx-v51-products="real-loaded" data-yx-v52-products="real-loaded" data-yx-v53-products="real-loaded-fixed-write">
   <div class="module-topbar">
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
@@ -53,12 +53,12 @@
     <textarea class="text-area" id="ocr-text" placeholder=""></textarea>
     {% endif %}
     <div class="btn-row">
-      <button class="primary-btn yx-v46-submit-btn yx-v47-submit-btn yx-v48-submit-btn yx-v50-submit-btn yx-v51-submit-btn" id="submit-btn" type="button" data-yx-v44-submit="real-loaded" data-yx-v46-submit="real-loaded" data-yx-v47-submit="real-loaded" data-yx-v48-submit="real-loaded" data-yx-v50-submit="real-loaded" data-yx-v51-submit="real-loaded" data-yx-v52-submit="real-loaded">確認送出</button>
+      <button class="primary-btn yx-v46-submit-btn yx-v47-submit-btn yx-v48-submit-btn yx-v50-submit-btn yx-v51-submit-btn" id="submit-btn" type="button" data-yx-v44-submit="real-loaded" data-yx-v46-submit="real-loaded" data-yx-v47-submit="real-loaded" data-yx-v48-submit="real-loaded" data-yx-v50-submit="real-loaded" data-yx-v51-submit="real-loaded" data-yx-v52-submit="real-loaded" data-yx-v53-submit="real-loaded-fixed-write">確認送出</button>
       {% if module_key == 'ship' %}
       <button class="ghost-btn" onclick="reverseLookup()">反查商品位置</button>
       {% endif %}
     </div>
-    <div id="duplicate-action-panel" class="result-card hidden yx-v46-duplicate-panel yx-v47-duplicate-panel yx-v48-duplicate-panel" data-yx-v46-duplicate-panel="real-loaded" data-yx-v47-duplicate-panel="real-loaded" data-yx-v48-duplicate-panel="real-loaded" data-yx-v50-duplicate-panel="real-loaded" data-yx-v51-duplicate-panel="real-loaded" data-yx-v52-duplicate-panel="real-loaded"></div>
+    <div id="duplicate-action-panel" class="result-card hidden yx-v46-duplicate-panel yx-v47-duplicate-panel yx-v48-duplicate-panel" data-yx-v46-duplicate-panel="real-loaded" data-yx-v47-duplicate-panel="real-loaded" data-yx-v48-duplicate-panel="real-loaded" data-yx-v50-duplicate-panel="real-loaded" data-yx-v51-duplicate-panel="real-loaded" data-yx-v52-duplicate-panel="real-loaded" data-yx-v53-duplicate-panel="real-loaded-fixed-write"></div>
     <div id="ocr-diff-preview" class="result-card hidden" style="display:none"></div>
     <div id="module-result" class="result-card hidden" style="display:none"></div>
     {% if module_key == 'inventory' %}
@@ -205,11 +205,11 @@
   </section>
 
   
-  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v52" data-yx-v44-audited="product-submit" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
+  <section class="subsection warehouse-page-shell yx-final-warehouse-lock" id="warehouse-section" data-final-html-lock="true" data-warehouse-version="v53" data-yx-v44-audited="product-submit" {% if module_key != 'warehouse' %}style="display:none"{% endif %}>
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
-        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可插入格子或刪除格子。</span>
+        <span class="muted">A / B 倉各 6 欄；每欄固定保底 20 格。點選格子可編輯，長按格子可插入格子或刪除格子，拖拉有商品格可移動。</span>
       </div>
     </div>
 
@@ -240,11 +240,11 @@
     <div id="warehouse-unplaced-list-inline" class="search-results hidden yx28-warehouse-unplaced-inline" data-html-locked="warehouse-unplaced-inline-list"></div>
     <div id="warehouse-detail-panel" class="glass panel hidden"></div>
 
-    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true" data-yx52-warehouse-html="root-style-restored" data-yx42-warehouse-html="real-loaded" data-yx41-warehouse-html="real-loaded">
+    <div class="warehouse-zone-wrap warehouse-fixed-layout yx67-dynamic-warehouse-layout yx-final-warehouse-root" id="warehouse-root" data-lock="true" data-yx53-warehouse-html="fixed20-root-style" data-yx52-warehouse-html="root-style-restored" data-yx42-warehouse-html="real-loaded" data-yx41-warehouse-html="real-loaded">
       <div class="zone-card full-zone warehouse-zone-card" id="zone-A">
         <div class="zone-titlebar">
           <div class="zone-title">A 區</div>
-          <div class="small-note" id="zone-A-count-note">動態格數</div>
+          <div class="small-note" id="zone-A-count-note">固定 20 格</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
           {% for col in range(1, 7) %}
@@ -259,7 +259,7 @@
       <div class="zone-card full-zone warehouse-zone-card" id="zone-B">
         <div class="zone-titlebar">
           <div class="zone-title">B 區</div>
-          <div class="small-note" id="zone-B-count-note">動態格數</div>
+          <div class="small-note" id="zone-B-count-note">固定 20 格</div>
         </div>
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
           {% for col in range(1, 7) %}
@@ -341,7 +341,7 @@
   </section>
 
   <input id="selected-item-json" type="hidden">
-  <div id="warehouse-modal" class="modal hidden" data-warehouse-modal-version="v52">
+  <div id="warehouse-modal" class="modal hidden" data-warehouse-modal-version="v53">
     <div class="modal-card glass">
       <div class="modal-head">
         <div class="section-title">格位編輯</div>
