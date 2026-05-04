@@ -6,6 +6,17 @@
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function parenAdjust(v){
+    let total = 0;
+    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
+      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
+        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
+        return '';
+      });
+      return '';
+    });
+    return total;
+  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -31,9 +42,9 @@
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
+      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));

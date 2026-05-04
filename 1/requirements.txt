@@ -6,3 +6,4 @@ Pillow==10.4.0
 openpyxl==3.1.5
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
+# V57: no new dependencies; PostgreSQL migration runs via render releaseCommand and app startup.

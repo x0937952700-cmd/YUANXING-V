@@ -398,7 +398,7 @@ def effective_product_qty(product_text, fallback_qty=0):
     """
     V30 件數規則：
     - 等號右側「支數x件數」算件數；單獨支數算 1 件。
-    - 括號備註只做顯示，不參與件數，例如 240x49(東昇-8) = 49 件、168x7(-1永松) = 7 件。
+    - 括號備註只取 signed +/- 數字修正件數，例如 115x51(東昇-8) = 43 件；其他文字忽略。
     - 保留超長清單特例：504x5+後面多個長度，第一段不當成 5 件。
     """
     raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
@@ -415,6 +415,14 @@ def effective_product_qty(product_text, fallback_qty=0):
 
     def _strip_qty_notes(seg):
         return re.sub(r'[\(（][^\)）]*[\)）]', '', str(seg or ''))
+
+    def _qty_note_adjustment(seg):
+        # Apply only signed numbers inside notes: 115x51(東昇-8) => -8.
+        adj = 0
+        for note in re.findall(r'[\(（]([^\)）]*)[\)）]', str(seg or '')):
+            for sign, num in re.findall(r'([+-])\s*(\d+)', note):
+                adj += int(num or 0) * (-1 if sign == '-' else 1)
+        return adj
 
     canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
     if _strip_qty_notes(right).replace(' ', '').lower() == canonical:
@@ -439,14 +447,15 @@ def effective_product_qty(product_text, fallback_qty=0):
     parsed = False
     for seg in segments:
         plain = _strip_qty_notes(seg)
+        adj = _qty_note_adjustment(seg)
         explicit = re.search(r'(\d+)\s*[件片]', plain)
         if explicit:
-            total += int(explicit.group(1) or 0)
+            total += max(0, int(explicit.group(1) or 0) + adj)
             parsed = True
             continue
         m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I) if _is_single_qty_x(seg) else None
         if m:
-            total += int(m.group(1))
+            total += max(0, int(m.group(1)) + adj)
             parsed = True
         elif re.search(r'\d+', plain):
             total += 1

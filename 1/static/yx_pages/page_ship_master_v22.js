@@ -7,6 +7,17 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function parenAdjust(v){
+    let total = 0;
+    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
+      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
+        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
+        return '';
+      });
+      return '';
+    });
+    return total;
+  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -32,9 +43,9 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
+      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -942,8 +953,8 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     let before=0;
     for(const v of candidates){const n=Number(v);if(Number.isFinite(n)&&n>0){before=n;break;}}
     // V50：只要扣後不是負數就是可出貨；3 → 0 不能顯示不足。
-    const shortage=(Number.isFinite(Number(after)) && Number(after) < 0) || (before>0 && q>before);
     const after=before>0?Math.max(0,before-q):'';
+    const shortage=(Number.isFinite(Number(after)) && Number(after) < 0) || (before>0 && q>before);
     const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
     return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${shortage?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`;
   }

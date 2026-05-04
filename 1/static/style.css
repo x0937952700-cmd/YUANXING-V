@@ -5300,3 +5300,24 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
     white-space:normal!important;
   }
 }
+
+
+/* ===== V57 restore product action buttons and prevent legacy CSS from hiding them ===== */
+.yx128-summary-head .yx128-summary-controls,
+.yx113-summary-head .yx128-summary-controls,
+.yx128-summary-controls {
+  display:flex!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+  justify-content:flex-end!important;
+  align-items:center!important;
+  margin-left:auto!important;
+}
+.yx-html-one-row-actions [data-yx132-batch-zone],
+.yx-html-one-row-actions [data-yx132-batch-transfer],
+.yx128-summary-controls [data-yx132-batch-zone],
+.yx128-summary-controls [data-yx132-batch-transfer] {
+  display:inline-flex!important;
+}
+.yx121-batch-select option[disabled] { color:#999; }
+/* ===== END V57 restore product action buttons ===== */

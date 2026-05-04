@@ -410,6 +410,15 @@ def warehouse_item_size_key(text):
         return 'x'.join(str(int(part.strip())) for part in parts[:3])
     return left
 
+def warehouse_item_display_size(text):
+    """Return the visible size exactly as entered, preserving leading zeros like 396x30x06.
+    This is for UI / saved product text only; warehouse_item_size_key still normalizes for matching.
+    """
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = re.sub(r'[\(（][^\)）]*[\)）]', '', raw).strip()
+    left = (raw.split('=', 1)[0].strip() or raw)
+    return left
+
 def warehouse_customer_key(customer_name):
     customer = (customer_name or '').strip()
     return customer if customer else '庫存'
@@ -434,6 +443,19 @@ def warehouse_support_text(text):
     return raw.split('=', 1)[1].strip()
 
 
+def warehouse_support_qty_adjustment(part):
+    # Apply signed +/- quantity notes while preserving original support text.
+    adj = 0
+    for note in re.findall(r'[\(（]([^\)）]*)[\)）]', str(part or '')):
+        for sign, num in re.findall(r'([+-])\s*(\d+)', note):
+            adj += int(num or 0) * (-1 if sign == '-' else 1)
+    return adj
+
+
+def warehouse_support_plain(part):
+    return re.sub(r'[\(（][^\)）]*[\)）]', '', str(part or '')).strip()
+
+
 
 def warehouse_split_support_components(product_text, row_qty):
     """把 61x12x10=750x21+822+610 拆成可獨立入倉的支數項。
@@ -447,21 +469,25 @@ def warehouse_split_support_components(product_text, row_qty):
     if not raw or '=' not in raw:
         return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
     size = warehouse_item_size_key(raw)
+    display_size = warehouse_item_display_size(raw) or size
     right = raw.split('=', 1)[1].strip()
     parts = [x.strip() for x in re.split(r'[+＋]', right) if x and x.strip()]
     if not size or not parts:
         return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
     out = []
     for part in parts:
-        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', part.lower())
+        part_raw = part.strip()
+        plain_part = warehouse_support_plain(part_raw)
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', plain_part.lower())
         if m:
-            support = str(int(float(m.group(1)))) if float(m.group(1)).is_integer() else m.group(1)
-            qty = int(m.group(2) or 1)
+            support = part_raw
+            qty = int(m.group(2) or 1) + warehouse_support_qty_adjustment(part_raw)
         else:
-            support = part
-            qty = 1
+            support = part_raw
+            qty = 1 + warehouse_support_qty_adjustment(part_raw)
+        qty = max(0, qty)
         if qty > 0:
-            out.append({'product_text': f'{size}={support}', 'support_text': support, 'qty': qty})
+            out.append({'product_text': f'{display_size}={support}', 'support_text': support, 'qty': qty})
     if not out:
         return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
     # 若右側拆出的件數明顯不是 row_qty，而且只有一項，採資料庫 qty；多項維持支數表達本身，避免「可加入 25 件」亂選。
@@ -474,6 +500,51 @@ def safe_cell_items(cell):
         return json.loads(cell.get('items_json') or '[]')
     except Exception:
         return []
+
+
+def warehouse_saved_item_component_details(it, qty=None):
+    """When a grouped dropdown row is saved as one item, distribute placed qty back to source_details."""
+    if not isinstance(it, dict):
+        return []
+    details = it.get('source_details') or []
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except Exception:
+            details = []
+    if not isinstance(details, list) or not details:
+        return []
+    try:
+        remaining = int(qty if qty is not None else (it.get('qty') or it.get('quantity') or 0))
+    except Exception:
+        remaining = 0
+    out = []
+    for d in details:
+        if not isinstance(d, dict):
+            continue
+        product = (d.get('product_text') or d.get('product') or '').strip()
+        if not product:
+            continue
+        try:
+            dqty = int(d.get('qty') or d.get('quantity') or 0)
+        except Exception:
+            dqty = 0
+        if dqty <= 0:
+            continue
+        use_qty = min(dqty, remaining) if remaining > 0 else dqty
+        if use_qty <= 0:
+            continue
+        row = dict(d)
+        row['qty'] = use_qty
+        row['customer_name'] = warehouse_customer_key(row.get('customer_name') or it.get('customer_name') or '')
+        row['source'] = row.get('source') or row.get('source_table') or it.get('source') or it.get('source_table') or '庫存'
+        row['source_table'] = row.get('source_table') or row.get('source') or '庫存'
+        row['source_id'] = str(row.get('source_id') or row.get('id') or '')
+        out.append(row)
+        remaining -= use_qty
+        if remaining <= 0:
+            break
+    return out
 
 def warehouse_source_totals():
     """Return source quantities for warehouse placement.
@@ -544,6 +615,7 @@ def warehouse_source_totals():
                 'product_text': product,
                 'original_product_text': original_product,
                 'product_size': size,
+                'display_product_size': warehouse_item_display_size(product) or warehouse_item_display_size(original_product) or size,
                 'support_text': comp.get('support_text') or warehouse_support_text(product),
                 'exact_key': exact,
                 'size_key': size,
@@ -576,6 +648,23 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
             except Exception:
                 qty = 0
             if qty <= 0:
+                continue
+            component_details = warehouse_saved_item_component_details(it, qty)
+            if component_details:
+                for d in component_details:
+                    dproduct = d.get('product_text') or d.get('product') or ''
+                    dsize = warehouse_item_size_key(dproduct)
+                    dexact = warehouse_item_exact_key(dproduct)
+                    dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                    try:
+                        dq = int(d.get('qty') or 0)
+                    except Exception:
+                        dq = 0
+                    if not dsize or dq <= 0:
+                        continue
+                    placed[(dexact, dcustomer)] = placed.get((dexact, dcustomer), 0) + dq
+                    if (dsize, dcustomer) != (dexact, dcustomer) and '=' not in dexact:
+                        placed[(dsize, dcustomer)] = placed.get((dsize, dcustomer), 0) + dq
                 continue
             exact_key = (exact, customer)
             size_key = (size, customer)
@@ -632,6 +721,22 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
         except Exception:
             q = 0
         if q <= 0:
+            continue
+        component_details = warehouse_saved_item_component_details(it, q)
+        if component_details:
+            for d in component_details:
+                dproduct = d.get('product_text') or d.get('product') or ''
+                dsize = warehouse_item_size_key(dproduct)
+                dexact = warehouse_item_exact_key(dproduct)
+                dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                try:
+                    dq = int(d.get('qty') or 0)
+                except Exception:
+                    dq = 0
+                if not dsize or dq <= 0:
+                    continue
+                proposed_exact[(dexact, dcustomer)] = proposed_exact.get((dexact, dcustomer), 0) + dq
+                proposed_size[(dsize, dcustomer)] = proposed_size.get((dsize, dcustomer), 0) + dq
             continue
         proposed_exact[(exact, customer)] = proposed_exact.get((exact, customer), 0) + q
         proposed_size[(size, customer)] = proposed_size.get((size, customer), 0) + q
@@ -1747,6 +1852,23 @@ def api_warehouse_available_items():
                     q = int(it.get('qty') or 0)
                 except Exception:
                     q = 0
+                component_details = warehouse_saved_item_component_details(it, q)
+                if component_details:
+                    for d in component_details:
+                        dexact = warehouse_item_exact_key(d.get('product_text') or d.get('product') or '')
+                        dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                        dsource = (d.get('source_table') or d.get('source') or source_label or '庫存').strip()
+                        dsource = {'master_orders': '總單', 'master_order': '總單', 'orders': '訂單', 'order': '訂單', 'inventory': '庫存', 'stock': '庫存'}.get(dsource, dsource)
+                        did = str(d.get('source_id') or d.get('id') or '')
+                        try:
+                            dq = int(d.get('qty') or 0)
+                        except Exception:
+                            dq = 0
+                        if dexact and dq > 0:
+                            dkey = (dexact, dcustomer, dsource, did)
+                            placed_detail[dkey] = placed_detail.get(dkey, 0) + dq
+                            placed_detail_by_zone[(dexact, dcustomer, dsource, did, cell_zone)] = placed_detail_by_zone.get((dexact, dcustomer, dsource, did, cell_zone), 0) + dq
+                    continue
                 if exact and q > 0:
                     dkey = (exact, customer, source_label, source_id)
                     placed_detail[dkey] = placed_detail.get(dkey, 0) + q
@@ -1787,12 +1909,14 @@ def api_warehouse_available_items():
             first = details_for_item[0] if details_for_item else (details_for_item_all[0] if details_for_item_all else {})
             product = first.get('product_text') or exact
             size = first.get('product_size') or warehouse_item_size_key(product)
+            display_size = first.get('display_product_size') or warehouse_item_display_size(product) or size
             support = first.get('support_text') or warehouse_support_text(product)
             material = first.get('material') or first.get('product_code') or ''
             items.append({
                 'product_text': product,
                 'product': product,
                 'product_size': size,
+                'display_product_size': display_size,
                 'support_text': support,
                 'exact_key': exact,
                 'customer_name': customer,

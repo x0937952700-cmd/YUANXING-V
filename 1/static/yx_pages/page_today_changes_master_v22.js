@@ -6,6 +6,17 @@
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function parenAdjust(v){
+    let total = 0;
+    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
+      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
+        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
+        return '';
+      });
+      return '';
+    });
+    return total;
+  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -31,9 +42,9 @@
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
+      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -407,7 +418,7 @@
     document.querySelectorAll('[data-today-panel]').forEach(panel => {
       panel.classList.add('yx112-today-panel');
       const k = panel.getAttribute('data-today-panel');
-      const filter = state.filter || 'orders';
+      const filter = state.filter || 'all';
       const show = filter === 'all' || filter === k;
       panel.classList.toggle('yx112-filter-hidden', !show);
       panel.style.display = show ? '' : 'none';
@@ -419,12 +430,12 @@
     return Number.isFinite(n) ? n : 0;
   }
   function setFilter(next){
-    state.filter = next || 'orders';
+    state.filter = next || 'all';
     try { localStorage.setItem('yx112TodayFilter', state.filter); } catch(_e) {}
     applyFilter();
   }
   function applyFilter(){
-    const filter = state.filter || 'orders';
+    const filter = state.filter || 'all';
     document.querySelectorAll('[data-today-filter]').forEach(btn => {
       const k = btn.getAttribute('data-today-filter') || 'all';
       btn.classList.toggle('active', k === filter);
@@ -604,8 +615,8 @@
     if (!isToday()) return;
     // V24：每次打開今日異動固定先顯示「新增訂單」單一卡片版，
     // 不讀取上次 all/inbound/outbound 篩選，避免先跳舊的三區塊畫面再跳新版。
-    state.filter = 'orders';
-    try { localStorage.setItem('yx112TodayFilter', 'orders'); } catch(_e) {}
+    state.filter = 'all';
+    try { localStorage.setItem('yx112TodayFilter', 'all'); } catch(_e) {}
     YX.cancelLegacyTimers('today_changes');
     document.documentElement.dataset.yx112Today = 'locked';
     document.documentElement.dataset.yx114Today = 'locked';

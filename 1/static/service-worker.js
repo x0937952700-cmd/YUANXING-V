@@ -1,4 +1,4 @@
-const CACHE_VERSION='V55';
+const CACHE_VERSION='V56';
 self.addEventListener('install', event => { self.skipWaiting(); });
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {

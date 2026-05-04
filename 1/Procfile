@@ -1,1 +1,2 @@
 web: gunicorn wsgi:app --bind 0.0.0.0:$PORT
+# V57: wsgi entrypoint retained for Render/Gunicorn.

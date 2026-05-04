@@ -6,6 +6,17 @@
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function parenAdjust(v){
+    let total = 0;
+    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
+      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
+        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
+        return '';
+      });
+      return '';
+    });
+    return total;
+  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -31,9 +42,9 @@
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
+      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -411,6 +422,23 @@
     return s.replace(/\b(FOB代付|FOB代|FOB|CNF)\b/gi,'').replace(/\s+/g,' ').trim() || '庫存';
   }
   function productText(it){ return clean(it?.product_text || it?.product || it?.product_size || ''); }
+  function stripProductParen(text){ return clean(text).replace(/[\(（][^\)）]*[\)）]/g,'').trim(); }
+  function productBaseText(it){
+    const raw = clean(it?.display_product_size || it?.base_product_size || productText(it));
+    const noParen = stripProductParen(raw).replace(/[×ＸX✕＊*]/g,'x').replace(/＝/g,'=');
+    return clean((noParen.split('=')[0] || noParen));
+  }
+  function productSupportText(it){
+    const direct = clean(it?.support_text || it?.support || '');
+    if(direct) return direct.replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    const raw = clean(productText(it)).replace(/[Ｘ×✕＊*X]/g,'x').replace(/＝/g,'=');
+    return raw.includes('=') ? clean(raw.split('=').slice(1).join('=')) : '';
+  }
+  function productWithSupport(base, support){
+    base = clean(base);
+    support = clean(support).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    return support ? `${base}=${support}` : base;
+  }
   function normalizedItem(it, qty, placement){
     const product=productText(it);
     return {...it, product_text:product, product, customer_name:cleanCustomer(it?.customer_name||it?.customer||''), material:materialOf(it), qty:Math.max(1,Math.floor(Number(qty||itemQty(it)||1))), source:sourceOf(it), source_table:it?.source_table || it?.source || sourceOf(it), source_id:it?.source_id || it?.id || '', placement_label:placement || it?.placement_label || it?.layer_label || '前排', layer_label:placement || it?.placement_label || it?.layer_label || '前排'};
@@ -527,18 +555,49 @@
     if(!state.unplacedOpen){ box.classList.add('hidden'); return; }
     const list=(state.activeZone==='B'?state.availableByZone.B:(state.activeZone==='A'?state.availableByZone.A:state.available)); box.classList.remove('hidden'); box.innerHTML=list.length?list.map((it,i)=>`<div class="deduct-card"><strong>${esc(cleanCustomer(it.customer_name||''))}</strong><div>${esc(productText(it))}</div><div class="small-note">${itemQty(it)}件｜${esc(sourceOf(it))}｜${esc(state.activeZone==='ALL'?(it.zone||''):state.activeZone+'區')}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
   }
-  function optionLabel(it){ const mat=materialOf(it); const src=sourceOf(it); const product=productText(it); const support=clean(it?.support_text||''); const showProduct=(support && !product.includes('='))?`${product}=${support}`:product; return `${cleanCustomer(it.customer_name||'')}｜${src?src+'｜':''}${mat?mat+'｜':''}${showProduct}｜可加入 ${itemQty(it)}件`; }
+  function optionLabel(it){ const mat=materialOf(it); const src=sourceOf(it); const base=productBaseText(it); const support=productSupportText(it); const label=support?`${base}=${support}`:base; return `${cleanCustomer(it.customer_name||'')}｜${src?src+'｜':''}${mat?mat+'｜':''}${label}｜可加入 ${itemQty(it)}件`; }
   function availableListForCurrent(){ const z=clean(state.current?.zone||state.activeZone||'A').toUpperCase(); return z==='B'?state.availableByZone.B:state.availableByZone.A; }
-  function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return availableListForCurrent().map((it,i)=>({it,index:i,key:itemKey(it)})).filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
+  function combineSupportText(a,b){
+    const out=[];
+    [a,b].forEach(v=>String(v||'').split('+').map(clean).filter(Boolean).forEach(x=>{ if(!out.includes(x)) out.push(x); }));
+    return out.join('+');
+  }
+  function groupedAvailableRows(){
+    const map=new Map();
+    availableListForCurrent().forEach((it,i)=>{
+      const base=productBaseText(it);
+      if(!base) return;
+      const support=productSupportText(it);
+      const gkey=[cleanCustomer(it?.customer_name||''), sourceOf(it), materialOf(it), base, clean(it?.zone||'')].join('::');
+      const old=map.get(gkey);
+      if(old){
+        old.it.qty = itemQty(old.it) + itemQty(it);
+        old.it.unplaced_qty = itemQty(old.it);
+        old.it.total_qty = (Number(old.it.total_qty||0)||0) + (Number(it.total_qty||itemQty(it))||0);
+        old.it.support_text = combineSupportText(old.it.support_text, support);
+        old.it.product_text = productWithSupport(base, old.it.support_text);
+        old.it.product = old.it.product_text;
+        old.it.source_details = [...(old.it.source_details||[]), ...(it.source_details||[it])];
+        old.components.push({it,index:i});
+      }else{
+        const mergedProduct=productWithSupport(base, support);
+        const first={...it, product_text:mergedProduct, product:mergedProduct, base_product_size:base, display_product_size:base, support_text:support, qty:itemQty(it), unplaced_qty:itemQty(it), source_details:[...(it.source_details||[it])]};
+        map.set(gkey,{it:first,index:i,key:gkey,components:[{it,index:i}]});
+      }
+    });
+    return Array.from(map.values()).filter(r=>itemQty(r.it)>0);
+  }
+  function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return groupedAvailableRows().filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
   function itemKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
-  function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
+  function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), productText(it), clean(it?.support_text||productSupportText(it)||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
+  function warehouseSizeKey(text){ const left=stripProductParen(text).replace(/[×ＸX✕＊*]/g,'x').replace(/＝/g,'=').split('=')[0] || ''; const parts=left.toLowerCase().split('x').filter(Boolean); if(parts.length>=3 && parts.slice(0,3).every(x=>/^\d+$/.test(x.trim()))) return parts.slice(0,3).map(x=>String(parseInt(x,10))).join('x'); return clean(left).toLowerCase(); }
   function snapshotBatchRows(){
     const rows=[];
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach((row,i)=>{
       const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty');
       const opt=sel?.options?.[sel.selectedIndex];
-      rows[i]={value:sel?.value||'', key:opt?.dataset?.itemKey||'', qty:qty?.value||'', placement:placementForBatch(i)};
+      rows[i]={value:sel?.value||'', key:opt?.dataset?.itemKey||'', qty:qty?.value||'', support:row.querySelector('.yx121-batch-support')?.value||'', placement:placementForBatch(i)};
     });
     return rows;
   }
@@ -552,7 +611,7 @@
         if(!chosen && old.value !== '' && Array.from(sel.options).some(o=>o.value===old.value)) chosen=old.value;
         sel.value=chosen;
       }
-      if(qty && old.qty) qty.value=old.qty;
+      if(qty && old.qty) qty.value=old.qty; const sup=row.querySelector('.yx121-batch-support'); if(sup && old.support) sup.value=old.support;
     });
     syncBatchSelectLimits(false);
   }
@@ -612,10 +671,10 @@
     const current=(state.current.items||[]).map((it,i)=>currentItemEditorHtml(it,i)).join('') || '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
     const currentBox=$('warehouse-current-items-html'); if(currentBox) currentBox.innerHTML=current;
     const rowsData=availableRows();
-    const opts=rowsData.map(r=>`<option value="${esc(r.key)}" data-index="${r.index}" data-max="${itemQty(r.it)}" data-item-key="${esc(r.key)}">${esc(optionLabel(r.it))}</option>`).join('');
+    const opts=rowsData.map(r=>`<option value="${esc(r.key)}" data-index="${r.index}" data-max="${itemQty(r.it)}" data-item-key="${esc(r.key)}" data-support="${esc(productSupportText(r.it))}">${esc(optionLabel(r.it))}</option>`).join('');
     const emptyHint = opts ? '' : '<option value="">此區目前沒有未錄入商品，或請換 A/B 區</option>';
     const rowCount=Math.max(3,Number(state.batchCount||3),saved.length||0);
-    const rows=Array.from({length:rowCount},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts || emptyHint}</select><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="加入件數" data-yx121-max=""></div>`).join('');
+    const rows=Array.from({length:rowCount},(_,i)=>`<div class="yx121-batch-row" data-batch-index="${i}"><label class="yx121-batch-label">${placementForBatch(i)}</label><select class="text-input yx121-batch-select"><option value="">選擇此區未錄入商品</option>${opts || emptyHint}</select><input class="text-input yx121-batch-support" type="text" placeholder="支數"><input class="text-input yx121-batch-qty" type="number" min="1" placeholder="件數" data-yx121-max=""></div>`).join('');
     const rowsBox=$('yx121-batch-rows'); if(rowsBox) rowsBox.innerHTML=rows;
     restoreBatchRows(saved);
   }
@@ -646,31 +705,33 @@
   }
   function syncBatchSelectLimits(fillEmpty=true){
     const rows = Array.from(document.querySelectorAll('#yx121-batch-rows .yx121-batch-row'));
-    const chosen = new Map();
+    const groups = new Map(availableRows().map(r=>[r.key,r]));
+    const usage = selectedBatchUsage();
     rows.forEach(row=>{
-      const sel=row.querySelector('.yx121-batch-select'); const opt=sel?.options?.[sel.selectedIndex]; const k=opt?.dataset?.itemKey || sel?.value || '';
-      if(k) chosen.set(k,(chosen.get(k)||0)+1);
-    });
-    rows.forEach(row=>{
-      const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty'); if(!sel||!qty) return;
-      const opt=sel.options[sel.selectedIndex]; const keyNow=opt?.dataset?.itemKey || sel.value || '';
-      Array.from(sel.options).forEach(o=>{
-        const k=o.dataset?.itemKey || o.value || '';
-        if(!k){ o.disabled=false; return; }
-        o.disabled = !!(chosen.get(k)>0 && k!==keyNow);
+      const sel=row.querySelector('.yx121-batch-select'); const qty=row.querySelector('.yx121-batch-qty'); const supportEl=row.querySelector('.yx121-batch-support'); if(!sel||!qty) return;
+      Array.from(sel.options).forEach(opt=>{
+        const ok=opt?.dataset?.itemKey || opt.value || '';
+        if(!ok) return;
+        const group=groups.get(ok);
+        const currentForOption=(ok===(sel.options[sel.selectedIndex]?.dataset?.itemKey || sel.value || '')) ? Math.max(0,Math.floor(Number(qty.value||0))) : 0;
+        const remaining=group ? Math.max(0, itemQty(group.it) - (usage.get(ok)||0) + currentForOption) : 0;
+        opt.disabled = remaining <= 0;
+        opt.hidden = remaining <= 0 && opt.value !== sel.value;
+        opt.dataset.max = String(remaining);
       });
-      const max=Number(opt?.dataset?.max||0);
-      const kNow = opt?.dataset?.itemKey || sel.value || '';
-      let existing = 0;
-      if(kNow){ const poolItem = availableListForCurrent().find(x=>itemKey(x)===kNow || itemStableKey(x)===kNow); const stable = poolItem ? itemStableKey(poolItem) : kNow; (state.current?.items||[]).forEach(it=>{ if(itemStableKey(it)===stable) existing += itemQty(it); }); }
-      const remaining = max>0 ? Math.max(0, max-existing) : 0;
-      if(max>0){ qty.max=String(remaining); qty.dataset.yx121Max=String(remaining); if(remaining<=0){ qty.value=''; qty.placeholder='已無剩餘'; qty.disabled=true; } else { qty.disabled=false; qty.placeholder='加入件數'; if(fillEmpty && !qty.value) qty.value=String(remaining); if(Number(qty.value)>remaining) qty.value=String(remaining); } }
-      else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; qty.disabled=false; if(!sel.value) qty.value=''; }
+      const opt=sel.options[sel.selectedIndex]; const k=opt?.dataset?.itemKey || sel.value || '';
+      const group=groups.get(k);
+      const current=Math.max(0,Math.floor(Number(qty.value||0)));
+      const max=group ? Math.max(0, itemQty(group.it) - (usage.get(k)||0) + current) : 0;
+      const optSupport=opt?.dataset?.support || (group ? productSupportText(group.it) : '');
+      if(supportEl && optSupport && (fillEmpty || !supportEl.value)) supportEl.value=optSupport;
+      if(max>0){ qty.max=String(max); qty.dataset.yx121Max=String(max); qty.disabled=false; qty.placeholder='件數'; if(fillEmpty && !qty.value) qty.value=String(max); if(Number(qty.value)>max) qty.value=String(max); }
+      else { qty.removeAttribute('max'); qty.dataset.yx121Max=''; if(sel.value){ qty.value=''; qty.disabled=true; qty.placeholder='已無剩餘件數'; } else { qty.disabled=false; qty.value=''; } }
     });
   }
   function collectBatchItems(){
-    const pool=availableListForCurrent();
-    const byStable = new Map(pool.map(x => [itemStableKey(x), x]));
+    const rowsPool = availableRows();
+    const byKey = new Map(rowsPool.map(r=>[r.key,r]));
     const existingQty = new Map();
     (state.current?.items || []).forEach(it=>{
       const k=itemStableKey(it);
@@ -680,21 +741,25 @@
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
       const sel=row.querySelector('.yx121-batch-select'); const raw=sel?.value; if(raw==='') return;
       const opt=sel?.options?.[sel.selectedIndex];
-      let it=null;
-      const stableKey=opt?.dataset?.itemKey || raw;
-      it=pool.find(x=>itemKey(x)===stableKey || itemStableKey(x)===stableKey);
-      if(!it){ const idx=Number(opt?.dataset?.index ?? raw); if(Number.isFinite(idx)) it=pool[idx]; }
-      if(!it) return;
-      const k=itemStableKey(it);
-      const max=itemQty(it)||1;
-      const alreadyInCell=existingQty.get(k)||0;
-      const alreadyNew=collected.get(k)?.qty || 0;
+      const group=byKey.get(opt?.dataset?.itemKey || raw);
+      if(!group) return;
+      const base=productBaseText(group.it);
+      const support=clean(row.querySelector('.yx121-batch-support')?.value || productSupportText(group.it) || '');
+      const product=productWithSupport(base, support);
+      const max=itemQty(group.it)||1;
+      let qty=Math.max(1, Math.floor(Number(row.querySelector('.yx121-batch-qty')?.value||0)));
+      if(!qty) qty=max;
+      qty=Math.min(qty, max);
+      if(qty <= 0) return;
+      const seed={...group.it, product_text:product, product, support_text:support, exact_key:support?`${warehouseSizeKey(base)}=${support}`:warehouseSizeKey(base), source_id:clean(group.it.source_id||group.it.id||'')};
+      const stable=itemStableKey(seed);
+      const alreadyInCell=existingQty.get(stable)||0;
+      const alreadyNew=collected.get(stable)?.qty || 0;
       const remaining=Math.max(0, max - alreadyInCell - alreadyNew);
       if(remaining <= 0) return;
-      let qty=Math.max(1, Math.floor(Number(row.querySelector('.yx121-batch-qty')?.value||remaining)));
-      qty=Math.min(qty, remaining);
-      if(qty <= 0) return;
-      collected.set(k, normalizedItem(it, (alreadyNew + qty), placementForBatch(Number(row.dataset.batchIndex||collected.size))));
+      const finalQty=Math.min(qty, remaining);
+      if(finalQty <= 0) return;
+      collected.set(stable, normalizedItem(seed, (alreadyNew + finalQty), placementForBatch(Number(row.dataset.batchIndex||collected.size))));
     });
     return Array.from(collected.values());
   }
@@ -721,11 +786,12 @@
       updateSlotUI(saveZone,saveCol,saveSlot);
       toast(`格位已送出背景儲存${added.length?`，新增 ${added.length} 筆`:''}${editedChanged?'，已更新目前商品':''}`,'ok');
       closeWarehouseModal();
-      renderWarehouse(false).then(()=>highlightWarehouseCell(saveZone,saveCol,saveSlot)).catch(()=>{});
+      highlightWarehouseCell(saveZone,saveCol,saveSlot);
       saveCellRaw(saveZone,saveCol,saveSlot,items,saveNote).then(async saved=>{
         if(saved && Array.isArray(saved.cells)) state.data.cells=saved.cells;
         await loadAvailable().catch(()=>{});
-        updateSlotUI(saveZone,saveCol,saveSlot);
+        updateAllSlots();
+        highlightWarehouseCell(saveZone,saveCol,saveSlot);
         toast('格位已永久存入資料庫','ok');
       }).catch(e=>{
         toast((e&&e.message)||'背景儲存格位失敗，請重開格位確認','error');

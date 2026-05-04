@@ -692,3 +692,30 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx-region-customer .small-note,.yx113-customer-card .small-note,.customer-card .small-note{font-size:16px!important;font-weight:800!important;}
 .yx114-batch-actions,.yx-direct-batch-actions{display:flex!important;align-items:center!important;gap:8px!important;flex-wrap:wrap!important;}
 .yx114-batch-actions .text-input.small{min-width:180px!important;}
+
+/* V56 warehouse batch row: one line per same customer/source/material/size, editable support and qty boxes */
+.yx121-batch-row{display:grid;grid-template-columns:auto minmax(360px,1fr) 110px 86px;gap:8px;align-items:center;}
+.yx121-batch-select{min-width:0;width:100%;}
+.yx121-batch-support,.yx121-batch-qty{width:100%;text-align:center;}
+@media(max-width:720px){.yx121-batch-row{grid-template-columns:auto 1fr;}.yx121-batch-support,.yx121-batch-qty{min-width:90px;}}
+
+
+/* ===== V57 restore product action buttons and prevent legacy CSS from hiding them ===== */
+.yx128-summary-head .yx128-summary-controls,
+.yx113-summary-head .yx128-summary-controls,
+.yx128-summary-controls {
+  display:flex!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+  justify-content:flex-end!important;
+  align-items:center!important;
+  margin-left:auto!important;
+}
+.yx-html-one-row-actions [data-yx132-batch-zone],
+.yx-html-one-row-actions [data-yx132-batch-transfer],
+.yx128-summary-controls [data-yx132-batch-zone],
+.yx128-summary-controls [data-yx132-batch-transfer] {
+  display:inline-flex!important;
+}
+.yx121-batch-select option[disabled] { color:#999; }
+/* ===== END V57 restore product action buttons ===== */
