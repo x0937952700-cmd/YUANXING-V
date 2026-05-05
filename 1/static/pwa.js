@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'V60';
+  const PWA_VERSION = 'V62';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

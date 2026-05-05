@@ -1,0 +1,1 @@
+V62: warehouse batch support selection qty fix; merged support qty sum; mobile batch row layout; cache version bumped.

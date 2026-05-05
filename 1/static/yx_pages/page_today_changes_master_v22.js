@@ -375,14 +375,15 @@
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
+  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0, forceNext:false};
   const panels = [
-    {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
-    {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
+    {key:'inbound', label:'新增庫存', list:'today-inbound-list', empty:'今天沒有新增庫存'},
     {key:'orders', label:'新增訂單', list:'today-order-list', empty:'今天沒有新增訂單'},
+    {key:'masters', label:'新增總單', list:'today-master-list', empty:'今天沒有新增總單'},
+    {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
     {key:'unplaced', label:'未錄入倉庫圖', list:'today-unplaced-list', empty:'目前沒有未錄入倉庫圖商品'},
   ];
-  const countMap = {inbound:'inbound_count', outbound:'outbound_count', orders:'new_order_count', unplaced:'unplaced_count'};
+  const countMap = {inbound:'inbound_count', orders:'new_order_count', masters:'new_master_count', outbound:'outbound_count', unplaced:'unplaced_count'};
 
   function $(id){ return document.getElementById(id); }
   function isToday(){ return YX.moduleKey() === 'today_changes' || !!$('today-summary-cards'); }
@@ -517,8 +518,9 @@
     renderSummaryCards(summary);
     renderUnplacedZonePill(summary);
     fill('today-inbound-list', state.data.feed?.inbound, '今天沒有進貨', 'inbound');
-    fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
     fill('today-order-list', state.data.feed?.new_orders, '今天沒有新增訂單', 'orders');
+    fill('today-master-list', state.data.feed?.new_masters, '今天沒有新增總單', 'masters');
+    fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
     fill('today-unplaced-list', state.data.unplaced_items, '目前沒有未錄入倉庫圖商品', 'unplaced');
     applyFilter();
     return data;
@@ -529,7 +531,7 @@
     state.loading = (async () => {
       try {
         cleanLegacyTodayDom();
-        let data = await YX.api('/api/today-changes?yx112=1&ts=' + Date.now(), {method:'GET'});
+        let data = await YX.api('/api/today-changes?yx112=1&force=' + (opts.force || state.forceNext ? '1' : '0') + '&ts=' + Date.now(), {method:'GET'}); state.forceNext=false;
         try {
           const wz = await YX.api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
           data.summary = data.summary || {};

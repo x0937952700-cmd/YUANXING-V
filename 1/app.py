@@ -1512,6 +1512,25 @@ def api_shipping_records():
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
     return jsonify(success=True, items=rows, records=rows)
 
+@app.route("/api/shipping_records/<int:record_id>", methods=["DELETE"])
+@login_required_json
+def api_shipping_record_delete(record_id):
+    # V61：出貨查詢管理員可刪單；刪除後其他人查不到。
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM shipping_records WHERE id = ?'), (record_id,))
+        before = rows_to_dict(cur)
+        cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (record_id,))
+        conn.commit(); conn.close()
+        yx_v35_safe_side_effect('shipping_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', str(record_id), before_json={'row': before[0] if before else {}}, after_json={'deleted': True})
+        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已刪除', extra={'id': record_id})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('shipping_record_delete', str(e))
+        return error_response('刪除出貨紀錄失敗')
+
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
@@ -2642,49 +2661,113 @@ def _today_unplaced_zone_summary():
         except Exception: pass
         return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
 
-def _today_changes_payload():
+def _today_logs_detail(today):
+    # V61：今日異動卡片要能點開看客戶與商品；從當日四張主表補詳細資料，避免只顯示一句 log。
+    detail = {'inventory': [], 'orders': [], 'master_orders': [], 'shipping_records': []}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        specs = [
+            ('inventory', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM inventory WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('master_orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM master_orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('shipping_records', "SELECT id, customer_name, product_text, material, qty, operator, shipped_at AS created_at FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+        ]
+        for k, q in specs:
+            try:
+                cur.execute(sql(q), (today,))
+                rows = rows_to_dict(cur)
+                for r in rows:
+                    r['created_at'] = _format_24h(r.get('created_at'))
+                    r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', (str(r.get('qty')) + '件') if r.get('qty') not in (None,'') else ''] if x])
+                    r['action'] = {'inventory':'新增庫存','orders':'新增訂單','master_orders':'新增總單','shipping_records':'出貨'}.get(k, '異動')
+                    r['username'] = r.get('operator') or r.get('username') or ''
+                detail[k] = rows
+            except Exception as e:
+                log_error('today_detail_' + k, str(e))
+        conn.close()
+    except Exception as e:
+        try: log_error('today_logs_detail', str(e))
+        except Exception: pass
+    return detail
+
+
+def _today_unplaced_cached(force=False):
+    # V61：今日異動先快速顯示，不每次開頁都重算重型未錄入；長按刷新或刷新按鈕才強制重算。
+    import json as _json
+    cache_key = 'today_unplaced_cache_v61'
+    if not force:
+        try:
+            raw = get_setting(cache_key, '') or ''
+            if raw:
+                obj = _json.loads(raw)
+                if obj.get('date') == _today_key():
+                    return obj.get('items') or [], obj.get('zone') or {'A':0,'B':0,'unassigned':0,'total':0}
+        except Exception:
+            pass
+        return [], {'A':0,'B':0,'unassigned':0,'total':0}
+    items = _today_unplaced_all_sources()
+    zone = _today_unplaced_zone_summary()
+    try:
+        set_setting(cache_key, _json.dumps({'date': _today_key(), 'items': items[:200], 'zone': zone}, ensure_ascii=False))
+    except Exception as e:
+        try: log_error('today_unplaced_cache_save', str(e))
+        except Exception: pass
+    return items, zone
+
+
+def _today_changes_payload(force_unplaced=False):
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 120"), (today,))
     logs = rows_to_dict(cur)
     conn.close()
 
     inbound = []
     outbound = []
     new_orders = []
+    new_masters = []
     for r in logs:
         r['created_at'] = _format_24h(r.get('created_at'))
         action = r.get('action') or ''
-        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
         if action == '完成出貨' or action.startswith('完成出貨'):
             outbound.append(r)
         elif action == '建立訂單' or action.startswith('建立訂單'):
             new_orders.append(r)
-        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
+        elif action == '建立總單' or action.startswith('建立總單') or action.startswith('新增總單'):
+            new_masters.append(r)
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('新增庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    unplaced = _today_unplaced_all_sources()
+    detail = _today_logs_detail(today)
+    if detail.get('inventory'): inbound = detail['inventory']
+    if detail.get('orders'): new_orders = detail['orders']
+    if detail.get('master_orders'): new_masters = detail['master_orders']
+    if detail.get('shipping_records'): outbound = detail['shipping_records']
+
+    unplaced, zone_summary = _today_unplaced_cached(bool(force_unplaced))
     read_at = get_setting('today_changes_read_at', '') or ''
-    visible_logs = inbound + outbound + new_orders
+    visible_logs = inbound + new_orders + new_masters + outbound
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
         'summary': {
             'inbound_count': len(inbound),
-            'outbound_count': len(outbound),
             'new_order_count': len(new_orders),
+            'new_master_count': len(new_masters),
+            'outbound_count': len(outbound),
             'unplaced_count': unplaced_total_qty,
             'unplaced_row_count': len(unplaced),
-            'unplaced_zone_summary': _today_unplaced_zone_summary(),
+            'unplaced_zone_summary': zone_summary,
             'anomaly_count': 0,
             'unread_count': unread_count,
         },
         'feed': {
             'inbound': inbound[:60],
-            'outbound': outbound[:60],
             'new_orders': new_orders[:60],
+            'new_masters': new_masters[:60],
+            'outbound': outbound[:60],
             'others': [],
         },
         'unplaced_items': unplaced[:200],
@@ -2696,7 +2779,7 @@ def _today_changes_payload():
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    return jsonify(success=True, **_today_changes_payload(force_unplaced=(request.args.get('force') == '1')))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json

@@ -5389,3 +5389,13 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   .yx108-slot-product{font-size:12px!important;}
 }
 /* ===== END V60 warehouse cell product summary + editable quantity return lock ===== */
+/* V61 今日異動 0 小圓點刪除 */
+#today-unread-badge{display:none!important;}
+/* V61 出貨查詢先顯示客戶+日期，點開看商品表 */
+.yx-ship-query-card{margin:10px 0;padding:12px;border-radius:18px;}
+.yx-ship-query-head{width:100%;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;background:transparent;border:0;text-align:left;font:inherit;color:inherit;cursor:pointer;}
+.yx-ship-query-detail.hidden{display:none!important;}
+.yx-ship-query-detail table{width:100%;border-collapse:collapse;margin-top:10px;background:rgba(255,255,255,.58);border-radius:16px;overflow:hidden;}
+.yx-ship-query-detail th,.yx-ship-query-detail td{padding:10px;border-bottom:1px solid rgba(0,0,0,.08);}
+.yx108-slot-product{font-size:12px;font-weight:700;color:#0f766e;text-align:center;line-height:1.15;min-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.yx-direct-current-item .yx-current-qty-input{min-width:72px;}
