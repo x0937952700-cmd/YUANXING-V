@@ -146,7 +146,7 @@
 })();
 /* ===== END V57 global product undo bridge ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 V68 buttons lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_inventory_master_v22'; })();
 
 /* ===== MERGED INTO V22 FROM static/yx_modules/core_hardlock.js ===== */
@@ -815,13 +815,13 @@
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);
-    const moveButtons = source === 'inventory'
-      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
-      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
+    const orderToMasterButton = source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
+    const inventoryTransferButtons = source === 'inventory' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
+    const editDeleteButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>`;
     const controls = source === 'inventory'
-      ? `<div class="yx128-summary-controls yx-v58-inventory-four-actions">${zoneMoveButtons}${moveButtons}</div>`
-      : `<div class="yx128-summary-controls">${zoneMoveButtons}${moveButtons}<button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`; // V58：庫存表頭只保留移到A/B、加到訂單/總單四顆；批量功能只放上方工具列。
+      ? `<div class="yx128-summary-controls yx-v68-inventory-actions">${zoneMoveButtons}${inventoryTransferButtons}</div>`
+      : `<div class="yx128-summary-controls yx-v68-order-master-actions">${zoneMoveButtons}${orderToMasterButton}${editDeleteButtons}</div>`; // V68：訂單/總單圖一區固定補回移到A/B、批量刪除、批量編輯；訂單多加到總單。
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {

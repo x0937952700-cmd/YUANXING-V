@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V66 warehouse qty sync/customer center/fob hide lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V68 warehouse drag slot qty final lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -462,9 +462,20 @@
     return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
   }
   function qtyFromProductTextForInput(text, fallback){
-    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    // V68：目前此格商品的輸入框強制以 = 右側判定件數。
+    // 132x60x08=162x26 => 26；132x60x08=162x26+133x4+142 => 31；括號只當備註不扣件。
+    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
     if(!raw.includes('=')) return Math.max(0, Math.floor(Number(fallback||0)));
-    return qtyFromSupportInput(raw.split('=').slice(1).join('='), fallback);
+    const right=raw.split('=').slice(1).join('=').replace(/[＋]/g,'+');
+    let total=0, hit=false;
+    right.split('+').map(clean).filter(Boolean).forEach(seg=>{
+      const plain=seg.replace(/[\(（][^\)）]*[\)）]/g,'').trim();
+      const m=plain.match(/x\s*(\d+)\s*$/i);
+      if(m){ total += Math.max(0, Number(m[1]||0)); hit=true; return; }
+      if(/\d/.test(plain)){ total += 1; hit=true; }
+    });
+    if(hit) return total;
+    return qtyFromSupportInput(right, fallback);
   }
   function slotProductSummary(items){
     const uniq=[];
@@ -787,9 +798,17 @@
       if(!base) return;
       const product=clean(row.querySelector('[data-current-product]')?.value || productText(base));
       const material=clean(row.querySelector('[data-current-material]')?.value || materialOf(base));
-      const qty=Math.max(1, Math.floor(Number(row.querySelector('[data-current-qty]')?.value || itemQty(base))));
+      const qtyEl=row.querySelector('[data-current-qty]');
+      const baseProduct=clean(productText(base));
+      // V67：目前此格商品若改了支數文字，要用輸入框文字重新判定件數。
+      // 例：132x60x08=162x26 => 26 件；132x60x08=162x26+133x4+142 => 31 件。
+      // 如果商品文字沒改，才保留使用者手動改的件數欄位。
+      let qty;
+      if(product && product !== baseProduct){ qty = qtyFromProductTextForInput(product, itemQty(base)); }
+      else { qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base)))); }
+      if(qtyEl) qtyEl.value = String(Math.max(1, qty));
       const placement=clean(row.querySelector('[data-current-placement]')?.value || base.placement_label || base.layer_label || '前排');
-      const updated={...base, product_text:product, product:product, material, product_code:material, qty, placement_label:placement, layer_label:placement};
+      const updated={...base, product_text:product, product:product, material, product_code:material, qty:Math.max(1, qty), placement_label:placement, layer_label:placement};
       if(JSON.stringify(normalizedItem(base,itemQty(base),base.placement_label||base.layer_label||'前排')) !== JSON.stringify(normalizedItem(updated,qty,placement))) touched=true;
       next.push(updated);
     });
@@ -977,8 +996,21 @@
     const f={zone:clean(from.zone).toUpperCase(),col:Number(from.col),slot:Number(from.slot)}, t={zone:clean(to.zone).toUpperCase(),col:Number(to.col),slot:Number(to.slot)};
     if(f.zone===t.zone&&f.col===t.col&&f.slot===t.slot) return; const moved=cellItems(f.zone,f.col,f.slot).filter(it=>itemQty(it)>0); if(!moved.length) return toast('此格沒有可拖拉的商品','warn');
     const src={...f,items:JSON.parse(JSON.stringify(cellItems(f.zone,f.col,f.slot))),note:cellNote(f.zone,f.col,f.slot)}; const dst={...t,items:JSON.parse(JSON.stringify(cellItems(t.zone,t.col,t.slot))),note:cellNote(t.zone,t.col,t.slot)};
-    const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),'前排')),...dst.items];
-    try{ await saveCellRaw(f.zone,f.col,f.slot,[],src.note); await saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note); state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton(); toast('已移動到前排','ok'); await renderWarehouse(true); highlightWarehouseCell(t.zone,t.col,t.slot); } catch(e){ toast(e.message||'拖拉移動失敗','error'); await renderWarehouse(true); }
+    const placement = dst.items && dst.items.length ? '前排' : '後排';
+    const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),placement)),...dst.items];
+    const oldCells=JSON.parse(JSON.stringify(state.data.cells||[]));
+    try{
+      // V67：拖拉先立刻更新前端，不等後端；有商品目標格放最前排，空格放後排。
+      let srcCell=cellFromData(f.zone,f.col,f.slot); if(srcCell){ srcCell.items=[]; srcCell.items_json='[]'; }
+      let dstCell=cellFromData(t.zone,t.col,t.slot); if(!dstCell){ dstCell={zone:t.zone,column_index:t.col,slot_type:'direct',slot_number:t.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(dstCell); }
+      dstCell.items=dstAfter; dstCell.items_json=JSON.stringify(dstAfter);
+      updateSlotUI(f.zone,f.col,f.slot); updateSlotUI(t.zone,t.col,t.slot); highlightWarehouseCell(t.zone,t.col,t.slot);
+      toast(placement==='前排'?'已先移動到前排，背景儲存':'已先移動到後排，背景儲存','ok');
+      Promise.all([saveCellRaw(f.zone,f.col,f.slot,[],src.note), saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note)]).then(async()=>{
+        state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton();
+        await loadAvailable().catch(()=>{}); updateAllSlots(); highlightWarehouseCell(t.zone,t.col,t.slot); toast('拖拉移動已永久存入資料庫','ok');
+      }).catch(e=>{ state.data.cells=oldCells; updateAllSlots(); toast((e&&e.message)||'拖拉移動失敗，已還原','error'); });
+    } catch(e){ state.data.cells=oldCells; updateAllSlots(); toast(e.message||'拖拉移動失敗','error'); }
   }
   async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
   function localInsertSlot(z,c,after){
@@ -1042,9 +1074,9 @@
     if(!slot || slot.dataset.yxFinalBound==='1') return; slot.dataset.yxFinalBound='1'; let press=null;
     const data=()=>({zone:slot.dataset.zone,col:Number(slot.dataset.column),slot:Number(slot.dataset.slot)});
     slot.addEventListener('pointerdown',ev=>{ if(ev.button && ev.button!==0) return; const d=data(); press={x:ev.clientX,y:ev.clientY,timer:setTimeout(()=>{ press=null; showMenu(d.zone,d.col,d.slot,ev.clientX,ev.clientY); },650),...d,moved:false}; });
-    slot.addEventListener('pointermove',ev=>{ if(!press) return; const moved=Math.abs(ev.clientX-press.x)>10 || Math.abs(ev.clientY-press.y)>10; if(moved){ clearTimeout(press.timer); press.moved=true; if(slot.dataset.hasItems==='1' && !state.drag){ state.drag={zone:press.zone,col:press.col,slot:press.slot}; slot.classList.add('yx121-warehouse-dragging'); try{slot.setPointerCapture?.(ev.pointerId);}catch(_e){} } } });
-    slot.addEventListener('pointerup',ev=>{ if(press) clearTimeout(press.timer); const dragging=state.drag; document.querySelectorAll('.yx121-warehouse-dragging,.yx121-warehouse-drop-target').forEach(el=>el.classList.remove('yx121-warehouse-dragging','yx121-warehouse-drop-target')); if(dragging){ slot.dataset.blockClickUntil=String(Date.now()+900); const target=document.elementFromPoint(ev.clientX,ev.clientY)?.closest?.('[data-zone][data-column][data-slot]'); state.drag=null; if(target){ ev.preventDefault(); ev.stopPropagation(); moveCellContents(dragging,{zone:target.dataset.zone,col:target.dataset.column,slot:target.dataset.slot}); press=null; return; } } if(press?.moved) slot.dataset.blockClickUntil=String(Date.now()+500); press=null; });
-    ['pointercancel','pointerleave'].forEach(t=>slot.addEventListener(t,()=>{ if(press){ clearTimeout(press.timer); press=null; } }));
+    slot.addEventListener('pointermove',ev=>{ if(!press) return; const moved=Math.abs(ev.clientX-press.x)>10 || Math.abs(ev.clientY-press.y)>10; if(moved){ clearTimeout(press.timer); press.moved=true; if(slot.dataset.hasItems==='1' && !state.drag){ state.drag={zone:press.zone,col:press.col,slot:press.slot,pointerId:ev.pointerId}; slot.classList.add('yx121-warehouse-dragging'); try{slot.setPointerCapture?.(ev.pointerId);}catch(_e){} } const over=document.elementFromPoint(ev.clientX,ev.clientY)?.closest?.('#warehouse-root [data-zone][data-column][data-slot]'); if(over) state.dragOver=over; } });
+    slot.addEventListener('pointerup',ev=>{ if(press) clearTimeout(press.timer); const dragging=state.drag; let target=document.elementFromPoint(ev.clientX,ev.clientY)?.closest?.('#warehouse-root [data-zone][data-column][data-slot]') || state.dragOver; try{ if(dragging?.pointerId!=null) slot.releasePointerCapture?.(dragging.pointerId); }catch(_e){} document.querySelectorAll('.yx121-warehouse-dragging,.yx121-warehouse-drop-target').forEach(el=>el.classList.remove('yx121-warehouse-dragging','yx121-warehouse-drop-target')); if(dragging){ slot.dataset.blockClickUntil=String(Date.now()+900); state.drag=null; state.dragOver=null; if(target){ ev.preventDefault(); ev.stopPropagation(); moveCellContents(dragging,{zone:target.dataset.zone,col:target.dataset.column,slot:target.dataset.slot}); press=null; return; } } if(press?.moved) slot.dataset.blockClickUntil=String(Date.now()+500); press=null; });
+    ['pointercancel','pointerleave'].forEach(t=>slot.addEventListener(t,()=>{ if(press){ clearTimeout(press.timer); press=null; } if(t==='pointercancel'){ state.drag=null; state.dragOver=null; } }));
     slot.addEventListener('pointerenter',()=>{ if(state.drag) slot.classList.add('yx121-warehouse-drop-target'); }); slot.addEventListener('pointerleave',()=>slot.classList.remove('yx121-warehouse-drop-target'));
     slot.addEventListener('contextmenu',ev=>{ ev.preventDefault(); const d=data(); showMenu(d.zone,d.col,d.slot,ev.clientX,ev.clientY); });
     slot.addEventListener('click',()=>{ if(Date.now()<Number(slot.dataset.blockClickUntil||0)) return; const d=data(); openWarehouseModal(d.zone,d.col,d.slot); });

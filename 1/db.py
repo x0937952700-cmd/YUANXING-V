@@ -2916,7 +2916,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     """
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index)
-    if zone not in ('A', 'B') or column_index < 1 or column_index > 6:
+    if zone not in ('A', 'B') or column_index < 1:
         raise ValueError('格位參數錯誤')
     conn = get_db(); cur = conn.cursor()
     try:
@@ -2952,7 +2952,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index)
     slot_number = int(slot_number)
-    if zone not in ('A', 'B') or column_index < 1 or column_index > 6:
+    if zone not in ('A', 'B') or column_index < 1:
         return {'success': False, 'error': '格位參數錯誤'}
     conn = get_db(); cur = conn.cursor()
     try:
@@ -4185,3 +4185,80 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 
 
 # V59_SHIP_MATCH_MATERIAL_CUSTOMER_FIX: clean_material_value and _fetch_shipping_match_rows normalize 未填材質 and customer variants.
+
+# ============================================================
+# V68 FINAL WAREHOUSE SLOT OVERRIDE
+# Purpose: keep user inserted/deleted slot counts permanent and avoid UNIQUE shift errors.
+# This final definition is intentionally at EOF so app.py imports this version.
+# ============================================================
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    if zone not in ('A', 'B') or column_index < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
+        max_slot = len(slots)
+        if insert_after is None or insert_after == '':
+            insert_after = max_slot
+        insert_after = max(0, min(int(insert_after), max_slot))
+        new_slot = insert_after + 1
+        slots.insert(insert_after, {'items_json': '[]', 'note': '', 'updated_at': now()})
+        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        try:
+            cur.execute(sql("""
+                UPDATE warehouse_recent_slots
+                SET slot_number = slot_number + 1
+                WHERE zone = ? AND column_index = ? AND slot_number > ?
+            """), (zone, column_index, insert_after))
+        except Exception as e:
+            log_error('v68_warehouse_recent_shift_add', str(e))
+        conn.commit()
+        return new_slot
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        conn.close()
+
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    slot_number = int(slot_number or 0)
+    if zone not in ('A', 'B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
+        max_slot = len(slots)
+        if max_slot <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
+        if slot_number > max_slot:
+            return {'success': False, 'error': '格號超出範圍'}
+        target = slots[slot_number - 1]
+        try:
+            items = json.loads(target.get('items_json') or '[]')
+        except Exception:
+            items = []
+        if items:
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        slots.pop(slot_number - 1)
+        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        try:
+            cur.execute(sql("DELETE FROM warehouse_recent_slots WHERE zone = ? AND column_index = ? AND slot_number = ?"), (zone, column_index, slot_number))
+            cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number = slot_number - 1 WHERE zone = ? AND column_index = ? AND slot_number > ?"), (zone, column_index, slot_number))
+        except Exception as e:
+            log_error('v68_warehouse_recent_shift_remove', str(e))
+        conn.commit()
+        return {'success': True, 'removed_slot': slot_number}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        conn.close()

@@ -3784,3 +3784,58 @@ if __name__ == "__main__":
 
 
 # V59_MAINFILE_REQUEST_LOCK: UI/button/optimistic-submit changes are in templates + static JS; app keeps Render-safe startup and ship snapshots.
+
+# ============================================================
+# V68 FINAL WAREHOUSE PAYLOAD OVERRIDE
+# Purpose: warehouse current-item input box uses = right side as the source of qty.
+# ============================================================
+def _yx_v68_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    if '=' not in raw:
+        try: return max(1, int(fallback or 1))
+        except Exception: return 1
+    right = raw.split('=', 1)[1]
+    total = 0; hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit and total > 0:
+        return total
+    try: return max(1, int(fallback or 1))
+    except Exception: return 1
+
+
+def normalize_warehouse_payload_items(items):
+    # V68 final: normalize warehouse modal payload and force qty from product_text when product_text contains '='.
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        if '=' in product:
+            qty = _yx_v68_qty_from_product_text(product, qty)
+        qty = max(1, qty)
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+        else:
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
