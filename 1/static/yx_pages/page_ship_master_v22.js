@@ -1053,13 +1053,13 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
 (function(){
   if (window.YXPageUndo) return;
   const stack=[];
-  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
+  function update(){ const b=document.getElementById('yx-local-page-undo-btn-disabled'); if(b) b.disabled=!stack.length; }
   window.YXPageUndo={
     snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
     undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
     size(){ return stack.length; }
   };
-  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-local-page-undo-btn-disabled'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */

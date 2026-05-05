@@ -636,7 +636,11 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
+      const commonToolbar = `<input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">`
+        + (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '')
+        + `<button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button>`
+        + (source === 'inventory' ? `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button>` : '');
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions">${commonToolbar}</div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -815,7 +819,11 @@
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-    const controls = `<div class="yx128-summary-controls">${zoneMoveButtons}${moveButtons}<button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`; // V57：恢復移到A/B區、加到訂單/總單、批量編輯/刪除按鈕
+    const controls = source === 'inventory'
+      ? `<div class="yx128-summary-controls yx-v58-inventory-four-actions">${zoneMoveButtons}${moveButtons}</div>`
+      : (source === 'orders'
+        ? `<div class="yx128-summary-controls">${zoneMoveButtons}${moveButtons}</div>`
+        : `<div class="yx128-summary-controls yx-v59-master-clean-actions"></div>`); // V59：訂單表頭刪除批量編輯/批量刪除；總單表頭刪除移到A/B、批量刪除、批量編輯全部。
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -990,16 +998,20 @@
       items.push({source:apiSource(source), id, ...payload});
     }
     if (!items.length) return YX.toast('沒有可儲存的商品', 'warn');
-    // V29：儲存批量編輯時不退出編輯模式、不重畫整個表格，避免正在選取/輸入的欄位被刷新打斷。
+    // V59：按下儲存批量編輯後要立刻保存並關閉編輯狀態。
     updateSummaryHeaderOnly(source);
-    YX.toast(`正在儲存 ${items.length} 筆商品，可繼續編輯`, 'ok');
+    YX.toast(`正在儲存 ${items.length} 筆商品`, 'ok');
     try{
       const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
-      YX.toast(`已批量更新 ${d.count || items.length} 筆商品，可繼續編輯其他欄位`, 'ok');
-      mergeSnapshotQuiet(d, source);
+      state.editAll[source] = false;
+      state.editScope[source] = null;
+      clearSelected(source);
+      if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); }
+      renderSummary(source);
+      renderCards(source);
+      YX.toast(`已儲存 ${d.count || items.length} 筆，並關閉編輯模式`, 'ok');
       try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
     }catch(e){
-      // 失敗時才重新讀後端；成功時完全不打斷目前編輯。
       await loadSource(source);
       YX.toast(e.message || '批量編輯儲存失敗', 'error');
     }
@@ -1464,7 +1476,6 @@
     const m = page();
     if (m === 'ship' && window.__YX_SHIP_SINGLE_LOCK__) return;
     if (!['inventory','orders','master_order'].includes(m)) return;
-    if (submitting) return;
     const btn = $('submit-btn');
     const ta = $('ocr-text');
     const result = $('module-result');
@@ -1475,67 +1486,72 @@
     const items = parseItems(text);
     if (!items.length) return toast('商品格式無法辨識，請確認有尺寸與支數','warn');
     const duplicateMode = decideDuplicateMode(m, customer, items);
-    submitting = true;
-    try{
-      if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
-      const requestKey = `v33-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const activeZone = activeZoneForSource(m);
-      toast(`送出中：${items.length} 筆商品`, 'ok');
-      window.safePushProductUndo(m, '新增商品');
-      // v20：先把商品與客戶卡直接畫到目前頁面，使用者不用等後端 GET 才看到。
-      const preOptimistic = submittedRowsFor(m, customer, items, activeZone);
-      try {
-        const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-        if (act?.rowsStore) {
-          act.rowsStore(m, mergeSubmittedRows(act.rowsStore(m) || [], preOptimistic));
-          act.renderSummary?.(m); act.renderCards?.(m);
-        }
-        if (customer && (m === 'orders' || m === 'master_order')) {
-          forceCustomerCardVisible(customer, m);
-          try { window.YX113CustomerRegions?.renderFromCurrentRows?.(); forceCustomerCardVisible(customer, m); } catch(_e) {}
-          window.__YX_SELECTED_CUSTOMER__ = customer;
-        }
-        YX.toast('送出中，已先顯示；成功後會換成後端真實資料', 'ok');
-      } catch(e){ console.warn('[YX v20 optimistic submit]', e); }
-      const posted = await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, duplicate_mode:duplicateMode, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})});
-      if (ta) ta.value = '';
-      await refreshAfterSubmit(m, customer, posted, items, activeZone);
-      // V23：後端已回傳 DB 真實清單後，背景再強制讀一次來源資料；不阻塞畫面，但可確認刷新後仍是永久資料。
-      try {
-        const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-        if (!document.activeElement || !document.activeElement.matches('input,textarea,select,[contenteditable="true"]')) {
-          const verify = act?.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer});
-          if (verify && typeof verify.catch === 'function') verify.catch(e => console.warn('[YX v42 persistent verify]', e));
-        }
-      } catch(_e) {}
-      try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
-      try { if ((m === 'orders' || m === 'master_order') && (!document.activeElement || !document.activeElement.matches('input,textarea,select,[contenteditable="true"]'))) refreshCustomerBoardsSafe(customer).catch(()=>{}); } catch(_e) {}
-      try { if (m === 'orders' || m === 'master_order') forceCustomerCardVisible(customer, m); } catch(_e) {}
-      if (result) {
-        result.classList.remove('hidden');
-        result.style.display = '';
-        result.innerHTML = `<strong>新增成功，已重新讀取後端清單</strong><div class="small-note">${items.map(i=>i.product_text).join('、')}</div>`;
+    const requestKey = `v59-bg-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const activeZone = activeZoneForSource(m);
+    window.safePushProductUndo(m, '新增商品');
+
+    // V59：前端先顯示、輸入框先清空，後台再儲存到 DB；使用者可以立刻新增下一筆。
+    const preOptimistic = submittedRowsFor(m, customer, items, activeZone);
+    try {
+      const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+      if (act?.rowsStore) {
+        act.rowsStore(m, mergeSubmittedRows(act.rowsStore(m) || [], preOptimistic));
+        act.renderSummary?.(m); act.renderCards?.(m);
       }
-      toast(`已新增 ${items.length} 筆商品`,'ok');
-    } catch(e){
-      // V24：送出失敗時移除剛剛為了速度先畫出的暫存列，避免使用者誤以為已永久保存。
-      try {
-        const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-        if (act?.rowsStore) {
-          act.rowsStore(m, (act.rowsStore(m) || []).filter(r => !r.__optimistic && !r.__pending_server_id && !String(r.id || '').startsWith('tmp-')));
-          act.renderSummary?.(m); act.renderCards?.(m);
-        }
-      } catch(_cleanupErr) {}
-      if (result) {
-        result.classList.remove('hidden');
-        result.style.display = '';
-        result.innerHTML = `<strong style="color:#b91c1c">送出失敗 / 未寫入清單</strong><div class="small-note">${clean(e.message || '未知錯誤')}</div>`;
+      if (customer && (m === 'orders' || m === 'master_order')) {
+        window.__YX_SELECTED_CUSTOMER__ = customer;
+        forceCustomerCardVisible(customer, m);
+        try { window.YX113CustomerRegions?.renderFromCurrentRows?.(); forceCustomerCardVisible(customer, m); } catch(_e) {}
       }
-      toast(e.message || '送出失敗','error');
-    } finally {
-      submitting = false;
-      if (btn) { btn.disabled = false; btn.textContent = '確認送出'; }
+    } catch(e){ console.warn('[YX V59 optimistic submit]', e); }
+
+    if (ta) { ta.value = ''; ta.focus?.(); }
+    if (btn) { btn.disabled = false; btn.textContent = '確認送出'; }
+    if (result) {
+      result.classList.remove('hidden');
+      result.style.display = '';
+      result.innerHTML = `<strong>新增成功，已先顯示在前端；背景正在寫入資料庫</strong><div class="small-note">${items.map(i=>i.product_text).join('、')}</div>`;
     }
+    toast(`已先顯示 ${items.length} 筆，可直接新增下一筆`, 'ok');
+
+    const activeEl = () => document.activeElement && document.activeElement.matches && document.activeElement.matches('#ocr-text,#customer-name,input,textarea,select,[contenteditable="true"]');
+    api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, duplicate_mode:duplicateMode, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey})})
+      .then(async posted => {
+        try {
+          const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+          if (posted && (Array.isArray(posted.items) || posted.snapshots || posted.exact_customer_items)) {
+            if (activeEl()) {
+              // 使用者正在輸入下一筆時，只安靜替換資料快照，不重畫表單焦點。
+              mergeSnapshotQuiet(posted, m);
+              try { if (customer && (m === 'orders' || m === 'master_order')) forceCustomerCardVisible(customer, m); } catch(_e) {}
+            } else {
+              await refreshAfterSubmit(m, customer, posted, items, activeZone);
+            }
+          } else if (!activeEl()) {
+            await refreshAfterSubmit(m, customer, posted || {}, items, activeZone);
+          }
+          if (result && !activeEl()) {
+            result.classList.remove('hidden'); result.style.display = '';
+            result.innerHTML = `<strong>背景儲存完成，已同步後端清單</strong><div class="small-note">${items.map(i=>i.product_text).join('、')}</div>`;
+          }
+          toast(`背景儲存完成：${items.length} 筆`, 'ok');
+          try { if ((m === 'orders' || m === 'master_order') && customer) refreshCustomerBoardsSafe(customer).catch(()=>{}); } catch(_e) {}
+        } catch(e) { console.warn('[YX V59 background refresh]', e); }
+      })
+      .catch(e => {
+        try {
+          const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+          if (act?.rowsStore) {
+            act.rowsStore(m, (act.rowsStore(m) || []).filter(r => !r.__optimistic && !r.__pending_server_id && !String(r.id || '').startsWith('tmp-')));
+            act.renderSummary?.(m); act.renderCards?.(m);
+          }
+        } catch(_cleanupErr) {}
+        if (result) {
+          result.classList.remove('hidden'); result.style.display = '';
+          result.innerHTML = `<strong style="color:#b91c1c">背景儲存失敗，暫存列已移除</strong><div class="small-note">${clean(e.message || '未知錯誤')}</div>`;
+        }
+        toast(e.message || '背景儲存失敗','error');
+      });
   }
   window.confirmSubmit = finalConfirmSubmit;
   window.YXConfirmSubmit = finalConfirmSubmit;
@@ -2257,13 +2273,13 @@
 (function(){
   if (window.YXPageUndo) return;
   const stack=[];
-  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
+  function update(){ const b=document.getElementById('yx-local-page-undo-btn-disabled'); if(b) b.disabled=!stack.length; }
   window.YXPageUndo={
     snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
     undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
     size(){ return stack.length; }
   };
-  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-local-page-undo-btn-disabled'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
@@ -2309,3 +2325,6 @@
 })();
 /* ===== END V55 PRODUCT MAINFILE DIRECT REPAIR ===== */
 
+
+
+/* V59 requested mainfile locks installed: instant edit close, optimistic submit, clean toolbar, audit undo modal. */

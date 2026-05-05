@@ -388,8 +388,14 @@
   const zones = ['A','B'];
   function itemQty(it){
     const text=clean(it?.product_text||it?.product||'');
-    // V54：倉庫下拉 / 批量加入的件數優先看「=右側支數x件數」，並忽略括弧備註。
-    // 例：63x30x125=240x49(東昇-8) => 49 件，不可被後端殘留 qty=1 蓋掉。
+    // V60：已放入倉庫格的商品、API 回傳的未錄入商品，優先吃明確 qty/unplaced_qty。
+    // 這樣在「目前此格商品」把 49 件改成 47 件後，格子與下拉都會以 47 件為準，
+    // 不會又被 product_text 右側的 240x49 覆蓋回 49。
+    const explicitPriority = [it?.unplaced_qty, it?.available_qty, it?.remaining_qty];
+    for(const v of explicitPriority){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
+    const explicitQty=Number(it?.qty ?? it?.quantity ?? it?.pieces ?? it?.count ?? it?.piece_count ?? it?.件數);
+    if((it?.placement_label || it?.layer_label || it?.__warehouseCellItem) && Number.isFinite(explicitQty) && explicitQty>0) return Math.floor(explicitQty);
+    // 倉庫下拉 / 批量加入若沒有明確剩餘數，才用「=右側支數x件數」推算。
     const noParen=text.replace(/[\(（][^\)）]*[\)）]/g,'');
     const right=noParen.includes('=') ? noParen.split('=').slice(1).join('=') : '';
     const hasSupportPiece=/\d+(?:\.\d+)?\s*[x×✕＊*X]\s*\d+/.test(right);
@@ -432,6 +438,18 @@
     support = clean(support).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
     return support ? `${base}=${support}` : base;
   }
+  function slotProductSummary(items){
+    const uniq=[];
+    (items||[]).forEach(it=>{
+      const base=productBaseText(it);
+      if(!base) return;
+      const mat=materialOf(it);
+      const label=clean([mat, base].filter(Boolean).join(' '));
+      if(label && !uniq.includes(label)) uniq.push(label);
+    });
+    if(!uniq.length) return '';
+    return uniq.length>2 ? `${uniq.slice(0,2).join(' / ')}…${uniq.length}` : uniq.join(' / ');
+  }
   function normalizedItem(it, qty, placement){
     const product=productText(it);
     return {...it, product_text:product, product, customer_name:cleanCustomer(it?.customer_name||it?.customer||''), material:materialOf(it), qty:Math.max(1,Math.floor(Number(qty||itemQty(it)||1))), source:sourceOf(it), source_table:it?.source_table || it?.source || sourceOf(it), source_id:it?.source_id || it?.id || '', placement_label:placement || it?.placement_label || it?.layer_label || '前排', layer_label:placement || it?.placement_label || it?.layer_label || '前排'};
@@ -458,7 +476,7 @@
     btn.type='button';
     btn.className='yx-final-slot yx108-slot yx106-slot yx116-slot vertical-slot';
     btn.dataset.zone=z; btn.dataset.column=String(Number(c)); btn.dataset.slot=String(Number(s)); btn.style.touchAction='none';
-    btn.innerHTML='<div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no"></span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>';
+    btn.innerHTML='<div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no"></span><span class="yx108-slot-customers yx108-slot-empty">空格</span></div><div class="yx108-slot-product" aria-label="商品尺寸材質"></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span></div>';
     return btn;
   }
   function ensureSlotElement(z,c,s){
@@ -479,6 +497,7 @@
     const items=cellItems(z,c,s).filter(it=>itemQty(it)>0);
     const no=el.querySelector('.yx108-slot-no'); if(no) no.textContent=String(s);
     const customers=el.querySelector('.yx108-slot-customers');
+    const productLine=el.querySelector('.yx108-slot-product');
     const sum=el.querySelector('.yx108-slot-sum');
     const total=el.querySelector('.yx108-slot-total');
     const hi=state.searchKeys.has(key(z,c,s));
@@ -487,6 +506,7 @@
     el.dataset.hasItems=items.length?'1':'0';
     if(!items.length){
       customers && (customers.textContent='空格', customers.classList.add('yx108-slot-empty'));
+      productLine && (productLine.textContent='', productLine.classList.add('empty'));
       sum && (sum.textContent='0'); total && (total.textContent='0件');
       return;
     }
@@ -494,6 +514,7 @@
     const qtys=items.map(itemQty).filter(n=>n>0);
     const totalQty=qtys.reduce((a,b)=>a+b,0);
     customers && (customers.textContent=names.join('/') || '庫存', customers.classList.remove('yx108-slot-empty'));
+    productLine && (productLine.textContent=slotProductSummary(items), productLine.classList.remove('empty'));
     sum && (sum.textContent=qtys.join('+') || String(totalQty));
     total && (total.textContent=`${totalQty}件`);
   }
@@ -618,6 +639,36 @@
     const count=items=>(Array.isArray(items)?items:[]).reduce((n,it)=>n+itemQty(it),0);
     const a=count(state.availableByZone.A), b=count(state.availableByZone.B), total=count(state.available), unassigned=Math.max(0,total-a-b);
     const pill=$('warehouse-unplaced-pill'); if(pill) pill.textContent=`A區 ${a} 件 / B區 ${b} 件 / 未分區 ${unassigned} 件 / 總計 ${total} 件`;
+  }
+  function cloneWithQty(it, qty){
+    const q=Math.max(0, Math.floor(Number(qty||0)));
+    return {...(it||{}), qty:q, unplaced_qty:q, total_qty:Math.max(q, Number(it?.total_qty||q)||q), __warehouseCellItem:false};
+  }
+  function summarizeByStable(items){
+    const map=new Map();
+    (items||[]).forEach(it=>{
+      const k=itemStableKey(it);
+      const q=itemQty(it);
+      if(!k || q<=0) return;
+      const old=map.get(k);
+      if(old) old.qty += q;
+      else map.set(k,{item:it, qty:q});
+    });
+    return map;
+  }
+  function cellAvailabilityDelta(beforeItems, afterItems){
+    const before=summarizeByStable(beforeItems);
+    const after=summarizeByStable(afterItems);
+    const keys=new Set([...before.keys(),...after.keys()]);
+    const returned=[];
+    const consumed=[];
+    keys.forEach(k=>{
+      const b=before.get(k), a=after.get(k);
+      const diff=(b?.qty||0) - (a?.qty||0);
+      if(diff>0) returned.push(cloneWithQty(b?.item || a?.item, diff));
+      if(diff<0) consumed.push(cloneWithQty(a?.item || b?.item, -diff));
+    });
+    return {returned, consumed};
   }
 
   function warehouseSizeKey(text){ const left=stripProductParen(text).replace(/[×ＸX✕＊*]/g,'x').replace(/＝/g,'=').split('=')[0] || ''; const parts=left.toLowerCase().split('x').filter(Boolean); if(parts.length>=3 && parts.slice(0,3).every(x=>/^\d+$/.test(x.trim()))) return parts.slice(0,3).map(x=>String(parseInt(x,10))).join('x'); return clean(left).toLowerCase(); }
@@ -812,9 +863,11 @@
       let localCell=(state.data.cells||[]).find(c=>clean(c.zone).toUpperCase()===saveZone&&Number(c.column_index)===saveCol&&Number(c.slot_number)===saveSlot);
       if(!localCell){ localCell={zone:saveZone,column_index:saveCol,slot_type:'direct',slot_number:saveSlot,items:[],items_json:'[]',note:''}; state.data.cells.push(localCell); }
       localCell.items=items; localCell.items_json=JSON.stringify(items); localCell.note=saveNote;
-      if(added.length) mutateAvailableByItems(added, -1);
+      const delta=cellAvailabilityDelta(beforeItems, items);
+      if(delta.returned.length) mutateAvailableByItems(delta.returned, +1);
+      if(delta.consumed.length) mutateAvailableByItems(delta.consumed, -1);
       updateSlotUI(saveZone,saveCol,saveSlot);
-      toast(`格位已送出背景儲存${added.length?`，新增 ${added.length} 筆`:''}${editedChanged?'，已更新目前商品':''}`,'ok');
+      toast(`格位已送出背景儲存${added.length?`，新增 ${added.length} 筆`:''}${editedChanged?'，已更新目前商品與下拉剩餘數量':''}`,'ok');
       closeWarehouseModal();
       highlightWarehouseCell(saveZone,saveCol,saveSlot);
       saveCellRaw(saveZone,saveCol,saveSlot,items,saveNote).then(async saved=>{
@@ -837,7 +890,7 @@
     const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),'前排')),...dst.items];
     try{ await saveCellRaw(f.zone,f.col,f.slot,[],src.note); await saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note); state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton(); toast('已移動到前排','ok'); await renderWarehouse(true); highlightWarehouseCell(t.zone,t.col,t.slot); } catch(e){ toast(e.message||'拖拉移動失敗','error'); await renderWarehouse(true); }
   }
-  async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原上一步','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
+  async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
   async function insertWarehouseCell(z,c,s){ const d=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),insert_after:Number(s||0),slot_type:'direct'})}); toast('已插入格子','ok'); state.data.cells=Array.isArray(d.cells)?d.cells:state.data.cells; await renderWarehouse(true); highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); }
   async function deleteWarehouseCell(z,c,s){ if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn'); if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return; const d=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s),slot_type:'direct'})}); if(Array.isArray(d.cells)) state.data.cells=d.cells; toast('已刪除格子','ok'); await renderWarehouse(true); }
   async function returnWarehouseCell(z,c,s){
@@ -1018,13 +1071,13 @@
 (function(){
   if (window.YXPageUndo) return;
   const stack=[];
-  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
+  function update(){ const b=document.getElementById('yx-local-page-undo-btn-disabled'); if(b) b.disabled=!stack.length; }
   window.YXPageUndo={
     snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
     undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
     size(){ return stack.length; }
   };
-  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-local-page-undo-btn-disabled'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */

@@ -736,3 +736,54 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 @media(max-width:760px){
   #warehouse-modal .yx121-batch-row{grid-template-columns:58px minmax(160px,1fr) 92px 74px!important;gap:6px!important;}
 }
+
+
+/* ===== V59 toolbar hard lock: remove duplicated / unwanted batch buttons ===== */
+body[data-module="orders"] [data-yx113-batch-delete="orders"],
+body[data-module="orders"] [data-yx128-edit-all="orders"],
+body[data-module="orders"] [data-yx128-save-all="orders"],
+body[data-module="orders"] [data-yx128-cancel-all="orders"],
+body[data-module="master_order"] [data-yx132-batch-zone][data-source="master_order"],
+body[data-module="master_order"] [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] [data-yx128-edit-all="master_order"],
+body[data-module="master_order"] [data-yx128-save-all="master_order"],
+body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:none!important;}
+#yx-page-undo-btn,#yx-global-page-undo-btn{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
+#yx-page-undo-btn:disabled,#yx-global-page-undo-btn:disabled{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
+/* ===== END V59 toolbar hard lock ===== */
+
+
+/* ===== V60 warehouse cell product summary + editable quantity return lock ===== */
+.yx108-slot-product{
+  width:100%!important;
+  display:block!important;
+  text-align:center!important;
+  color:#075985!important;
+  font-size:13px!important;
+  font-weight:950!important;
+  line-height:1.18!important;
+  margin:2px 0 1px!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+.yx108-slot-product.empty{display:none!important;}
+.yx108-slot.vertical-slot{min-height:58px!important;}
+#warehouse-modal .yx121-batch-row,
+#yx121-batch-rows .yx121-batch-row{
+  display:grid!important;
+  grid-template-columns:72px minmax(260px,1fr) 130px 90px!important;
+  gap:8px!important;
+  align-items:center!important;
+}
+#warehouse-modal .yx121-batch-support,
+#warehouse-modal .yx121-batch-qty,
+#yx121-batch-rows .yx121-batch-support,
+#yx121-batch-rows .yx121-batch-qty{min-width:0!important;width:100%!important;}
+#warehouse-current-items-html .yx-current-qty-input{font-weight:950!important;color:#0f172a!important;text-align:center!important;}
+@media(max-width:760px){
+  #warehouse-modal .yx121-batch-row,
+  #yx121-batch-rows .yx121-batch-row{grid-template-columns:58px minmax(150px,1fr) 92px 74px!important;gap:6px!important;}
+  .yx108-slot-product{font-size:12px!important;}
+}
+/* ===== END V60 warehouse cell product summary + editable quantity return lock ===== */

@@ -1,3 +1,4 @@
+# V59 Render config: releaseCommand runs PostgreSQL migration before web start.
 # V58 full warehouse/ship/product repair: Render build/start kept stable; smoke test retained.
 services:
   - type: web

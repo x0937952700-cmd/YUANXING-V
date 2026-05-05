@@ -5,7 +5,7 @@
     <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
     <div class="module-title">{{ title }}</div>
     <div class="spacer"></div>
-    {% if module_key in ['inventory','orders','master_order','ship','warehouse'] %}<button class="ghost-btn small-btn yx-page-undo-btn" id="yx-page-undo-btn" type="button" disabled>復原前一步</button>{% endif %}
+    {% if module_key in ['inventory','orders','master_order','ship','warehouse'] %}<button class="ghost-btn small-btn yx-page-undo-btn" id="yx-page-undo-btn" type="button">還原功能</button>{% endif %}
   </div>
 
   {% if module_key not in ['shipping_query','warehouse','customers','todos'] %}
@@ -110,10 +110,6 @@
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="orders">B區</button>
         <select id="yx113-orders-material" class="text-input small"><option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option></select>
         <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="orders">套用材質</button>
-        <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="orders">批量刪除</button>
-        <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="orders">批量編輯全部</button>
-        <button class="primary-btn small-btn" type="button" data-yx128-save-all="orders" style="display:none">儲存批量編輯</button>
-        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="orders" style="display:none">取消編輯</button>
       </div>
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
@@ -132,17 +128,11 @@
       <div class="yx114-toolbar-main"></div>
       <div class="yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions">
         <input id="yx113-master_order-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">
-        <button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="master_order">移到A區</button>
-        <button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="master_order">移到B區</button>
         <button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="master_order">全部區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="master_order">A區</button>
         <button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="master_order">B區</button>
         <select id="yx113-master_order-material" class="text-input small"><option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option></select>
         <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="master_order">套用材質</button>
-        <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="master_order">批量刪除</button>
-        <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="master_order">批量編輯全部</button>
-        <button class="primary-btn small-btn" type="button" data-yx128-save-all="master_order" style="display:none">儲存批量編輯</button>
-        <button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="master_order" style="display:none">取消編輯</button>
       </div>
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
@@ -224,7 +214,7 @@
         <button class="ghost-btn small-btn" type="button" onclick="highlightWarehouseSameCustomer()">同客戶</button>
         <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()">未入倉</button>
         <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()">清除高亮</button>
-        <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" onclick="undoWarehouseMove()" disabled>還原上一步</button>
+        <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" onclick="undoWarehouseMove()">還原功能</button>
       </div>
 
       <div class="warehouse-zone-nav">

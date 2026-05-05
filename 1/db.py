@@ -213,6 +213,10 @@ def looks_like_product_value(value, product_text=''):
 
 def clean_material_value(value='', product_text=''):
     v = str(value or '').strip()
+    # V59：前端顯示用的「未填材質 / 不指定材質 / 未指定材質」一律視為空材質，
+    # 避免出貨比對時用「未填材質」去找 DB 空字串而誤判總單不足。
+    if v in ('未填材質', '不指定材質', '未指定材質', '未填', '無材質'):
+        return ''
     if not v or looks_like_product_value(v, product_text):
         return ''
     return v.upper() if re.fullmatch(r'[A-Za-z0-9_\-\/]+', v) else v
@@ -2107,33 +2111,42 @@ def _merge_items_by_size_material(items):
 
 
 def _fetch_shipping_match_rows(cur, table, product_text, material='', customer_name=None):
-    """出貨用比對。
+    """V59 出貨用比對：尺寸為主、材質有值才嚴格；未填材質視為空；客戶名稱用合併 variants。
 
-    有從下拉選單帶到材質時，使用尺寸+材質嚴格比對；
-    純手打沒有材質時，改用尺寸比對，避免明明有貨卻顯示 0。
+    修正：下拉選單顯示「未填材質」但 DB 是空字串時，總單會被誤判 0；
+    以及客戶名含空白 / FOB / CNF 變體時，應該撈同一客戶的舊資料。
     """
-    material_key = _merge_material_key(material, product_text)
-    if material_key:
-        return _fetch_matching_size_material_rows(cur, table, product_text, material, customer_name=customer_name)
     target_size = _merge_size_key(product_text)
+    target_material = _merge_material_key(material, product_text)
     if not target_size:
         return []
     wheres = ['qty > 0']
     params = []
     if customer_name is not None:
-        wheres.append("COALESCE(customer_name, '') = COALESCE(?, '')")
-        params.append(customer_name or '')
+        variants = customer_merge_variants(cur, customer_name) or [customer_name or '']
+        variants = [v for v in dict.fromkeys([(v or '').strip() for v in variants]) if v or customer_name == '']
+        if variants:
+            wheres.append("COALESCE(customer_name, '') IN (" + ','.join(['?'] * len(variants)) + ')')
+            params.extend(variants)
+        else:
+            wheres.append("COALESCE(customer_name, '') = COALESCE(?, '')")
+            params.append(customer_name or '')
     query = f"SELECT id, qty, product_text, product_code, material FROM {table} WHERE " + ' AND '.join(wheres) + ' ORDER BY id ASC'
     cur.execute(sql(query), tuple(params))
     out = []
     for row in rows_to_dict(cur):
         product = format_product_text_height2(row.get('product_text') or '')
-        if _merge_size_key(product) == target_size:
-            row['product_text'] = product
-            row['material'] = _row_material_for_merge(row, product)
-            row['product_code'] = row['material']
-            row['qty'] = int(row.get('qty') or 0)
-            out.append(row)
+        if _merge_size_key(product) != target_size:
+            continue
+        row_material = _row_material_for_merge(row, product)
+        # 若出貨項目沒有實際材質，任何空/未填材質的 DB row 都可比對；有指定材質才嚴格。
+        if target_material and _merge_material_key(row_material, product) != target_material:
+            continue
+        row['product_text'] = product
+        row['material'] = row_material
+        row['product_code'] = row_material
+        row['qty'] = int(row.get('qty') or 0)
+        out.append(row)
     return out
 
 def _sum_available_size_material(cur, table, customer_name, product_text, material=''):
@@ -4168,3 +4181,6 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 
 # V53_WAREHOUSE_MIGRATION_MARKER
 # warehouse_cells 主表、items_json、slot unique index 已由 init_db 自動補表/補欄位/補索引；V53 前端只送主表 schema 既有欄位。
+
+
+# V59_SHIP_MATCH_MATERIAL_CUSTOMER_FIX: clean_material_value and _fetch_shipping_match_rows normalize 未填材質 and customer variants.

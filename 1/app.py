@@ -1,3 +1,4 @@
+# V59 mainfile event/db/ui lock
 # V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
@@ -3696,3 +3697,6 @@ if __name__ == "__main__":
 # V53_WAREHOUSE_CURRENT_EDIT_MAINFILE_MARKER
 # - 倉庫格位目前商品由前端主檔直接編輯尺寸/支數/件數後送回 /api/warehouse/cell。
 # - /api/warehouse/available-items 維持用 warehouse_placed_totals 扣除所有已入倉數量，所以下拉只列剩餘未錄入數量。
+
+
+# V59_MAINFILE_REQUEST_LOCK: UI/button/optimistic-submit changes are in templates + static JS; app keeps Render-safe startup and ship snapshots.
