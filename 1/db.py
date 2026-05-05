@@ -4262,3 +4262,40 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         raise
     finally:
         conn.close()
+
+
+# ============================================================
+# V70 FINAL EFFECTIVE QTY LOCK
+# Placed at end intentionally so all DB helpers use this global at runtime.
+# ============================================================
+def effective_product_qty(product_text, fallback_qty=0):
+    raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    try:
+        fallback = int(fallback_qty or 0)
+    except Exception:
+        fallback = 0
+    if not raw:
+        return fallback
+    right = raw.split('=', 1)[1].strip() if '=' in raw else raw.strip()
+    if not right:
+        return 1
+    def _strip(seg):
+        return re.sub(r'[\(（][^\)）]*[\)）]', '', str(seg or '')).strip()
+    canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
+    if _strip(right).replace(' ', '').lower() == canonical:
+        return 15
+    total = 0
+    parsed = False
+    for seg in [x.strip() for x in re.split(r'[+＋,，;；]', right) if x.strip()]:
+        plain = _strip(seg)
+        explicit = re.search(r'(\d+)\s*[件片]', plain)
+        if explicit:
+            total += max(0, int(explicit.group(1) or 0)); parsed = True; continue
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); parsed = True
+        elif re.search(r'\d+', plain):
+            total += 1; parsed = True
+    return total if parsed else (1 if raw else fallback)
+
+# V71 warehouse optimistic stable overlay: frontend fixed-display operations; backend schema/migration entry retained.

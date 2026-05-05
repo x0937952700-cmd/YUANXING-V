@@ -11,3 +11,5 @@ from app import app
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))
+
+# V71 warehouse optimistic stable overlay: frontend fixed-display operations; backend schema/migration entry retained.

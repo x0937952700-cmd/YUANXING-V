@@ -821,7 +821,7 @@
     const editDeleteButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" data-source="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" data-source="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>`;
     const controls = source === 'inventory'
       ? `<div class="yx128-summary-controls yx-v68-inventory-actions">${zoneMoveButtons}${inventoryTransferButtons}</div>`
-      : `<div class="yx128-summary-controls yx-v68-order-master-actions">${zoneMoveButtons}${orderToMasterButton}${editDeleteButtons}</div>`; // V68：訂單/總單圖一區固定補回移到A/B、批量刪除、批量編輯；訂單多加到總單。
+      : `<div class="yx128-summary-controls yx-v68-order-master-actions">${zoneMoveButtons}${orderToMasterButton}${editDeleteButtons}</div>`; // V70：訂單/總單圖一區固定補回移到A/B、批量刪除、批量編輯；訂單多加到總單。
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -2326,3 +2326,21 @@
 
 
 /* V59 requested mainfile locks installed: instant edit close, optimistic submit, clean toolbar, audit undo modal. */
+
+
+/* V70 order/master top-action fallback: force same actions as inventory, prevents old renderer deletion. */
+(function(){
+  function pageSource(){ const m=(document.body?.dataset?.module||'').trim(); if(m==='orders') return 'orders'; if(m==='master_order') return 'master_order'; return ''; }
+  function makeBtn(txt, attr, val, source, danger){ return `<button class="ghost-btn small-btn ${danger?'danger-btn':''}" type="button" ${attr}="${val}" data-source="${source}">${txt}</button>`; }
+  function ensureTopButtons(){
+    const source=pageSource(); if(!source) return;
+    document.querySelectorAll('.yx128-summary-controls').forEach(box=>{
+      const addMaster = source==='orders' ? makeBtn('加到總單','data-yx132-batch-transfer','master_order',source,false) : '';
+      const html = makeBtn('移到A區','data-yx132-batch-zone','A',source,false)+makeBtn('移到B區','data-yx132-batch-zone','B',source,false)+addMaster+makeBtn('批量刪除','data-yx113-batch-delete',source,source,true)+makeBtn('批量編輯全部','data-yx128-edit-all',source,source,false);
+      if(box.dataset.yx70Actions !== html){ box.dataset.yx70Actions = html; box.innerHTML = html; }
+    });
+  }
+  document.addEventListener('DOMContentLoaded', ensureTopButtons);
+  document.addEventListener('click',()=>setTimeout(ensureTopButtons,50),true);
+  setInterval(ensureTopButtons, 1200);
+})();

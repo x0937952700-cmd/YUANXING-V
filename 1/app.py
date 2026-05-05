@@ -3839,3 +3839,69 @@ def normalize_warehouse_payload_items(items):
             row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
             out_map[key] = row
     return list(out_map.values())
+
+
+# ============================================================
+# V70 FINAL MAINFILE QTY + WAREHOUSE PAYLOAD LOCK
+# This final definition intentionally appears after older definitions so Flask routes
+# resolve this version at request time. It fixes old duplicate overrides.
+# ============================================================
+def _yx_v70_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    try:
+        fb = int(fallback or 0)
+    except Exception:
+        fb = 0
+    if not raw:
+        return max(0, fb)
+    right = raw.split('=', 1)[1] if '=' in raw else raw
+    total = 0
+    hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        explicit = re.search(r'(\d+)\s*[件片]', plain)
+        if explicit:
+            total += max(0, int(explicit.group(1) or 0)); hit = True; continue
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit:
+        return total
+    return max(1, fb or 1)
+
+def normalize_warehouse_payload_items(items):
+    """V70: normalize warehouse modal payload and force qty from current product_text right side.
+    132x60x08=162x26 -> qty 26. If text changes from x28 to x26, saved qty becomes 26.
+    """
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        if '=' in product:
+            qty = _yx_v70_qty_from_product_text(product, qty)
+        qty = max(1, int(qty or 1))
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or it.get('product_code') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+        else:
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'product_code': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
+
+# V71 warehouse optimistic stable overlay: frontend fixed-display operations; backend schema/migration entry retained.

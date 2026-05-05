@@ -20,3 +20,5 @@ services:
         value: "120"
       - key: SECRET_KEY
         generateValue: true
+
+# V71 warehouse optimistic stable overlay

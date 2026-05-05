@@ -10,3 +10,5 @@ python-dotenv==1.0.1
 # V58: no new dependencies; PostgreSQL migration runs via render releaseCommand and app startup.
 
 # V59: dependencies unchanged; no new package required for UI/DB fixes.
+
+# V71 warehouse optimistic stable overlay

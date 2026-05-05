@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V68 warehouse drag slot qty final lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V71 optimistic warehouse stable lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -382,10 +382,28 @@
   const isWarehouse = () => document.querySelector('.module-screen[data-module="warehouse"]') || (location.pathname||'').includes('/warehouse');
   const state = {
     data:{cells:[], zones:{A:{},B:{}}}, available:[], availableByZone:{A:[],B:[]}, activeZone:null, searchKeys:new Set(), undoStack:[],
-    current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false
+    current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false, optimisticRev:0, optimisticUntil:0
   };
   const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
   const zones = ['A','B'];
+  function beginOptimisticWarehouseOp(){
+    state.optimisticRev = Number(state.optimisticRev||0) + 1;
+    state.optimisticUntil = Date.now() + 15000;
+    return state.optimisticRev;
+  }
+  function isOptimisticFresh(rev){ return Number(rev||0) === Number(state.optimisticRev||0); }
+  function finishOptimisticWarehouseOp(rev){
+    if(isOptimisticFresh(rev)) state.optimisticUntil = Math.max(Date.now() + 5000, Number(state.optimisticUntil||0));
+  }
+  function safeReplaceCellsFromServer(cells, rev, reason='') {
+    // V71: 前端新增/刪除/拖拉/儲存後，以目前畫面為準。
+    // 後端回傳舊 cells 時不覆蓋畫面，避免「先跳新畫面→又跳回舊畫面→再跳回來」。
+    if(!Array.isArray(cells)) return false;
+    if(rev && !isOptimisticFresh(rev)) return false;
+    if(Date.now() < Number(state.optimisticUntil||0)) return false;
+    state.data.cells = cells;
+    return true;
+  }
   function itemQty(it){
     const text=clean(it?.product_text||it?.product||'');
     // V60：已放入倉庫格的商品、API 回傳的未錄入商品，優先吃明確 qty/unplaced_qty。
@@ -462,11 +480,15 @@
     return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
   }
   function qtyFromProductTextForInput(text, fallback){
-    // V68：目前此格商品的輸入框強制以 = 右側判定件數。
-    // 132x60x08=162x26 => 26；132x60x08=162x26+133x4+142 => 31；括號只當備註不扣件。
-    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
+    // V70：目前此格商品一律以輸入框「=右側」計算件數。
+    // 132x60x08=162x26 => 26；132x60x08=162x26+133x4+142 => 31；括號完全只當備註。
+    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+');
     if(!raw.includes('=')) return Math.max(0, Math.floor(Number(fallback||0)));
-    const right=raw.split('=').slice(1).join('=').replace(/[＋]/g,'+');
+    if(window.YX70EffectiveQty){
+      const n=Number(window.YX70EffectiveQty(raw, fallback||0));
+      if(Number.isFinite(n) && n>0) return Math.floor(n);
+    }
+    const right=raw.split('=').slice(1).join('=');
     let total=0, hit=false;
     right.split('+').map(clean).filter(Boolean).forEach(seg=>{
       const plain=seg.replace(/[\(（][^\)）]*[\)）]/g,'').trim();
@@ -604,10 +626,19 @@
   }
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
+    if(Date.now() < Number(state.optimisticUntil||0) && !force){
+      // V71：背景儲存期間不重新抓舊格位覆蓋目前畫面。
+      updateAllSlots();
+      return Promise.resolve();
+    }
     // V65：第一次開倉庫圖先只載入格位並立即畫面；未錄入下拉/統計改成背景載入，避免第一次開啟被 3 個 available API 卡住。
     state.loading=(async()=>{ try{
       const d = await api('/api/warehouse?ts='+Date.now());
-      state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}};
+      if(Date.now() >= Number(state.optimisticUntil||0)){
+        state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}};
+      } else {
+        state.data.zones=d.zones||state.data.zones||{A:{},B:{}};
+      }
       window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available};
       updateAllSlots();
       loadAvailable().then(()=>{ window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; syncBatchSelectLimits?.(); }).catch(()=>{});
@@ -804,8 +835,13 @@
       // 例：132x60x08=162x26 => 26 件；132x60x08=162x26+133x4+142 => 31 件。
       // 如果商品文字沒改，才保留使用者手動改的件數欄位。
       let qty;
-      if(product && product !== baseProduct){ qty = qtyFromProductTextForInput(product, itemQty(base)); }
-      else { qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base)))); }
+      if(product && product.includes('=')){
+        qty = qtyFromProductTextForInput(product, itemQty(base));
+      } else if(product && product !== baseProduct){
+        qty = qtyFromProductTextForInput(product, itemQty(base));
+      } else {
+        qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base))));
+      }
       if(qtyEl) qtyEl.value = String(Math.max(1, qty));
       const placement=clean(row.querySelector('[data-current-placement]')?.value || base.placement_label || base.layer_label || '前排');
       const updated={...base, product_text:product, product:product, material, product_code:material, qty:Math.max(1, qty), placement_label:placement, layer_label:placement};
@@ -967,6 +1003,7 @@
     try{
       // V54：儲存格位改成背景儲存，不鎖住儲存按鈕，使用者可立刻繼續點其他格子。
       try { window.YXPageUndo?.snapshot?.('warehouse-cell', async()=>{ if(!state.current) return; state.current.items=beforeItems; await saveCellRaw(state.current.zone,state.current.col,state.current.slot,beforeItems,beforeNote); await renderWarehouse(true); highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot); }); } catch(_e) {}
+      const opRev=beginOptimisticWarehouseOp();
       const saveZone=state.current.zone, saveCol=state.current.col, saveSlot=state.current.slot, saveNote=$('warehouse-note')?.value||'';
       state.current.items=items;
       let localCell=(state.data.cells||[]).find(c=>clean(c.zone).toUpperCase()===saveZone&&Number(c.column_index)===saveCol&&Number(c.slot_number)===saveSlot);
@@ -980,13 +1017,14 @@
       closeWarehouseModal();
       highlightWarehouseCell(saveZone,saveCol,saveSlot);
       saveCellRaw(saveZone,saveCol,saveSlot,items,saveNote).then(async saved=>{
-        if(saved && Array.isArray(saved.cells)) state.data.cells=saved.cells;
+        finishOptimisticWarehouseOp(opRev);
+        // V71：不使用後端回傳 cells 直接覆蓋目前前端格子，避免舊資料閃回。
         await loadAvailable().catch(()=>{});
-        updateAllSlots();
+        updateSlotUI(saveZone,saveCol,saveSlot);
         highlightWarehouseCell(saveZone,saveCol,saveSlot);
         toast('格位已永久存入資料庫','ok');
       }).catch(e=>{
-        toast((e&&e.message)||'背景儲存格位失敗，請重開格位確認','error');
+        toast((e&&e.message)||'背景儲存格位失敗，畫面保留目前操作，請稍後重新整理確認','error');
       });
     }catch(e){ toast(e.message||'儲存格位失敗','error'); throw e; }
     finally{ if(btn){ btn.disabled=false; btn.textContent='儲存格位'; } }
@@ -999,16 +1037,20 @@
     const placement = dst.items && dst.items.length ? '前排' : '後排';
     const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),placement)),...dst.items];
     const oldCells=JSON.parse(JSON.stringify(state.data.cells||[]));
+    const opRev=beginOptimisticWarehouseOp();
     try{
-      // V67：拖拉先立刻更新前端，不等後端；有商品目標格放最前排，空格放後排。
+      // V71：拖拉先立刻更新前端並固定顯示，不讓背景舊資料覆蓋；有商品目標格放最前排，空格放後排。
       let srcCell=cellFromData(f.zone,f.col,f.slot); if(srcCell){ srcCell.items=[]; srcCell.items_json='[]'; }
       let dstCell=cellFromData(t.zone,t.col,t.slot); if(!dstCell){ dstCell={zone:t.zone,column_index:t.col,slot_type:'direct',slot_number:t.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(dstCell); }
       dstCell.items=dstAfter; dstCell.items_json=JSON.stringify(dstAfter);
       updateSlotUI(f.zone,f.col,f.slot); updateSlotUI(t.zone,t.col,t.slot); highlightWarehouseCell(t.zone,t.col,t.slot);
       toast(placement==='前排'?'已先移動到前排，背景儲存':'已先移動到後排，背景儲存','ok');
       Promise.all([saveCellRaw(f.zone,f.col,f.slot,[],src.note), saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note)]).then(async()=>{
+        finishOptimisticWarehouseOp(opRev);
         state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton();
-        await loadAvailable().catch(()=>{}); updateAllSlots(); highlightWarehouseCell(t.zone,t.col,t.slot); toast('拖拉移動已永久存入資料庫','ok');
+        await loadAvailable().catch(()=>{});
+        updateSlotUI(f.zone,f.col,f.slot); updateSlotUI(t.zone,t.col,t.slot); highlightWarehouseCell(t.zone,t.col,t.slot);
+        toast('拖拉移動已永久存入資料庫','ok');
       }).catch(e=>{ state.data.cells=oldCells; updateAllSlots(); toast((e&&e.message)||'拖拉移動失敗，已還原','error'); });
     } catch(e){ state.data.cells=oldCells; updateAllSlots(); toast(e.message||'拖拉移動失敗','error'); }
   }
@@ -1028,9 +1070,12 @@
   async function insertWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
+    const opRev=beginOptimisticWarehouseOp();
     localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast('已先插入格子，背景儲存','ok');
     api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s,slot_type:'direct'})}).then(d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells; updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); toast('新增格子已永久存入資料庫','ok');
+      finishOptimisticWarehouseOp(opRev);
+      // V71：前端已插入就固定顯示，不用舊 cells 覆蓋；只校正高亮格號。
+      highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); toast('新增格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'新增格子失敗，已還原','error'); });
   }
   async function deleteWarehouseCell(z,c,s){
@@ -1038,9 +1083,12 @@
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
     if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return;
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
+    const opRev=beginOptimisticWarehouseOp();
     localDeleteSlot(z,c,s); updateAllSlots(); toast('已先從畫面刪除格子，背景儲存','ok');
     api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s,slot_type:'direct'})}).then(d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells; updateAllSlots(); toast('刪除格子已永久存入資料庫','ok');
+      finishOptimisticWarehouseOp(opRev);
+      // V71：前端已刪除並往前補號就固定顯示，不用舊 cells 覆蓋。
+      toast('刪除格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'刪除格子失敗，已還原','error'); });
   }
   async function returnWarehouseCell(z,c,s){
@@ -1049,6 +1097,7 @@
     if(!items.length) return toast('此格沒有商品可退回','warn');
     if(!confirm(`確定將 ${z} 區第 ${c} 欄第 ${s} 格商品退回未錄入倉庫圖？`)) return;
     const oldItems=JSON.parse(JSON.stringify(items));
+    const opRev=beginOptimisticWarehouseOp();
     const cell=cellFromData(z,c,s);
     if(cell){ cell.items=[]; cell.items_json='[]'; }
     mutateAvailableByItems(oldItems, +1);
@@ -1056,9 +1105,10 @@
     if(state.current && state.current.zone===z && Number(state.current.col)===c && Number(state.current.slot)===s){ state.current.items=[]; renderCellItems(true); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
     api('/api/warehouse/return-unplaced',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s})}).then(async d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      finishOptimisticWarehouseOp(opRev);
+      // V71：退回後保持前端已清空狀態，不用舊 cells 覆蓋。
       await loadAvailable().catch(()=>{});
-      updateAllSlots();
+      updateSlotUI(z,c,s);
       highlightWarehouseCell(z,c,s);
       toast('退回該格已永久存入資料庫','ok');
     }).catch(async e=>{
