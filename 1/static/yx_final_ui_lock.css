@@ -837,3 +837,29 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   .yx121-batch-label{ min-height:126px !important; font-size:14px !important; }
 }
 /* ===== END V62 mobile warehouse batch layout lock ===== */
+
+/* V64 倉庫格子三排鎖定：1格號+客戶 / 2材質尺寸 / 3支數加總+總件數 */
+#warehouse-root .yx-final-slot,
+#warehouse-root .vertical-slot{
+  min-height:72px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-between!important;
+  gap:2px!important;
+}
+#warehouse-root .yx108-slot-product{
+  display:block!important;
+  width:100%!important;
+  text-align:center!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  color:#0f766e!important;
+  line-height:1.15!important;
+  min-height:16px!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  pointer-events:none!important;
+}
+#warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
+#warehouse-modal .yx-current-qty-input{min-width:82px!important;text-align:center!important;font-weight:900!important;}

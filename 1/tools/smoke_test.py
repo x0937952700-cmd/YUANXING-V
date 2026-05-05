@@ -1,6 +1,6 @@
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'V62'
+VERSION = 'V64'
 for rel in ['app.py','db.py','backup.py','ocr.py','wsgi.py']:
     path = ROOT / rel
     compile(path.read_text(encoding='utf-8', errors='ignore'), str(path), 'exec')
@@ -26,4 +26,4 @@ combined = '\n'.join(p.read_text(encoding='utf-8', errors='ignore') for p in [RO
 for bad in ['page_inventory_master_v21.js','page_orders_master_v21.js','page_master_order_master_v21.js','page_*_master_v2.js','full-master-v21','full-master-v20','full-master-v19','full-master-v18','full-master-v17','full-master-v16','full-master-v15','full-master-v14','full-master-v13','full-master-v12','full-master-v11','full-master-v10','full-master-v9']:
     if bad in combined:
         raise SystemExit(f'stale loaded reference: {bad}')
-print('v62 warehouse batch mobile smoke test OK')
+print('v64 warehouse cell qty material smoke test OK')

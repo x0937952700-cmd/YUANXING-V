@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V64 warehouse cell qty/material-size lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -463,6 +463,8 @@
       const base=productBaseText(it);
       if(!base) return;
       const mat=materialOf(it);
+      // V64：格子第二排只顯示「材質 尺寸」，不顯示支數件數與來源。
+      // 例：TD 200x30x125
       const label=clean([mat, base].filter(Boolean).join(' '));
       if(label && !uniq.includes(label)) uniq.push(label);
     });
@@ -501,7 +503,27 @@
   function ensureSlotElement(z,c,s){
     const list=getColumnList(z,c); if(!list) return null;
     let el=list.querySelector(`[data-zone="${z}"][data-column="${Number(c)}"][data-slot="${Number(s)}"]`);
-    if(!el){ el=createSlotElement(z,c,s); const after=Array.from(list.querySelectorAll('[data-slot]')).find(x=>Number(x.dataset.slot)>Number(s)); if(after) list.insertBefore(el,after); else list.appendChild(el); bindSlot(el); }
+    if(!el){
+      el=createSlotElement(z,c,s);
+      const after=Array.from(list.querySelectorAll('[data-slot]')).find(x=>Number(x.dataset.slot)>Number(s));
+      if(after) list.insertBefore(el,after); else list.appendChild(el);
+      bindSlot(el);
+    }
+    // V64：舊 HTML 已存在的格子可能只有第 1 排與第 3 排，沒有商品尺寸材質列。
+    // 每次取格子時強制補齊中間列，避免被舊版 DOM 蓋掉造成「TD 200x30x125」不顯示。
+    if(!el.querySelector('.yx108-slot-product')){
+      const product=document.createElement('div');
+      product.className='yx108-slot-product empty';
+      product.setAttribute('aria-label','商品尺寸材質');
+      const row2=el.querySelector('.yx108-slot-row2,.yx116-slot-row2');
+      if(row2) el.insertBefore(product,row2); else el.appendChild(product);
+    }
+    if(!el.querySelector('.yx108-slot-row2')){
+      const row=document.createElement('div');
+      row.className='yx108-slot-row yx108-slot-row2 yx116-slot-row2';
+      row.innerHTML='<span class="yx108-slot-sum">0</span><span class="yx108-slot-total">0件</span>';
+      el.appendChild(row);
+    }
     return el;
   }
   function ensureSlotRange(){ zones.forEach(z=>{ for(let c=1;c<=6;c++){ for(let s=1;s<=maxSlot(z,c);s++) ensureSlotElement(z,c,s); } }); }
@@ -629,7 +651,23 @@
     });
     return Array.from(map.values()).filter(r=>itemQty(r.it)>0);
   }
-  function availableRows(){ const q=clean($('warehouse-item-search')?.value||'').toLowerCase(); return groupedAvailableRows().filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q)); }
+  function availableRows(){
+    const q=clean($('warehouse-item-search')?.value||'').toLowerCase();
+    const supportSticks = (it)=>{
+      const support = productSupportText(it);
+      let total = 0;
+      support.split('+').map(clean).filter(Boolean).forEach(seg=>{
+        const plain = String(seg||'').replace(/[\(（][^\)）]*[\)）]/g,'');
+        const m = plain.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/i);
+        if(m) total += (Number(m[1]||0)||0) * (Number(m[2]||0)||0);
+        else { const n = Number((plain.match(/\d+(?:\.\d+)?/)||['0'])[0])||0; total += n; }
+      });
+      return total;
+    };
+    return groupedAvailableRows()
+      .filter(r=>!q||optionLabel(r.it).toLowerCase().includes(q))
+      .sort((a,b)=> itemQty(b.it)-itemQty(a.it) || supportSticks(b.it)-supportSticks(a.it) || optionLabel(a.it).localeCompare(optionLabel(b.it),'zh-Hant',{numeric:true}));
+  }
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
   function itemKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
   function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), productText(it), clean(it?.support_text||productSupportText(it)||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
@@ -863,9 +901,11 @@
       const supportQty=qtyFromSupportInput(support, max);
       let qty=Math.max(0, Math.floor(Number(row.querySelector('.yx121-batch-qty')?.value||0)));
       if(!qty) qty=supportQty || max;
-      qty=Math.min(qty, max, supportQty || max);
+      // V63：支數輸入是本次要加入的支數段；例如 168x7(-備註) 要以 7 件計，括號不扣件。
+      // 如果沒有改支數，才用整筆下拉合併件數；有改支數時，用支數解析件數但不能超過可加入總量。
+      qty=Math.min(qty, max);
       if(qty <= 0) return;
-      const seed={...group.it, product_text:product, product, support_text:support, exact_key:support?`${warehouseSizeKey(base)}=${support}`:warehouseSizeKey(base), source_id:clean(group.it.source_id||group.it.id||'')};
+      const seed={...group.it, product_text:product, product, support_text:support, exact_key:support?`${warehouseSizeKey(base)}=${support}`:warehouseSizeKey(base), source_id:clean(group.it.source_id||group.it.id||''), source_details:(group.it.source_details||[])};
       const stable=itemStableKey(seed);
       const alreadyInCell=existingQty.get(stable)||0;
       const alreadyNew=collected.get(stable)?.qty || 0;
