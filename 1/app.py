@@ -1750,7 +1750,7 @@ def api_warehouse_cell():
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
@@ -2409,7 +2409,7 @@ def api_warehouse_return_unplaced():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         cells = warehouse_get_cells()
         cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
@@ -2433,7 +2433,7 @@ def api_warehouse_add_slot():
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6:
+        if zone not in ("A", "B") or column_index < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         insert_after = data.get("insert_after", None)
@@ -2456,7 +2456,7 @@ def api_warehouse_remove_slot():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
