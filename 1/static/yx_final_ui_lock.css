@@ -898,3 +898,18 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   text-overflow:ellipsis!important;
 }
 #warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
+
+/* V73：訂單/總單圖一區按鈕硬鎖顯示，避免舊版 renderer/CSS 刪掉或隱藏 */
+.yx128-summary-head .yx-v73-order-master-actions,
+.yx113-summary-head .yx-v73-order-master-actions,
+.yx-v73-order-master-actions{
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  flex-wrap:wrap!important;
+  gap:10px!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  min-height:42px!important;
+}
+.yx-v73-required-btn{display:inline-flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;}

@@ -762,7 +762,9 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
         if source_qty > 0:
             already = int(placed_other.get(key, 0) or 0)
             if already + proposed_qty > source_qty:
-                return False, f"{key[0]} 的入倉數量超過此支數來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
+                # V74：倉庫格位由前端先固定顯示，使用者輸入 41 就要保存 41，不再用舊來源數量阻擋。
+                # 來源剩餘改由未錄入下拉清單背景校正，不回滾使用者當下格位。
+                continue
     for key, proposed_qty in proposed_size.items():
         # V50：若有 exact 支數驗證，尺寸總量只當 fallback；避免同一筆 exact 又被尺寸層重複誤判。
         has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
@@ -770,10 +772,12 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
             continue
         source_qty = int(source_totals.get(key, 0) or 0)
         if source_qty <= 0:
-            return False, f"{key[0]} 沒有可加入來源數量"
+            # V74：舊資料或已手動調整支數時，來源找不到也不可阻擋儲存。
+            continue
         already = int(placed_other.get(key, 0) or 0)
         if already + proposed_qty > source_qty:
-            return False, f"{key[0]} 的入倉數量超過來源總數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
+            # V74：不要阻擋使用者輸入數字；前端固定顯示，後台保存。
+            continue
     return True, ""
 
 def grouped_inventory():

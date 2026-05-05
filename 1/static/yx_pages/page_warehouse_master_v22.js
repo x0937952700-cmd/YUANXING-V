@@ -740,6 +740,9 @@
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
   function itemKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
   function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), productText(it), clean(it?.support_text||productSupportText(it)||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
+  // V74：目前此格商品改支數文字時，退回下拉要以同客戶/來源/材質/尺寸為同一來源計算差額。
+  // 例如 140x40x40=54x14 改成 54x12，必須退回 2 件，不可因 exact key 不同而整筆拆成「退回14、消耗12」。
+  function itemReturnKey(it){ return [cleanCustomer(it?.customer_name||''), sourceOf(it), materialOf(it), productBaseText(it), clean(it?.source_id||it?.id||'')].join('::'); }
 
   function availableGroupKey(it){ return [cleanCustomer(it?.customer_name||''), sourceOf(it), materialOf(it), productBaseText(it), clean(it?.zone||'')].join('::'); }
   function mutateAvailableByItems(items, sign){
@@ -782,7 +785,7 @@
   function summarizeByStable(items){
     const map=new Map();
     (items||[]).forEach(it=>{
-      const k=itemStableKey(it);
+      const k=itemReturnKey(it);
       const q=itemQty(it);
       if(!k || q<=0) return;
       const old=map.get(k);
@@ -824,6 +827,15 @@
         let chosen='';
         if(old.key){ const opt=Array.from(sel.options).find(o=>o.dataset.itemKey===old.key); if(opt) chosen=opt.value; }
         if(!chosen && old.value !== '' && Array.from(sel.options).some(o=>o.value===old.value)) chosen=old.value;
+        // V74：搜尋已錄入商品/未錄入商品時，不可以把已經在後排/中間/前排選好的批量列清掉。
+        // 如果目前搜尋條件把該商品篩掉，就臨時補一個舊選項，讓使用者已選內容固定保留。
+        if(!chosen && (old.key || old.value)){
+          chosen = old.value || old.key;
+          const opt=document.createElement('option');
+          opt.value=chosen; opt.dataset.itemKey=old.key || chosen; opt.dataset.max=old.qty || '999999';
+          opt.textContent='已選商品（搜尋暫時隱藏，仍會保留）';
+          sel.appendChild(opt);
+        }
         sel.value=chosen;
       }
       if(qty && old.qty) qty.value=old.qty; const sup=row.querySelector('.yx121-batch-support'); if(sup && old.support) sup.value=old.support;
@@ -879,6 +891,23 @@
     const b=JSON.stringify((state.current?.items||[]).map(it=>normalizedItem(it,itemQty(it),it.placement_label||it.layer_label||'前排')));
     return a!==b;
   }
+  function renderRecordedSearchPreview(){
+    const box=$('warehouse-recorded-search-preview');
+    if(!box || !state.current) return;
+    const q=clean($('warehouse-item-search')?.value||'').toLowerCase();
+    if(!q){ box.classList.add('hidden'); box.innerHTML=''; return; }
+    const hits=(state.current.items||[])
+      .map((it,i)=>({it,i,label:[cleanCustomer(it.customer_name),materialOf(it),productText(it),sourceOf(it)].join(' ')}))
+      .filter(x=>x.label.toLowerCase().includes(q))
+      .slice(0,5);
+    box.classList.remove('hidden');
+    box.innerHTML=hits.length?hits.map(x=>`<button type="button" class="yx-recorded-hit" data-recorded-hit="${x.i}"><strong>${esc(cleanCustomer(x.it.customer_name))}</strong><span>${esc(materialOf(x.it))} ${esc(productText(x.it))}</span><b>${itemQty(x.it)}件</b></button>`).join(''):'<div class="small-note">目前此格沒有符合的已錄入商品</div>';
+    box.querySelectorAll('[data-recorded-hit]').forEach(btn=>btn.onclick=()=>{
+      const row=document.querySelector(`#warehouse-current-items-html .yx-direct-current-item[data-idx="${btn.dataset.recordedHit}"]`);
+      if(row){ row.scrollIntoView({behavior:'smooth',block:'center'}); row.classList.add('flash-highlight'); setTimeout(()=>row.classList.remove('flash-highlight'),1200); }
+    });
+  }
+
   function currentItemEditorHtml(it,i){
     const mat=materialOf(it), place=clean(it.placement_label||it.layer_label||'前排');
     const placementOptions=['後排','中間','前排'].map(x=>`<option value="${esc(x)}" ${x===place?'selected':''}>${esc(x)}</option>`).join('');
@@ -907,6 +936,7 @@
     }
     const current=(state.current.items||[]).map((it,i)=>currentItemEditorHtml(it,i)).join('') || '<div class="empty-state-card compact-empty">此格目前沒有商品</div>';
     const currentBox=$('warehouse-current-items-html'); if(currentBox) currentBox.innerHTML=current;
+    renderRecordedSearchPreview();
     const rowsData=availableRows();
     const opts=rowsData.map(r=>`<option value="${esc(r.key)}" data-index="${r.index}" data-max="${itemQty(r.it)}" data-item-key="${esc(r.key)}" data-support="${esc(productSupportText(r.it))}">${esc(optionLabel(r.it))}</option>`).join('');
     const emptyHint = opts ? '' : '<option value="">此區目前沒有未錄入商品，或請換 A/B 區</option>';
@@ -1199,7 +1229,7 @@
       const qty=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-qty');
       if(qty){ const max=Number(qty.dataset.yx121Max||qty.max||0); if(max<=0 && qty.value){ qty.value=''; toast('此商品已無剩餘數量，禁止重複放入','warn'); } else if(max>0 && Number(qty.value)>max){ qty.value=String(max); toast('加入件數不可超過該商品可加入數量','warn'); } }
     }, true);
-    $('warehouse-item-search')?.addEventListener('input',renderCellItems);
+    $('warehouse-item-search')?.addEventListener('input',()=>{ renderRecordedSearchPreview(); renderCellItems(true); });
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=hit.cell||hit; highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }

@@ -5441,3 +5441,12 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   text-overflow:ellipsis!important;
 }
 #warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
+
+/* V74 warehouse recorded search preview: show first 5 hits without clearing batch rows */
+.yx-recorded-search-preview{display:flex;flex-direction:column;gap:6px;margin:8px 0 10px 0;}
+.yx-recorded-search-preview.hidden{display:none!important;}
+.yx-recorded-hit{display:grid;grid-template-columns:110px 1fr auto;align-items:center;gap:8px;width:100%;border:1px solid rgba(214,168,74,.45);border-radius:14px;background:rgba(255,255,255,.72);padding:8px 10px;text-align:left;color:#123;}
+.yx-recorded-hit strong{color:#d11;font-weight:800;text-align:center;}
+.yx-recorded-hit span{color:#066;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.yx-recorded-hit b{color:#06f;font-weight:800;}
+@media(max-width:720px){.yx-recorded-hit{grid-template-columns:1fr;gap:3px;font-size:15px}.yx-recorded-hit strong{text-align:left}.yx-recorded-hit span{white-space:normal}}

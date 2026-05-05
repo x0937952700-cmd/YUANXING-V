@@ -2344,3 +2344,54 @@
   document.addEventListener('click',()=>setTimeout(ensureTopButtons,50),true);
   setInterval(ensureTopButtons, 1200);
 })();
+
+/* ===== V73 ORDER/MASTER TOP BUTTON HARDLOCK: create controls even when old renderer removed them ===== */
+(function(){
+  'use strict';
+  if (window.__YX_V73_ORDER_MASTER_BUTTON_HARDLOCK__) return;
+  window.__YX_V73_ORDER_MASTER_BUTTON_HARDLOCK__ = true;
+  function source(){
+    var m = (document.body && document.body.dataset && document.body.dataset.module || '').trim();
+    return m === 'orders' ? 'orders' : (m === 'master_order' ? 'master_order' : '');
+  }
+  function btn(label, attrs, danger){ return '<button class="ghost-btn small-btn yx-v73-required-btn '+(danger?'danger-btn':'')+'" type="button" '+attrs+'>'+label+'</button>'; }
+  function htmlFor(s){
+    return btn('移到A區','data-yx132-batch-zone="A" data-source="'+s+'"',false)
+      + btn('移到B區','data-yx132-batch-zone="B" data-source="'+s+'"',false)
+      + (s === 'orders' ? btn('加到總單','data-yx132-batch-transfer="master_order" data-source="orders"',false) : '')
+      + btn('批量刪除','data-yx113-batch-delete="'+s+'" data-source="'+s+'"',true)
+      + btn('批量編輯全部','data-yx128-edit-all="'+s+'" data-source="'+s+'"',false);
+  }
+  function ensure(){
+    var s = source(); if(!s) return;
+    var summary = document.getElementById('yx113-'+s+'-summary'); if(!summary) return;
+    var head = summary.querySelector('.yx113-summary-head,.yx128-summary-head');
+    if(!head){
+      head = document.createElement('div');
+      head.className = 'yx113-summary-head yx128-summary-head';
+      summary.insertBefore(head, summary.firstChild);
+    }
+    var controls = head.querySelector('.yx128-summary-controls.yx-v73-order-master-actions');
+    if(!controls){
+      controls = head.querySelector('.yx128-summary-controls');
+      if(!controls){
+        controls = document.createElement('div');
+        controls.className = 'yx128-summary-controls yx-v73-order-master-actions';
+        head.appendChild(controls);
+      } else {
+        controls.classList.add('yx-v73-order-master-actions');
+      }
+    }
+    var h = htmlFor(s);
+    if(controls.dataset.v73Html !== h){ controls.dataset.v73Html = h; controls.innerHTML = h; }
+    controls.style.display = 'flex';
+    controls.style.visibility = 'visible';
+  }
+  document.addEventListener('DOMContentLoaded', ensure);
+  document.addEventListener('click', function(){ setTimeout(ensure, 0); setTimeout(ensure, 80); }, true);
+  document.addEventListener('input', function(){ setTimeout(ensure, 60); }, true);
+  var mo = new MutationObserver(function(){ if(!window.__YX_V73_OM_BUSY__){ window.__YX_V73_OM_BUSY__=true; setTimeout(function(){ window.__YX_V73_OM_BUSY__=false; ensure(); }, 80); }});
+  document.addEventListener('DOMContentLoaded', function(){ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch(_e){} ensure(); });
+  setInterval(ensure, 600);
+})();
+/* ===== END V73 ORDER/MASTER TOP BUTTON HARDLOCK ===== */
