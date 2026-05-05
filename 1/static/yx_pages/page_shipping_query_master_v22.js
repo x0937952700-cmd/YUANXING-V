@@ -1,5 +1,5 @@
 
-/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -7,15 +7,8 @@
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
   function parenAdjust(v){
-    let total = 0;
-    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
-      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
-        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
-        return '';
-      });
-      return '';
-    });
-    return total;
+    // V58：括號只當備註，像 115x51(東昇-8) 一律以 51 件計，不扣 -8。
+    return 0;
   }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();

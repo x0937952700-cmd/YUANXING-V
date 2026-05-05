@@ -87,6 +87,21 @@ def current_username():
     return session.get("user", "")
 
 
+def ensure_runtime_product_schema(cur):
+    """V58 runtime guard: routes that update month_tag/location must not fail on old PostgreSQL/SQLite schemas."""
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        for column, definition in (('month_tag', 'TEXT'), ('location', 'TEXT')):
+            if table == 'shipping_records' and column == 'location':
+                continue
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            except Exception:
+                try:
+                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                except Exception:
+                    pass
+
+
 SYNC_SETTINGS_KEY = 'sync_last_event'
 LAST_DAILY_BACKUP_KEY = 'last_daily_backup_date'
 PENDING_QUEUE_LIMIT = 50
@@ -444,12 +459,8 @@ def warehouse_support_text(text):
 
 
 def warehouse_support_qty_adjustment(part):
-    # Apply signed +/- quantity notes while preserving original support text.
-    adj = 0
-    for note in re.findall(r'[\(（]([^\)）]*)[\)）]', str(part or '')):
-        for sign, num in re.findall(r'([+-])\s*(\d+)', note):
-            adj += int(num or 0) * (-1 if sign == '-' else 1)
-    return adj
+    # V58：括號只當備註，倉庫支數件數不因 (東昇-8) 這類文字被扣掉。
+    return 0
 
 
 def warehouse_support_plain(part):
@@ -2213,6 +2224,7 @@ def api_customer_items_batch_update():
             "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
         }
         conn = get_db(); cur = conn.cursor()
+        ensure_runtime_product_schema(cur)
         before_items = []
         updated = 0
         changed = []
@@ -2600,6 +2612,35 @@ def _today_unplaced_all_sources():
     return out
 
 
+
+def _today_unplaced_zone_summary():
+    """V58: A/B/未分區/總計 for 今日異動, same meaning as warehouse unplaced pill."""
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
+        out = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+        for detail_key, details_all in source_details.items():
+            exact, customer, source_label, source_id = detail_key
+            total_qty = sum(int(d.get('qty') or 0) for d in (details_all or []))
+            placed_qty = int(placed.get((exact, customer), 0) or 0)
+            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if unplaced_qty <= 0:
+                continue
+            first = (details_all or [{}])[0]
+            z = str(first.get('zone') or '').strip().upper()
+            if z.startswith('A'):
+                out['A'] += unplaced_qty
+            elif z.startswith('B'):
+                out['B'] += unplaced_qty
+            else:
+                out['unassigned'] += unplaced_qty
+            out['total'] += unplaced_qty
+        return out
+    except Exception as e:
+        try: log_error('today_unplaced_zone_summary', str(e))
+        except Exception: pass
+        return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+
 def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
@@ -2635,6 +2676,7 @@ def _today_changes_payload():
             'new_order_count': len(new_orders),
             'unplaced_count': unplaced_total_qty,
             'unplaced_row_count': len(unplaced),
+            'unplaced_zone_summary': _today_unplaced_zone_summary(),
             'anomaly_count': 0,
             'unread_count': unread_count,
         },

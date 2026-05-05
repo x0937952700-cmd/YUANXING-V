@@ -1,5 +1,5 @@
 
-/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -7,15 +7,8 @@
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
   function parenAdjust(v){
-    let total = 0;
-    String(v || '').replace(/[\(（]([^\)）]*)[\)）]/g, function(_m, note){
-      String(note || '').replace(/([+-])\s*(\d+)/g, function(_n, sign, num){
-        total += (sign === '-' ? -1 : 1) * (Number(num || 0) || 0);
-        return '';
-      });
-      return '';
-    });
-    return total;
+    // V58：括號只當備註，像 115x51(東昇-8) 一律以 51 件計，不扣 -8。
+    return 0;
   }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
@@ -470,6 +463,21 @@
     }).join('');
     box.innerHTML = cards;
   }
+  function renderUnplacedZonePill(summary){
+    let pill = document.getElementById('today-unplaced-zone-pill');
+    const tools = document.querySelector('.yx112-today-fixed-tools');
+    if (!tools) return;
+    if (!pill) {
+      pill = document.createElement('span');
+      pill.id = 'today-unplaced-zone-pill';
+      pill.className = 'pill warn interactive-pill yx-v58-today-zone-pill';
+      pill.title = '長按刷新 A/B/未分區/總計';
+      tools.insertBefore(pill, tools.firstChild);
+    }
+    const z = summary?.unplaced_zone_summary || {};
+    const a = Number(z.A || 0), b = Number(z.B || 0), u = Number(z.unassigned || 0), t = Number(z.total || (a + b + u));
+    pill.textContent = `A區 ${a} 件 / B區 ${b} 件 / 未分區 ${u} 件 / 總計 ${t} 件`;
+  }
   function rowText(r){
     const parts = [];
     const target = YX.clean(r?.customer_name || r?.target || r?.customer || '');
@@ -507,6 +515,7 @@
     if ($('today-unread-badge')) $('today-unread-badge').textContent = '0';
     renderLabels(summary);
     renderSummaryCards(summary);
+    renderUnplacedZonePill(summary);
     fill('today-inbound-list', state.data.feed?.inbound, '今天沒有進貨', 'inbound');
     fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
     fill('today-order-list', state.data.feed?.new_orders, '今天沒有新增訂單', 'orders');
@@ -520,7 +529,12 @@
     state.loading = (async () => {
       try {
         cleanLegacyTodayDom();
-        const data = await YX.api('/api/today-changes?yx112=1&ts=' + Date.now(), {method:'GET'});
+        let data = await YX.api('/api/today-changes?yx112=1&ts=' + Date.now(), {method:'GET'});
+        try {
+          const wz = await YX.api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
+          data.summary = data.summary || {};
+          data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
+        } catch(_e) {}
         render(data);
         try { await YX.api('/api/today-changes/read', {method:'POST', body:JSON.stringify({})}); } catch(_e) {}
         if ($('today-unread-badge')) $('today-unread-badge').textContent = '0';
@@ -540,7 +554,7 @@
     const clearLongPress = () => { if (state.longPress?.timer) clearTimeout(state.longPress.timer); state.longPress = null; };
     document.addEventListener('pointerdown', ev => {
       if (!isToday()) return;
-      const trigger = ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger');
+      const trigger = ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger,#today-unplaced-zone-pill,#yx112-refresh-today');
       if (!trigger) return;
       const x = ev.clientX, y = ev.clientY;
       clearLongPress();
@@ -558,7 +572,7 @@
 
     document.addEventListener('click', async ev => {
       if (!isToday()) return;
-      if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
+      if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger,#today-unplaced-zone-pill,#yx112-refresh-today')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
       if (ev.target && ev.target.id === 'yx112-refresh-today') {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         await loadTodayChanges112({force:true});
