@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V71 optimistic warehouse stable lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V72 optimistic warehouse stable lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -396,7 +396,7 @@
     if(isOptimisticFresh(rev)) state.optimisticUntil = Math.max(Date.now() + 5000, Number(state.optimisticUntil||0));
   }
   function safeReplaceCellsFromServer(cells, rev, reason='') {
-    // V71: 前端新增/刪除/拖拉/儲存後，以目前畫面為準。
+    // V72: 前端新增/刪除/拖拉/儲存後，以目前畫面為準。
     // 後端回傳舊 cells 時不覆蓋畫面，避免「先跳新畫面→又跳回舊畫面→再跳回來」。
     if(!Array.isArray(cells)) return false;
     if(rev && !isOptimisticFresh(rev)) return false;
@@ -404,25 +404,52 @@
     state.data.cells = cells;
     return true;
   }
+  function explicitItemQty(it){
+    const candidates=[it?.qty,it?.quantity,it?.pieces,it?.count,it?.piece_count,it?.total_qty,it?.件數];
+    for(const v of candidates){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
+    return 0;
+  }
+  function parsedQtyFromProductText(text, fallback=0){
+    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+');
+    if(!raw.includes('=')) return Math.max(0, Math.floor(Number(fallback||0)));
+    if(window.YX70EffectiveQty){
+      const n=Number(window.YX70EffectiveQty(raw, fallback||0));
+      if(Number.isFinite(n) && n>0) return Math.floor(n);
+    }
+    const right=raw.split('=').slice(1).join('=');
+    let total=0, hit=false;
+    right.split('+').map(clean).filter(Boolean).forEach(seg=>{
+      const plain=seg.replace(/[\(（][^\)）]*[\)）]/g,'').trim();
+      const m=plain.match(/x\s*(\d+)\s*$/i);
+      if(m){ total += Math.max(0, Number(m[1]||0)); hit=true; return; }
+      if(/\d/.test(plain)){ total += 1; hit=true; }
+    });
+    return hit ? total : Math.max(0, Math.floor(Number(fallback||0)));
+  }
   function itemQty(it){
     const text=clean(it?.product_text||it?.product||'');
-    // V60：已放入倉庫格的商品、API 回傳的未錄入商品，優先吃明確 qty/unplaced_qty。
-    // 這樣在「目前此格商品」把 49 件改成 47 件後，格子與下拉都會以 47 件為準，
-    // 不會又被 product_text 右側的 240x49 覆蓋回 49。
+    const explicitQty=explicitItemQty(it);
+    const isCellItem=!!(it?.placement_label || it?.layer_label || it?.__warehouseCellItem);
+    // V72：目前此格商品若有「尺寸=支數x件數」文字，且不是使用者手動覆寫件數，
+    // 件數要以輸入框文字為準；例如 Lx50x083=1x22 必須顯示 22，不可再吃舊的 unplaced_qty=34。
+    // 使用者只改右側件數欄位時，儲存會寫入 __manual_qty，之後才以手動件數為準。
+    if(isCellItem){
+      if(it?.__manual_qty || it?.manual_qty){ if(explicitQty>0) return explicitQty; }
+      const parsed=parsedQtyFromProductText(text, 0);
+      if(parsed>0) return parsed;
+      if(explicitQty>0) return explicitQty;
+    }
+    // 未錄入下拉 / API 剩餘商品優先吃剩餘數；已放入格子的商品不再吃 unplaced_qty，避免舊數量蓋掉格內編輯。
     const explicitPriority = [it?.unplaced_qty, it?.available_qty, it?.remaining_qty];
     for(const v of explicitPriority){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
-    const explicitQty=Number(it?.qty ?? it?.quantity ?? it?.pieces ?? it?.count ?? it?.piece_count ?? it?.件數);
-    if((it?.placement_label || it?.layer_label || it?.__warehouseCellItem) && Number.isFinite(explicitQty) && explicitQty>0) return Math.floor(explicitQty);
-    // 倉庫下拉 / 批量加入若沒有明確剩餘數，才用「=右側支數x件數」推算。
     const noParen=text.replace(/[\(（][^\)）]*[\)）]/g,'');
     const right=noParen.includes('=') ? noParen.split('=').slice(1).join('=') : '';
     const hasSupportPiece=/\d+(?:\.\d+)?\s*[x×✕＊*X]\s*\d+/.test(right);
-    if(hasSupportPiece && window.YX30EffectiveQty){
-      const parsed=Number(window.YX30EffectiveQty(text, 0));
+    if(hasSupportPiece){
+      const parsed=parsedQtyFromProductText(text, 0);
       if(Number.isFinite(parsed) && parsed>0) return Math.floor(parsed);
     }
-    const candidates=[it?.qty,it?.quantity,it?.pieces,it?.count,it?.piece_count,it?.total_qty,it?.件數];
-    for(const v of candidates){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
+    if(explicitQty>0) return explicitQty;
     const m=text.match(/(?:x|×|\*)\s*(\d+)\s*(?:件)?\s*$/i); if(m) return Math.max(1,Number(m[1]));
     return 1;
   }
@@ -480,24 +507,8 @@
     return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
   }
   function qtyFromProductTextForInput(text, fallback){
-    // V70：目前此格商品一律以輸入框「=右側」計算件數。
-    // 132x60x08=162x26 => 26；132x60x08=162x26+133x4+142 => 31；括號完全只當備註。
-    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+');
-    if(!raw.includes('=')) return Math.max(0, Math.floor(Number(fallback||0)));
-    if(window.YX70EffectiveQty){
-      const n=Number(window.YX70EffectiveQty(raw, fallback||0));
-      if(Number.isFinite(n) && n>0) return Math.floor(n);
-    }
-    const right=raw.split('=').slice(1).join('=');
-    let total=0, hit=false;
-    right.split('+').map(clean).filter(Boolean).forEach(seg=>{
-      const plain=seg.replace(/[\(（][^\)）]*[\)）]/g,'').trim();
-      const m=plain.match(/x\s*(\d+)\s*$/i);
-      if(m){ total += Math.max(0, Number(m[1]||0)); hit=true; return; }
-      if(/\d/.test(plain)){ total += 1; hit=true; }
-    });
-    if(hit) return total;
-    return qtyFromSupportInput(right, fallback);
+    // V72：統一呼叫同一個件數解析，避免打開格子、輸入框、儲存格位三處算出不同數。
+    return parsedQtyFromProductText(text, fallback);
   }
   function slotProductSummary(items){
     const uniq=[];
@@ -627,7 +638,7 @@
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
     if(Date.now() < Number(state.optimisticUntil||0) && !force){
-      // V71：背景儲存期間不重新抓舊格位覆蓋目前畫面。
+      // V72：背景儲存期間不重新抓舊格位覆蓋目前畫面。
       updateAllSlots();
       return Promise.resolve();
     }
@@ -834,17 +845,26 @@
       // V67：目前此格商品若改了支數文字，要用輸入框文字重新判定件數。
       // 例：132x60x08=162x26 => 26 件；132x60x08=162x26+133x4+142 => 31 件。
       // 如果商品文字沒改，才保留使用者手動改的件數欄位。
+      const productTouched = row.dataset.productTouched === '1' || (product && product !== baseProduct);
+      const qtyTouched = row.dataset.qtyTouched === '1';
       let qty;
-      if(product && product.includes('=')){
+      let manualQty = !!(base.__manual_qty || base.manual_qty);
+      if(productTouched && product && product.includes('=')){
         qty = qtyFromProductTextForInput(product, itemQty(base));
-      } else if(product && product !== baseProduct){
+        manualQty = false;
+      } else if(qtyTouched){
+        qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base))));
+        manualQty = true;
+      } else if(product && product.includes('=')){
+        // V72：開啟格子時若舊資料 qty=34 但文字是 Lx50x083=1x22，要自動修成 22。
         qty = qtyFromProductTextForInput(product, itemQty(base));
+        manualQty = false;
       } else {
         qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base))));
       }
       if(qtyEl) qtyEl.value = String(Math.max(1, qty));
       const placement=clean(row.querySelector('[data-current-placement]')?.value || base.placement_label || base.layer_label || '前排');
-      const updated={...base, product_text:product, product:product, material, product_code:material, qty:Math.max(1, qty), placement_label:placement, layer_label:placement};
+      const updated={...base, product_text:product, product:product, material, product_code:material, qty:Math.max(1, qty), quantity:Math.max(1, qty), pieces:Math.max(1, qty), __manual_qty:manualQty, manual_qty:manualQty, placement_label:placement, layer_label:placement};
       if(JSON.stringify(normalizedItem(base,itemQty(base),base.placement_label||base.layer_label||'前排')) !== JSON.stringify(normalizedItem(updated,qty,placement))) touched=true;
       next.push(updated);
     });
@@ -1018,7 +1038,7 @@
       highlightWarehouseCell(saveZone,saveCol,saveSlot);
       saveCellRaw(saveZone,saveCol,saveSlot,items,saveNote).then(async saved=>{
         finishOptimisticWarehouseOp(opRev);
-        // V71：不使用後端回傳 cells 直接覆蓋目前前端格子，避免舊資料閃回。
+        // V72：不使用後端回傳 cells 直接覆蓋目前前端格子，避免舊資料閃回。
         await loadAvailable().catch(()=>{});
         updateSlotUI(saveZone,saveCol,saveSlot);
         highlightWarehouseCell(saveZone,saveCol,saveSlot);
@@ -1039,7 +1059,7 @@
     const oldCells=JSON.parse(JSON.stringify(state.data.cells||[]));
     const opRev=beginOptimisticWarehouseOp();
     try{
-      // V71：拖拉先立刻更新前端並固定顯示，不讓背景舊資料覆蓋；有商品目標格放最前排，空格放後排。
+      // V72：拖拉先立刻更新前端並固定顯示，不讓背景舊資料覆蓋；有商品目標格放最前排，空格放後排。
       let srcCell=cellFromData(f.zone,f.col,f.slot); if(srcCell){ srcCell.items=[]; srcCell.items_json='[]'; }
       let dstCell=cellFromData(t.zone,t.col,t.slot); if(!dstCell){ dstCell={zone:t.zone,column_index:t.col,slot_type:'direct',slot_number:t.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(dstCell); }
       dstCell.items=dstAfter; dstCell.items_json=JSON.stringify(dstAfter);
@@ -1074,7 +1094,7 @@
     localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast('已先插入格子，背景儲存','ok');
     api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s,slot_type:'direct'})}).then(d=>{
       finishOptimisticWarehouseOp(opRev);
-      // V71：前端已插入就固定顯示，不用舊 cells 覆蓋；只校正高亮格號。
+      // V72：前端已插入就固定顯示，不用舊 cells 覆蓋；只校正高亮格號。
       highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); toast('新增格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'新增格子失敗，已還原','error'); });
   }
@@ -1087,7 +1107,7 @@
     localDeleteSlot(z,c,s); updateAllSlots(); toast('已先從畫面刪除格子，背景儲存','ok');
     api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s,slot_type:'direct'})}).then(d=>{
       finishOptimisticWarehouseOp(opRev);
-      // V71：前端已刪除並往前補號就固定顯示，不用舊 cells 覆蓋。
+      // V72：前端已刪除並往前補號就固定顯示，不用舊 cells 覆蓋。
       toast('刪除格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'刪除格子失敗，已還原','error'); });
   }
@@ -1106,7 +1126,7 @@
     toast('已先從畫面退回，背景寫入資料庫','ok');
     api('/api/warehouse/return-unplaced',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s})}).then(async d=>{
       finishOptimisticWarehouseOp(opRev);
-      // V71：退回後保持前端已清空狀態，不用舊 cells 覆蓋。
+      // V72：退回後保持前端已清空狀態，不用舊 cells 覆蓋。
       await loadAvailable().catch(()=>{});
       updateSlotUI(z,c,s);
       highlightWarehouseCell(z,c,s);
@@ -1155,13 +1175,18 @@
       const curProduct=ev.target?.closest?.('#warehouse-current-items-html [data-current-product]');
       if(curProduct){
         const row=curProduct.closest('.yx-direct-current-item');
+        if(row) row.dataset.productTouched='1';
         const qtyEl=row?.querySelector('[data-current-qty]');
         const n=qtyFromProductTextForInput(curProduct.value, 0);
         // 例如 363x30x06=858x28，右側件數立即同步成 28；手動只改件數時不會被商品文字蓋回。
         if(qtyEl && n>0) qtyEl.value=String(n);
       }
       const curQty=ev.target?.closest?.('#warehouse-current-items-html [data-current-qty]');
-      if(curQty && Number(curQty.value)<1){ curQty.value='1'; }
+      if(curQty){
+        const row=curQty.closest('.yx-direct-current-item');
+        if(row) row.dataset.qtyTouched='1';
+        if(Number(curQty.value)<1){ curQty.value='1'; }
+      }
       const support=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-support');
       if(support){
         support.value=normalizeSupportInputValue(support.value);
