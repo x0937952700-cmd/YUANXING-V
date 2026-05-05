@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V64 warehouse cell qty/material-size lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V66 warehouse qty sync/customer center/fob hide lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -418,7 +418,11 @@
   }
   function cleanCustomer(v){
     const s=clean(v)||'庫存';
-    return s.replace(/\b(FOB代付|FOB代|FOB|CNF)\b/gi,'').replace(/\s+/g,' ').trim() || '庫存';
+    // V66：倉庫圖格子只顯示真正客戶名；FOB / CNF / FOB代 / fob代 都是付款或條件標記，不顯示在格子客戶名。
+    return s
+      .replace(/(?:FOB代付|FOB代|FOB|CNF)/gi,'')
+      .replace(/\s+/g,' ')
+      .trim() || '庫存';
   }
   function productText(it){ return clean(it?.product_text || it?.product || it?.product_size || ''); }
   function stripProductParen(text){ return clean(text).replace(/[\(（][^\)）]*[\)）]/g,'').trim(); }
@@ -456,6 +460,11 @@
   }
   function normalizeSupportInputValue(v){
     return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[，,；;]/g,'+');
+  }
+  function qtyFromProductTextForInput(text, fallback){
+    const raw=clean(text).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    if(!raw.includes('=')) return Math.max(0, Math.floor(Number(fallback||0)));
+    return qtyFromSupportInput(raw.split('=').slice(1).join('='), fallback);
   }
   function slotProductSummary(items){
     const uniq=[];
@@ -584,7 +593,14 @@
   }
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
-    state.loading=(async()=>{ try{ const [d]=await Promise.all([api('/api/warehouse?ts='+Date.now()), loadAvailable()]); state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}}; window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; updateAllSlots(); } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
+    // V65：第一次開倉庫圖先只載入格位並立即畫面；未錄入下拉/統計改成背景載入，避免第一次開啟被 3 個 available API 卡住。
+    state.loading=(async()=>{ try{
+      const d = await api('/api/warehouse?ts='+Date.now());
+      state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}};
+      window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available};
+      updateAllSlots();
+      loadAvailable().then(()=>{ window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; syncBatchSelectLimits?.(); }).catch(()=>{});
+    } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
     return state.loading;
   }
   function setWarehouseZone(zone='A', scroll=true){
@@ -1054,6 +1070,14 @@
     },true);
     document.addEventListener('change', ev=>{ const sel=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-select'); if(sel){ syncBatchSelectLimits(); } }, true);
     document.addEventListener('input', ev=>{
+      const curProduct=ev.target?.closest?.('#warehouse-current-items-html [data-current-product]');
+      if(curProduct){
+        const row=curProduct.closest('.yx-direct-current-item');
+        const qtyEl=row?.querySelector('[data-current-qty]');
+        const n=qtyFromProductTextForInput(curProduct.value, 0);
+        // 例如 363x30x06=858x28，右側件數立即同步成 28；手動只改件數時不會被商品文字蓋回。
+        if(qtyEl && n>0) qtyEl.value=String(n);
+      }
       const curQty=ev.target?.closest?.('#warehouse-current-items-html [data-current-qty]');
       if(curQty && Number(curQty.value)<1){ curQty.value='1'; }
       const support=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-support');

@@ -863,3 +863,38 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
 }
 #warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
 #warehouse-modal .yx-current-qty-input{min-width:82px!important;text-align:center!important;font-weight:900!important;}
+
+/* V65 訂單/總單批量按鈕位置鎖定：避免舊版按鈕回到上方工具列 */
+.yx-v65-orders-summary-actions,
+.yx-v65-master-summary-actions{display:flex!important;gap:10px!important;align-items:center!important;justify-content:flex-end!important;flex-wrap:wrap!important;}
+#yx113-orders-toolbar [data-yx132-batch-zone],
+#yx113-orders-toolbar [data-yx132-batch-transfer="master_order"]{display:none!important;}
+.yx-v65-master-summary-actions [data-yx132-batch-zone],
+.yx-v65-master-summary-actions [data-yx113-batch-delete],
+.yx-v65-master-summary-actions [data-yx128-edit-all],
+.yx-v65-orders-summary-actions [data-yx113-batch-delete],
+.yx-v65-orders-summary-actions [data-yx128-edit-all]{display:inline-flex!important;}
+
+
+/* V66 倉庫格子客戶名置中 + 第二排材質尺寸固定顯示 */
+#warehouse-root .yx108-slot-row1{display:grid!important;grid-template-columns:22px 1fr!important;align-items:center!important;}
+#warehouse-root .yx108-slot-customers{
+  text-align:center!important;
+  justify-self:center!important;
+  width:100%!important;
+  color:#dc2626!important;
+  font-weight:900!important;
+}
+#warehouse-root .yx108-slot-product{
+  display:block!important;
+  text-align:center!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  color:#0f766e!important;
+  min-height:16px!important;
+  line-height:1.15!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+#warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}

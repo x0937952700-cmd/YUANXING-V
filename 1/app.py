@@ -1,3 +1,4 @@
+# V65: frontend batch-edit/warehouse-speed fix uses existing API routes.
 # V59 mainfile event/db/ui lock
 # V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
