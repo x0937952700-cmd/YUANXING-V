@@ -544,6 +544,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
         cur = conn.cursor()
         own_conn = True
     try:
+        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS warehouse_cells (
@@ -1090,10 +1091,6 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         log_error('warehouse_final_index_cleanup', str(e))
 
     ensure_fixed_warehouse_grid(conn, cur)
-    try:
-        ensure_warehouse_default_20_once(cur)
-    except Exception as e:
-        log_error('v81_warehouse_default20_once', str(e))
 
     # V23: Render/PostgreSQL/SQLite 自動 migration。
     # 1) 先修正 warehouse_cells 空值與重複格位。
@@ -1119,6 +1116,11 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
     except Exception as e:
         log_error('v23_warehouse_slot_migration', str(e))
+
+    try:
+        ensure_warehouse_default_20_v82(cur)
+    except Exception as e:
+        log_error('v82_warehouse_default20_init', str(e))
 
     try:
         _index_sqls = [
@@ -1257,6 +1259,7 @@ def save_image_hash(image_hash):
     conn = get_db()
     cur = conn.cursor()
     try:
+        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("""
                 INSERT INTO image_hashes(image_hash, created_at)
@@ -2750,14 +2753,23 @@ def _normalize_warehouse_items(items):
     return list(merged.values())
 
 
+def _warehouse_column_max_slot(cur, zone, column_index):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 1)
+    cur.execute(sql("""
+        SELECT COALESCE(MAX(slot_number), 0) AS max_slot
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+    """), (zone, column_index, 'direct'))
+    row = fetchone_dict(cur) or {}
+    return int(row.get('max_slot') or 0)
+
 
 def _warehouse_materialize_column_slots(cur, zone, column_index, min_slots=1):
-    """安全補齊單一倉庫欄位的缺格，不清空商品資料、不把有商品格位洗掉。
+    """V82：安全補齊單欄缺格，不清空商品、不重排有商品格號。
 
-    用途：
-    - 舊資料庫只有 1~10 格，但前端/使用者要操作第 15 格時，先補 11~15 空格。
-    - 若同一格因舊版 slot_type 空字串/direct 混在一起而重複，合併 items_json 後保留在同一格號。
-    - 只在同一 zone + column_index + direct 格位內重寫；商品仍保留原本 slot_number。
+    只處理同一 zone + column_index + direct 格位；舊資料 slot_type 為空字串也視為 direct。
+    同格號重複時合併 items_json，保留原本商品與備註；缺的格只補空白格。
     """
     zone = (zone or 'A').strip().upper()
     column_index = int(column_index or 1)
@@ -2790,7 +2802,6 @@ def _warehouse_materialize_column_slots(cur, zone, column_index, min_slots=1):
             prev['note'] = prev.get('note') or note
             prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(row.get('updated_at') or '')) or now()
     target = max(min_slots, max(by_slot.keys() or [0]), 1)
-    # 重寫 direct-like 格位，保留每個 slot_number 原本商品；缺的格補空白。
     cur.execute(sql("""
         DELETE FROM warehouse_cells
         WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
@@ -2804,30 +2815,21 @@ def _warehouse_materialize_column_slots(cur, zone, column_index, min_slots=1):
     return target
 
 
-def _warehouse_column_max_slot(cur, zone, column_index):
-    cur.execute(sql("""
-        SELECT COALESCE(MAX(slot_number), 0) AS max_slot
-        FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
-    """), ((zone or 'A').strip().upper(), int(column_index or 1), 'direct'))
-    row = fetchone_dict(cur) or {}
-    return int(row.get('max_slot') or 0)
+def ensure_warehouse_default_20_v82(cur):
+    """V82：從 V78 重新開始的倉庫安全補格。
 
-
-def ensure_warehouse_default_20_once(cur):
-    """V81：從 V78 重新修正時，只做一次安全補格到每欄 20 格。
-
-    不刪商品、不壓縮有商品格；只補缺的空白格。完成後寫入 app_settings 旗標，
-    之後使用者手動刪減格子不會因重新部署又被補回 20。
+    目的：救回 V79/V80/V81 後只剩 1 格的欄位，補回 A/B 各 6 欄、每欄預設 20 格。
+    做法：只補空白缺格，不刪商品、不搬動有商品格。完成後寫入新旗標，之後手動刪減不會被重新補回 20。
     """
-    key = 'v81_from_v78_warehouse_default20_materialized'
+    key = 'v82_from_v78_default20_materialized'
     try:
         cur.execute(sql("SELECT value FROM app_settings WHERE key = ?"), (key,))
         row = fetchone_dict(cur) or {}
         if str(row.get('value') or '') == '1':
             return
     except Exception:
-        return
+        # 若 app_settings 還沒建立，仍先補格；init_db 會再寫旗標。
+        pass
     for zone in ('A', 'B'):
         for col in range(1, 7):
             _warehouse_materialize_column_slots(cur, zone, col, 20)
@@ -2843,13 +2845,13 @@ def warehouse_get_cells():
     try:
         ensure_fixed_warehouse_grid(conn, cur)
         try:
-            ensure_warehouse_default_20_once(cur)
+            ensure_warehouse_default_20_v82(cur)
         except Exception as e:
-            log_error('v81_warehouse_get_cells_default20_once', str(e))
-        # V25/V81 safe fix: when missing slots are auto-completed during read, persist them
+            log_error('v82_warehouse_default20_materialize', str(e))
+        # V25/V82 safe fix: when missing slots are auto-completed during read, persist them
         # immediately so PostgreSQL pooled connections do not roll them back on close.
         conn.commit()
-        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
         rows = rows_to_dict(cur)
         return rows
     except Exception:
@@ -2884,7 +2886,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND COALESCE(NULLIF(slot_type,''), 'direct') = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -2921,7 +2923,7 @@ def warehouse_add_column(zone):
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
     cur.execute(sql("""
-        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
+        SELECT zone, column_index, COALESCE(NULLIF(slot_type,''),'direct') AS slot_type, slot_number, items_json, note, updated_at
         FROM warehouse_cells
         WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
         ORDER BY slot_number
@@ -3218,6 +3220,7 @@ def register_submit_request(request_key, endpoint=''):
     cur = conn.cursor()
     created = False
     try:
+        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (request_key, endpoint, now()))
         else:
@@ -3615,6 +3618,7 @@ def register_submit_request(request_key, endpoint=''):
     cur = conn.cursor()
     created = False
     try:
+        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (scoped_key, endpoint, now()))
         else:
@@ -3768,6 +3772,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
 # ============================================================
 def _yx_v36_table_columns(cur, table_name):
     try:
+        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,))
             return {str(r[0]) for r in cur.fetchall()}
@@ -3956,4 +3961,4 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 # V78_REAL_WAREHOUSE_SLOT_AND_ORDER_MASTER_BUTTON_FIX: warehouse add/delete slot uses actual DB slots; app.py guards side effects; front-end no longer displays fake DOM-only slots.
 
 
-# V81_FROM_V78_SAFE_WAREHOUSE_GRID_FIX: missing slots are materialized without wiping product data; default 20 slots is seeded once only.
+# V82_FROM_V78_SAFE_WAREHOUSE_20_BATCH_HEADER_FIX: safely materializes missing warehouse slots to 20 once, preserves items, and supports DB-backed add/delete.

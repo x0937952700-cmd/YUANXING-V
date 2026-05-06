@@ -1514,10 +1514,11 @@ def api_warehouse_cell():
             return error_response("格位參數錯誤")
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
-        # V81：從 V78 重新修正。若前端點到預顯示但 DB 尚未建立的格，
-        # 交給 db.warehouse_save_cell 安全補齊缺格並 upsert，不再直接回「格位不存在」。
-        if slot_number > 500:
-            return error_response("格號超出安全範圍")
+        if not previous_cell:
+            same_col = [c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index]
+            max_slot = max([int(c.get('slot_number') or 0) for c in same_col] or [0])
+            if max_slot and slot_number > max_slot + 1:
+                return error_response("格位不存在，請先在格子內點「插入格子」")
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
         if not ok:
@@ -1583,7 +1584,7 @@ def api_warehouse_add_column():
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_column", str(e))
-        return error_response(f"新增格子失敗：{str(e)}")
+        return error_response("新增格子失敗")
 
 @app.route("/api/warehouse/search")
 @login_required_json
@@ -2164,7 +2165,7 @@ def api_warehouse_remove_slot():
         return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
-        return error_response(f"刪除格子失敗：{str(e)}")
+        return error_response("刪除格子失敗")
 
 
 @app.route("/api/orders/to-master", methods=["POST"])
@@ -3357,5 +3358,3 @@ def notify_sync_event(*args, **kwargs):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-# V81_FROM_V78_SAFE_WAREHOUSE_ROUTE_FIX: warehouse cell save/add/remove now materializes missing DB slots instead of failing or clearing data.

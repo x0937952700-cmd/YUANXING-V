@@ -420,8 +420,8 @@
   function maxSlot(z,c){
     z=clean(z).toUpperCase(); c=Number(c);
     const nums=(state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
-    // V78：只顯示「資料庫實際存在」的格號；不能再用固定 20 或 DOM 舊節點撐大。
-    // 舊寫法會讓前端出現 11~20 這類 DB 不存在的假格，刪除時後端就回「格號超出範圍」。
+    // V82：從 V78 重新修正。畫面吃 DB 真實格數；DB 會在讀取時安全補回預設 20 格。
+    // 使用者手動新增 / 刪除後，前端依後端回傳格數顯示，不再靠舊補丁硬塞。
     return Math.max(1, ...nums);
   }
   function getColumnList(z,c){ return document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"] .vertical-slot-list`); }
@@ -643,7 +643,7 @@
   }
   async function deleteWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    // V81：若前端可見但本機資料尚未有這格，視為空格，交給後端先補缺格再刪除；不可再擋掉新增/刪除流程。
+    // V82：若前端看到第 11~20 格但舊 DB 尚未補出來，不在前端擋掉；後端會先安全補缺格再刪除空格。
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
     if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return;
     const before=[...(state.data.cells||[])];
