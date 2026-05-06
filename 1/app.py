@@ -89,11 +89,16 @@ def current_username():
 
 
 def ensure_runtime_product_schema(cur):
-    """V58 runtime guard: routes that update month_tag/location must not fail on old PostgreSQL/SQLite schemas."""
-    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
-        for column, definition in (('month_tag', 'TEXT'), ('location', 'TEXT')):
-            if table == 'shipping_records' and column == 'location':
-                continue
+    """V61-V78 runtime guard: routes that update product fields must not fail on old PostgreSQL/SQLite schemas."""
+    product_columns = (
+        ('month_tag', 'TEXT'),
+        ('location', 'TEXT'),
+        ('area', 'TEXT'),
+        ('source', 'TEXT'),
+        ('note', 'TEXT'),
+    )
+    for table in ('inventory', 'orders', 'master_orders'):
+        for column, definition in product_columns:
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
             except Exception:
@@ -101,6 +106,20 @@ def ensure_runtime_product_schema(cur):
                     cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
                 except Exception:
                     pass
+    for column, definition in (
+        ('month_tag', 'TEXT'),
+        ('source_table', 'TEXT'),
+        ('before_qty', 'INTEGER DEFAULT 0'),
+        ('after_qty', 'INTEGER DEFAULT 0'),
+        ('created_at', 'TEXT'),
+    ):
+        try:
+            cur.execute(f"ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS {column} {definition}")
+        except Exception:
+            try:
+                cur.execute(f"ALTER TABLE shipping_records ADD COLUMN {column} {definition}")
+            except Exception:
+                pass
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
@@ -1102,16 +1121,37 @@ def api_save_correction():
 def _parse_items_from_request(data):
     items = data.get("items") or []
     payload_material = (data.get("material") or "").strip().upper()
+    # V61-V78 recheck：前端新增訂單/總單時會把 A/B 區放在 payload 最外層，
+    # 後端保存前必須補進每個 item，否則 DB 的 area/location 會是空白。
+    payload_zone = (data.get("area") or data.get("location") or data.get("zone") or "")
+    payload_zone = payload_zone.strip().upper() if isinstance(payload_zone, str) else ""
+
+    def _preserve_payload_fields(raw, fixed):
+        raw = raw if isinstance(raw, dict) else {}
+        # FIX90 原本保留出貨來源 / 借貨資訊；這裡一起保留 A/B 區與備註。
+        for _k in (
+            'borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed',
+            'source_preference', 'deduct_source', 'source', 'source_table', 'source_id',
+            'area', 'location', 'zone', 'note'
+        ):
+            if raw.get(_k) not in (None, ''):
+                fixed[_k] = raw.get(_k)
+        if payload_zone:
+            if not fixed.get('area'):
+                fixed['area'] = payload_zone
+            if not fixed.get('location'):
+                fixed['location'] = payload_zone
+            if not fixed.get('zone'):
+                fixed['zone'] = payload_zone
+        return fixed
+
     if items:
         cleaned = []
         for it in items:
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
-            # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
-            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
-                if isinstance(it, dict) and it.get(_k) not in (None, ''):
-                    fixed[_k] = it.get(_k)
+            fixed = _preserve_payload_fields(it, fixed)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
                 continue
             cleaned.append(fixed)
@@ -1123,6 +1163,7 @@ def _parse_items_from_request(data):
         if payload_material:
             it = {**it, "material": payload_material, "product_code": payload_material}
         fixed = normalize_item_for_save(it)
+        fixed = _preserve_payload_fields(it, fixed)
         if fixed.get("product_text") and int(fixed.get("qty") or 0) > 0:
             cleaned.append(fixed)
     return cleaned
@@ -1277,12 +1318,18 @@ def api_inventory():
             return error_response("請輸入商品資料")
         operator = current_username()
         duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
-        location = (data.get("location") or "").strip()
+        # V61-V78 deep recheck：庫存新增可能只從前端傳 area/zone，不一定傳 location。
+        # 保存時必須每筆 item 都寫入同一個 A/B 區，避免畫面顯示移區但 DB 仍空白。
+        payload_location = (data.get("location") or data.get("area") or data.get("zone") or "")
+        payload_location = payload_location.strip().upper() if isinstance(payload_location, str) else ""
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
             yx_v35_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')), preserve_existing=True)
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
+            item_location = (it.get("location") or it.get("area") or it.get("zone") or payload_location or "")
+            item_location = item_location.strip().upper() if isinstance(item_location, str) else ""
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), item_location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
+        location = payload_location
     except Exception as e:
         log_error("inventory_main_save_v40", str(e))
         return error_response("建立失敗")
@@ -1303,6 +1350,7 @@ def api_inventory_item(item_id):
     try:
         conn = get_db()
         cur = conn.cursor()
+        ensure_runtime_product_schema(cur)
         cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
         row = fetchone_dict(cur)
         if not row:
@@ -1326,7 +1374,8 @@ def api_inventory_item(item_id):
         month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
-        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        raw_location = data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or row.get('area') or ''))
+        location = (raw_location or '').strip().upper() if isinstance(raw_location, str) else ''
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
             conn.close()
@@ -1336,9 +1385,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, area = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, month_tag, qty, location, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -1378,7 +1427,7 @@ def api_inventory_item_move(item_id):
         product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': product_code, 'qty': move_qty, 'area': (data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
         if target == 'orders':
             save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
             target_label = '訂單'
@@ -1891,9 +1940,9 @@ def api_warehouse_available_items():
             exact, customer, source_label, source_id = detail_key
             details_for_item_all = details_all
             if zone_filter:
-                # V49 mainfile: A/B 格位的下拉選單要同時顯示該區商品 + 尚未分 A/B 區商品；
-                # 已放入任一格的數量仍用全倉扣除，避免別的格子又看得到同一筆。
-                details_for_item = [d for d in details_for_item_all if (str(d.get('zone') or '').strip().upper().startswith(zone_filter) or not str(d.get('zone') or '').strip())]
+                # V61-V78 ultra-deep fix：A 區下拉只顯示 A 區未入倉；B 區只顯示 B 區未入倉。
+                # 未分區只統計在未分區，不再混進 A/B 下拉，避免不同區格子開啟時看到不該選的商品。
+                details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
                 placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
                 if placed_qty <= 0:
@@ -2115,6 +2164,7 @@ def api_customer_items_batch_zone():
             "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
         }
         conn = get_db(); cur = conn.cursor()
+        ensure_runtime_product_schema(cur)
         count = 0; touched = []
         try:
             for it in items:
@@ -2128,12 +2178,19 @@ def api_customer_items_batch_zone():
                 if row_before:
                     touched.append({'source': source, 'table': table, 'id': item_id, 'row': row_before})
                 try:
-                    cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
+                    cur.execute(sql(f"UPDATE {table} SET location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
                 except Exception:
-                    # 舊資料表尚未補 location 欄位時，補完再重試。
+                    # 舊資料表尚未補 location/area 欄位時，補完再重試。
                     try:
                         cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                        cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute(sql(f"UPDATE {table} SET location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
                     except Exception:
                         cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
                 if cur.rowcount:
@@ -2252,24 +2309,29 @@ def api_customer_items_batch_update():
                 month_tag = product_month_tag(product_text)
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
-                location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
+                raw_location = it.get("location") if it.get("location") is not None else (it.get("area") if it.get("area") is not None else (it.get("zone") if it.get("zone") is not None else (before.get("location") or before.get("area") or "")))
+                location = (raw_location or "").strip().upper() if isinstance(raw_location, str) else ""
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, area = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, month_tag, qty, location, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, area = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                        except Exception:
+                            pass
+                        try:
+                            cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
                         except Exception:
                             pass
                         try:
@@ -2278,12 +2340,12 @@ def api_customer_items_batch_update():
                             pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, area = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
-                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
+                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location, "area": location})
             conn.commit()
         except Exception:
             conn.rollback(); raise
@@ -2463,7 +2525,7 @@ def api_orders_to_master():
         if not customer_name or not product_text or qty <= 0:
             return error_response("參數不足")
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
+        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "material": product_code, "qty": qty, "area": (data.get('area') or data.get('location') or data.get('zone') or '').strip(), "location": (data.get('location') or data.get('area') or data.get('zone') or '').strip()}], current_username())
         log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
         notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
         return jsonify(success=True, items=get_master_orders())
@@ -2646,28 +2708,76 @@ def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
-    logs = rows_to_dict(cur)
+    detailed_rows = []
+    try:
+        cur.execute(sql("""
+            SELECT id, action, table_name, customer_name, product_text, detail_json, operator, created_at, unread
+            FROM today_changes
+            WHERE substr(created_at,1,10)=?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 300
+        """), (today,))
+        detailed_rows = rows_to_dict(cur)
+    except Exception:
+        detailed_rows = []
+    # log_action 會留下簡短摘要；若同時已有 add_audit_trail 的細節列，
+    # 今日異動只顯示細節列，避免同一動作變成兩張卡片。
+    if any((r.get('table_name') or '').strip() for r in detailed_rows):
+        detailed_rows = [r for r in detailed_rows if (r.get('table_name') or '').strip()]
+    if not detailed_rows:
+        cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
+        detailed_rows = rows_to_dict(cur)
     conn.close()
 
     inbound = []
     outbound = []
     new_orders = []
-    for r in logs:
-        r['created_at'] = _format_24h(r.get('created_at'))
+    seen = set()
+
+    def _detail_obj(v):
+        try:
+            return json.loads(v or '{}') if isinstance(v, str) else (v or {})
+        except Exception:
+            return {}
+
+    def _row_key(row):
+        return (row.get('table_name') or '', row.get('action') or '', row.get('customer_name') or '', row.get('product_text') or '', row.get('created_at') or '')
+
+    for r in detailed_rows:
         action = r.get('action') or ''
-        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
-        if action == '完成出貨' or action.startswith('完成出貨'):
+        table = r.get('table_name') or ''
+        detail = _detail_obj(r.get('detail_json'))
+        # 將 today_changes 的 operator 對齊前端舊欄位 username。
+        r['username'] = r.get('operator') or r.get('username') or detail.get('operator') or ''
+        r['detail'] = detail
+        if not r.get('customer_name'):
+            r['customer_name'] = detail.get('customer_name') or ''
+        if not r.get('product_text'):
+            r['product_text'] = detail.get('product_text') or ''
+        if detail.get('zone') and not r.get('location'):
+            r['location'] = detail.get('zone')
+        r['created_at_raw'] = r.get('created_at') or ''
+        r['created_at'] = _format_24h(r.get('created_at'))
+        key = _row_key(r)
+        if key in seen:
+            continue
+        seen.add(key)
+        text = (action + ' ' + table).strip()
+        if table == 'shipping_records' or '出貨' in text or text.lower().find('ship') >= 0:
             outbound.append(r)
-        elif action == '建立訂單' or action.startswith('建立訂單'):
+        elif table == 'orders' or '訂單' in text:
             new_orders.append(r)
-        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
+        elif table == 'inventory' or '庫存' in text or '進貨' in text or '入庫' in text:
             inbound.append(r)
 
     unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
     visible_logs = inbound + outbound + new_orders
-    unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
+    # 已讀徽章以 today_changes_read_at 為準；開啟今日異動後要歸零，只有新資料再亮。
+    if read_at:
+        unread_count = len([r for r in visible_logs if (r.get('created_at_raw') or '') > read_at])
+    else:
+        unread_count = len([r for r in visible_logs if int(r.get('unread') or 1)])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
@@ -3446,7 +3556,10 @@ def _fix28_update_item_api(table, item_id):
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        # V61-V78 deep audit: single-item edit may send only area/zone, not location.
+        # Always normalize A/B into both location and area so filters, warehouse unplaced, and DB all agree.
+        raw_location = data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else (row.get('location') or row.get('area') or '')))
+        location = (raw_location or '').strip().upper() if isinstance(raw_location, str) else ''
         qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')
@@ -3454,13 +3567,20 @@ def _fix28_update_item_api(table, item_id):
             qty = 0
         conn = get_db(); cur = conn.cursor()
         try:
-            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
+            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, location, current_username(), now(), int(item_id)))
         except Exception:
-            # FIX134：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location 欄位，
-            # 先補欄位再重試，避免 A/B 區在「編輯全部」後沒有存進去。
+            # V61-V78 deep audit：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location/area 欄位，
+            # 先補欄位再重試，避免單筆編輯或批量編輯後 A/B 區沒有存進去。
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
+            except Exception:
+                pass
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
+            except Exception:
+                pass
+            try:
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, location, current_username(), now(), int(item_id)))
             except Exception:
                 cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
         conn.commit(); conn.close()
@@ -3506,11 +3626,12 @@ def api_fix28_items_transfer():
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
         product_code = clean_material_value(row.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': (data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
         target_label = ''
         result_payload = {}
         if target == 'inventory':
-            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}', material)
+            target_location = (data.get('location') or data.get('area') or data.get('zone') or row.get('location') or row.get('area') or '').strip()
+            save_inventory_item(product_text, product_code, qty, target_location, customer_name, current_username(), f'from {source_table}', material)
             target_label = '庫存'
             ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
             if not ok: return error_response(moved)
@@ -3605,9 +3726,10 @@ def api_v17_items_batch_transfer():
                 material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
                 product_code = clean_material_value(row.get('product_code') or material or '', product_text)
                 final_customer = customer_name or (row.get('customer_name') or '').strip()
-                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
+                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': (it.get('area') or it.get('location') or data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (it.get('location') or it.get('area') or data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
                 if target == 'inventory':
-                    save_inventory_item(product_text, product_code, qty, (row.get('location') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
+                    target_location = (it.get('location') or it.get('area') or it.get('zone') or data.get('location') or data.get('area') or data.get('zone') or row.get('location') or row.get('area') or '').strip()
+                    save_inventory_item(product_text, product_code, qty, target_location, final_customer, current_username(), f'batch from {source_table}', material)
                     target_label = '庫存'
                 elif target == 'orders':
                     save_order(final_customer, [item_payload], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
