@@ -420,8 +420,8 @@
   function maxSlot(z,c){
     z=clean(z).toUpperCase(); c=Number(c);
     const nums=(state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
-    // V80：前端顯示資料庫真實格數；資料庫啟動時會一次性救援補回每欄預設 20 格。
-    // 使用者之後新增/刪減格子，都以 DB 回傳結果為準，不再出現假格。
+    // V78：只顯示「資料庫實際存在」的格號；不能再用固定 20 或 DOM 舊節點撐大。
+    // 舊寫法會讓前端出現 11~20 這類 DB 不存在的假格，刪除時後端就回「格號超出範圍」。
     return Math.max(1, ...nums);
   }
   function getColumnList(z,c){ return document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"] .vertical-slot-list`); }
@@ -621,7 +621,7 @@
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const before=[...(state.data.cells||[])];
     const optimisticSlot=Math.min(Math.max(0,s), maxSlot(z,c)) + 1;
-    // V80：前端立即顯示新增格，後端完成後再用 DB 回傳校正，避免等待儲存時卡住。
+    // V78：前端立即顯示新增格，後端完成後再用 DB 回傳校正，避免等待儲存時卡住。
     if(!cellFromData(z,c,optimisticSlot)){
       state.data.cells=(state.data.cells||[]).map(cell=>{
         if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>=optimisticSlot){ return {...cell, slot_number:Number(cell.slot_number)+1}; }
@@ -643,11 +643,11 @@
   }
   async function deleteWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    if(!cellFromData(z,c,s)) return toast('此格尚未存在於資料庫，請先按插入格子建立','warn');
+    // V81：若前端可見但本機資料尚未有這格，視為空格，交給後端先補缺格再刪除；不可再擋掉新增/刪除流程。
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
     if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return;
     const before=[...(state.data.cells||[])];
-    // V80：空格先從畫面移除並補位，讓第二、第三個動作可以立刻接著做。
+    // V78：空格先從畫面移除並補位，讓第二、第三個動作可以立刻接著做。
     state.data.cells=(state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)===s)).map(cell=>{
       if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>s){ return {...cell, slot_number:Number(cell.slot_number)-1}; }
       return cell;

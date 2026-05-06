@@ -1,4 +1,4 @@
-# V80 warehouse data rescue + batch edit close lock: dependency set kept stable; no new runtime packages.
+# V81 from V78 safe warehouse/batch-header fix: dependency set kept stable; no new runtime packages.
 Flask==3.0.3
 gunicorn==22.0.0
 Werkzeug==3.0.6

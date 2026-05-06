@@ -543,7 +543,7 @@ html[data-yx117-customers="locked"] .yx113-customer-card,
 .yx116-customer-tag{font-size:1em!important;border-radius:999px!important;background:rgba(255,255,255,.88)!important;border:1px solid rgba(15,23,42,.12)!important;color:#111827!important;box-shadow:none!important;padding:.18em .9em!important;min-width:3.8em!important;text-align:center!important;}
 
 /* ===== V44 MAINFILE REAL FIX: table width/customer/toast/undo hard lock ===== */
-.yx113-summary-controls,.yx128-summary-controls{display:none!important;}
+/* V81: 訂單/總單清單表頭需要顯示批量動作；不再全域隱藏 summary controls。 */
 .yx113-product-actions,.yx128-card-edit-btn{display:none!important;}
 .yx113-table.yx128-inline-table{table-layout:auto!important;width:100%!important;border-collapse:separate!important;}
 .yx113-table.yx128-inline-table th,.yx113-table.yx128-inline-table td{font-size:18px!important;padding:6px 7px!important;line-height:1.25!important;}
@@ -587,29 +587,40 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx22-preview-table th,.yx22-preview-table td{padding:8px!important;background:rgba(255,255,255,.82)!important;border-bottom:1px solid rgba(120,80,40,.08)!important;}
 /* ===== END V45 REAL MAINFILE REPAIR LOCK ===== */
 
-/* ===== V80 SUMMARY ACTION BUTTON LOCK: 訂單/總單/庫存批量按鈕固定在清單表頭，不再被 V44 隱藏 ===== */
-.module-screen .yx128-summary-head .yx128-summary-controls,
-html[data-yx132-products="locked"] .module-screen .yx128-summary-head .yx128-summary-controls{
+
+/* ===== V81 from V78: 訂單/總單按鈕固定在清單表頭，避免上方工具列舊版覆蓋 ===== */
+.module-screen[data-module="orders"] .yx128-summary-controls,
+.module-screen[data-module="master_order"] .yx128-summary-controls,
+#orders-list-section .yx128-summary-controls,
+#master-list-section .yx128-summary-controls{
   display:flex!important;
   align-items:center!important;
   justify-content:flex-end!important;
   flex-wrap:wrap!important;
   gap:8px!important;
   margin-left:auto!important;
-  margin-top:0!important;
 }
-.module-screen .yx128-summary-head .yx128-summary-controls .ghost-btn{
-  min-height:36px!important;
+#yx113-orders-toolbar [data-yx113-batch-delete],
+#yx113-orders-toolbar [data-yx128-edit-all],
+#yx113-orders-toolbar [data-yx128-save-all],
+#yx113-orders-toolbar [data-yx128-cancel-all],
+#yx113-master_order-toolbar [data-yx113-batch-delete],
+#yx113-master_order-toolbar [data-yx128-edit-all],
+#yx113-master_order-toolbar [data-yx128-save-all],
+#yx113-master_order-toolbar [data-yx128-cancel-all]{
+  display:none!important;
+}
+.module-screen[data-module="orders"] .yx128-summary-controls .small-btn,
+.module-screen[data-module="master_order"] .yx128-summary-controls .small-btn,
+#orders-list-section .yx128-summary-controls .small-btn,
+#master-list-section .yx128-summary-controls .small-btn{
+  min-height:38px!important;
   padding:0 14px!important;
   border-radius:999px!important;
-  font-weight:950!important;
-}
-.module-screen .yx128-summary-head .yx128-summary-controls .danger-btn{
-  color:#dc2626!important;
-  border-color:rgba(220,38,38,.42)!important;
-  background:linear-gradient(180deg,#fff,#fff7ed)!important;
 }
 @media(max-width:760px){
-  .module-screen .yx128-summary-head .yx128-summary-controls{width:100%!important;justify-content:flex-start!important;margin-left:0!important;}
-  .module-screen .yx128-summary-head .yx128-summary-controls .ghost-btn{flex:1 1 auto!important;}
+  .module-screen[data-module="orders"] .yx128-summary-controls,
+  .module-screen[data-module="master_order"] .yx128-summary-controls,
+  #orders-list-section .yx128-summary-controls,
+  #master-list-section .yx128-summary-controls{width:100%!important;justify-content:flex-start!important;margin-left:0!important;}
 }

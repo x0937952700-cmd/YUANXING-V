@@ -1,4 +1,4 @@
-# V80 warehouse data rescue + slot add/delete + batch edit close lock: Render build/start kept stable; smoke test retained.
+# V81 from V78 safe warehouse/batch-header fix: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing
@@ -6,7 +6,7 @@ services:
     plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python tools/smoke_test.py
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
-    releaseCommand: python -c "from db import init_db; init_db()"
+    preDeployCommand: python -c "from db import init_db; init_db()"
     healthCheckPath: /health
     autoDeploy: true
     envVars:

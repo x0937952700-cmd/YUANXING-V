@@ -5542,5 +5542,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 .yx-page-undo-btn{margin-left:8px!important;}
 /* ===== END V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */
 
-/* ===== V80 warehouse/data recovery UI marker ===== */
-.yx-v80-rescued-note{font-size:12px;color:#64748b;font-weight:800;}
+
+/* V81: 訂單/總單批量刪除與批量編輯移入清單表頭 */
+.yx128-summary-controls .danger-btn{color:#dc2626!important;}
+.yx128-summary-controls{gap:8px;}
