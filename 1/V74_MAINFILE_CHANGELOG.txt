@@ -1,1 +1,0 @@
-V74 warehouse current-item qty delta, search preserve batch rows, no source quantity blocking.
