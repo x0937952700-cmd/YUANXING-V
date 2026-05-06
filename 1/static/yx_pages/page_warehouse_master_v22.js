@@ -804,7 +804,11 @@
       // 例：132x60x08=162x26 => 26 件；132x60x08=162x26+133x4+142 => 31 件。
       // 如果商品文字沒改，才保留使用者手動改的件數欄位。
       let qty;
-      if(product && product !== baseProduct){ qty = qtyFromProductTextForInput(product, itemQty(base)); }
+      // V69 精準修正：目前此格商品的件數要以左邊輸入的支數段為準。
+      // 例：130x42x30=96x32 右側必須是 32 件，不可沿用原商品整筆 57 件。
+      const parsedFromProduct = qtyFromProductTextForInput(product, 0);
+      if(product && product.includes('=') && parsedFromProduct > 0){ qty = parsedFromProduct; }
+      else if(product && product !== baseProduct){ qty = qtyFromProductTextForInput(product, itemQty(base)); }
       else { qty = Math.max(1, Math.floor(Number(qtyEl?.value || itemQty(base)))); }
       if(qtyEl) qtyEl.value = String(Math.max(1, qty));
       const placement=clean(row.querySelector('[data-current-placement]')?.value || base.placement_label || base.layer_label || '前排');
@@ -835,7 +839,7 @@
       </div>
       <div class="yx-direct-current-side yx-current-edit-side">
         <select class="text-input yx-current-placement-input" data-current-placement>${placementOptions}</select>
-        <input class="text-input yx-current-qty-input" data-current-qty type="number" min="1" value="${itemQty(it)}" aria-label="件數">
+        <input class="text-input yx-current-qty-input" data-current-qty type="number" min="1" value="${qtyFromProductTextForInput(productText(it), 0) || itemQty(it)}" aria-label="件數">
         <span class="yx-current-unit">件</span>
         <button class="remove yx-direct-remove" type="button" data-remove-cell-item="${i}">×</button>
       </div>

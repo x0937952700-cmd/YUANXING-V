@@ -5483,3 +5483,27 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
 .yx-location-hit{display:grid!important;gap:3px!important;text-align:left!important;border:2px solid rgba(59,130,246,.28)!important;background:linear-gradient(135deg,rgba(239,246,255,.96),rgba(236,253,245,.96))!important;}
 .yx-location-hit b{color:#0b58b8!important;font-weight:950!important;}
 /* END V69 exact main-file fix */
+
+
+/* V69 exact requested fix: 訂單/總單清單表頭按鈕必須顯示在清單上方，不可被舊 CSS 藏掉 */
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls,
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls,
+body[data-module="orders"] .yx-v68-order-master-actions,
+body[data-module="orders"] .yx-v65-orders-summary-actions,
+body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls,
+body[data-module="master_order"] .yx113-summary-head .yx128-summary-controls,
+body[data-module="master_order"] .yx-v68-order-master-actions,
+body[data-module="master_order"] .yx-v65-master-summary-actions{
+  display:flex!important; visibility:visible!important; opacity:1!important; pointer-events:auto!important;
+  gap:8px!important; align-items:center!important; justify-content:flex-end!important; flex-wrap:wrap!important; margin-left:auto!important;
+}
+body[data-module="orders"] .yx128-summary-controls > button,
+body[data-module="master_order"] .yx128-summary-controls > button{display:inline-flex!important; visibility:visible!important; opacity:1!important; pointer-events:auto!important;}
+body[data-module="orders"] #yx113-orders-toolbar [data-yx132-batch-zone],
+body[data-module="orders"] #yx113-orders-toolbar [data-yx132-batch-transfer],
+body[data-module="orders"] #yx113-orders-toolbar [data-yx113-batch-delete],
+body[data-module="orders"] #yx113-orders-toolbar [data-yx128-edit-all],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx132-batch-zone],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx132-batch-transfer],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx113-batch-delete],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-edit-all]{display:none!important;}
