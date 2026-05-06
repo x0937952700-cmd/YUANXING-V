@@ -2139,10 +2139,16 @@ def api_warehouse_add_slot():
         yx_v35_safe_side_effect('warehouse_add_slot_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_add_slot_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         yx_v35_safe_side_effect('warehouse_add_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
+        try:
+            cells = warehouse_get_cells()
+            zones = warehouse_summary()
+        except Exception as payload_err:
+            log_error('warehouse_add_slot_payload', str(payload_err))
+            cells, zones = [], {}
+        return jsonify(success=True, slot_number=slot_number, zones=zones, cells=cells)
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
-        return error_response("新增格子失敗")
+        return error_response(f"新增格子失敗：{e}")
 
 @app.route("/api/warehouse/remove-slot", methods=["POST"])
 @login_required_json
@@ -2162,10 +2168,16 @@ def api_warehouse_remove_slot():
         yx_v35_safe_side_effect('warehouse_remove_slot_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_remove_slot_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         yx_v35_safe_side_effect('warehouse_remove_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        try:
+            cells = warehouse_get_cells()
+            zones = warehouse_summary()
+        except Exception as payload_err:
+            log_error('warehouse_remove_slot_payload', str(payload_err))
+            cells, zones = [], {}
+        return jsonify(success=True, zones=zones, cells=cells)
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
-        return error_response("刪除格子失敗")
+        return error_response(f"刪除格子失敗：{e}")
 
 
 @app.route("/api/orders/to-master", methods=["POST"])

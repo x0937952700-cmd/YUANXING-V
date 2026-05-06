@@ -1254,7 +1254,6 @@ def save_image_hash(image_hash):
     conn = get_db()
     cur = conn.cursor()
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("""
                 INSERT INTO image_hashes(image_hash, created_at)
@@ -2811,17 +2810,36 @@ def _warehouse_materialize_column_slots(cur, zone, column_index, min_slots=1):
 
 
 def ensure_warehouse_default_20_v82(cur):
-    """V83：每次讀取前安全補回 A/B 各 6 欄、每欄至少 20 格。
+    """V84：安全補回倉庫預設 20 格，但只做一次。
 
-    只補缺少的空格，保留所有已有商品、備註與格號；不做清空、不做全表重置。
-    前面版本如果已寫入 v82 旗標也不再影響補格，因為使用者明確要求預先顯示 20 格。
+    目的：把被舊版洗到只剩 1 格/6 格的資料庫救回 20 格；
+    之後使用者手動新增或刪除格子時，不能每次讀取又強制補回 20，
+    否則「刪除格子」看起來會失敗。
     """
+    flag = 'v84_warehouse_default20_materialized_once'
+    try:
+        cur.execute(sql("SELECT value FROM app_settings WHERE key = ?"), (flag,))
+        row = fetchone_dict(cur)
+        if row and str(row.get('value') or '') == '1':
+            return
+    except Exception:
+        pass
     for zone in ('A', 'B'):
         for col in range(1, 7):
             _warehouse_materialize_column_slots(cur, zone, col, 20)
     try:
-        cur.execute(sql("DELETE FROM app_settings WHERE key = ?"), ('v83_warehouse_default20_materialized',))
-        cur.execute(sql("INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, ?)"), ('v83_warehouse_default20_materialized', '1', now()))
+        if USE_POSTGRES:
+            cur.execute("""
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            """, (flag, '1', now()))
+        else:
+            cur.execute("""
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """, (flag, '1', now()))
     except Exception:
         pass
 
@@ -3206,7 +3224,6 @@ def register_submit_request(request_key, endpoint=''):
     cur = conn.cursor()
     created = False
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (request_key, endpoint, now()))
         else:
@@ -3604,7 +3621,6 @@ def register_submit_request(request_key, endpoint=''):
     cur = conn.cursor()
     created = False
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("INSERT INTO submit_requests(request_key, endpoint, created_at) VALUES (%s, %s, %s) ON CONFLICT (request_key) DO NOTHING", (scoped_key, endpoint, now()))
         else:
@@ -3758,7 +3774,6 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
 # ============================================================
 def _yx_v36_table_columns(cur, table_name):
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,))
             return {str(r[0]) for r in cur.fetchall()}
@@ -3916,7 +3931,6 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
     items_json = json.dumps(items, ensure_ascii=False)
     ts = now()
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
         if USE_POSTGRES:
             cur.execute("""
                 INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)

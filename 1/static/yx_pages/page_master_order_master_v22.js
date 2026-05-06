@@ -1059,19 +1059,19 @@
       const zf = ev.target?.closest?.('[data-yx132-zone-filter]');
       if (zf) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s = zf.dataset.source || source; state.zoneFilter[s] = zf.dataset.yx132ZoneFilter || 'ALL'; syncZoneButtons(s); renderSummary(s); renderCards(s); return; }
       const bt = ev.target?.closest?.('[data-yx132-batch-transfer]');
-      if (bt) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bt.dataset.source || source,'批量移動/加到清單'); await batchTransfer(bt.dataset.source || source, bt.dataset.yx132BatchTransfer); }catch(e){ YX.toast(e.message || '批量移動失敗','error'); } return; }
+      if (bt) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(bt.dataset.source || source,'批量移動/加到清單'); await batchTransfer(bt.dataset.source || source, bt.dataset.yx132BatchTransfer); }catch(e){ YX.toast(e.message || '批量移動失敗','error'); } return; }
       const bz = ev.target?.closest?.('[data-yx132-batch-zone]');
-      if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bz.dataset.source || source,'移動 A/B 區'); await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
+      if (bz) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(bz.dataset.source || source,'移動 A/B 區'); await batchMoveZone(bz.dataset.source || source, bz.dataset.yx132BatchZone); }catch(e){ YX.toast(e.message || 'A/B區移動失敗','error'); } return; }
       const editAll = ev.target?.closest?.('[data-yx128-edit-all]');
-      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s=editAll.dataset.yx128EditAll; try{ if(state.editAll[s]){ pushProductUndo(s,'批量編輯儲存'); await saveAllEdits(s); } else beginBatchEdit(s); }catch(e){ YX.toast(e.message || '批量編輯失敗','error'); } return; }
+      if (editAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const s=editAll.dataset.yx128EditAll; try{ if(state.editAll[s]){ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(s,'批量編輯儲存'); await saveAllEdits(s); } else beginBatchEdit(s); }catch(e){ YX.toast(e.message || '批量編輯失敗','error'); } return; }
       const cancelAll = ev.target?.closest?.('[data-yx128-cancel-all]');
       if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); cancelBatchEdit(cancelAll.dataset.yx128CancelAll); return; }
       const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
-      if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(saveAll.dataset.yx128SaveAll,'批量編輯儲存'); await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
+      if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(saveAll.dataset.yx128SaveAll,'批量編輯儲存'); await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
       const rowAction = ev.target?.closest?.('[data-yx131-row-action]');
       if (rowAction) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await handleRowAction(rowAction.dataset.source || source, rowAction.dataset.id, rowAction.dataset.yx131RowAction); }catch(e){ YX.toast(e.message || '清單操作失敗','error'); } return; }
       const cardSave = ev.target?.closest?.('[data-yx128-card-save]');
-      if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(c.dataset.source,'小卡編輯儲存'); await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
+      if (cardSave) { const c = cardSave.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(c.dataset.source,'小卡編輯儲存'); await saveCardEdit(c); }catch(e){ YX.toast(e.message || '小卡儲存失敗','error'); } return; } }
       const cardCancel = ev.target?.closest?.('[data-yx128-card-cancel]');
       if (cardCancel) { const c = cardCancel.closest('.yx113-product-card,.yx112-product-card'); if (c){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); renderCards(c.dataset.source); return; } }
       const row = ev.target?.closest?.('.yx113-summary-row[data-source]');
@@ -1094,9 +1094,9 @@
         clearSelected(s); syncSelectButton(s); renderCards(s); return;
       }
       const bm = ev.target?.closest?.('[data-yx113-batch-material]');
-      if (bm) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bm.dataset.yx113BatchMaterial,'批量材質'); await bulkMaterial(bm.dataset.yx113BatchMaterial); }catch(e){ YX.toast(e.message || '批量材質失敗','error'); } return; }
+      if (bm) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(bm.dataset.yx113BatchMaterial,'批量材質'); await bulkMaterial(bm.dataset.yx113BatchMaterial); }catch(e){ YX.toast(e.message || '批量材質失敗','error'); } return; }
       const bd = ev.target?.closest?.('[data-yx113-batch-delete]');
-      if (bd) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ pushProductUndo(bd.dataset.yx113BatchDelete,'批量刪除'); await bulkDelete(bd.dataset.yx113BatchDelete); }catch(e){ YX.toast(e.message || '批量刪除失敗','error'); } return; }
+      if (bd) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ (typeof pushProductUndo==='function'?pushProductUndo:(window.pushProductUndo||function(){}))(bd.dataset.yx113BatchDelete,'批量刪除'); await bulkDelete(bd.dataset.yx113BatchDelete); }catch(e){ YX.toast(e.message || '批量刪除失敗','error'); } return; }
       const card = ev.target?.closest?.('.yx113-product-card,.yx112-product-card');
       const act = ev.target?.closest?.('[data-yx113-action],[data-yx112-action]')?.getAttribute('data-yx113-action') || ev.target?.closest?.('[data-yx112-action]')?.getAttribute('data-yx112-action');
       if (!card || !act) return;
@@ -1155,7 +1155,8 @@
     window.selectCustomerForModule = wrapped;
   }
   function lockGlobals(){
-    window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards, rowsStore};
+    window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards, rowsStore, pushProductUndo};
+    window.pushProductUndo = window.pushProductUndo || function(source,label){ try{ return (window.YX113ProductActions||window.YX132ProductActions||window.YX128ProductActions)?.pushProductUndo?.(source,label); }catch(_e){} };
     window.YX114ProductActions = window.YX113ProductActions;
     window.YX115ProductActions = window.YX113ProductActions;
     window.YX121ProductActions = window.YX113ProductActions;

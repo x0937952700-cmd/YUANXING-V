@@ -1,4 +1,4 @@
-# V83 safe warehouse 20-slot + pushProductUndo + batch edit lock.
+# V84 DB-connected slot insert/delete + submit request fix + batch edit lock.
 services:
   - type: web
     name: yuanxing
