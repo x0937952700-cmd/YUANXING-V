@@ -4002,3 +4002,89 @@ def normalize_warehouse_payload_items(items):
             row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
             out_map[key] = row
     return list(out_map.values())
+
+# ============================================================
+# V87 MAINFILE WAREHOUSE QUANTITY VALIDATION REPAIR
+# Fix: editing/saving the same cell must not count that cell as already placed.
+# No overlay/timer; this replaces the global validator used by /api/warehouse/cell.
+# ============================================================
+def _yx_v87_same_cell(cell, zone, column_index, slot_number):
+    try:
+        return ((str(cell.get('zone') or '').strip().upper() == str(zone or '').strip().upper()) and
+                int(cell.get('column_index') or 0) == int(column_index or 0) and
+                int(cell.get('slot_number') or 0) == int(slot_number or 0))
+    except Exception:
+        return False
+
+
+def _yx_v87_add_item_to_qty_maps(item, qty, exact_map, size_map):
+    product = item.get('product_text') or item.get('product') or ''
+    size = warehouse_item_size_key(product)
+    exact = warehouse_item_exact_key(product)
+    customer = warehouse_customer_key(item.get('customer_name') or '')
+    if not size:
+        return
+    try:
+        q = int(qty if qty is not None else (item.get('qty') or item.get('quantity') or 0))
+    except Exception:
+        q = 0
+    if q <= 0:
+        return
+    component_details = warehouse_saved_item_component_details(item, q)
+    if component_details:
+        for d in component_details:
+            dproduct = d.get('product_text') or d.get('product') or ''
+            dsize = warehouse_item_size_key(dproduct)
+            dexact = warehouse_item_exact_key(dproduct)
+            dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+            try:
+                dq = int(d.get('qty') or 0)
+            except Exception:
+                dq = 0
+            if not dsize or dq <= 0:
+                continue
+            exact_map[(dexact, dcustomer)] = exact_map.get((dexact, dcustomer), 0) + dq
+            size_map[(dsize, dcustomer)] = size_map.get((dsize, dcustomer), 0) + dq
+        return
+    exact_map[(exact, customer)] = exact_map.get((exact, customer), 0) + q
+    size_map[(size, customer)] = size_map.get((size, customer), 0) + q
+
+
+def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
+    """Validate source quantity while excluding the exact cell being edited.
+    Earlier logic could still count the same cell as already placed when old DB rows had
+    legacy slot_type/duplicate records, causing false errors like: source 15, already 15,
+    this cell 15. This version subtracts the current visible cell explicitly.
+    """
+    source_totals, _details = warehouse_source_totals()
+    z = (zone or '').strip().upper()
+    c = int(column_index or 0)
+    s = int(slot_number or 0)
+    proposed_exact, proposed_size = {}, {}
+    for it in items or []:
+        _yx_v87_add_item_to_qty_maps(it, None, proposed_exact, proposed_size)
+
+    placed_exact, placed_size = {}, {}
+    for cell in warehouse_get_cells():
+        if _yx_v87_same_cell(cell, z, c, s):
+            continue
+        for it in safe_cell_items(cell):
+            _yx_v87_add_item_to_qty_maps(it, None, placed_exact, placed_size)
+
+    for key, proposed_qty in proposed_exact.items():
+        source_qty = int(source_totals.get(key, 0) or 0)
+        if source_qty > 0:
+            already = int(placed_exact.get(key, 0) or 0)
+            if already + proposed_qty > source_qty:
+                return False, f"{key[0]} 的入倉數量超過此支數來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
+    for key, proposed_qty in proposed_size.items():
+        has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
+        if has_exact_for_size:
+            continue
+        source_qty = int(source_totals.get(key, 0) or 0)
+        if source_qty <= 0:
+            return False, f"{key[0]} 沒有可加入來源數量"
+        already = int(placed_size.get(key, 0) or 0)
+        if already + proposed_qty > source_qty:
+            return False, f"{key[0]} 的入倉數量超過來源總數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
+    return True, ""

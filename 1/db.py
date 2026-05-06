@@ -5769,3 +5769,361 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     finally:
         try: conn.close()
         except Exception: pass
+
+# ============================================================
+# V87 MAINFILE WAREHOUSE RIGHT-CLICK SLOT ACTION REPAIR
+# Direct main-file replacement for final warehouse slot functions.
+# No clearing, no rebuild, no product-cell reordering.
+# - delete slot = soft hide empty slot (is_deleted=1)
+# - add/insert slot = restore hidden empty slot when possible, otherwise append a new empty slot
+# - every operation writes DB first and returns success even if later readback summary is unavailable
+# ============================================================
+def _yx_v87_fetchone(cur):
+    try:
+        return fetchone_dict(cur)
+    except Exception:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        try:
+            return dict(row)
+        except Exception:
+            return {'v': row[0] if isinstance(row, (list, tuple)) else row}
+
+
+def _yx_v87_is_empty_items(value):
+    try:
+        arr = json.loads(value or '[]')
+        if not isinstance(arr, list) or not arr:
+            return True
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            try:
+                qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
+            except Exception:
+                qty = 0
+            if txt and qty > 0:
+                return False
+        return True
+    except Exception:
+        return True
+
+
+def _yx_v87_ensure_columns(cur):
+    _yx_v79_ensure_warehouse_columns(cur)
+
+
+def _yx_v87_normalize_direct_duplicates(cur, zone=None, column_index=None):
+    """Normalize legacy duplicate rows caused by slot_type='' vs 'direct'.
+    Product data is merged into one visible keeper; duplicate rows are hidden, not deleted.
+    """
+    _yx_v87_ensure_columns(cur)
+    params = []
+    where = ""
+    if zone:
+        where += " AND zone=?"
+        params.append((zone or 'A').strip().upper())
+    if column_index:
+        where += " AND column_index=?"
+        params.append(int(column_index))
+    cur.execute(sql(f"""
+        SELECT zone, column_index, COALESCE(NULLIF(TRIM(slot_type),''),'direct') AS st, slot_number, COUNT(*) AS cnt
+        FROM warehouse_cells
+        WHERE 1=1 {where}
+        GROUP BY zone, column_index, COALESCE(NULLIF(TRIM(slot_type),''),'direct'), slot_number
+        HAVING COUNT(*) > 1
+    """), tuple(params))
+    groups = rows_to_dict(cur)
+    for g in groups:
+        z = (g.get('zone') or 'A').strip().upper()
+        c = int(g.get('column_index') or 1)
+        n = int(g.get('slot_number') or 1)
+        cur.execute(sql("""
+            SELECT id, items_json, note, COALESCE(is_deleted,0) AS is_deleted, COALESCE(problem_flag,'') AS problem_flag
+            FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+            ORDER BY COALESCE(is_deleted,0) ASC, id DESC
+        """), (z, c, n))
+        rows = rows_to_dict(cur)
+        if len(rows) <= 1:
+            continue
+        rows_sorted = sorted(rows, key=lambda r: (
+            0 if not _yx_v87_is_empty_items(r.get('items_json')) else 1,
+            int(r.get('is_deleted') or 0),
+            -int(r.get('id') or 0)
+        ))
+        keep = rows_sorted[0]
+        keep_id = keep.get('id')
+        merged_json = _yx_v79_merge_json_values([r.get('items_json') for r in rows])
+        has_items = not _yx_v87_is_empty_items(merged_json)
+        problem_flag = 'problem' if any((r.get('problem_flag') or '').strip() for r in rows) else ''
+        keep_deleted = 0 if has_items else int(keep.get('is_deleted') or 0)
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_type='direct', items_json=?, note=?, problem_flag=?, is_deleted=?, updated_at=?
+            WHERE id=?
+        """), (merged_json, keep.get('note') or '', problem_flag, keep_deleted, now(), keep_id))
+        for r in rows:
+            rid = r.get('id')
+            if rid == keep_id:
+                continue
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type='direct', items_json='[]', is_deleted=1, updated_at=?
+                WHERE id=?
+            """), (now(), rid))
+
+
+def _yx_v87_ensure_physical_slots(cur, zone, column_index, upto=25):
+    """Create truly missing physical empty rows only. Hidden rows stay hidden."""
+    _yx_v87_ensure_columns(cur)
+    z = (zone or 'A').strip().upper()
+    c = int(column_index or 1)
+    upto = max(1, int(upto or 25))
+    _yx_v87_normalize_direct_duplicates(cur, z, c)
+    cur.execute(sql("""
+        SELECT slot_number FROM warehouse_cells
+        WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+    """), (z, c))
+    existing = set()
+    for row in cur.fetchall():
+        try:
+            v = row['slot_number'] if hasattr(row, 'keys') else row[0]
+            v = int(v or 0)
+            if v > 0:
+                existing.add(v)
+        except Exception:
+            pass
+    for n in range(1, upto + 1):
+        if n in existing:
+            continue
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+            VALUES(?,?,?,?,?,?,?,?,0)
+        """), (z, c, 'direct', n, '[]', '', now(), ''))
+
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    """Add/insert a visible empty slot without shifting product cells.
+    Restores a hidden empty slot first. If none exists, appends after the largest physical slot.
+    """
+    z = (zone or 'A').strip().upper()
+    c = int(column_index or 0)
+    if z not in ('A', 'B') or c < 1:
+        raise ValueError('格位參數錯誤')
+    try:
+        after = int(insert_after) if insert_after not in (None, '') else 0
+    except Exception:
+        after = 0
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_v87_ensure_columns(cur)
+        _yx_v87_ensure_physical_slots(cur, z, c, 25)
+        # Restore nearest hidden empty slot after the clicked slot.
+        cur.execute(sql("""
+            SELECT id, slot_number, items_json FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND COALESCE(is_deleted,0)=1 AND slot_number>?
+            ORDER BY slot_number ASC, id DESC LIMIT 1
+        """), (z, c, after))
+        row = _yx_v87_fetchone(cur)
+        if row and _yx_v87_is_empty_items(row.get('items_json')):
+            new_slot = int(row.get('slot_number') or 0)
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type='direct', is_deleted=0, items_json='[]', note=COALESCE(note,''), updated_at=?
+                WHERE id=?
+            """), (now(), row.get('id')))
+            conn.commit()
+            return new_slot
+        # Append a new empty physical slot. Retry beyond any unexpected conflict.
+        cur.execute(sql("""
+            SELECT COALESCE(MAX(slot_number),0) AS max_slot FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+        """), (z, c))
+        max_slot = int((_yx_v87_fetchone(cur) or {}).get('max_slot') or 0)
+        new_slot = max_slot + 1
+        while new_slot < max_slot + 120:
+            try:
+                cur.execute(sql("""
+                    INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                    VALUES(?,?,?,?,?,?,?,?,0)
+                """), (z, c, 'direct', new_slot, '[]', '', now(), ''))
+                conn.commit()
+                return new_slot
+            except Exception:
+                try: conn.rollback()
+                except Exception: pass
+                cur = conn.cursor()
+                _yx_v87_ensure_columns(cur)
+                new_slot += 1
+        raise RuntimeError('新增格子失敗：找不到可用格號')
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    """Soft-delete an empty slot. Never deletes a row and never shifts product cells."""
+    z = (zone or 'A').strip().upper()
+    c = int(column_index or 0)
+    n = int(slot_number or 0)
+    if z not in ('A', 'B') or c < 1 or n < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_v87_ensure_columns(cur)
+        _yx_v87_ensure_physical_slots(cur, z, c, max(25, n))
+        cur.execute(sql("""
+            SELECT COUNT(*) AS cnt FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND COALESCE(is_deleted,0)=0
+        """), (z, c))
+        if int((_yx_v87_fetchone(cur) or {}).get('cnt') or 0) <= 1:
+            conn.commit()
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
+        cur.execute(sql("""
+            SELECT id, items_json FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND slot_number=? AND COALESCE(is_deleted,0)=0
+            ORDER BY id DESC LIMIT 1
+        """), (z, c, n))
+        target = _yx_v87_fetchone(cur)
+        if not target:
+            # If UI shows a default empty slot that DB has not materialized, create it hidden.
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                VALUES(?,?,?,?,?,?,?,?,1)
+            """), (z, c, 'direct', n, '[]', '', now(), ''))
+            conn.commit()
+            return {'success': True, 'removed_slot': n, 'soft_deleted': True, 'created_hidden': True}
+        if not _yx_v87_is_empty_items(target.get('items_json')):
+            conn.commit()
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET is_deleted=1, items_json='[]', updated_at=?
+            WHERE id=?
+        """), (now(), target.get('id')))
+        conn.commit()
+        return {'success': True, 'removed_slot': n, 'soft_deleted': True}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    z = (zone or 'A').strip().upper(); c = int(column_index or 0); n = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or n < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_v87_ensure_columns(cur)
+        _yx_v87_ensure_physical_slots(cur, z, c, max(25, n))
+        flag = 'problem' if marked else ''
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET problem_flag=?, is_deleted=0, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+        """), (flag, now(), z, c, n))
+        conn.commit()
+        return {'success': True, 'marked': bool(marked)}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+
+# ============================================================
+# V87B MAINFILE DUPLICATE SLOT NORMALIZER FIX
+# Root cause of right-click failures: legacy duplicate rows with slot_type='' and 'direct'
+# caused UNIQUE collisions when code tried to normalize both rows to slot_type='direct'.
+# This version keeps one direct visible keeper and moves duplicate empty rows to a unique
+# non-direct slot_type, so product data is merged and no direct-slot collision occurs.
+# ============================================================
+def _yx_v87_normalize_direct_duplicates(cur, zone=None, column_index=None):
+    _yx_v87_ensure_columns(cur)
+    params = []
+    where = ""
+    if zone:
+        where += " AND zone=?"
+        params.append((zone or 'A').strip().upper())
+    if column_index:
+        where += " AND column_index=?"
+        params.append(int(column_index))
+    cur.execute(sql(f"""
+        SELECT zone, column_index, COALESCE(NULLIF(TRIM(slot_type),''),'direct') AS st, slot_number, COUNT(*) AS cnt
+        FROM warehouse_cells
+        WHERE 1=1 {where}
+        GROUP BY zone, column_index, COALESCE(NULLIF(TRIM(slot_type),''),'direct'), slot_number
+        HAVING COUNT(*) > 1
+    """), tuple(params))
+    groups = rows_to_dict(cur)
+    for g in groups:
+        z = (g.get('zone') or 'A').strip().upper()
+        c = int(g.get('column_index') or 1)
+        n = int(g.get('slot_number') or 1)
+        cur.execute(sql("""
+            SELECT id, slot_type, items_json, note, COALESCE(is_deleted,0) AS is_deleted, COALESCE(problem_flag,'') AS problem_flag
+            FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+            ORDER BY COALESCE(is_deleted,0) ASC, id DESC
+        """), (z, c, n))
+        rows = rows_to_dict(cur)
+        if len(rows) <= 1:
+            continue
+        rows_sorted = sorted(rows, key=lambda r: (
+            0 if not _yx_v87_is_empty_items(r.get('items_json')) else 1,
+            int(r.get('is_deleted') or 0),
+            -int(r.get('id') or 0)
+        ))
+        keep = rows_sorted[0]
+        keep_id = keep.get('id')
+        merged_json = _yx_v79_merge_json_values([r.get('items_json') for r in rows])
+        has_items = not _yx_v87_is_empty_items(merged_json)
+        problem_flag = 'problem' if any((r.get('problem_flag') or '').strip() for r in rows) else ''
+        keep_deleted = 0 if has_items else int(keep.get('is_deleted') or 0)
+        # Make the keeper the only normalized direct row for this slot.
+        try:
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type='direct', items_json=?, note=?, problem_flag=?, is_deleted=?, updated_at=?
+                WHERE id=?
+            """), (merged_json, keep.get('note') or '', problem_flag, keep_deleted, now(), keep_id))
+        except Exception:
+            # If the keeper itself cannot become direct due to another direct row, leave its slot_type and still continue hiding duplicates.
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET items_json=?, note=?, problem_flag=?, is_deleted=?, updated_at=?
+                WHERE id=?
+            """), (merged_json, keep.get('note') or '', problem_flag, keep_deleted, now(), keep_id))
+        for r in rows:
+            rid = r.get('id')
+            if rid == keep_id:
+                continue
+            # Do not normalize duplicates to direct; that is exactly what caused UNIQUE errors.
+            hidden_type = ('hidden_dup_%s' % rid)[:60]
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type=?, items_json='[]', is_deleted=1, updated_at=?
+                WHERE id=?
+            """), (hidden_type, now(), rid))
+
+
+def _yx_v79_merge_duplicate_slots_all(cur):
+    # Keep compatibility: any old caller now uses the safe duplicate normalizer.
+    return _yx_v87_normalize_direct_duplicates(cur)
