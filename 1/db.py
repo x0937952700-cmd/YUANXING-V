@@ -26,12 +26,81 @@ _DB_ENV_KEYS = (
     "NEON_DATABASE_URL", "SUPABASE_DATABASE_URL",
 )
 
+def _sqlite_table_score(path):
+    """Return a simple data score for an existing SQLite warehouse file.
+    This prevents Render nested-directory deploys from opening a new empty
+    warehouse.db when the real file is one directory above the app folder.
+    """
+    try:
+        if not path or not os.path.exists(path) or os.path.getsize(path) <= 0:
+            return -1
+        conn = sqlite3.connect(path)
+        cur = conn.cursor()
+        score = 0
+        for table, weight in (
+            ('inventory', 1000), ('orders', 1000), ('master_orders', 1000),
+            ('shipping_records', 500), ('customer_profiles', 200),
+            ('today_changes', 100), ('logs', 10), ('warehouse_cells', 1),
+        ):
+            try:
+                cur.execute(f"SELECT COUNT(*) FROM {table}")
+                score += int(cur.fetchone()[0] or 0) * weight
+            except Exception:
+                pass
+        conn.close()
+        return score
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return -1
+
+
+def _best_sqlite_fallback_url():
+    here = os.path.abspath(os.path.dirname(__file__))
+    cwd = os.path.abspath(os.getcwd())
+    candidates = []
+    for base in (
+        cwd,
+        here,
+        os.path.dirname(here),
+        os.path.dirname(os.path.dirname(here)),
+        '/opt/render/project/src',
+        '/opt/render/project/src/1',
+        '/var/data',
+        '/var/data/yuanxing',
+    ):
+        if base and base not in candidates:
+            candidates.append(base)
+    files = []
+    for base in candidates:
+        files.append(os.path.join(base, 'warehouse.db'))
+    # Also scan one level under Render src for accidental nested upload folders.
+    root = '/opt/render/project/src'
+    try:
+        if os.path.isdir(root):
+            for name in os.listdir(root):
+                p = os.path.join(root, name, 'warehouse.db')
+                if p not in files:
+                    files.append(p)
+    except Exception:
+        pass
+    scored = [( _sqlite_table_score(path), path) for path in files]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_path = scored[0] if scored else (-1, os.path.join(here, 'warehouse.db'))
+    if best_score >= 0:
+        return 'sqlite:///' + os.path.abspath(best_path), 'sqlite_best_existing'
+    # No DB exists yet: create/use the app folder DB, not a random current working dir.
+    return 'sqlite:///' + os.path.join(here, 'warehouse.db'), 'sqlite_app_default'
+
+
 def _pick_database_url():
     for key in _DB_ENV_KEYS:
         val = (os.getenv(key) or '').strip()
         if val:
             return val, key
-    return "sqlite:///warehouse.db", "sqlite_default"
+    return _best_sqlite_fallback_url()
 
 DATABASE_URL, DATABASE_URL_SOURCE = _pick_database_url()
 
