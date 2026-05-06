@@ -1073,3 +1073,38 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 }
 #yx-final-warehouse-menu{z-index:99999!important;pointer-events:auto!important;}
 #yx-final-warehouse-menu button{pointer-events:auto!important;}
+
+/* V84 final loaded mirror: warehouse cells pale, product size bold/larger, customer centered */
+#warehouse-root .vertical-slot,
+#warehouse-root .yx-final-slot,
+#warehouse-root .yx108-slot,
+#warehouse-root .yx106-slot,
+#warehouse-root .yx116-slot{
+  background:linear-gradient(135deg, rgba(255,253,238,.96), rgba(255,248,205,.92)) !important;
+  border:1px solid rgba(228,190,78,.48) !important;
+  border-radius:12px !important;
+  min-height:64px !important;
+  box-shadow:0 1px 2px rgba(120,90,20,.07) !important;
+}
+#warehouse-root .vertical-slot.filled,
+#warehouse-root .yx-final-slot.filled,
+#warehouse-root .yx108-slot.filled,
+#warehouse-root .yx106-slot.filled,
+#warehouse-root .yx116-slot.filled,
+#warehouse-root .vertical-slot[data-has-items="1"],
+#warehouse-root .yx-final-slot[data-has-items="1"],
+#warehouse-root .yx108-slot[data-has-items="1"]{
+  background:linear-gradient(135deg, rgba(255,250,216,.96), rgba(255,243,179,.90)) !important;
+  border-color:rgba(222,178,55,.58) !important;
+}
+#warehouse-root .vertical-slot.yx-warehouse-problem,
+#warehouse-root .yx-final-slot.yx-warehouse-problem,
+#warehouse-root .yx108-slot.yx-warehouse-problem{
+  background:linear-gradient(135deg, rgba(255,236,236,.96), rgba(255,218,218,.90)) !important;
+  border-color:rgba(244,104,104,.72) !important;
+}
+#warehouse-root .yx108-slot-customers,
+#warehouse-root .yx116-slot-customers{display:block!important;width:100%!important;text-align:center!important;font-weight:900!important;}
+#warehouse-root .yx108-slot-product,
+#warehouse-root .yx-slot-product-line{font-size:1.85em!important;line-height:1.1!important;font-weight:900!important;text-align:center!important;}
+#warehouse-root .yx108-slot-product.empty{font-size:1em!important;}
