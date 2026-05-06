@@ -1110,7 +1110,8 @@ def _parse_items_from_request(data):
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
             # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
-            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
+            # V68 targeted: 保留 A/B 區與來源欄位，避免新增訂單/總單/庫存時畫面有區域但 DB 變空白。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source', 'area', 'location', 'zone'):
                 if isinstance(it, dict) and it.get(_k) not in (None, ''):
                     fixed[_k] = it.get(_k)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
@@ -1278,12 +1279,13 @@ def api_inventory():
             return error_response("請輸入商品資料")
         operator = current_username()
         duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
-        location = (data.get("location") or "").strip()
+        location = (data.get("location") or data.get("area") or data.get("zone") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
             yx_v35_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')), preserve_existing=True)
         for it in items:
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
+            item_location = (it.get("location") or it.get("area") or it.get("zone") or location or "").strip()
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), item_location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
     except Exception as e:
         log_error("inventory_main_save_v40", str(e))
         return error_response("建立失敗")
@@ -1327,7 +1329,7 @@ def api_inventory_item(item_id):
         month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
-        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        location = (data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or ''))).strip()
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
             conn.close()
@@ -1379,7 +1381,7 @@ def api_inventory_item_move(item_id):
         product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': product_code, 'qty': move_qty, 'area': row.get('area') or row.get('location') or '', 'location': row.get('location') or row.get('area') or ''}
         if target == 'orders':
             save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
             target_label = '訂單'
@@ -1847,8 +1849,9 @@ def api_warehouse_search():
         except Exception:
             items = []
         for it in items:
-            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')}"
-            if not q or q.lower() in hay.lower():
+            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')} {it.get('material','')} {it.get('product_code','')}"
+            tokens = [x for x in re.split(r'\s+', q.lower()) if x]
+            if not tokens or all(t in hay.lower() for t in tokens):
                 matched.append({"cell": cell, "item": it})
                 break
     return jsonify(success=True, items=matched)
@@ -1911,9 +1914,9 @@ def api_warehouse_available_items():
             exact, customer, source_label, source_id = detail_key
             details_for_item_all = details_all
             if zone_filter:
-                # V49 mainfile: A/B 格位的下拉選單要同時顯示該區商品 + 尚未分 A/B 區商品；
-                # 已放入任一格的數量仍用全倉扣除，避免別的格子又看得到同一筆。
-                details_for_item = [d for d in details_for_item_all if (str(d.get('zone') or '').strip().upper().startswith(zone_filter) or not str(d.get('zone') or '').strip())]
+                # V69：A 區格位下拉只顯示 A 區未入倉商品；B 區只顯示 B 區。
+                # 未分區只留在總統計，不混入 A/B 格子的下拉。
+                details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
                 placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
                 if placed_qty <= 0:
@@ -3530,7 +3533,7 @@ def _fix28_update_item_api(table, item_id):
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
+        location = (data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or ''))).strip()
         qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')

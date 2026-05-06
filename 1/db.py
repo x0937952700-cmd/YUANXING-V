@@ -2818,6 +2818,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         column_index = int(column_index or 0)
         slot_number = int(slot_number or 0)
         slot_type = 'direct'
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
         items = _normalize_warehouse_items(items)
         note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
         items_json = json.dumps(items, ensure_ascii=False)
@@ -2849,6 +2850,39 @@ def warehouse_add_column(zone):
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """), (zone, next_col, 'direct', num, '[]', '', now()))
     conn.commit(); conn.close(); return next_col
+
+
+def _warehouse_ensure_column_slots(cur, zone, column_index, upto=20):
+    """只在操作指定格號時補缺少空格；不清空、不覆蓋有商品格。"""
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 1)
+    upto = max(1, int(upto or 20))
+    cur.execute(sql("""
+        SELECT slot_number FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct') = ?
+    """), (zone, column_index, 'direct'))
+    try:
+        cur.execute(sql("""
+            SELECT slot_number FROM warehouse_cells
+            WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct') = ?
+        """), (zone, column_index, 'direct'))
+        existing = set()
+        for row in cur.fetchall():
+            try:
+                val = row['slot_number'] if hasattr(row, 'keys') else row[0]
+            except Exception:
+                val = row[0]
+            if int(val or 0) > 0:
+                existing.add(int(val or 0))
+    except Exception:
+        existing = set()
+    for num in range(1, upto + 1):
+        if num in existing:
+            continue
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (zone, column_index, 'direct', num, '[]', '', now()))
 
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
@@ -2921,6 +2955,10 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        if insert_after is not None and insert_after != '':
+            _warehouse_ensure_column_slots(cur, zone, column_index, max(20, int(insert_after)))
+        else:
+            _warehouse_ensure_column_slots(cur, zone, column_index, 20)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if insert_after is None or insert_after == '':
@@ -2957,6 +2995,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:
@@ -3011,6 +3050,8 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
         to_norm = _norm(to_key)
         if from_norm == to_norm:
             return {'success': True, 'noop': True}
+        _warehouse_ensure_column_slots(cur, from_norm[0], from_norm[1], max(20, from_norm[3]))
+        _warehouse_ensure_column_slots(cur, to_norm[0], to_norm[1], max(20, to_norm[3]))
         src = _load(from_key); dst = _load(to_key)
         if not src or not dst:
             return {'success': False, 'error': '找不到來源或目標格位'}
@@ -3743,9 +3784,13 @@ def _yx_v36_insert_or_merge(table_name, row, duplicate_mode='merge'):
                 if table_name in ('orders','master_orders') and 'customer_name' in cols:
                     where.append("COALESCE(customer_name,'') = ?")
                     params.append(customer_name)
-                if table_name == 'inventory' and 'location' in cols:
+                # V68 targeted: A/B 區必須參與合併判斷，避免 A 區/B 區同商品被合成一筆。
+                if 'location' in cols:
                     where.append("COALESCE(location,'') = ?")
-                    params.append(row.get('location') or '')
+                    params.append(row.get('location') or row.get('area') or '')
+                if 'area' in cols:
+                    where.append("COALESCE(area,'') = ?")
+                    params.append(row.get('area') or row.get('location') or '')
                 cur.execute(sql(f"SELECT id, qty FROM {table_name} WHERE " + " AND ".join(where) + " ORDER BY id DESC LIMIT 1"), tuple(params))
                 matched = fetchone_dict(cur)
                 if matched:
@@ -3802,6 +3847,7 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
     for item in (items or []):
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+        area_value = (item.get('location') or item.get('area') or item.get('zone') or '').strip()
         row = {
             'customer_name': customer_name,
             'customer_uid': uid,
@@ -3810,6 +3856,8 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             'material': material,
             'month_tag': product_month_tag(product_text),
             'qty': int(item.get('qty') or 0),
+            'area': area_value,
+            'location': area_value,
             'status': 'pending',
             'operator': operator or '',
             'created_at': now(),
@@ -3823,6 +3871,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
     for item in (items or []):
         product_text = format_product_text_height2((item.get('product_text') or '').strip())
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
+        area_value = (item.get('location') or item.get('area') or item.get('zone') or '').strip()
         row = {
             'customer_name': customer_name,
             'customer_uid': uid,
@@ -3831,6 +3880,8 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             'material': material,
             'month_tag': product_month_tag(product_text),
             'qty': int(item.get('qty') or 0),
+            'area': area_value,
+            'location': area_value,
             'operator': operator or '',
             'created_at': now(),
             'updated_at': now(),
@@ -4003,6 +4054,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         column_index = int(column_index or 0)
         slot_type = 'direct'
         slot_number = int(slot_number or 0)
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
         items = _normalize_warehouse_items(items)
         note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
         items_json = json.dumps(items, ensure_ascii=False)
@@ -4199,6 +4251,10 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        if insert_after is not None and insert_after != '':
+            _warehouse_ensure_column_slots(cur, zone, column_index, max(20, int(insert_after)))
+        else:
+            _warehouse_ensure_column_slots(cur, zone, column_index, 20)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if insert_after is None or insert_after == '':
@@ -4234,6 +4290,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:

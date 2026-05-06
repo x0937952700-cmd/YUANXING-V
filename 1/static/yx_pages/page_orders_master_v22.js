@@ -821,14 +821,14 @@
     const editDeleteButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" data-source="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" data-source="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>`;
     const controls = source === 'inventory'
       ? `<div class="yx128-summary-controls yx-v68-inventory-actions">${zoneMoveButtons}${inventoryTransferButtons}</div>`
-      : `<div class="yx128-summary-controls yx-v68-order-master-actions">${zoneMoveButtons}${orderToMasterButton}${editDeleteButtons}</div>`; // V68：訂單/總單圖一區固定補回移到A/B、批量刪除、批量編輯；訂單多加到總單。
+      : `<div class="yx128-summary-controls yx-v68-order-master-actions ${source === 'orders' ? 'yx-v65-orders-summary-actions' : 'yx-v65-master-summary-actions'}">${orderToMasterButton}${zoneMoveButtons}${editDeleteButtons}</div>`; // V68：訂單/總單圖一區固定補回加到總單、移到A/B、批量刪除、批量編輯；不要放在上方工具列。
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
       const p = splitProduct(r.product_text || '');
       const id = idOf(r);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td></tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="yx-product-location-cell"><button class="ghost-btn tiny-btn yx-product-location-btn" type="button" data-yx-product-location="1" data-source="${source}" data-id="${id}">商品位置</button></td><td class="zone">${YX.esc(zoneLabel(r))}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><select class="text-input small yx128-field" data-yx128-field="material"><option value="">不指定材質</option>${materialOptions(materialOf(r)==='未填材質'?'':materialOf(r))}</select></td>
@@ -836,10 +836,10 @@
         <td><input class="text-input small yx128-field" data-yx128-field="size" value="${YX.esc(p.size || r.product_text || '')}" placeholder="尺寸，可含 8月"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="總數量"></td>
-        <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td>
+        <td class="yx-product-location-cell"><button class="ghost-btn tiny-btn yx-product-location-btn" type="button" disabled>商品位置</button></td><td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td>
       </tr>`;
-    }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    }).join('') : `<tr><td colspan="7">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>倉庫位置</th><th>A/B區</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
@@ -857,6 +857,52 @@
     }
     note.innerHTML = `<strong>下方已篩選 ${n} 筆</strong><button class="ghost-btn tiny-btn" type="button" data-yx113-clear-filter="${source}">清除篩選</button>`;
   }
+
+  function locationPanel(source){
+    let panel = document.getElementById(`yx-${source}-warehouse-location-panel`);
+    const box = document.getElementById(`yx113-${source}-summary`);
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = `yx-${source}-warehouse-location-panel`;
+      panel.className = 'yx-product-location-panel result-card hidden';
+      if (box) box.insertAdjacentElement('afterend', panel);
+    }
+    return panel;
+  }
+  async function showProductLocations(source, id){
+    const row = rowsStore(source).find(r => String(idOf(r) || '') === String(id));
+    if (!row) return YX.toast('找不到商品資料', 'warn');
+    const customer = customerOf(row);
+    const product = row.product_text || '';
+    const panel = locationPanel(source);
+    panel.classList.remove('hidden'); panel.style.display = '';
+    panel.innerHTML = `<strong>商品位置查詢中…</strong><div class="small-note">${YX.esc(customer || '庫存')}｜${YX.esc(product)}</div>`;
+    try {
+      const d = await YX.api('/api/warehouse/search?q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
+      let hits = Array.isArray(d.items) ? d.items : [];
+      if (!hits.length && product) {
+        const d2 = await YX.api('/api/warehouse/search?q=' + encodeURIComponent(product) + '&ts=' + Date.now(), {method:'GET'});
+        hits = Array.isArray(d2.items) ? d2.items : [];
+      }
+      const norm = v => String(v || '').replace(/\s+/g,'').toLowerCase();
+      const customerKey = norm(customer);
+      if (customerKey) hits = hits.filter(h => {
+        const it = h.item || h;
+        const cn = norm(it.customer_name || h.customer_name || '庫存');
+        return !cn || cn.includes(customerKey) || customerKey.includes(cn) || cn === '庫存';
+      });
+      if (!hits.length) {
+        panel.innerHTML = `<strong>查無倉庫位置</strong><div class="small-note">這筆商品可能尚未錄入倉庫圖。</div>`;
+        return;
+      }
+      panel.innerHTML = `<strong>商品位置</strong><div class="small-note">共 ${hits.length} 個位置；點位置可在倉庫頁高亮。</div><div class="yx-product-location-list">${hits.map((h,i)=>{ const c=h.cell||h; const it=h.item||h; const qty=Number(it.qty||it.unplaced_qty||0)||''; return `<button type="button" class="deduct-card yx-location-hit" data-hit="${i}"><b>${YX.esc(c.zone)}區 第${Number(c.column_index)}欄 第${Number(c.slot_number)}格</b><span>${YX.esc(it.customer_name||customer||'庫存')}</span><span>${YX.esc(it.material||it.product_code||'')} ${YX.esc(it.product_text||it.product||product)}</span><em>${qty ? qty + '件' : ''}</em></button>`; }).join('')}</div>`;
+      panel.querySelectorAll('[data-hit]').forEach((btn,i)=>btn.addEventListener('click',()=>{ const c=(hits[i].cell||hits[i]); if (typeof window.highlightWarehouseCell === 'function') window.highlightWarehouseCell(c.zone,c.column_index,c.slot_number); else window.location.href = `/warehouse?highlight=${encodeURIComponent(`${c.zone}-${c.column_index}-${c.slot_number}`)}`; }));
+      panel.scrollIntoView?.({behavior:'smooth', block:'nearest'});
+    } catch(e) {
+      panel.innerHTML = `<strong style="color:#b91c1c">商品位置查詢失敗</strong><div class="small-note">${YX.esc(e.message || '請稍後再試')}</div>`;
+    }
+  }
+
   function cardHTML(source, r){
     const p = splitProduct(r.product_text || '');
     const q = qtyOf(r);
@@ -1003,16 +1049,18 @@
     renderSummary(source);
     renderCards(source);
     YX.toast(`已套用畫面並背景儲存 ${items.length} 筆`, 'ok');
-    try{
-      const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
-      mergeSnapshotQuiet(d, source);
-      updateSummaryHeaderOnly(source);
-      YX.toast(`已儲存 ${d.count || items.length} 筆`, 'ok');
-      try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
-    }catch(e){
-      await loadSource(source);
-      YX.toast(e.message || '批量編輯儲存失敗，已重新同步資料', 'error');
-    }
+    YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})})
+      .then(d => {
+        mergeSnapshotQuiet(d, source);
+        updateSummaryHeaderOnly(source);
+        YX.toast(`已儲存 ${d.count || items.length} 筆`, 'ok');
+        try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
+      })
+      .catch(e => {
+        loadSource(source).catch(()=>{});
+        YX.toast(e.message || '批量編輯儲存失敗，已重新同步資料', 'error');
+      });
+    return;
   }
   async function bulkMaterial(source){
     const sel = $(`yx113-${source}-material`);
@@ -1047,7 +1095,7 @@
       if ((id && idSet.has(id)) || checked) tr.remove();
     });
     const tbody = box.querySelector('tbody');
-    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="6">目前沒有資料</td></tr>';
+    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="7">目前沒有資料</td></tr>';
   }
   async function bulkDelete(source){
     // v11：有勾選刪勾選；沒勾選則刪除目前清單可見商品，並立即從畫面消失。
@@ -1099,6 +1147,8 @@
       if (cancelAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); cancelBatchEdit(cancelAll.dataset.yx128CancelAll); return; }
       const saveAll = ev.target?.closest?.('[data-yx128-save-all]');
       if (saveAll) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ window.safePushProductUndo(saveAll.dataset.yx128SaveAll,'批量編輯儲存'); await saveAllEdits(saveAll.dataset.yx128SaveAll); }catch(e){ YX.toast(e.message || '批量編輯儲存失敗','error'); } return; }
+      const locBtn = ev.target?.closest?.('[data-yx-product-location]');
+      if (locBtn) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try { await showProductLocations(locBtn.dataset.source || source, locBtn.dataset.id); } catch(e) { YX.toast(e.message || '商品位置查詢失敗', 'error'); } return; }
       const rowAction = ev.target?.closest?.('[data-yx131-row-action]');
       if (rowAction) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); try{ await handleRowAction(rowAction.dataset.source || source, rowAction.dataset.id, rowAction.dataset.yx131RowAction); }catch(e){ YX.toast(e.message || '清單操作失敗','error'); } return; }
       const cardSave = ev.target?.closest?.('[data-yx128-card-save]');
@@ -1498,8 +1548,10 @@
       }
       if (customer && (m === 'orders' || m === 'master_order')) {
         window.__YX_SELECTED_CUSTOMER__ = customer;
+        if ($('customer-name')) $('customer-name').value = customer;
         forceCustomerCardVisible(customer, m);
         try { window.YX113CustomerRegions?.renderFromCurrentRows?.(); forceCustomerCardVisible(customer, m); } catch(_e) {}
+        try { window.YX113CustomerRegions?.selectCustomer?.(customer); } catch(_e) {}
       }
     } catch(e){ console.warn('[YX V59 optimistic submit]', e); }
 
@@ -1518,15 +1570,13 @@
         try {
           const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
           if (posted && (Array.isArray(posted.items) || posted.snapshots || posted.exact_customer_items)) {
-            if (activeEl()) {
-              // 使用者正在輸入下一筆時，只安靜替換資料快照，不重畫表單焦點。
-              mergeSnapshotQuiet(posted, m);
-              try { if (customer && (m === 'orders' || m === 'master_order')) forceCustomerCardVisible(customer, m); } catch(_e) {}
-            } else {
-              await refreshAfterSubmit(m, customer, posted, items, activeZone);
-            }
-          } else if (!activeEl()) {
+            const focused = activeEl();
+            await refreshAfterSubmit(m, customer, posted, items, activeZone);
+            if (focused && ta) { try { ta.focus({preventScroll:true}); } catch(_e) {} }
+          } else {
+            const focused = activeEl();
             await refreshAfterSubmit(m, customer, posted || {}, items, activeZone);
+            if (focused && ta) { try { ta.focus({preventScroll:true}); } catch(_e) {} }
           }
           if (result && !activeEl()) {
             result.classList.remove('hidden'); result.style.display = '';

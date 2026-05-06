@@ -898,3 +898,45 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   text-overflow:ellipsis!important;
 }
 #warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
+
+
+/* V69 exact main-file fix: 訂單/總單圖一區按鈕顯示，商品位置只保留一個按鈕 */
+.yx128-summary-head .yx128-summary-controls,
+.yx113-summary-head .yx128-summary-controls,
+.yx-v68-order-master-actions,
+.yx-v68-inventory-actions,
+.yx-v65-orders-summary-actions,
+.yx-v65-master-summary-actions{
+  display:flex!important;
+  gap:8px!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  flex-wrap:wrap!important;
+  margin-left:auto!important;
+}
+#yx113-orders-toolbar [data-yx132-batch-zone],
+#yx113-orders-toolbar [data-yx132-batch-transfer],
+#yx113-orders-toolbar [data-yx113-batch-delete],
+#yx113-orders-toolbar [data-yx128-edit-all],
+#yx113-master_order-toolbar [data-yx132-batch-zone],
+#yx113-master_order-toolbar [data-yx132-batch-transfer],
+#yx113-master_order-toolbar [data-yx113-batch-delete],
+#yx113-master_order-toolbar [data-yx128-edit-all]{display:none!important;}
+.yx113-table.yx128-inline-table th:nth-child(7),
+.yx113-table.yx128-inline-table td:nth-child(7),
+.yx113-table.yx128-inline-table .yx-product-location-cell{
+  display:table-cell!important;
+  width:78px!important;
+  min-width:78px!important;
+  max-width:96px!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+  padding-left:5px!important;
+  padding-right:5px!important;
+}
+.yx-product-location-btn{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-height:30px!important;padding:4px 10px!important;font-weight:900!important;}
+.yx-product-location-panel{margin:10px 0!important;padding:12px!important;border-radius:18px!important;background:rgba(255,255,255,.82)!important;border:1px solid rgba(148,163,184,.28)!important;}
+.yx-product-location-list{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important;gap:8px!important;margin-top:8px!important;}
+.yx-location-hit{display:grid!important;gap:3px!important;text-align:left!important;border:2px solid rgba(59,130,246,.28)!important;background:linear-gradient(135deg,rgba(239,246,255,.96),rgba(236,253,245,.96))!important;}
+.yx-location-hit b{color:#0b58b8!important;font-weight:950!important;}
+/* END V69 exact main-file fix */

@@ -954,7 +954,60 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   async function confirmSubmit(){if(!state.customer)return toast('請先輸入客戶名稱','warn');if(!state.selected.length)return toast('請先加入出貨商品','warn');const overIdx=state.selected.findIndex(x=>warnOverQty(x));if(overIdx>=0){const o=warnOverQty(state.selected[overIdx]);renderSelected();toast(`第 ${overIdx+1} 筆出貨 ${o.q} 件大於可出貨 ${o.max} 件，不可扣除`,'error');document.querySelector(`[data-selected-card="${overIdx}"]`)?.scrollIntoView?.({behavior:'smooth',block:'center'});return;}const btn=$('submit-btn');if(btn){btn.disabled=true;btn.textContent='預覽中…';}const payload={customer_name:state.customer,items:state.selected,allow_inventory_fallback:true,skip_snapshot:true,request_key:'ship_single_'+Date.now()+'_'+Math.random().toString(36).slice(2)};try{const preview=await api('/api/ship-preview',{method:'POST',body:JSON.stringify(payload)});showPreview(preview,payload);}catch(e){toast(e.message||'出貨預覽失敗','error');}finally{if(btn){btn.disabled=false;btn.textContent='確認送出';}}}
   function showPreview(data,payload){const panel=$('ship-preview-panel')||$('module-result');if(!panel)return;const rows=Array.isArray(data.breakdown)?data.breakdown:(Array.isArray(data.items)?data.items:[]);const draft=payload.items||[];const calcRaw=data.calc||data.volume_calc||{};const calc=(calcRaw.rows||calcRaw.items)?calcRaw:localVolumeCalc(draft);const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+selectedQtyOf(b),0));panel.classList.remove('hidden');panel.style.display='block';panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>出貨源</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(draft.length?draft:rows).map((x,i)=>previewRowHtml(x,i,rows[i]||{})).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;$('yx22-weight')?.addEventListener('input',e=>{const w=Number(e.target.value||0),v=Number(calc.total_volume||0),out=$('yx22-total-weight');if(out)out.textContent=w?`總重：${(w*v).toFixed(2)}`:'總重：--';});$('yx22-cancel-preview')?.addEventListener('click',()=>panel.classList.add('hidden'),{once:true});$('yx22-confirm-ship')?.addEventListener('click',async()=>{const b=$('yx22-confirm-ship');if(b){b.disabled=true;b.textContent='扣除中…';}try{await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_confirm_'+Date.now()+'_'+Math.random().toString(36).slice(2)})});panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>';state.selected=[];renderSelected();state.itemCache.delete(state.customer);await loadItems(state.customer,{force:true});toast('出貨完成','ok');}catch(e){toast(e.message||'出貨失敗','error');if(b){b.disabled=false;b.textContent='確認扣除';}}},{once:true});panel.scrollIntoView({behavior:'smooth',block:'start'});}
   window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;window.__YX_SHIP_NATIVE_CONFIRM__=confirmSubmit;window.YX116ShipPicker={load:loadItems,addItem,renderItems,renderSelected,confirmSubmit};window.reverseLookup=function(){toast('請使用倉庫圖搜尋商品位置','warn');};
-  function bind(){if(state.bound)return;state.bound=true;document.addEventListener('click',(e)=>{const c=e.target.closest('[data-ship-customer]');if(c){e.preventDefault();loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error'));return;}const add=e.target.closest('[data-ship-add-index]');if(add){e.preventDefault();addItem(add.dataset.shipAddIndex);return;}const rm=e.target.closest('[data-selected-remove]');if(rm){e.preventDefault();state.selected.splice(Number(rm.dataset.selectedRemove),1);renderSelected();return;}},true);document.addEventListener('keydown',(e)=>{if((e.target.id==='customer-name'||e.target.id==='ship-customer-search')&&e.key==='Enter'){e.preventDefault();loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error'));}},true);document.addEventListener('change',(e)=>{if(e.target.id==='ship-customer-item-select'&&e.target.value!==''){addItem(e.target.value);e.target.value='';}},true);document.addEventListener('input',(e)=>{if(e.target.id==='customer-name'||e.target.id==='ship-customer-search'){setCustomer(e.target.value);renderCustomers();renderItems();}if(e.target.matches('[data-support-editor]'))updateSelectedProductFromSupport(Number(e.target.dataset.supportEditor),e.target.value);},true);}
+
+  async function showShipLocations(productText){
+    productText=clean(productText||'');
+    if(!productText){toast('缺少商品資料','warn');return;}
+    const panel=$('ship-preview-panel')||$('module-result');
+    if(!panel)return;
+    let box=$('yx22-ship-location-results');
+    if(!box){
+      box=document.createElement('div');
+      box.id='yx22-ship-location-results';
+      box.className='yx-product-location-panel yx22-location-results';
+      const wrap=panel.querySelector('.yx22-preview')||panel;
+      const table=wrap.querySelector('.yx22-preview-table');
+      if(table&&table.parentNode)table.insertAdjacentElement('afterend',box);else wrap.appendChild(box);
+    }
+    const customer=clean(state.customer||($('customer-name')&&$('customer-name').value)||'');
+    box.innerHTML='<div class="yx-location-loading">商品位置查詢中…</div>';
+    try{
+      const query=(customer?customer+' ':'')+productText;
+      let data=await api('/api/warehouse/search?q='+encodeURIComponent(query)+'&ts='+Date.now());
+      let hits=Array.isArray(data.items)?data.items:[];
+      if(customer){
+        const c=customer.toLowerCase();
+        hits=hits.filter(h=>String(h.customer||h.customer_name||'').toLowerCase().includes(c)||String(h.product_text||h.text||'').toLowerCase().includes(productText.toLowerCase()));
+      }
+      if(!hits.length){
+        data=await api('/api/warehouse/search?q='+encodeURIComponent(productText)+'&ts='+Date.now());
+        hits=Array.isArray(data.items)?data.items:[];
+      }
+      if(!hits.length){
+        box.innerHTML='<div class="empty-state small">找不到這筆商品的倉庫位置</div>';
+        return;
+      }
+      const html=hits.map((h)=>{
+        const z=esc(h.zone||'');
+        const col=esc(h.column_index||h.column||'');
+        const slot=esc(h.slot_number||h.slot_no||h.slot||'');
+        const cust=esc(h.customer||h.customer_name||'庫存');
+        const mat=esc(h.material||'');
+        const prod=esc(h.product_text||h.text||productText);
+        const qty=esc(h.qty||h.quantity||'');
+        return `<button type="button" class="yx-location-hit" data-zone="${z}" data-col="${col}" data-slot="${slot}"><b>${z}區 ${col}欄 ${slot}格</b><span>${cust}｜${mat} ${prod}${qty?`｜${qty}件`:''}</span></button>`;
+      }).join('');
+      box.innerHTML=`<div class="yx-location-title">商品位置</div>${html}`;
+      box.querySelectorAll('.yx-location-hit').forEach(btn=>btn.addEventListener('click',()=>{
+        const zone=btn.dataset.zone,col=btn.dataset.col,slot=btn.dataset.slot;
+        if(window.highlightWarehouseCell){window.highlightWarehouseCell(zone,col,slot);}
+        else if(zone&&col&&slot){location.href=`/warehouse?highlight=${encodeURIComponent(zone+'-'+col+'-'+slot)}`;}
+      }));
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    }catch(e){box.innerHTML=`<div class="error-card">查詢倉庫位置失敗：${esc(e.message||e)}</div>`;}
+  }
+
+  function bind(){if(state.bound)return;state.bound=true;document.addEventListener('click',(e)=>{const loc=e.target.closest('.yx22-location-btn');if(loc){e.preventDefault();showShipLocations(loc.dataset.prod||'').catch(err=>toast(err.message||'查詢位置失敗','error'));return;}const c=e.target.closest('[data-ship-customer]');if(c){e.preventDefault();loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error'));return;}const add=e.target.closest('[data-ship-add-index]');if(add){e.preventDefault();addItem(add.dataset.shipAddIndex);return;}const rm=e.target.closest('[data-selected-remove]');if(rm){e.preventDefault();state.selected.splice(Number(rm.dataset.selectedRemove),1);renderSelected();return;}},true);document.addEventListener('keydown',(e)=>{if((e.target.id==='customer-name'||e.target.id==='ship-customer-search')&&e.key==='Enter'){e.preventDefault();loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error'));}},true);document.addEventListener('change',(e)=>{if(e.target.id==='ship-customer-item-select'&&e.target.value!==''){addItem(e.target.value);e.target.value='';}},true);document.addEventListener('input',(e)=>{if(e.target.id==='customer-name'||e.target.id==='ship-customer-search'){setCustomer(e.target.value);renderCustomers();renderItems();}if(e.target.matches('[data-support-editor]'))updateSelectedProductFromSupport(Number(e.target.dataset.supportEditor),e.target.value);},true);}
   function install(){document.documentElement.dataset.yxShipSingle='locked-one-line-html-v12';bind();loadCustomers();window.addEventListener('yx:customers-loaded',e=>{state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers;},false);window.addEventListener('yx:customer-selected',e=>{const name=clean(e.detail?.name||'');if(name)loadItems(name,{force:true}).catch(err=>toast(err.message,'error'));},false);renderSelected();const name=clean($('customer-name')?.value||'');if(name)loadItems(name).catch(()=>{});else renderItems();window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
