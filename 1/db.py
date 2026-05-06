@@ -1056,41 +1056,19 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
 
-    # normalize warehouse to direct 1-20 model
+    # normalize warehouse slot_type only; never DELETE all / rebuild warehouse_cells.
+    # User data in warehouse_cells must remain in place. Duplicate slots are handled by later
+    # safe duplicate-merge logic and slot operations shift only affected slot numbers.
     try:
-        cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
-        raw_cells = rows_to_dict(cur)
-        direct_map = {}
-        for cell in raw_cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            col = int(cell.get('column_index') or 1)
-            slot_type = (cell.get('slot_type') or 'direct').strip().lower()
-            slot_no = int(cell.get('slot_number') or 1)
-            if slot_type == 'back':
-                slot_no += 10
-            elif slot_type == 'front':
-                slot_no = slot_no
-            key = (zone, col, slot_no)
-            prev = direct_map.get(key)
-            if prev:
-                prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
-                prev['note'] = prev.get('note') or cell.get('note') or ''
-                prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
-            else:
-                direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
-        cur.execute(sql("DELETE FROM warehouse_cells"))
-        for zone in ('A','B'):
-            for col in range(1, 7):
-                _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
-                max_slot = max(_slots) if _slots else 1
-                for num in range(1, max_slot + 1):
-                    row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
-                    cur.execute(sql("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_type = COALESCE(NULLIF(slot_type, ''), 'direct'),
+                items_json = COALESCE(NULLIF(items_json, ''), '[]'),
+                note = COALESCE(note, ''),
+                updated_at = COALESCE(NULLIF(updated_at, ''), ?)
+        """), (now(),))
     except Exception as e:
-        log_error('warehouse_normalize_direct_model', str(e))
+        log_error('warehouse_normalize_direct_no_delete', str(e))
 
     # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
     try:

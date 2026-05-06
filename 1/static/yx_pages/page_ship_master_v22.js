@@ -572,7 +572,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     (existingItems || []).forEach(c => {
       const n = YX.clean(c.name || c.customer_name || '');
       if (!n) return;
-      byName.set(n, Object.assign({}, c, {relation_counts:Object.assign({}, c.relation_counts || {}), item_count:Number(c.item_count || 0), row_count:Number(c.row_count || 0), merge_names:Array.isArray(c.merge_names) ? c.merge_names : [n]}));
+      byName.set(n, Object.assign({}, c, {relation_counts:{inventory_rows:0,order_rows:0,master_rows:0,shipping_rows:0,inventory_qty:0,order_qty:0,master_qty:0,shipping_qty:0,active_rows:0,total_rows:0,active_qty_total:0,history_qty_total:0,total_qty:0}, item_count:0, row_count:0, merge_names:Array.isArray(c.merge_names) ? c.merge_names : [n]}));
     });
     const seen = new Set();
     const add = (name, source, row) => {

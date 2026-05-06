@@ -5547,3 +5547,10 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
   opacity:1!important;
   pointer-events:auto!important;
 }
+
+/* V73 mainfile targeted repairs */
+.yx-product-location-bottom{display:flex;gap:10px;align-items:center;justify-content:flex-start;padding:10px 12px;border-top:1px solid rgba(148,163,184,.25);background:rgba(255,255,255,.62);}
+.yx-product-location-bottom .yx-product-location-btn{font-weight:800;}
+.yx-product-location-cell:empty::after{content:'';}
+.yx-slot-product-line{display:block;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.yx108-slot-product{white-space:normal;}

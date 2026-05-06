@@ -542,7 +542,12 @@ def safe_cell_items(cell):
 
 
 def warehouse_saved_item_component_details(it, qty=None):
-    """When a grouped dropdown row is saved as one item, distribute placed qty back to source_details."""
+    """Distribute placed qty back to source_details.
+
+    If the user selected one exact support segment, e.g. source row
+    131x30x12=216x4+336x16+348x45 but current cell item is 131x30x12=336x16,
+    deduct 336x16 first so the next dropdown remains 216x4+348x45.
+    """
     if not isinstance(it, dict):
         return []
     details = it.get('source_details') or []
@@ -557,10 +562,22 @@ def warehouse_saved_item_component_details(it, qty=None):
         remaining = int(qty if qty is not None else (it.get('qty') or it.get('quantity') or 0))
     except Exception:
         remaining = 0
+    if remaining <= 0:
+        return []
+    selected_exact = warehouse_item_exact_key(it.get('product_text') or it.get('product') or '')
+    selected_support = warehouse_support_text(it.get('product_text') or it.get('product') or '').strip().lower()
+    def detail_sort_key(d):
+        dproduct = (d.get('product_text') or d.get('product') or '').strip()
+        dexact = warehouse_item_exact_key(dproduct)
+        dsupport = warehouse_support_text(dproduct).strip().lower()
+        if selected_exact and dexact == selected_exact:
+            return 0
+        if selected_support and dsupport == selected_support:
+            return 1
+        return 2
+    ordered = sorted([d for d in details if isinstance(d, dict)], key=detail_sort_key)
     out = []
-    for d in details:
-        if not isinstance(d, dict):
-            continue
+    for d in ordered:
         product = (d.get('product_text') or d.get('product') or '').strip()
         if not product:
             continue
@@ -570,7 +587,7 @@ def warehouse_saved_item_component_details(it, qty=None):
             dqty = 0
         if dqty <= 0:
             continue
-        use_qty = min(dqty, remaining) if remaining > 0 else dqty
+        use_qty = min(dqty, remaining)
         if use_qty <= 0:
             continue
         row = dict(d)
