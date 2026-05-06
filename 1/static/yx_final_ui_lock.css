@@ -586,3 +586,33 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx22-preview-table{width:100%!important;border-collapse:separate!important;border-spacing:0 6px!important;}
 .yx22-preview-table th,.yx22-preview-table td{padding:8px!important;background:rgba(255,255,255,.82)!important;border-bottom:1px solid rgba(120,80,40,.08)!important;}
 /* ===== END V45 REAL MAINFILE REPAIR LOCK ===== */
+
+/* ===== V79: 訂單/總單主動作按鈕固定在清單表頭，不再被舊版隱藏規則蓋掉 ===== */
+#orders-list-section .yx128-summary-controls,
+#master-list-section .yx128-summary-controls,
+#yx113-orders-summary .yx128-summary-controls,
+#yx113-master_order-summary .yx128-summary-controls{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  flex-wrap:wrap!important;
+  gap:8px!important;
+  margin-left:auto!important;
+  margin-top:0!important;
+}
+#orders-list-section .yx113-summary-head,
+#master-list-section .yx113-summary-head,
+#yx113-orders-summary .yx113-summary-head,
+#yx113-master_order-summary .yx113-summary-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  flex-wrap:wrap!important;
+}
+.yx-warehouse-loading-slot{
+  margin:8px!important;
+  text-align:center!important;
+  font-weight:900!important;
+  color:#64748b!important;
+}

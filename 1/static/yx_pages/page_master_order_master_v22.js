@@ -609,24 +609,13 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      const transferButtons = source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
-      const zoneButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">${transferButtons}${zoneButtons}<button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
+      // V79：訂單 / 總單的主要動作按鈕直接放進清單表頭（圖三位置），工具列只保留搜尋、篩選與材質。
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
     const search = $(`yx113-${source}-search`);
-    // V78：HTML 直寫的訂單 / 總單工具列也要補齊 A/B 移動；訂單還要保留「加到總單」。
-    const actions = bar.querySelector('.yx114-batch-actions,.yx-direct-batch-actions');
-    const searchInput = bar.querySelector(`#yx113-${source}-search`);
-    if (actions && searchInput) {
-      if (source === 'orders' && !actions.querySelector('[data-yx132-batch-transfer="master_order"][data-source="orders"]')) {
-        searchInput.insertAdjacentHTML('afterend', `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="orders">加到總單</button>`);
-      }
-      if (!actions.querySelector(`[data-yx132-batch-zone="A"][data-source="${source}"]`)) {
-        searchInput.insertAdjacentHTML('afterend', `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`);
-      }
-    }
+    // V79：主動作按鈕在 renderSummary() 表頭輸出，這裡不再補按鈕，避免上下兩套舊新版互相覆蓋。
     if (search && search.dataset.yxHtmlDirectBound !== '1') {
       search.dataset.yxHtmlDirectBound = '1';
       search.addEventListener('input', () => { renderSummary(source); renderCards(source); });
@@ -801,7 +790,8 @@
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
+    const summaryBatchButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button>`;
+    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}${summaryBatchButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {

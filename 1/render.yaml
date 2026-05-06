@@ -1,4 +1,4 @@
-# V78 warehouse slot/order-master button lock: Render build/start kept stable; smoke test retained.
+# V79 warehouse slot/order-master button lock: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing

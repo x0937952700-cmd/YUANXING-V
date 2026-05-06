@@ -5541,3 +5541,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 /* 復原按鈕 */
 .yx-page-undo-btn{margin-left:8px!important;}
 /* ===== END V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */
+
+/* ===== V79 warehouse real DB slots only ===== */
+.yx-warehouse-loading-slot{margin:8px;text-align:center;font-weight:900;color:#64748b;}
+#orders-list-section .yx128-summary-controls,#master-list-section .yx128-summary-controls{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;margin-left:auto;margin-top:0;}

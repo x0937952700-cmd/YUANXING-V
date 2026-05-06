@@ -420,7 +420,7 @@
   function maxSlot(z,c){
     z=clean(z).toUpperCase(); c=Number(c);
     const nums=(state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
-    // V78：只顯示「資料庫實際存在」的格號；不能再用固定 20 或 DOM 舊節點撐大。
+    // V79：只顯示「資料庫實際存在」的格號；不能再用固定 20 或 DOM 舊節點撐大。
     // 舊寫法會讓前端出現 11~20 這類 DB 不存在的假格，刪除時後端就回「格號超出範圍」。
     return Math.max(1, ...nums);
   }
@@ -435,6 +435,8 @@
   }
   function ensureSlotElement(z,c,s){
     const list=getColumnList(z,c); if(!list) return null;
+    // V79：HTML 不再預畫 20 個假格；首次建立真實 DB 格前，先清掉載入提示。
+    list.querySelectorAll('.yx-warehouse-loading-slot').forEach(x=>x.remove());
     let el=list.querySelector(`[data-zone="${z}"][data-column="${Number(c)}"][data-slot="${Number(s)}"]`);
     if(!el){ el=createSlotElement(z,c,s); const after=Array.from(list.querySelectorAll('[data-slot]')).find(x=>Number(x.dataset.slot)>Number(s)); if(after) list.insertBefore(el,after); else list.appendChild(el); bindSlot(el); }
     return el;
@@ -444,6 +446,7 @@
     const list=getColumnList(z,c); if(!list) return;
     const max=maxSlot(z,c);
     list.querySelectorAll('[data-slot]').forEach(el=>{ if(Number(el.dataset.slot)>max) el.remove(); });
+    if(list.querySelector('[data-slot]')) list.querySelectorAll('.yx-warehouse-loading-slot').forEach(x=>x.remove());
   }
   function updateSlotUI(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -621,7 +624,7 @@
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const before=[...(state.data.cells||[])];
     const optimisticSlot=Math.min(Math.max(0,s), maxSlot(z,c)) + 1;
-    // V78：前端立即顯示新增格，後端完成後再用 DB 回傳校正，避免等待儲存時卡住。
+    // V79：前端立即顯示新增格，後端完成後再用 DB 回傳校正，避免等待儲存時卡住。
     if(!cellFromData(z,c,optimisticSlot)){
       state.data.cells=(state.data.cells||[]).map(cell=>{
         if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>=optimisticSlot){ return {...cell, slot_number:Number(cell.slot_number)+1}; }
@@ -643,11 +646,19 @@
   }
   async function deleteWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    if(!cellFromData(z,c,s)) return toast('此格尚未存在於資料庫，請先按插入格子建立','warn');
+    if(!cellFromData(z,c,s)){
+      // V79：舊版固定 20 格或瀏覽器快取可能留下 DB 已不存在的假格。
+      // 這種格子不再報失敗，直接從畫面清掉並重新抓 DB，避免「此格尚未存在」卡住新增/刪除流程。
+      const ghost=document.querySelector(`#warehouse-root [data-zone="${z}"][data-column="${c}"][data-slot="${s}"]`);
+      ghost?.remove?.();
+      await renderWarehouse(true);
+      toast('已清除不存在的舊格，請用目前顯示的格子繼續操作','ok');
+      return;
+    }
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
     if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return;
     const before=[...(state.data.cells||[])];
-    // V78：空格先從畫面移除並補位，讓第二、第三個動作可以立刻接著做。
+    // V79：空格先從畫面移除並補位，讓第二、第三個動作可以立刻接著做。
     state.data.cells=(state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)===s)).map(cell=>{
       if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>s){ return {...cell, slot_number:Number(cell.slot_number)-1}; }
       return cell;

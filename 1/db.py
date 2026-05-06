@@ -592,7 +592,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                 for col in range(1, 7):
                     cur.execute(sql("""
                         SELECT COUNT(*) AS cnt FROM warehouse_cells
-                        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ?
+                        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
                     """), (zone, col, 'direct'))
                     r = fetchone_dict(cur) or {}
                     if int(r.get('cnt') or 0) == 0:
@@ -2750,10 +2750,11 @@ def warehouse_get_cells():
     cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        # V25 safe fix: when missing slots are auto-completed during read, persist them
-        # immediately so PostgreSQL pooled connections do not roll them back on close.
+        # V79：讀取前先把舊資料 gaps / 重複格號收斂成連續真實格號；
+        # 前端只顯示 DB 存在的格子，新增/刪除才不會遇到「格號超出範圍」。
+        warehouse_normalize_slot_grid(conn, cur)
         conn.commit()
-        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
         rows = rows_to_dict(cur)
         return rows
     except Exception:
@@ -2770,7 +2771,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -2788,7 +2789,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND COALESCE(NULLIF(slot_type,''), 'direct') = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -2799,7 +2800,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute(sql("""
             UPDATE warehouse_cells
             SET items_json = ?, note = ?, updated_at = ?
-            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+            WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
         """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute(sql("""
@@ -2825,9 +2826,9 @@ def warehouse_add_column(zone):
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
     cur.execute(sql("""
-        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
+        SELECT zone, column_index, COALESCE(NULLIF(slot_type,''), 'direct') AS slot_type, slot_number, items_json, note, updated_at
         FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
         ORDER BY slot_number
     """), (zone, column_index, 'direct'))
     rows = rows_to_dict(cur)
@@ -2857,7 +2858,7 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
     """整欄刪掉後依序重寫，避免 UNIQUE(zone,column,slot_type,slot_number) 位移衝突。"""
     cur.execute(sql("""
         DELETE FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
     """), (zone, column_index, 'direct'))
     cleaned = []
     for row in slots:
@@ -2878,6 +2879,45 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
         """), (zone, column_index, 'direct', idx, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
 
 
+def warehouse_normalize_slot_grid(conn=None, cur=None, zone_filter=None, column_filter=None):
+    """V79：把倉庫格位收斂成資料庫真實、連續格號。
+
+    用途：
+    - 清掉舊版 HTML 固定 20 格造成的不存在格號。
+    - 把舊資料 gaps / 重複格號 / slot_type front/back 混用整理回 direct。
+    - 每欄至少 1 格，但不再強制補回 20 格，讓新增 / 刪除格子永久有效。
+    """
+    own_conn = False
+    if conn is None or cur is None:
+        conn = get_db()
+        cur = conn.cursor()
+        own_conn = True
+    try:
+        zones = [str(zone_filter or '').strip().upper()] if zone_filter else ['A', 'B']
+        zones = [z for z in zones if z in ('A', 'B')] or ['A', 'B']
+        cols = [int(column_filter)] if column_filter else list(range(1, 7))
+        for z in zones:
+            for c in cols:
+                if c < 1 or c > 6:
+                    continue
+                slots = _warehouse_column_slots(cur, z, c, 'direct')
+                # 至少保留一格，但不固定 20 格。
+                if not slots:
+                    slots = [{'items_json': '[]', 'note': '', 'updated_at': now()}]
+                _warehouse_rewrite_column_slots(cur, z, c, slots)
+        if own_conn:
+            conn.commit()
+    except Exception:
+        if own_conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        raise
+    finally:
+        if own_conn:
+            conn.close()
+
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
     """新增格子。
 
@@ -2893,6 +2933,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        warehouse_normalize_slot_grid(conn, cur, zone_filter=zone, column_filter=column_index)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if insert_after is None or insert_after == '':
@@ -2929,12 +2970,17 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
+        warehouse_normalize_slot_grid(conn, cur, zone_filter=zone, column_filter=column_index)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:
             return {'success': False, 'error': '每欄至少要保留 1 格'}
-        if slot_number < 1 or slot_number > max_slot:
-            return {'success': False, 'error': '格號超出範圍'}
+        if slot_number < 1:
+            return {'success': False, 'error': '格位參數錯誤'}
+        if slot_number > max_slot:
+            # V79：舊版 HTML/快取可能留下 DB 已不存在的假格；刪除這種格子視為成功並回傳最新 cells，避免紅色失敗提示。
+            conn.commit()
+            return {'success': True, 'removed_slot': slot_number, 'already_absent': True}
         target = slots[slot_number - 1]
         try:
             items = json.loads(target.get('items_json') or '[]')
@@ -2976,7 +3022,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
             zone, column_index, slot_type, slot_number = _norm(key)
             cur.execute(sql("""
                 SELECT * FROM warehouse_cells
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
         from_norm = _norm(from_key)
@@ -3034,8 +3080,8 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
         normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
         conn.commit(); return {'success': True}
     except Exception as e:
         conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
@@ -3853,4 +3899,4 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 # V45_REAL_MAINFILE_REPAIR_DB_MARKER: migrations in init_db already ensure PostgreSQL/SQLite columns and warehouse unique index.
 
 
-# V78_REAL_WAREHOUSE_SLOT_AND_ORDER_MASTER_BUTTON_FIX: warehouse add/delete slot uses actual DB slots; app.py guards side effects; front-end no longer displays fake DOM-only slots.
+# V79_REAL_WAREHOUSE_SLOT_AND_ORDER_MASTER_BUTTON_FIX: warehouse add/delete slot uses actual DB slots; app.py guards side effects; front-end no longer displays fake DOM-only slots.
