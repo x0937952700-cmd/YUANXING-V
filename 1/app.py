@@ -2522,10 +2522,16 @@ def api_warehouse_add_slot():
         if insert_after is None and data.get("slot_number") not in (None, ""):
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
-        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
-        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
-        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
+        yx_v35_safe_side_effect('warehouse_add_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        yx_v35_safe_side_effect('warehouse_add_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
+        yx_v35_safe_side_effect('warehouse_add_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
+        payload = {'success': True, 'slot_number': slot_number}
+        try:
+            payload['zones'] = warehouse_summary()
+            payload['cells'] = warehouse_get_cells()
+        except Exception as read_err:
+            log_error('warehouse_add_slot_readback', str(read_err))
+        return jsonify(payload)
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
         return error_response("新增格子失敗")
@@ -2544,10 +2550,16 @@ def api_warehouse_remove_slot():
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
-        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
-        add_audit_trail(current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
-        notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        yx_v35_safe_side_effect('warehouse_remove_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        yx_v35_safe_side_effect('warehouse_remove_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
+        yx_v35_safe_side_effect('warehouse_remove_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        payload = {'success': True}
+        try:
+            payload['zones'] = warehouse_summary()
+            payload['cells'] = warehouse_get_cells()
+        except Exception as read_err:
+            log_error('warehouse_remove_slot_readback', str(read_err))
+        return jsonify(payload)
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
         return error_response("刪除格子失敗")
