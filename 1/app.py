@@ -21,7 +21,7 @@ from db import (
     ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
-    warehouse_add_slot, warehouse_remove_slot,
+    warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
@@ -1576,33 +1576,6 @@ def api_shipping_record_delete(record_id):
     except Exception as e:
         log_error('shipping_record_delete', str(e))
         return error_response('刪除出貨紀錄失敗')
-
-
-@app.route("/api/shipping_records/bulk-delete", methods=["POST"])
-@login_required_json
-def api_shipping_records_bulk_delete():
-    # V75：出貨查詢管理員可刪除整筆群組紀錄。
-    if current_username() != '陳韋廷':
-        return error_response('權限不足', 403)
-    try:
-        data = request.get_json(silent=True) or {}
-        ids = [int(x) for x in (data.get('ids') or []) if str(x).isdigit()]
-        ids = list(dict.fromkeys([x for x in ids if x > 0]))
-        if not ids:
-            return error_response('缺少刪除紀錄')
-        conn = get_db(); cur = conn.cursor()
-        marks = ','.join(['?'] * len(ids))
-        cur.execute(sql(f'SELECT * FROM shipping_records WHERE id IN ({marks})'), tuple(ids))
-        before = rows_to_dict(cur)
-        cur.execute(sql(f'DELETE FROM shipping_records WHERE id IN ({marks})'), tuple(ids))
-        deleted = cur.rowcount or 0
-        conn.commit(); conn.close()
-        yx_v35_safe_side_effect('shipping_bulk_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', 'bulk_delete', before_json={'rows': before}, after_json={'deleted': deleted, 'ids': ids})
-        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已整筆刪除', extra={'ids': ids, 'deleted': deleted})
-        return jsonify(success=True, deleted=deleted, ids=ids)
-    except Exception as e:
-        log_error('shipping_records_bulk_delete', str(e))
-        return error_response('刪除整筆出貨紀錄失敗')
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
@@ -3869,6 +3842,28 @@ def add_audit_trail(*args, **kwargs):
 
 def notify_sync_event(*args, **kwargs):
     return _yx_v37_silent_side_effect('notify_sync_event', _yx_v37_raw_notify_sync_event, *args, **kwargs)
+
+
+# ============================================================
+# V76 MAINFILE WAREHOUSE MARK ROUTE
+# ============================================================
+@app.route('/api/warehouse/mark-cell', methods=['POST'])
+@login_required_json
+def api_warehouse_mark_cell():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get('zone') or 'A').strip().upper()
+        column_index = int(data.get('column_index') or 0)
+        slot_number = int(data.get('slot_number') or 0)
+        marked = bool(data.get('marked'))
+        result = warehouse_set_cell_mark(zone, column_index, slot_number, marked)
+        if not result.get('success'):
+            return error_response(result.get('error') or '標記失敗')
+        log_action(current_username(), f"{'標記問題格' if marked else '取消問題格標記'} {zone}{column_index}-{slot_number}")
+        return jsonify(success=True, marked=marked, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error('warehouse_mark_cell', str(e))
+        return error_response('標記格子失敗')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
