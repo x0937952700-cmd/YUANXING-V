@@ -714,7 +714,7 @@
   }
   function placementForBatch(i){ return i===0?'後排':i===1?'中間':'前排'; }
   function itemKey(it){ return [cleanCustomer(it?.customer_name||''), clean(it?.exact_key||''), productText(it), clean(it?.support_text||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||'')].join('::'); }
-  function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), productText(it), clean(it?.support_text||productSupportText(it)||''), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||'')].join('::'); }
+  function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), materialOf(it), sourceOf(it), clean(it?.source_id||it?.id||''), clean(it?.zone||it?.location||'')].join('::'); }
 
   function availableGroupKey(it){ return [cleanCustomer(it?.customer_name||''), sourceOf(it), materialOf(it), productBaseText(it), clean(it?.zone||'')].join('::'); }
   function supportQtyOfPart(seg){
@@ -787,7 +787,14 @@
   }
   function cloneWithQty(it, qty){
     const q=Math.max(0, Math.floor(Number(qty||0)));
-    return {...(it||{}), qty:q, unplaced_qty:q, total_qty:Math.max(q, Number(it?.total_qty||q)||q), __warehouseCellItem:false};
+    const row={...(it||{}), qty:q, unplaced_qty:q, available_qty:q, remaining_qty:q, total_qty:Math.max(q, Number(it?.total_qty||q)||q), __warehouseCellItem:false};
+    const original=productText(row);
+    if(original && original.includes('=')){
+      row.product_text = rewriteProductSupportQty(original, q);
+      row.product = row.product_text;
+      row.support_text = productSupportText(row);
+    }
+    return row;
   }
   function summarizeByStable(items){
     const map=new Map();
@@ -1139,11 +1146,12 @@
     }
     if(!confirm(`確定從 ${z} 區第 ${c} 欄第 ${s} 格開始刪除 ${count} 個空格？`)) return;
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
-    for(let i=0;i<count;i++) localDeleteSlot(z,c,s);
-    updateAllSlots(); toast(`已先批量刪除 ${count} 格，背景儲存`,'ok');
+    const visible=visibleSlotNumbers(z,c).filter(n=>n>=s).slice(0,count);
+    visible.forEach(n=>localDeleteSlot(z,c,n));
+    updateAllSlots(); toast(`已先批量刪除 ${visible.length} 格，背景儲存`,'ok');
     (async()=>{
       let last=null;
-      for(let i=0;i<count;i++) last=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s+i,slot_type:'direct'})});
+      for(const n of visible) last=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:n,slot_type:'direct'})});
       if(last && Array.isArray(last.cells)) state.data.cells=last.cells;
       updateAllSlots(); toast(`批量刪除 ${count} 格已永久存入資料庫`,'ok');
     })().catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'批量刪除格子失敗，已還原','error'); });

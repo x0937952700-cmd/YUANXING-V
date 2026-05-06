@@ -4900,29 +4900,27 @@ def _yx_v77_is_deleted_expr():
 
 
 def _yx_v77_empty_items_json(value):
-    """Return True only when a cell has no real product quantity.
-    Old warehouse rows sometimes contain placeholder items with qty 0, empty product
-    text, or legacy UI residue. Those rows displayed as 空格 but still blocked
-    soft-delete, which made users think delete failed.
+    """Treat legacy fake-empty rows as empty.
+    Some old rows store [{}], [{qty:0}], or an item without product text. Those looked empty
+    on the UI but blocked right-click delete.
     """
     try:
         arr = json.loads(value or '[]')
+        if not isinstance(arr, list) or not arr:
+            return True
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            try:
+                qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
+            except Exception:
+                qty = 0
+            if product and qty > 0:
+                return False
+        return True
     except Exception:
         return True
-    if not isinstance(arr, list):
-        return True
-    for it in arr:
-        if not isinstance(it, dict):
-            continue
-        try:
-            qty = int(float(it.get('qty') or it.get('unplaced_qty') or it.get('available_qty') or 0))
-        except Exception:
-            qty = 0
-        product = str(it.get('product_text') or it.get('product') or '').strip()
-        customer = str(it.get('customer_name') or it.get('customer') or '').strip()
-        if qty > 0 and (product or customer):
-            return False
-    return True
 
 
 def _yx_v77_ensure_min_grid(cur):
@@ -5149,10 +5147,17 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         """), (zone,column_index,slot_number))
         target=fetchone_dict(cur)
         if not target:
-            return {'success': False, 'error': '格號不存在或已隱藏'}
+            # If UI shows a default empty slot but DB has no active row, create a hidden row.
+            # This makes delete idempotent and still records the user's hidden-slot choice in DB.
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                VALUES(?,?,?,?,?,?,?,?,1)
+            """), (zone,column_index,'direct',slot_number,'[]','',now(),''))
+            conn.commit()
+            return {'success': True, 'slot_number': slot_number, 'hidden': True}
         if not _yx_v77_empty_items_json(target.get('items_json')):
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
-        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, updated_at=? WHERE id=?"), (now(), target.get('id')))
+        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, items_json='[]', updated_at=? WHERE id=?"), (now(), target.get('id')))
         try:
             cur.execute(sql("DELETE FROM warehouse_recent_slots WHERE zone=? AND column_index=? AND slot_number=?"), (zone,column_index,slot_number))
         except Exception as e:
@@ -5235,21 +5240,7 @@ def _yx_v79_ensure_warehouse_columns(cur):
 def _yx_v79_items_len(value):
     try:
         arr=json.loads(value or '[]')
-        if not isinstance(arr, list):
-            return 0
-        n=0
-        for it in arr:
-            if not isinstance(it, dict):
-                continue
-            try:
-                qty=int(float(it.get('qty') or it.get('unplaced_qty') or it.get('available_qty') or 0))
-            except Exception:
-                qty=0
-            product=str(it.get('product_text') or it.get('product') or '').strip()
-            customer=str(it.get('customer_name') or it.get('customer') or '').strip()
-            if qty>0 and (product or customer):
-                n+=1
-        return n
+        return len(arr) if isinstance(arr, list) else 0
     except Exception:
         return 0
 
@@ -5526,10 +5517,16 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         """), (zone,column_index,slot_number))
         target=fetchone_dict(cur)
         if not target:
-            return {'success':False,'error':'格號不存在或已隱藏'}
+            # UI may show a default empty slot that has never been materialized in DB.
+            # Mark it hidden by creating a hidden empty record instead of failing.
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                VALUES(?,?,?,?,?,?,?,?,1)
+            """), (zone,column_index,'direct',slot_number,'[]','',now(),''))
+            conn.commit(); return {'success':True,'removed_slot':slot_number,'soft_deleted':True,'created_hidden':True}
         if not _yx_v77_empty_items_json(target.get('items_json')):
             return {'success':False,'error':'格子內還有商品，無法刪除'}
-        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, updated_at=? WHERE id=?"), (now(), target.get('id')))
+        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, items_json='[]', updated_at=? WHERE id=?"), (now(), target.get('id')))
         conn.commit(); return {'success':True,'removed_slot':slot_number,'soft_deleted':True}
     except Exception:
         try: conn.rollback()
