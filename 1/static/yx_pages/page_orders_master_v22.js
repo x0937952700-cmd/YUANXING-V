@@ -1225,6 +1225,18 @@
     try { (window.YXHardLock?.toast || window.toast || window.showToast || window.notify || window.alert)(msg, type); }
     catch(_e){ alert(msg); }
   }
+
+  function safeProductUndoForSubmit(source, label){
+    try{
+      const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
+      const before = act?.rowsStore ? JSON.parse(JSON.stringify(act.rowsStore(source) || [])) : [];
+      if (window.YXPageUndo?.snapshot && act?.rowsStore) {
+        window.YXPageUndo.snapshot(label || '商品操作', function(){
+          try { act.rowsStore(source, JSON.parse(JSON.stringify(before))); act.renderSummary?.(source); act.renderCards?.(source); } catch(_e) {}
+        });
+      }
+    }catch(_e){}
+  }
   async function api(url, opt={}){
     const r = await fetch(url, {
       credentials:'same-origin',
@@ -1445,7 +1457,7 @@
       const requestKey = `v33-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const activeZone = activeZoneForSource(m);
       toast(`送出中：${items.length} 筆商品`, 'ok');
-      pushProductUndo(m, '新增商品');
+      safeProductUndoForSubmit(m, '新增商品');
       // v20：先把商品與客戶卡直接畫到目前頁面，使用者不用等後端 GET 才看到。
       const preOptimistic = submittedRowsFor(m, customer, items, activeZone);
       try {

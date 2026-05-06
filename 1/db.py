@@ -544,7 +544,9 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
         cur = conn.cursor()
         own_conn = True
     try:
-        _warehouse_materialize_column_slots(cur, zone, column_index, max(slot_number, 1))
+        # V83: 不可在這裡使用不存在的 zone/column_index/slot_number，
+        # 前版會在進入倉庫 API 時直接 NameError，導致 /api/warehouse 回空資料，
+        # 畫面只剩 HTML 預設 6 欄第 1 格。這裡只負責建表與安全補欄位。
         if USE_POSTGRES:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS warehouse_cells (
@@ -588,19 +590,11 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
         else:
-            # 不固定 20 格，但每欄至少保留 1 格，避免欄位完全空掉無法再插入。
+            # V83：既有資料庫只補缺格，不刪、不清空、不搬動有商品格。
+            # 每欄安全補到 20 格，解決 DB 被舊版洗到只剩第 1 格時，前端無法新增/刪除。
             for zone in ('A', 'B'):
                 for col in range(1, 7):
-                    cur.execute(sql("""
-                        SELECT COUNT(*) AS cnt FROM warehouse_cells
-                        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
-                    """), (zone, col, 'direct'))
-                    r = fetchone_dict(cur) or {}
-                    if int(r.get('cnt') or 0) == 0:
-                        cur.execute(sql("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """), (zone, col, 'direct', 1, '[]', '', now()))
+                    _warehouse_materialize_column_slots(cur, zone, col, 20)
         if own_conn:
             conn.commit()
     finally:
@@ -1136,6 +1130,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             "CREATE INDEX IF NOT EXISTS ix_shipping_records_shipped_at ON shipping_records(shipped_at DESC, id DESC)",
             "CREATE INDEX IF NOT EXISTS ix_logs_created_at ON logs(created_at DESC, id DESC)",
             "CREATE INDEX IF NOT EXISTS ix_today_changes_created_at ON today_changes(created_at DESC, id DESC)",
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_cells_zone_col_slot ON warehouse_cells(zone, column_index, slot_number)",
         ]
         for _stmt in _index_sqls:
             try:
@@ -2816,26 +2811,17 @@ def _warehouse_materialize_column_slots(cur, zone, column_index, min_slots=1):
 
 
 def ensure_warehouse_default_20_v82(cur):
-    """V82：從 V78 重新開始的倉庫安全補格。
+    """V83：每次讀取前安全補回 A/B 各 6 欄、每欄至少 20 格。
 
-    目的：救回 V79/V80/V81 後只剩 1 格的欄位，補回 A/B 各 6 欄、每欄預設 20 格。
-    做法：只補空白缺格，不刪商品、不搬動有商品格。完成後寫入新旗標，之後手動刪減不會被重新補回 20。
+    只補缺少的空格，保留所有已有商品、備註與格號；不做清空、不做全表重置。
+    前面版本如果已寫入 v82 旗標也不再影響補格，因為使用者明確要求預先顯示 20 格。
     """
-    key = 'v82_from_v78_default20_materialized'
-    try:
-        cur.execute(sql("SELECT value FROM app_settings WHERE key = ?"), (key,))
-        row = fetchone_dict(cur) or {}
-        if str(row.get('value') or '') == '1':
-            return
-    except Exception:
-        # 若 app_settings 還沒建立，仍先補格；init_db 會再寫旗標。
-        pass
     for zone in ('A', 'B'):
         for col in range(1, 7):
             _warehouse_materialize_column_slots(cur, zone, col, 20)
     try:
-        cur.execute(sql("DELETE FROM app_settings WHERE key = ?"), (key,))
-        cur.execute(sql("INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, ?)"), (key, '1', now()))
+        cur.execute(sql("DELETE FROM app_settings WHERE key = ?"), ('v83_warehouse_default20_materialized',))
+        cur.execute(sql("INSERT INTO app_settings(key, value, updated_at) VALUES (?, ?, ?)"), ('v83_warehouse_default20_materialized', '1', now()))
     except Exception:
         pass
 

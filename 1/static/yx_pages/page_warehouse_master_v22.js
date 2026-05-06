@@ -420,9 +420,9 @@
   function maxSlot(z,c){
     z=clean(z).toUpperCase(); c=Number(c);
     const nums=(state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
-    // V82：從 V78 重新修正。畫面吃 DB 真實格數；DB 會在讀取時安全補回預設 20 格。
-    // 使用者手動新增 / 刪除後，前端依後端回傳格數顯示，不再靠舊補丁硬塞。
-    return Math.max(1, ...nums);
+    // V83：倉庫圖一律預先顯示每欄至少 20 格；DB 缺格時後端會安全補空格。
+    // 這只補空格顯示，不會清空或覆蓋原本有商品的格子。
+    return Math.max(20, ...nums);
   }
   function getColumnList(z,c){ return document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"] .vertical-slot-list`); }
   function createSlotElement(z,c,s){
@@ -469,6 +469,14 @@
     sum && (sum.textContent=qtys.join('+') || String(totalQty));
     total && (total.textContent=`${totalQty}件`);
   }
+
+  function materializeDisplayCells(cells){
+    const out=Array.isArray(cells)?cells.slice():[];
+    const seen=new Set(out.map(c=>key(c.zone,c.column_index,c.slot_number)));
+    zones.forEach(z=>{ for(let c=1;c<=6;c++){ for(let slot=1;slot<=20;slot++){ const k=key(z,c,slot); if(!seen.has(k)){ out.push({zone:z,column_index:c,slot_type:'direct',slot_number:slot,items:[],items_json:'[]',note:'',_virtual:true}); seen.add(k); } } } });
+    return out.sort((a,b)=>String(a.zone).localeCompare(String(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
+  }
+
   function updateAllSlots(){
     ensureSlotRange();
     zones.forEach(z=>{ for(let c=1;c<=6;c++){ for(let s=1;s<=maxSlot(z,c);s++) updateSlotUI(z,c,s); removeExtraDom(z,c); } });
@@ -489,7 +497,7 @@
   }
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
-    state.loading=(async()=>{ try{ const [d]=await Promise.all([api('/api/warehouse?ts='+Date.now()), loadAvailable()]); state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}}; window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; updateAllSlots(); } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
+    state.loading=(async()=>{ try{ const [d]=await Promise.all([api('/api/warehouse?ts='+Date.now()), loadAvailable()]); state.data={cells:materializeDisplayCells(Array.isArray(d.cells)?d.cells:[]), zones:d.zones||{A:{},B:{}}}; window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; updateAllSlots(); } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
     return state.loading;
   }
   function setWarehouseZone(zone='A', scroll=true){
@@ -632,7 +640,7 @@
     }
     try{
       const d=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s,slot_type:'direct'})});
-      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      if(Array.isArray(d.cells)) state.data.cells=materializeDisplayCells(d.cells);
       toast('已插入格子','ok');
       await renderWarehouse(true);
       highlightWarehouseCell(z,c,Number(d.slot_number||optimisticSlot));
@@ -655,7 +663,7 @@
     updateAllSlots();
     try{
       const d=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s,slot_type:'direct'})});
-      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      if(Array.isArray(d.cells)) state.data.cells=materializeDisplayCells(d.cells);
       toast('已刪除格子','ok');
       await renderWarehouse(true);
     }catch(e){
@@ -663,7 +671,7 @@
       throw e;
     }
   }
-  async function returnWarehouseCell(z,c,s){ const items=cellItems(z,c,s); if(!items.length) return toast('此格沒有商品可退回','warn'); if(!confirm(`確定將 ${z} 區第 ${c} 欄第 ${s} 格商品退回未錄入倉庫圖？`)) return; const d=await api('/api/warehouse/return-unplaced',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s)})}); if(Array.isArray(d.cells)) state.data.cells=d.cells; toast('已退回該格','ok'); await renderWarehouse(true); highlightWarehouseCell(z,c,s); }
+  async function returnWarehouseCell(z,c,s){ const items=cellItems(z,c,s); if(!items.length) return toast('此格沒有商品可退回','warn'); if(!confirm(`確定將 ${z} 區第 ${c} 欄第 ${s} 格商品退回未錄入倉庫圖？`)) return; const d=await api('/api/warehouse/return-unplaced',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s)})}); if(Array.isArray(d.cells)) state.data.cells=materializeDisplayCells(d.cells); toast('已退回該格','ok'); await renderWarehouse(true); highlightWarehouseCell(z,c,s); }
   function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">編輯格子</button><button data-wh-act="return">退回該格</button><button data-wh-act="insert">插入格子</button><button data-wh-act="delete">刪除格子</button>'; document.body.appendChild(m); return m; }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }
   function bindSlot(slot){

@@ -1,4 +1,4 @@
-# V82 from V78 safe warehouse 20-slot/materialize + batch header lock.
+# V83 safe warehouse 20-slot + pushProductUndo + batch edit lock.
 services:
   - type: web
     name: yuanxing
