@@ -358,17 +358,6 @@
     return String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'zh-Hant', {numeric:true});
   }
   function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
-
-  async function deleteShipGroup(ids){
-    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
-    if(!list.length) return;
-    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
-    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
-    if(card) card.remove();
-    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
-  }
-
   function install(){
     document.documentElement.dataset.yx118ProductSort = 'locked';
     window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
@@ -386,15 +375,14 @@
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0, forceNext:false};
+  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
   const panels = [
-    {key:'inbound', label:'新增庫存', list:'today-inbound-list', empty:'今天沒有新增庫存'},
-    {key:'orders', label:'新增訂單', list:'today-order-list', empty:'今天沒有新增訂單'},
-    {key:'masters', label:'新增總單', list:'today-master-list', empty:'今天沒有新增總單'},
+    {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
     {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
+    {key:'orders', label:'新增訂單', list:'today-order-list', empty:'今天沒有新增訂單'},
     {key:'unplaced', label:'未錄入倉庫圖', list:'today-unplaced-list', empty:'目前沒有未錄入倉庫圖商品'},
   ];
-  const countMap = {inbound:'inbound_count', orders:'new_order_count', masters:'new_master_count', outbound:'outbound_count', unplaced:'unplaced_count'};
+  const countMap = {inbound:'inbound_count', outbound:'outbound_count', orders:'new_order_count', unplaced:'unplaced_count'};
 
   function $(id){ return document.getElementById(id); }
   function isToday(){ return YX.moduleKey() === 'today_changes' || !!$('today-summary-cards'); }
@@ -499,28 +487,6 @@
     if (r?.source_summary) parts.push(`來源：${r.source_summary}`);
     return parts.join('｜');
   }
-
-  function groupOutboundRows(rows){
-    const map=new Map();
-    (Array.isArray(rows)?rows:[]).forEach(r=>{
-      const customer=YX.clean(r?.customer_name||r?.target||r?.customer||'未填客戶');
-      const date=YX.clean(String(r?.created_at||r?.time||'').slice(0,10)) || '未填日期';
-      const key=customer+'::'+date;
-      if(!map.has(key)) map.set(key,{id:0, action:'出貨', customer_name:customer, date, rows:[], qty:0});
-      const g=map.get(key); g.rows.push(r); g.qty += qtyOf(r); if(!g.id && r?.id) g.id=Number(r.id||0);
-    });
-    return Array.from(map.values()).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(a.customer_name).localeCompare(String(b.customer_name),'zh-Hant'));
-  }
-  function todayOutboundCard(g){
-    const lines=(g.rows||[]).map(r=>YX.clean(r?.product_text||r?.product||r?.message||'')).filter(Boolean);
-    const ids=(g.rows||[]).map(r=>Number(r?.id||0)).filter(Boolean).join(',');
-    return `<div class="today-item deduct-card yx112-today-row yx-v63-outbound-card" data-kind="outbound" data-ship-record-ids="${YX.esc(ids)}">
-      <div class="yx112-today-main yx-v63-outbound-head"><strong>${g.rows.length}/${g.rows.length}</strong><span>${YX.esc(g.customer_name)}</span>${ids?`<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx63-delete-ship-group="${YX.esc(ids)}">刪除</button>`:''}</div>
-      <div class="yx-v63-outbound-lines">${lines.map(x=>`<div>${YX.esc(x)}</div>`).join('')}</div>
-      <div class="small-note">${YX.esc(g.date)}｜${g.rows.length}筆 / ${g.qty}件</div>
-    </div>`;
-  }
-
   function todayRow(r, kind){
     const id = Number(r?.id || 0);
     const detail = rowText(r);
@@ -539,11 +505,6 @@
     if (!el) return;
     const arr = Array.isArray(rows) ? rows : [];
     el.classList.add('yx112-fixed-card-list');
-    if(kind === 'outbound'){
-      const groups = groupOutboundRows(arr);
-      el.innerHTML = groups.length ? groups.map(todayOutboundCard).join('') : `<div class="empty-state-card compact-empty yx112-empty">${YX.esc(empty)}</div>`;
-      return;
-    }
     el.innerHTML = arr.length ? arr.map(r => todayRow(r, kind)).join('') : `<div class="empty-state-card compact-empty yx112-empty">${YX.esc(empty)}</div>`;
   }
   function render(data){
@@ -556,9 +517,8 @@
     renderSummaryCards(summary);
     renderUnplacedZonePill(summary);
     fill('today-inbound-list', state.data.feed?.inbound, '今天沒有進貨', 'inbound');
-    fill('today-order-list', state.data.feed?.new_orders, '今天沒有新增訂單', 'orders');
-    fill('today-master-list', state.data.feed?.new_masters, '今天沒有新增總單', 'masters');
     fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
+    fill('today-order-list', state.data.feed?.new_orders, '今天沒有新增訂單', 'orders');
     fill('today-unplaced-list', state.data.unplaced_items, '目前沒有未錄入倉庫圖商品', 'unplaced');
     applyFilter();
     return data;
@@ -569,7 +529,7 @@
     state.loading = (async () => {
       try {
         cleanLegacyTodayDom();
-        let data = await YX.api('/api/today-changes?yx112=1&force=' + (opts.force || state.forceNext ? '1' : '0') + '&ts=' + Date.now(), {method:'GET'}); state.forceNext=false;
+        let data = await YX.api('/api/today-changes?yx112=1&ts=' + Date.now(), {method:'GET'});
         try {
           const wz = await YX.api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
           data.summary = data.summary || {};
@@ -627,12 +587,6 @@
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
         return;
       }
-      const delShip = ev.target?.closest?.('[data-yx63-delete-ship-group]');
-      if (delShip) {
-        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-        await deleteShipGroup(delShip.getAttribute('data-yx63-delete-ship-group') || '');
-        return;
-      }
       const filter = ev.target?.closest?.('[data-today-filter]');
       if (filter) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
@@ -671,17 +625,6 @@
       try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix142-speed-ship-master-hardlock', loadTodayChanges:fn}); } catch(_e) {}
     }
   }
-
-  async function deleteShipGroup(ids){
-    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
-    if(!list.length) return;
-    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
-    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
-    if(card) card.remove();
-    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
-  }
-
   function install(){
     if (!isToday()) return;
     // V24：每次打開今日異動固定先顯示「新增訂單」單一卡片版，
@@ -745,17 +688,6 @@
       el.setAttribute('aria-hidden','true');
     });
   }
-
-  async function deleteShipGroup(ids){
-    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
-    if(!list.length) return;
-    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
-    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
-    if(card) card.remove();
-    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
-  }
-
   function install(){
     stopLegacyLayoutNames();
     protectStaticShell();

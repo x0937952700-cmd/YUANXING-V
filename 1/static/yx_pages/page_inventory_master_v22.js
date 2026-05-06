@@ -146,7 +146,7 @@
 })();
 /* ===== END V57 global product undo bridge ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 V70 buttons lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_inventory_master_v22'; })();
 
 /* ===== MERGED INTO V22 FROM static/yx_modules/core_hardlock.js ===== */
@@ -637,9 +637,9 @@
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
       const commonToolbar = `<input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">`
-        + ''
+        + (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '')
         + `<button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button>`
-        + '';  // V85：批量刪除 / 批量編輯固定移到清單表頭，不再放上方工具列。
+        + (source === 'inventory' ? `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button>` : '');
       bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions">${commonToolbar}</div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
@@ -815,13 +815,13 @@
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);
+    const moveButtons = source === 'inventory'
+      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
+      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-    const orderToMasterButton = source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
-    const inventoryTransferButtons = source === 'inventory' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
-    const editDeleteButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>`;
     const controls = source === 'inventory'
-      ? `<div class="yx128-summary-controls yx-v85-inventory-header-actions">${zoneMoveButtons}${inventoryTransferButtons}${editDeleteButtons}</div>`
-      : `<div class="yx128-summary-controls yx-v85-order-master-header-actions">${orderToMasterButton}${zoneMoveButtons}${editDeleteButtons}</div>`; // V85：庫存/訂單/總單批量刪除與批量編輯直接在清單表頭，不靠補丁。
+      ? `<div class="yx128-summary-controls yx-v58-inventory-four-actions">${zoneMoveButtons}${moveButtons}</div>`
+      : `<div class="yx128-summary-controls">${zoneMoveButtons}${moveButtons}<button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button></div>`; // V58：庫存表頭只保留移到A/B、加到訂單/總單四顆；批量功能只放上方工具列。
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -996,25 +996,22 @@
       items.push({source:apiSource(source), id, ...payload});
     }
     if (!items.length) return YX.toast('沒有可儲存的商品', 'warn');
-    // V65：按下儲存批量編輯後，前端先立刻關閉編輯狀態；後台再儲存 DB，避免畫面卡住或被舊渲染打斷。
-    state.editAll[source] = false;
-    state.editScope[source] = null;
-    clearSelected(source);
-    renderSummary(source);
-    renderCards(source);
-    YX.toast(`已套用畫面並背景儲存 ${items.length} 筆`, 'ok');
+    // V59：按下儲存批量編輯後要立刻保存並關閉編輯狀態。
+    updateSummaryHeaderOnly(source);
+    YX.toast(`正在儲存 ${items.length} 筆商品`, 'ok');
     try{
       const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
-      mergeSnapshotQuiet(d, source);
       state.editAll[source] = false;
       state.editScope[source] = null;
+      clearSelected(source);
+      if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); }
       renderSummary(source);
       renderCards(source);
-      YX.toast(`已儲存 ${d.count || items.length} 筆`, 'ok');
+      YX.toast(`已儲存 ${d.count || items.length} 筆，並關閉編輯模式`, 'ok');
       try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
     }catch(e){
       await loadSource(source);
-      YX.toast(e.message || '批量編輯儲存失敗，已重新同步資料', 'error');
+      YX.toast(e.message || '批量編輯儲存失敗', 'error');
     }
   }
   async function bulkMaterial(source){
@@ -1684,4 +1681,47 @@
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
 
-/* V85: product page uses the main V22 renderer only; legacy V55/V70/V73/V75 interval/observer overlays removed. */
+
+
+
+/* ===== V55 PRODUCT MAINFILE DIRECT REPAIR: clean undo + reliable inventory/orders/master controls ===== */
+(function(){
+  'use strict';
+  if (window.__YX_V55_PRODUCT_DIRECT_REPAIR__) return;
+  window.__YX_V55_PRODUCT_DIRECT_REPAIR__ = true;
+  const clean=v=>String(v??'').trim();
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const page=()=>document.body?.dataset?.module||document.querySelector('.module-screen[data-module]')?.dataset?.module||'';
+  async function api(url,opt={}){ const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{};}catch(_e){d={success:false,error:t};} if(!r.ok||d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; }
+  function toast(message,kind='ok'){
+    const active=document.activeElement; const editable=active&&active.matches?.('input,textarea,select,[contenteditable="true"]'); let ss=null,se=null; try{ if(editable&&'selectionStart' in active){ss=active.selectionStart;se=active.selectionEnd;} }catch(_e){}
+    let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.setAttribute('aria-live','polite'); box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML=`<strong>${kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功'}</strong><div>${esc(message||'')}</div>`; box.classList.add('show'); box.style.display='block'; clearTimeout(window.__YX_V55_TOAST_TIMER__); window.__YX_V55_TOAST_TIMER__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);
+    if(editable&&document.contains(active)){ setTimeout(()=>{try{active.focus({preventScroll:true}); if(ss!=null&&active.setSelectionRange) active.setSelectionRange(ss,se??ss);}catch(_e){}},0); }
+  }
+  window.toast=window.showToast=window.notify=toast; if(window.YXHardLock) window.YXHardLock.toast=toast;
+  function sourceFromButton(btn){ return btn?.dataset?.source || btn?.dataset?.yx113BatchMaterial || btn?.dataset?.yx113BatchDelete || btn?.dataset?.yx128EditAll || page(); }
+  function apiSource(s){ return s==='master_order'?'master_order':s; }
+  function selectedRows(source){ return Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-summary-row[data-id]`)).filter(tr=>tr.querySelector('.yx113-row-check:checked')||tr.classList.contains('yx113-row-selected')); }
+  function allRows(source){ return Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-summary-row[data-id]`)); }
+  function idsFor(source, allWhenNone=false){ let rows=selectedRows(source); if(!rows.length&&allWhenNone) rows=allRows(source); return rows.map(tr=>({source:apiSource(source), id:Number(tr.dataset.id||tr.querySelector('.yx113-row-check')?.dataset.id||0)})).filter(x=>x.id>0); }
+  function refresh(){ setTimeout(()=>{try{location.reload();}catch(_e){}},280); }
+  function ensureUndo(){ window.YXPageUndo=window.YXPageUndo||{}; window.YXPageUndo.open=async function(){ try{ const d=await api('/api/audit-trails?limit=10&undo=1'); const items=Array.isArray(d.items)?d.items.slice(0,10):[]; if(!items.length) return toast('目前沒有可還原的最近操作','warn'); const text=items.map((x,i)=>`${i+1}. ${x.created_at||''} ${x.action_label||x.action_type||''} ${x.entity_label||x.entity_type||''} ${x.summary_text||x.entity_key||''}`).join('\n'); const n=prompt('輸入要還原第幾筆：\n'+text,'1'); const idx=Number(n)-1; if(!items[idx]) return; await api('/api/undo-last',{method:'POST',body:JSON.stringify({id:items[idx].id})}); toast('已還原，重新整理中','ok'); refresh(); }catch(e){toast(e.message||'還原失敗','error');} }; }
+  ensureUndo();
+  document.addEventListener('click', async ev=>{
+    const p=page(); if(!['inventory','orders','master_order'].includes(p)) return;
+    const undo=ev.target.closest?.('.yx-page-undo-btn,#yx-page-undo-btn'); if(undo){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); return window.YXPageUndo.open();}
+    const mat=ev.target.closest?.('[data-yx113-batch-material]');
+    if(mat){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(mat); const material=clean(document.getElementById(`yx113-${source}-material`)?.value||''); if(!material) return toast('請先選擇材質','warn'); const items=idsFor(source,true); if(!items.length) return toast('目前沒有可套用材質的商品','warn'); try{ await api('/api/customer-items/batch-material',{method:'POST',body:JSON.stringify({material,items})}); toast(`已套用材質 ${material}`,'ok'); refresh(); }catch(e){toast(e.message||'批量材質失敗','error');} return;}
+    const del=ev.target.closest?.('[data-yx113-batch-delete]');
+    if(del){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(del); const items=idsFor(source,false); if(!items.length) return toast('請先勾選要刪除的商品','warn'); if(!confirm(`確定刪除 ${items.length} 筆商品？`)) return; try{ await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items})}); toast('已批量刪除','ok'); refresh(); }catch(e){toast(e.message||'批量刪除失敗','error');} return;}
+    const zone=ev.target.closest?.('[data-yx132-batch-zone]');
+    if(zone){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(zone); const items=idsFor(source,true); if(!items.length) return toast('目前沒有可移到 A/B 區的商品','warn'); try{ await api('/api/customer-items/batch-zone',{method:'POST',body:JSON.stringify({zone:zone.dataset.yx132BatchZone,items})}); toast(`已移到 ${zone.dataset.yx132BatchZone}區`,'ok'); refresh(); }catch(e){toast(e.message||'A/B區移動失敗','error');} return;}
+    const trans=ev.target.closest?.('[data-yx132-batch-transfer]');
+    if(trans){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(trans); const target=trans.dataset.yx132BatchTransfer; const items=idsFor(source,false); if(!items.length) return toast('請先勾選要移動的商品','warn'); let customer=clean(document.getElementById('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''); if(!customer) customer=prompt('請輸入客戶名稱')||''; customer=clean(customer); if(!customer) return toast('請先輸入客戶名稱','warn'); try{ await api('/api/items/batch-transfer',{method:'POST',body:JSON.stringify({items:items.map(x=>({...x,customer_name:customer})),target,customer_name:customer,region:'北區',allow_inventory_fallback:true,request_key:'v55-'+Date.now()})}); toast('已加入清單','ok'); refresh(); }catch(e){toast(e.message||'加到清單失敗','error');} return;}
+  }, true);
+})();
+/* ===== END V55 PRODUCT MAINFILE DIRECT REPAIR ===== */
+
+
+
+/* V59 requested mainfile locks installed: instant edit close, optimistic submit, clean toolbar, audit undo modal. */
