@@ -10,7 +10,30 @@ from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DATABASE_URL = (os.getenv("DATABASE_URL", "sqlite:///warehouse.db") or "sqlite:///warehouse.db").strip()
+# Render/DB safety: accept common database env aliases before falling back to local SQLite.
+# This prevents deploys from silently using an empty warehouse.db when the real
+# PostgreSQL URL was provided under a different Render variable name.
+# Main-file DB resolver: prefer any configured PostgreSQL URL and never let a
+# warehouse fallback/error silently make the app look like it has no data.
+# Render usually uses DATABASE_URL, but older projects may name it differently.
+_DB_ENV_KEYS = (
+    "DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL", "DATABASE_PRIVATE_URL",
+    "EXTERNAL_DATABASE_URL", "DATABASE_EXTERNAL_URL", "DATABASE_INTERNAL_URL",
+    "RENDER_DATABASE_URL", "RENDER_POSTGRESQL_URL", "POSTGRES_EXTERNAL_URL",
+    "POSTGRES_INTERNAL_URL", "POSTGRES_EXTERNAL_DATABASE_URL", "POSTGRES_INTERNAL_DATABASE_URL",
+    "POSTGRES_CONNECTION_STRING", "PG_URL", "PGURI", "DB_URL",
+    "SQLALCHEMY_DATABASE_URI", "DATABASE_CONNECTION_STRING",
+    "NEON_DATABASE_URL", "SUPABASE_DATABASE_URL",
+)
+
+def _pick_database_url():
+    for key in _DB_ENV_KEYS:
+        val = (os.getenv(key) or '').strip()
+        if val:
+            return val, key
+    return "sqlite:///warehouse.db", "sqlite_default"
+
+DATABASE_URL, DATABASE_URL_SOURCE = _pick_database_url()
 
 def _normalize_database_url(url: str) -> str:
     """FIX141 Render PostgreSQL External URL safety."""
@@ -22,6 +45,31 @@ def _normalize_database_url(url: str) -> str:
 
 DATABASE_URL = _normalize_database_url(DATABASE_URL)
 USE_POSTGRES = DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
+
+def database_mode_info():
+    safe_url = DATABASE_URL
+    if safe_url.lower().startswith(("postgres://", "postgresql://")):
+        safe_url = re.sub(r":[^:@/]+@", ":***@", safe_url)
+    return {
+        "mode": "postgres" if USE_POSTGRES else "sqlite",
+        "source": DATABASE_URL_SOURCE,
+        "url_preview": safe_url[:120],
+        "render_warning": bool(os.getenv("RENDER") and not USE_POSTGRES),
+    }
+
+def table_counts():
+    out = {}
+    conn = get_db(); cur = conn.cursor()
+    for t in ("customer_profiles", "inventory", "orders", "master_orders", "shipping_records", "warehouse_cells", "logs", "today_changes"):
+        try:
+            cur.execute(sql(f"SELECT COUNT(*) AS c FROM {t}"))
+            row = fetchone_dict(cur) or {}
+            out[t] = int(row.get("c") or 0)
+        except Exception as e:
+            out[t] = "error:" + str(e)[:120]
+    try: conn.close()
+    except Exception: pass
+    return out
 
 if USE_POSTGRES:
     import psycopg2
@@ -802,10 +850,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     _schema_columns = {
         'users': [('username','TEXT'),('password','TEXT'),('role','TEXT DEFAULT \'user\''),('is_blocked','INTEGER DEFAULT 0'),('created_at','TEXT'),('updated_at','TEXT')],
         'customer_profiles': [('name','TEXT'),('phone','TEXT'),('address','TEXT'),('notes','TEXT'),('common_materials','TEXT'),('common_sizes','TEXT'),('region','TEXT'),('customer_uid','TEXT'),('is_archived','INTEGER DEFAULT 0'),('archived_at','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('status','TEXT DEFAULT \'pending\''),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('operator','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('status',"TEXT DEFAULT 'pending'"),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
+        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('source_table','TEXT'),('before_qty','INTEGER DEFAULT 0'),('after_qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT'),('is_deleted','INTEGER DEFAULT 0'),('problem_flag','TEXT DEFAULT ''')],
         'today_changes': [('action','TEXT'),('table_name','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('detail_json','TEXT'),('operator','TEXT'),('created_at','TEXT'),('unread','INTEGER DEFAULT 1')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
@@ -3129,7 +3177,15 @@ def inventory_placements():
 
 def inventory_summary():
     rows = list_inventory()
-    placement = inventory_placements()
+    # Do not let warehouse placement/statistics errors blank the inventory page.
+    # Inventory must still show DB data even if warehouse_cells has legacy duplicate rows
+    # or a temporary migration/index issue.
+    try:
+        placement = inventory_placements()
+    except Exception as e:
+        try: log_error('inventory_summary_placement_fallback', str(e))
+        except Exception: pass
+        placement = {}
     result = []
     for r in rows:
         r = dict(r)
@@ -5201,30 +5257,48 @@ def _yx_v79_ensure_min_visible_slots(cur, zone=None, column_index=None, default_
                     VALUES(?,?,?,?,?,?,?,?,0)
                 """), (z,c,'direct',n,'[]','',now(),''))
 
+def _yx_v80_raw_warehouse_cells(cur):
+    cur.execute(sql("""
+        SELECT *, COALESCE(problem_flag,'') AS problem_flag, COALESCE(is_deleted,0) AS is_deleted
+        FROM warehouse_cells
+        WHERE COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+          AND COALESCE(is_deleted,0)=0
+        ORDER BY zone, column_index, slot_number, id
+    """), ())
+    return rows_to_dict(cur)
+
+
 def warehouse_get_cells():
+    """Read warehouse cells without ever clearing/rebuilding warehouse_cells.
+    If old data has duplicate/legacy rows and a cleanup step fails, fall back to a
+    raw SELECT instead of returning an empty warehouse to the frontend.
+    """
     conn=get_db(); cur=conn.cursor()
     try:
-        ensure_fixed_warehouse_grid(conn, cur)
+        # Minimal, non-destructive schema/slot preparation only.
         _yx_v79_ensure_warehouse_columns(cur)
-        _yx_v79_merge_duplicate_slots_all(cur)
+        _yx_v79_merge_duplicate_slots_all(cur)  # hides merged duplicate rows; does not delete product data
         _yx_v79_ensure_min_visible_slots(cur, default_slots=25)
         conn.commit()
-        cur.execute(sql("""
-            SELECT *, COALESCE(problem_flag,'') AS problem_flag, COALESCE(is_deleted,0) AS is_deleted
-            FROM warehouse_cells
-            WHERE COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
-              AND COALESCE(is_deleted,0)=0
-            ORDER BY zone, column_index, slot_number, id
-        """), ())
-        return rows_to_dict(cur)
-    except Exception:
+        return _yx_v80_raw_warehouse_cells(cur)
+    except Exception as e:
         try: conn.rollback()
         except Exception: pass
-        raise
+        try: log_error('warehouse_get_cells_safe_fallback', str(e))
+        except Exception: pass
+        try:
+            _yx_v79_ensure_warehouse_columns(cur)
+            conn.commit()
+            return _yx_v80_raw_warehouse_cells(cur)
+        except Exception as e2:
+            try: conn.rollback()
+            except Exception: pass
+            try: log_error('warehouse_get_cells_raw_failed', str(e2))
+            except Exception: pass
+            return []
     finally:
         try: conn.close()
         except Exception: pass
-
 
 def warehouse_summary():
     cells=warehouse_get_cells()

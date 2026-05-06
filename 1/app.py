@@ -23,7 +23,7 @@ from db import (
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now, USE_POSTGRES,
+    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now, USE_POSTGRES, database_mode_info, table_counts,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
@@ -311,7 +311,7 @@ def protect_pages():
     if path.startswith("/static/") or path in ("/health",):
         return None
     public = [
-        "/login", "/api/login", "/api/health", "/api/native-shell/config",
+        "/login", "/api/login", "/api/health", "/api/db-diagnostics", "/api/native-shell/config",
         "/sw.js", "/manifest.webmanifest"
     ]
     if path in public:
@@ -1312,7 +1312,12 @@ def api_inventory():
             return jsonify(success=True, items=grouped_inventory())
         except Exception as e:
             log_error("inventory_get", str(e))
-            return jsonify(success=True, items=[])
+            try:
+                # Do not show an empty inventory page just because warehouse summary failed.
+                return jsonify(success=True, items=list_inventory(), degraded=True, error=str(e))
+            except Exception as e2:
+                log_error("inventory_get_raw_fallback", str(e2))
+                return jsonify(success=False, items=[], error=str(e2))
     data = request.get_json(silent=True) or {}
     try:
         if not request_key_from_payload(data, endpoint='/api/inventory'):
@@ -1780,10 +1785,18 @@ def api_customer_detail(name):
 @login_required_json
 def api_warehouse():
     try:
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        cells = warehouse_get_cells()
+        zones = {"A": {}, "B": {}}
+        for cell in cells:
+            z = (cell.get('zone') or 'A').strip().upper()
+            if z not in ('A','B'): z = 'A'
+            c = int(cell.get('column_index') or 1)
+            n = int(cell.get('slot_number') or 1)
+            zones.setdefault(z, {}).setdefault(c, {})[n] = cell
+        return jsonify(success=True, zones=zones, cells=cells)
     except Exception as e:
         log_error("api_warehouse", str(e))
-        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
+        return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], error=str(e))
 
 
 @app.route("/api/warehouse/cell", methods=["POST"])
@@ -2733,7 +2746,32 @@ def _today_unplaced_zone_summary():
     except Exception as e:
         try: log_error('today_unplaced_zone_summary', str(e))
         except Exception: pass
-        return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+        # Fallback: do not show all zeros just because warehouse_cells has a legacy/index issue.
+        # Count source DB quantities directly by A/B/unassigned.
+        out = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+        try:
+            conn = get_db(); cur = conn.cursor()
+            for table in ('inventory','orders','master_orders'):
+                try:
+                    cur.execute(sql(f"SELECT COALESCE(qty,0) AS qty, COALESCE(area, location, '') AS z FROM {table} WHERE COALESCE(qty,0)>0"))
+                    for r in rows_to_dict(cur):
+                        q = int(r.get('qty') or 0)
+                        z = str(r.get('z') or '').strip().upper()
+                        if z.startswith('A'):
+                            out['A'] += q
+                        elif z.startswith('B'):
+                            out['B'] += q
+                        else:
+                            out['unassigned'] += q
+                        out['total'] += q
+                except Exception as ee:
+                    try: log_error('today_unplaced_zone_summary_fallback_' + table, str(ee))
+                    except Exception: pass
+            conn.close()
+        except Exception as ee:
+            try: log_error('today_unplaced_zone_summary_fallback', str(ee))
+            except Exception: pass
+        return out
 
 def _today_logs_detail(today):
     # V61：今日異動卡片要能點開看客戶與商品；從當日四張主表補詳細資料，避免只顯示一句 log。
@@ -3545,21 +3583,25 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
-    db_counts = {}
-    db_mode = 'postgres' if USE_POSTGRES else 'sqlite'
     try:
-        conn = get_db(); cur = conn.cursor()
-        for _t in ('inventory','orders','master_orders','shipping_records','warehouse_cells','logs','today_changes'):
-            try:
-                cur.execute(sql(f"SELECT COUNT(*) AS c FROM {_t}"))
-                _r = fetchone_dict(cur) or {}
-                db_counts[_t] = int(_r.get('c') or 0)
-            except Exception as _e:
-                db_counts[_t] = 'error'
-        conn.close()
+        db_info = database_mode_info()
+    except Exception as e:
+        db_info = {'mode': 'unknown', 'source': 'error', 'error': str(e)[:200]}
+    try:
+        db_counts = table_counts()
     except Exception as _e:
-        db_counts['_error'] = str(_e)[:200]
-    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_mode=db_mode, db_counts=db_counts, db_error=STARTUP_DB_ERROR[:500])
+        db_counts = {'_error': str(_e)[:200]}
+    warning = ''
+    if db_info.get('render_warning'):
+        warning = 'Render 目前沒有偵測到 PostgreSQL DATABASE_URL，會使用空的本機 SQLite，頁面會看起來沒有資料。請在 Render Environment 補 DATABASE_URL。'
+    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
+
+@app.route('/api/db-diagnostics')
+def api_db_diagnostics():
+    try:
+        return jsonify(success=True, db_info=database_mode_info(), db_counts=table_counts(), startup_error=STARTUP_DB_ERROR[:500])
+    except Exception as e:
+        return jsonify(success=False, error=str(e)[:500]), 500
 
 @app.route("/api/native-shell/config", methods=["GET"])
 def api_native_shell_config():
