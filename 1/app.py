@@ -1,3 +1,4 @@
+# V65: frontend batch-edit/warehouse-speed fix uses existing API routes.
 # V59 mainfile event/db/ui lock
 # V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
@@ -89,16 +90,11 @@ def current_username():
 
 
 def ensure_runtime_product_schema(cur):
-    """V61-V78 runtime guard: routes that update product fields must not fail on old PostgreSQL/SQLite schemas."""
-    product_columns = (
-        ('month_tag', 'TEXT'),
-        ('location', 'TEXT'),
-        ('area', 'TEXT'),
-        ('source', 'TEXT'),
-        ('note', 'TEXT'),
-    )
-    for table in ('inventory', 'orders', 'master_orders'):
-        for column, definition in product_columns:
+    """V58 runtime guard: routes that update month_tag/location must not fail on old PostgreSQL/SQLite schemas."""
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        for column, definition in (('month_tag', 'TEXT'), ('location', 'TEXT')):
+            if table == 'shipping_records' and column == 'location':
+                continue
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
             except Exception:
@@ -106,20 +102,6 @@ def ensure_runtime_product_schema(cur):
                     cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
                 except Exception:
                     pass
-    for column, definition in (
-        ('month_tag', 'TEXT'),
-        ('source_table', 'TEXT'),
-        ('before_qty', 'INTEGER DEFAULT 0'),
-        ('after_qty', 'INTEGER DEFAULT 0'),
-        ('created_at', 'TEXT'),
-    ):
-        try:
-            cur.execute(f"ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS {column} {definition}")
-        except Exception:
-            try:
-                cur.execute(f"ALTER TABLE shipping_records ADD COLUMN {column} {definition}")
-            except Exception:
-                pass
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
@@ -1121,37 +1103,16 @@ def api_save_correction():
 def _parse_items_from_request(data):
     items = data.get("items") or []
     payload_material = (data.get("material") or "").strip().upper()
-    # V61-V78 recheck：前端新增訂單/總單時會把 A/B 區放在 payload 最外層，
-    # 後端保存前必須補進每個 item，否則 DB 的 area/location 會是空白。
-    payload_zone = (data.get("area") or data.get("location") or data.get("zone") or "")
-    payload_zone = payload_zone.strip().upper() if isinstance(payload_zone, str) else ""
-
-    def _preserve_payload_fields(raw, fixed):
-        raw = raw if isinstance(raw, dict) else {}
-        # FIX90 原本保留出貨來源 / 借貨資訊；這裡一起保留 A/B 區與備註。
-        for _k in (
-            'borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed',
-            'source_preference', 'deduct_source', 'source', 'source_table', 'source_id',
-            'area', 'location', 'zone', 'note'
-        ):
-            if raw.get(_k) not in (None, ''):
-                fixed[_k] = raw.get(_k)
-        if payload_zone:
-            if not fixed.get('area'):
-                fixed['area'] = payload_zone
-            if not fixed.get('location'):
-                fixed['location'] = payload_zone
-            if not fixed.get('zone'):
-                fixed['zone'] = payload_zone
-        return fixed
-
     if items:
         cleaned = []
         for it in items:
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
-            fixed = _preserve_payload_fields(it, fixed)
+            # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
+                if isinstance(it, dict) and it.get(_k) not in (None, ''):
+                    fixed[_k] = it.get(_k)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
                 continue
             cleaned.append(fixed)
@@ -1163,7 +1124,6 @@ def _parse_items_from_request(data):
         if payload_material:
             it = {**it, "material": payload_material, "product_code": payload_material}
         fixed = normalize_item_for_save(it)
-        fixed = _preserve_payload_fields(it, fixed)
         if fixed.get("product_text") and int(fixed.get("qty") or 0) > 0:
             cleaned.append(fixed)
     return cleaned
@@ -1318,18 +1278,12 @@ def api_inventory():
             return error_response("請輸入商品資料")
         operator = current_username()
         duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
-        # V61-V78 deep recheck：庫存新增可能只從前端傳 area/zone，不一定傳 location。
-        # 保存時必須每筆 item 都寫入同一個 A/B 區，避免畫面顯示移區但 DB 仍空白。
-        payload_location = (data.get("location") or data.get("area") or data.get("zone") or "")
-        payload_location = payload_location.strip().upper() if isinstance(payload_location, str) else ""
+        location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
             yx_v35_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')), preserve_existing=True)
         for it in items:
-            item_location = (it.get("location") or it.get("area") or it.get("zone") or payload_location or "")
-            item_location = item_location.strip().upper() if isinstance(item_location, str) else ""
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), item_location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
-        location = payload_location
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
     except Exception as e:
         log_error("inventory_main_save_v40", str(e))
         return error_response("建立失敗")
@@ -1350,7 +1304,6 @@ def api_inventory_item(item_id):
     try:
         conn = get_db()
         cur = conn.cursor()
-        ensure_runtime_product_schema(cur)
         cur.execute(sql("SELECT * FROM inventory WHERE id = ?"), (item_id,))
         row = fetchone_dict(cur)
         if not row:
@@ -1374,8 +1327,7 @@ def api_inventory_item(item_id):
         month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
-        raw_location = data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or row.get('area') or ''))
-        location = (raw_location or '').strip().upper() if isinstance(raw_location, str) else ''
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
             conn.close()
@@ -1385,9 +1337,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, area = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, month_tag, qty, location, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -1427,7 +1379,7 @@ def api_inventory_item_move(item_id):
         product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        item = {'product_text': product_text, 'product_code': product_code, 'material': product_code, 'qty': move_qty, 'area': (data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
+        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
         if target == 'orders':
             save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
             target_label = '訂單'
@@ -1560,6 +1512,25 @@ def api_shipping_records():
     q = (request.args.get("q") or '').strip()
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
     return jsonify(success=True, items=rows, records=rows)
+
+@app.route("/api/shipping_records/<int:record_id>", methods=["DELETE"])
+@login_required_json
+def api_shipping_record_delete(record_id):
+    # V61：出貨查詢管理員可刪單；刪除後其他人查不到。
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM shipping_records WHERE id = ?'), (record_id,))
+        before = rows_to_dict(cur)
+        cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (record_id,))
+        conn.commit(); conn.close()
+        yx_v35_safe_side_effect('shipping_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', str(record_id), before_json={'row': before[0] if before else {}}, after_json={'deleted': True})
+        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已刪除', extra={'id': record_id})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('shipping_record_delete', str(e))
+        return error_response('刪除出貨紀錄失敗')
 
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
@@ -1779,7 +1750,7 @@ def api_warehouse_cell():
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
@@ -1940,9 +1911,9 @@ def api_warehouse_available_items():
             exact, customer, source_label, source_id = detail_key
             details_for_item_all = details_all
             if zone_filter:
-                # V61-V78 ultra-deep fix：A 區下拉只顯示 A 區未入倉；B 區只顯示 B 區未入倉。
-                # 未分區只統計在未分區，不再混進 A/B 下拉，避免不同區格子開啟時看到不該選的商品。
-                details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
+                # V49 mainfile: A/B 格位的下拉選單要同時顯示該區商品 + 尚未分 A/B 區商品；
+                # 已放入任一格的數量仍用全倉扣除，避免別的格子又看得到同一筆。
+                details_for_item = [d for d in details_for_item_all if (str(d.get('zone') or '').strip().upper().startswith(zone_filter) or not str(d.get('zone') or '').strip())]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
                 placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
                 if placed_qty <= 0:
@@ -2164,7 +2135,6 @@ def api_customer_items_batch_zone():
             "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
         }
         conn = get_db(); cur = conn.cursor()
-        ensure_runtime_product_schema(cur)
         count = 0; touched = []
         try:
             for it in items:
@@ -2178,19 +2148,12 @@ def api_customer_items_batch_zone():
                 if row_before:
                     touched.append({'source': source, 'table': table, 'id': item_id, 'row': row_before})
                 try:
-                    cur.execute(sql(f"UPDATE {table} SET location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
+                    cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                 except Exception:
-                    # 舊資料表尚未補 location/area 欄位時，補完再重試。
+                    # 舊資料表尚未補 location 欄位時，補完再重試。
                     try:
                         cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute(sql(f"UPDATE {table} SET location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
+                        cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                     except Exception:
                         cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
                 if cur.rowcount:
@@ -2309,29 +2272,24 @@ def api_customer_items_batch_update():
                 month_tag = product_month_tag(product_text)
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
-                raw_location = it.get("location") if it.get("location") is not None else (it.get("area") if it.get("area") is not None else (it.get("zone") if it.get("zone") is not None else (before.get("location") or before.get("area") or "")))
-                location = (raw_location or "").strip().upper() if isinstance(raw_location, str) else ""
+                location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, area = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, month_tag, qty, location, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, area = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                        except Exception:
-                            pass
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
                         except Exception:
                             pass
                         try:
@@ -2340,12 +2298,12 @@ def api_customer_items_batch_update():
                             pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, area = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
-                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location, "area": location})
+                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
             conn.commit()
         except Exception:
             conn.rollback(); raise
@@ -2451,7 +2409,7 @@ def api_warehouse_return_unplaced():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         cells = warehouse_get_cells()
         cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
@@ -2475,7 +2433,7 @@ def api_warehouse_add_slot():
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6:
+        if zone not in ("A", "B") or column_index < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         insert_after = data.get("insert_after", None)
@@ -2498,7 +2456,7 @@ def api_warehouse_remove_slot():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
@@ -2525,7 +2483,7 @@ def api_orders_to_master():
         if not customer_name or not product_text or qty <= 0:
             return error_response("參數不足")
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "material": product_code, "qty": qty, "area": (data.get('area') or data.get('location') or data.get('zone') or '').strip(), "location": (data.get('location') or data.get('area') or data.get('zone') or '').strip()}], current_username())
+        save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
         log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
         notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
         return jsonify(success=True, items=get_master_orders())
@@ -2704,97 +2662,113 @@ def _today_unplaced_zone_summary():
         except Exception: pass
         return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
 
-def _today_changes_payload():
+def _today_logs_detail(today):
+    # V61：今日異動卡片要能點開看客戶與商品；從當日四張主表補詳細資料，避免只顯示一句 log。
+    detail = {'inventory': [], 'orders': [], 'master_orders': [], 'shipping_records': []}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        specs = [
+            ('inventory', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM inventory WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('master_orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM master_orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('shipping_records', "SELECT id, customer_name, product_text, material, qty, operator, shipped_at AS created_at FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+        ]
+        for k, q in specs:
+            try:
+                cur.execute(sql(q), (today,))
+                rows = rows_to_dict(cur)
+                for r in rows:
+                    r['created_at'] = _format_24h(r.get('created_at'))
+                    r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', (str(r.get('qty')) + '件') if r.get('qty') not in (None,'') else ''] if x])
+                    r['action'] = {'inventory':'新增庫存','orders':'新增訂單','master_orders':'新增總單','shipping_records':'出貨'}.get(k, '異動')
+                    r['username'] = r.get('operator') or r.get('username') or ''
+                detail[k] = rows
+            except Exception as e:
+                log_error('today_detail_' + k, str(e))
+        conn.close()
+    except Exception as e:
+        try: log_error('today_logs_detail', str(e))
+        except Exception: pass
+    return detail
+
+
+def _today_unplaced_cached(force=False):
+    # V61：今日異動先快速顯示，不每次開頁都重算重型未錄入；長按刷新或刷新按鈕才強制重算。
+    import json as _json
+    cache_key = 'today_unplaced_cache_v61'
+    if not force:
+        try:
+            raw = get_setting(cache_key, '') or ''
+            if raw:
+                obj = _json.loads(raw)
+                if obj.get('date') == _today_key():
+                    return obj.get('items') or [], obj.get('zone') or {'A':0,'B':0,'unassigned':0,'total':0}
+        except Exception:
+            pass
+        return [], {'A':0,'B':0,'unassigned':0,'total':0}
+    items = _today_unplaced_all_sources()
+    zone = _today_unplaced_zone_summary()
+    try:
+        set_setting(cache_key, _json.dumps({'date': _today_key(), 'items': items[:200], 'zone': zone}, ensure_ascii=False))
+    except Exception as e:
+        try: log_error('today_unplaced_cache_save', str(e))
+        except Exception: pass
+    return items, zone
+
+
+def _today_changes_payload(force_unplaced=False):
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    detailed_rows = []
-    try:
-        cur.execute(sql("""
-            SELECT id, action, table_name, customer_name, product_text, detail_json, operator, created_at, unread
-            FROM today_changes
-            WHERE substr(created_at,1,10)=?
-            ORDER BY created_at DESC, id DESC
-            LIMIT 300
-        """), (today,))
-        detailed_rows = rows_to_dict(cur)
-    except Exception:
-        detailed_rows = []
-    # log_action 會留下簡短摘要；若同時已有 add_audit_trail 的細節列，
-    # 今日異動只顯示細節列，避免同一動作變成兩張卡片。
-    if any((r.get('table_name') or '').strip() for r in detailed_rows):
-        detailed_rows = [r for r in detailed_rows if (r.get('table_name') or '').strip()]
-    if not detailed_rows:
-        cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
-        detailed_rows = rows_to_dict(cur)
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 120"), (today,))
+    logs = rows_to_dict(cur)
     conn.close()
 
     inbound = []
     outbound = []
     new_orders = []
-    seen = set()
-
-    def _detail_obj(v):
-        try:
-            return json.loads(v or '{}') if isinstance(v, str) else (v or {})
-        except Exception:
-            return {}
-
-    def _row_key(row):
-        return (row.get('table_name') or '', row.get('action') or '', row.get('customer_name') or '', row.get('product_text') or '', row.get('created_at') or '')
-
-    for r in detailed_rows:
-        action = r.get('action') or ''
-        table = r.get('table_name') or ''
-        detail = _detail_obj(r.get('detail_json'))
-        # 將 today_changes 的 operator 對齊前端舊欄位 username。
-        r['username'] = r.get('operator') or r.get('username') or detail.get('operator') or ''
-        r['detail'] = detail
-        if not r.get('customer_name'):
-            r['customer_name'] = detail.get('customer_name') or ''
-        if not r.get('product_text'):
-            r['product_text'] = detail.get('product_text') or ''
-        if detail.get('zone') and not r.get('location'):
-            r['location'] = detail.get('zone')
-        r['created_at_raw'] = r.get('created_at') or ''
+    new_masters = []
+    for r in logs:
         r['created_at'] = _format_24h(r.get('created_at'))
-        key = _row_key(r)
-        if key in seen:
-            continue
-        seen.add(key)
-        text = (action + ' ' + table).strip()
-        if table == 'shipping_records' or '出貨' in text or text.lower().find('ship') >= 0:
+        action = r.get('action') or ''
+        if action == '完成出貨' or action.startswith('完成出貨'):
             outbound.append(r)
-        elif table == 'orders' or '訂單' in text:
+        elif action == '建立訂單' or action.startswith('建立訂單'):
             new_orders.append(r)
-        elif table == 'inventory' or '庫存' in text or '進貨' in text or '入庫' in text:
+        elif action == '建立總單' or action.startswith('建立總單') or action.startswith('新增總單'):
+            new_masters.append(r)
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('新增庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    unplaced = _today_unplaced_all_sources()
+    detail = _today_logs_detail(today)
+    if detail.get('inventory'): inbound = detail['inventory']
+    if detail.get('orders'): new_orders = detail['orders']
+    if detail.get('master_orders'): new_masters = detail['master_orders']
+    if detail.get('shipping_records'): outbound = detail['shipping_records']
+
+    unplaced, zone_summary = _today_unplaced_cached(bool(force_unplaced))
     read_at = get_setting('today_changes_read_at', '') or ''
-    visible_logs = inbound + outbound + new_orders
-    # 已讀徽章以 today_changes_read_at 為準；開啟今日異動後要歸零，只有新資料再亮。
-    if read_at:
-        unread_count = len([r for r in visible_logs if (r.get('created_at_raw') or '') > read_at])
-    else:
-        unread_count = len([r for r in visible_logs if int(r.get('unread') or 1)])
+    visible_logs = inbound + new_orders + new_masters + outbound
+    unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
         'summary': {
             'inbound_count': len(inbound),
-            'outbound_count': len(outbound),
             'new_order_count': len(new_orders),
+            'new_master_count': len(new_masters),
+            'outbound_count': len(outbound),
             'unplaced_count': unplaced_total_qty,
             'unplaced_row_count': len(unplaced),
-            'unplaced_zone_summary': _today_unplaced_zone_summary(),
+            'unplaced_zone_summary': zone_summary,
             'anomaly_count': 0,
             'unread_count': unread_count,
         },
         'feed': {
             'inbound': inbound[:60],
-            'outbound': outbound[:60],
             'new_orders': new_orders[:60],
+            'new_masters': new_masters[:60],
+            'outbound': outbound[:60],
             'others': [],
         },
         'unplaced_items': unplaced[:200],
@@ -2806,7 +2780,7 @@ def _today_changes_payload():
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    return jsonify(success=True, **_today_changes_payload(force_unplaced=(request.args.get('force') == '1')))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -3556,10 +3530,7 @@ def _fix28_update_item_api(table, item_id):
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        # V61-V78 deep audit: single-item edit may send only area/zone, not location.
-        # Always normalize A/B into both location and area so filters, warehouse unplaced, and DB all agree.
-        raw_location = data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else (row.get('location') or row.get('area') or '')))
-        location = (raw_location or '').strip().upper() if isinstance(raw_location, str) else ''
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')
@@ -3567,20 +3538,13 @@ def _fix28_update_item_api(table, item_id):
             qty = 0
         conn = get_db(); cur = conn.cursor()
         try:
-            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, location, current_username(), now(), int(item_id)))
+            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
         except Exception:
-            # V61-V78 deep audit：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location/area 欄位，
-            # 先補欄位再重試，避免單筆編輯或批量編輯後 A/B 區沒有存進去。
+            # FIX134：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location 欄位，
+            # 先補欄位再重試，避免 A/B 區在「編輯全部」後沒有存進去。
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-            except Exception:
-                pass
-            try:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
-            except Exception:
-                pass
-            try:
-                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, area = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, location, current_username(), now(), int(item_id)))
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
             except Exception:
                 cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
         conn.commit(); conn.close()
@@ -3626,12 +3590,11 @@ def api_fix28_items_transfer():
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
         product_code = clean_material_value(row.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': (data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
         target_label = ''
         result_payload = {}
         if target == 'inventory':
-            target_location = (data.get('location') or data.get('area') or data.get('zone') or row.get('location') or row.get('area') or '').strip()
-            save_inventory_item(product_text, product_code, qty, target_location, customer_name, current_username(), f'from {source_table}', material)
+            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}', material)
             target_label = '庫存'
             ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
             if not ok: return error_response(moved)
@@ -3726,10 +3689,9 @@ def api_v17_items_batch_transfer():
                 material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
                 product_code = clean_material_value(row.get('product_code') or material or '', product_text)
                 final_customer = customer_name or (row.get('customer_name') or '').strip()
-                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': (it.get('area') or it.get('location') or data.get('area') or data.get('location') or row.get('area') or row.get('location') or '').strip(), 'location': (it.get('location') or it.get('area') or data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()}
+                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
                 if target == 'inventory':
-                    target_location = (it.get('location') or it.get('area') or it.get('zone') or data.get('location') or data.get('area') or data.get('zone') or row.get('location') or row.get('area') or '').strip()
-                    save_inventory_item(product_text, product_code, qty, target_location, final_customer, current_username(), f'batch from {source_table}', material)
+                    save_inventory_item(product_text, product_code, qty, (row.get('location') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
                     target_label = '庫存'
                 elif target == 'orders':
                     save_order(final_customer, [item_payload], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
@@ -3822,3 +3784,58 @@ if __name__ == "__main__":
 
 
 # V59_MAINFILE_REQUEST_LOCK: UI/button/optimistic-submit changes are in templates + static JS; app keeps Render-safe startup and ship snapshots.
+
+# ============================================================
+# V68 FINAL WAREHOUSE PAYLOAD OVERRIDE
+# Purpose: warehouse current-item input box uses = right side as the source of qty.
+# ============================================================
+def _yx_v68_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    if '=' not in raw:
+        try: return max(1, int(fallback or 1))
+        except Exception: return 1
+    right = raw.split('=', 1)[1]
+    total = 0; hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit and total > 0:
+        return total
+    try: return max(1, int(fallback or 1))
+    except Exception: return 1
+
+
+def normalize_warehouse_payload_items(items):
+    # V68 final: normalize warehouse modal payload and force qty from product_text when product_text contains '='.
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        if '=' in product:
+            qty = _yx_v68_qty_from_product_text(product, qty)
+        qty = max(1, qty)
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+        else:
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())

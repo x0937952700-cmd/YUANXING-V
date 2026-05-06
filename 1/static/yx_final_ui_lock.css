@@ -787,3 +787,114 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   .yx108-slot-product{font-size:12px!important;}
 }
 /* ===== END V60 warehouse cell product summary + editable quantity return lock ===== */
+#today-unread-badge{display:none!important;}
+.yx-ship-query-head{border:0;background:transparent;}
+
+
+/* ===== V62 mobile warehouse batch layout lock ===== */
+.yx121-batch-row{
+  display:grid !important;
+  grid-template-columns: 76px minmax(240px, 1fr) 130px 92px !important;
+  gap:10px !important;
+  align-items:center !important;
+}
+.yx121-batch-row .yx121-batch-label{
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  min-height:44px !important;
+  border-radius:18px !important;
+  background:rgba(255,255,255,.72) !important;
+  border:1px solid rgba(160,180,205,.28) !important;
+  font-weight:800 !important;
+  white-space:nowrap !important;
+}
+.yx121-batch-row .text-input{ min-height:44px !important; }
+@media (max-width: 760px){
+  .yx-direct-batch-panel{ padding:12px !important; }
+  .yx121-batch-row{
+    grid-template-columns: 64px 1fr !important;
+    grid-template-areas:
+      "label select"
+      "label support"
+      "label qty" !important;
+    gap:8px !important;
+    padding:10px !important;
+    margin:8px 0 !important;
+    border-radius:20px !important;
+    background:rgba(255,255,255,.58) !important;
+    border:1px solid rgba(210,170,70,.25) !important;
+  }
+  .yx121-batch-label{ grid-area:label; height:100% !important; min-height:132px !important; writing-mode:horizontal-tb !important; }
+  .yx121-batch-select{ grid-area:select; width:100% !important; min-width:0 !important; }
+  .yx121-batch-support{ grid-area:support; width:100% !important; min-width:0 !important; }
+  .yx121-batch-qty{ grid-area:qty; width:100% !important; min-width:0 !important; }
+  .yx-direct-batch-panel .btn-row.compact-row{ display:flex !important; gap:10px !important; flex-wrap:wrap !important; }
+  .yx-direct-batch-panel .btn-row.compact-row button{ flex:1 1 140px !important; min-height:44px !important; }
+}
+@media (max-width: 420px){
+  .yx121-batch-row{ grid-template-columns: 56px 1fr !important; }
+  .yx121-batch-label{ min-height:126px !important; font-size:14px !important; }
+}
+/* ===== END V62 mobile warehouse batch layout lock ===== */
+
+/* V64 倉庫格子三排鎖定：1格號+客戶 / 2材質尺寸 / 3支數加總+總件數 */
+#warehouse-root .yx-final-slot,
+#warehouse-root .vertical-slot{
+  min-height:72px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-between!important;
+  gap:2px!important;
+}
+#warehouse-root .yx108-slot-product{
+  display:block!important;
+  width:100%!important;
+  text-align:center!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  color:#0f766e!important;
+  line-height:1.15!important;
+  min-height:16px!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  pointer-events:none!important;
+}
+#warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
+#warehouse-modal .yx-current-qty-input{min-width:82px!important;text-align:center!important;font-weight:900!important;}
+
+/* V65 訂單/總單批量按鈕位置鎖定：避免舊版按鈕回到上方工具列 */
+.yx-v65-orders-summary-actions,
+.yx-v65-master-summary-actions{display:flex!important;gap:10px!important;align-items:center!important;justify-content:flex-end!important;flex-wrap:wrap!important;}
+#yx113-orders-toolbar [data-yx132-batch-zone],
+#yx113-orders-toolbar [data-yx132-batch-transfer="master_order"]{display:none!important;}
+.yx-v65-master-summary-actions [data-yx132-batch-zone],
+.yx-v65-master-summary-actions [data-yx113-batch-delete],
+.yx-v65-master-summary-actions [data-yx128-edit-all],
+.yx-v65-orders-summary-actions [data-yx113-batch-delete],
+.yx-v65-orders-summary-actions [data-yx128-edit-all]{display:inline-flex!important;}
+
+
+/* V66 倉庫格子客戶名置中 + 第二排材質尺寸固定顯示 */
+#warehouse-root .yx108-slot-row1{display:grid!important;grid-template-columns:22px 1fr!important;align-items:center!important;}
+#warehouse-root .yx108-slot-customers{
+  text-align:center!important;
+  justify-self:center!important;
+  width:100%!important;
+  color:#dc2626!important;
+  font-weight:900!important;
+}
+#warehouse-root .yx108-slot-product{
+  display:block!important;
+  text-align:center!important;
+  font-size:13px!important;
+  font-weight:900!important;
+  color:#0f766e!important;
+  min-height:16px!important;
+  line-height:1.15!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+#warehouse-root .yx108-slot-product.empty{display:block!important;visibility:hidden!important;}
