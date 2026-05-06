@@ -1577,6 +1577,33 @@ def api_shipping_record_delete(record_id):
         log_error('shipping_record_delete', str(e))
         return error_response('刪除出貨紀錄失敗')
 
+
+@app.route("/api/shipping_records/bulk-delete", methods=["POST"])
+@login_required_json
+def api_shipping_records_bulk_delete():
+    # V75：出貨查詢管理員可刪除整筆群組紀錄。
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    try:
+        data = request.get_json(silent=True) or {}
+        ids = [int(x) for x in (data.get('ids') or []) if str(x).isdigit()]
+        ids = list(dict.fromkeys([x for x in ids if x > 0]))
+        if not ids:
+            return error_response('缺少刪除紀錄')
+        conn = get_db(); cur = conn.cursor()
+        marks = ','.join(['?'] * len(ids))
+        cur.execute(sql(f'SELECT * FROM shipping_records WHERE id IN ({marks})'), tuple(ids))
+        before = rows_to_dict(cur)
+        cur.execute(sql(f'DELETE FROM shipping_records WHERE id IN ({marks})'), tuple(ids))
+        deleted = cur.rowcount or 0
+        conn.commit(); conn.close()
+        yx_v35_safe_side_effect('shipping_bulk_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', 'bulk_delete', before_json={'rows': before}, after_json={'deleted': deleted, 'ids': ids})
+        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已整筆刪除', extra={'ids': ids, 'deleted': deleted})
+        return jsonify(success=True, deleted=deleted, ids=ids)
+    except Exception as e:
+        log_error('shipping_records_bulk_delete', str(e))
+        return error_response('刪除整筆出貨紀錄失敗')
+
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
