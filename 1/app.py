@@ -23,7 +23,7 @@ from db import (
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
+    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now, USE_POSTGRES,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
@@ -3545,7 +3545,21 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
-    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_error=STARTUP_DB_ERROR[:500])
+    db_counts = {}
+    db_mode = 'postgres' if USE_POSTGRES else 'sqlite'
+    try:
+        conn = get_db(); cur = conn.cursor()
+        for _t in ('inventory','orders','master_orders','shipping_records','warehouse_cells','logs','today_changes'):
+            try:
+                cur.execute(sql(f"SELECT COUNT(*) AS c FROM {_t}"))
+                _r = fetchone_dict(cur) or {}
+                db_counts[_t] = int(_r.get('c') or 0)
+            except Exception as _e:
+                db_counts[_t] = 'error'
+        conn.close()
+    except Exception as _e:
+        db_counts['_error'] = str(_e)[:200]
+    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_mode=db_mode, db_counts=db_counts, db_error=STARTUP_DB_ERROR[:500])
 
 @app.route("/api/native-shell/config", methods=["GET"])
 def api_native_shell_config():
