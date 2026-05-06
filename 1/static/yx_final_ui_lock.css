@@ -1011,3 +1011,37 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 .yx-product-location-cell:empty::after{content:'';}
 .yx-slot-product-line{display:block;line-height:1.08;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .yx108-slot-product{white-space:normal;}
+
+/* V76 warehouse problem marker final loaded css */
+.yx-final-slot.yx-warehouse-problem,
+.vertical-slot.yx-warehouse-problem,
+.yx108-slot.yx-warehouse-problem{
+  background: linear-gradient(135deg, rgba(255,205,205,.95), rgba(255,235,235,.94)) !important;
+  border-color: rgba(235,95,95,.85) !important;
+  box-shadow: 0 0 0 2px rgba(235,95,95,.18), 0 10px 20px rgba(180,50,50,.10) !important;
+}
+
+/* V77 mainfile final style: warehouse slots rectangular light yellow; problem mark light red. */
+#warehouse-root .vertical-slot,
+#warehouse-root .yx-final-slot,
+#warehouse-root .yx108-slot,
+#warehouse-root .yx106-slot,
+#warehouse-root .yx116-slot{
+  min-height:58px!important;
+  height:auto!important;
+  border-radius:14px!important;
+  background:linear-gradient(135deg,#fff8cf 0%,#fff1a8 100%)!important;
+  border:1px solid #e7c45a!important;
+  box-shadow:0 2px 6px rgba(120,90,20,.13)!important;
+}
+#warehouse-root .vertical-slot.filled,
+#warehouse-root .yx-final-slot.filled{
+  background:linear-gradient(135deg,#fff5bf 0%,#ffe99a 100%)!important;
+}
+#warehouse-root .vertical-slot.yx-warehouse-problem,
+#warehouse-root .yx-final-slot.yx-warehouse-problem,
+#warehouse-root .yx108-slot.yx-warehouse-problem{
+  background:linear-gradient(135deg,#ffe3e3 0%,#ffd1d1 100%)!important;
+  border-color:#ff8a8a!important;
+  box-shadow:0 0 0 2px rgba(239,68,68,.12),0 2px 6px rgba(120,30,30,.12)!important;
+}

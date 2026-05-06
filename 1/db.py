@@ -543,7 +543,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
     """建立倉庫格位表，但不再強制每欄固定 20 格。
 
     FIX67：
-    - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 20 格作為起始版面。
+    - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 25 格作為起始版面。
     - 之後使用者刪除或插入格子後，不再於每次啟動 / 查詢時補回 20 格。
     - 每欄至少保留 1 格，避免前台完全無法點選插入。
     """
@@ -586,11 +586,11 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
         row = fetchone_dict(cur) or {}
         total = int(row.get('cnt') or 0)
 
-        # 只有全新空表時，才建立起始 20 格；後續不再強制補回 20 格。
+        # 只有全新空表時，才建立起始 25 格；後續不再強制補回 25 格。
         if total == 0:
             for zone in ('A', 'B'):
                 for col in range(1, 7):
-                    for num in range(1, 21):
+                    for num in range(1, 26):
                         cur.execute(sql("""
                             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1028,7 +1028,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         if _wh_count == 0:
             for zone in ('A', 'B'):
                 for col in range(1, 7):
-                    for num in range(1, 21):
+                    for num in range(1, 26):
                         cur.execute(sql("""
                             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1050,7 +1050,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         if _wh_count == 0:
             for zone in ('A', 'B'):
                 for col in range(1, 7):
-                    for num in range(1, 21):
+                    for num in range(1, 26):
                         cur.execute(sql("""
                             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -4494,3 +4494,540 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         raise
     finally:
         conn.close()
+
+# ============================================================
+# V76 MAINFILE WAREHOUSE SLOT + MARK FIX
+# - 右鍵標記問題格：使用 warehouse_cells.problem_flag，不新增補丁檔。
+# - 新增/插入/刪除格子前先合併同一格的歷史重複資料，避免 slot_type 空字串
+#   和 direct 同時存在造成 UNIQUE 衝突。
+# - 不清空、不重建、不洗掉 warehouse_cells；只移動同欄 slot_number。
+# ============================================================
+def _yx_v76_ensure_problem_flag(cur):
+    try:
+        if USE_POSTGRES:
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS problem_flag TEXT DEFAULT ''")
+        else:
+            cur.execute("PRAGMA table_info(warehouse_cells)")
+            cols = [r[1] for r in cur.fetchall()]
+            if 'problem_flag' not in cols:
+                cur.execute("ALTER TABLE warehouse_cells ADD COLUMN problem_flag TEXT DEFAULT ''")
+    except Exception as e:
+        log_error('v76_ensure_problem_flag', str(e))
+
+
+def _yx_v76_items_json(row):
+    try:
+        val = row.get('items_json') if isinstance(row, dict) else row['items_json']
+    except Exception:
+        try: val = row[1]
+        except Exception: val = '[]'
+    try:
+        arr = json.loads(val or '[]')
+        return arr if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+
+def _yx_v76_merge_items(rows):
+    merged = []
+    seen = set()
+    for r in rows or []:
+        for it in _yx_v76_items_json(r):
+            try:
+                k = json.dumps(it, ensure_ascii=False, sort_keys=True)
+            except Exception:
+                k = str(it)
+            if k not in seen:
+                seen.add(k); merged.append(it)
+    return merged
+
+
+def _yx_v76_get(row, key, default=None):
+    try:
+        if isinstance(row, dict): return row.get(key, default)
+        return row[key]
+    except Exception:
+        return default
+
+
+def _yx_v76_merge_duplicate_direct_slots(cur, zone=None, column_index=None):
+    """合併舊資料中同 zone/column/slot 的 direct/空 slot_type 重複格。
+    這是新增/刪除失敗的主要原因之一：先把空 slot_type 正規化成 direct 會碰到
+    已存在 direct 同格 UNIQUE，因此先合併再更新。
+    """
+    _yx_v76_ensure_problem_flag(cur)
+    where = ""
+    params = []
+    if zone is not None and column_index is not None:
+        where = "WHERE zone = ? AND column_index = ?"
+        params = [(zone or 'A').strip().upper(), int(column_index or 1)]
+    cur.execute(sql(f"""
+        SELECT id, zone, column_index, COALESCE(NULLIF(TRIM(slot_type),''),'direct') AS st,
+               slot_number, items_json, note, updated_at, COALESCE(problem_flag,'') AS problem_flag
+        FROM warehouse_cells
+        {where}
+        ORDER BY zone, column_index, slot_number, id
+    """), tuple(params))
+    rows = rows_to_dict(cur)
+    groups = {}
+    for r in rows:
+        try:
+            z = (r.get('zone') or 'A').strip().upper(); c = int(r.get('column_index') or 1); s = int(r.get('slot_number') or 1)
+        except Exception:
+            continue
+        groups.setdefault((z,c,s), []).append(r)
+    for (_z,_c,_s), grp in groups.items():
+        if not grp:
+            continue
+        # keep row with items first, then latest/highest id; delete others before setting keep to direct.
+        def score(r):
+            return (1 if _yx_v76_items_json(r) else 0, int(r.get('id') or 0))
+        keep = sorted(grp, key=score, reverse=True)[0]
+        keep_id = keep.get('id')
+        drop_ids = [r.get('id') for r in grp if r.get('id') != keep_id]
+        merged_items = _yx_v76_merge_items(grp)
+        keep_note = next((r.get('note') for r in grp if (r.get('note') or '').strip()), '') or ''
+        keep_flag = 'problem' if any((r.get('problem_flag') or '').strip() for r in grp) else ''
+        if drop_ids:
+            q = ','.join(['?'] * len(drop_ids))
+            cur.execute(sql(f"DELETE FROM warehouse_cells WHERE id IN ({q})"), tuple(drop_ids))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET zone=?, column_index=?, slot_type='direct', slot_number=?, items_json=?, note=?, problem_flag=?, updated_at=?
+            WHERE id=?
+        """), (_z, _c, _s, json.dumps(merged_items, ensure_ascii=False), keep_note, keep_flag, now(), keep_id))
+
+
+def _yx_v76_column_max_slot(cur, zone, column_index):
+    cur.execute(sql("""
+        SELECT COALESCE(MAX(slot_number),0) AS max_slot
+        FROM warehouse_cells
+        WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+    """), (zone, int(column_index)))
+    return int((fetchone_dict(cur) or {}).get('max_slot') or 0)
+
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    if zone not in ('A', 'B') or column_index < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        max_slot = _yx_v76_column_max_slot(cur, zone, column_index)
+        if max_slot < 1:
+            cur.execute(sql("""INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag) VALUES(?,?,?,?,?,?,?,?)"""), (zone,column_index,'direct',1,'[]','',now(),''))
+            max_slot = 1
+        if insert_after is None or insert_after == '':
+            insert_after = max_slot
+        insert_after = max(0, min(int(insert_after), max_slot))
+        new_slot = insert_after + 1
+        offset = max(1000000, max_slot + 1000000)
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_number = slot_number + ?, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number >= ?
+        """), (offset, now(), zone, column_index, new_slot))
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_type='direct', slot_number = slot_number - ? + 1, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number >= ?
+        """), (offset, now(), zone, column_index, offset + new_slot))
+        cur.execute(sql("""INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag) VALUES(?,?,?,?,?,?,?,?)"""), (zone,column_index,'direct',new_slot,'[]','',now(),''))
+        try:
+            cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number=slot_number+1 WHERE zone=? AND column_index=? AND slot_number>?"), (zone,column_index,insert_after))
+        except Exception as e:
+            log_error('v76_recent_shift_add', str(e))
+        conn.commit()
+        return new_slot
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    slot_number = int(slot_number or 0)
+    if zone not in ('A', 'B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        # DB 缺操作格時只補到該格，不補整欄、不洗資料。
+        _warehouse_ensure_column_slots(cur, zone, column_index, slot_number)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        cur.execute(sql("""
+            SELECT COUNT(*) AS cnt FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+        """), (zone,column_index))
+        if int((fetchone_dict(cur) or {}).get('cnt') or 0) <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
+        cur.execute(sql("""
+            SELECT id,items_json,note FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+            ORDER BY id DESC LIMIT 1
+        """), (zone,column_index,slot_number))
+        target = fetchone_dict(cur)
+        if not target:
+            return {'success': False, 'error': '格號不存在'}
+        if _yx_v69_cell_items_from_row(target):
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        cur.execute(sql("DELETE FROM warehouse_cells WHERE id=?"), (target.get('id'),))
+        max_slot = _yx_v76_column_max_slot(cur, zone, column_index)
+        offset = max(1000000, max_slot + 1000000)
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_number = slot_number + ?, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number > ?
+        """), (offset, now(), zone, column_index, slot_number))
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_type='direct', slot_number = slot_number - ? - 1, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number > ?
+        """), (offset, now(), zone, column_index, offset + slot_number))
+        try:
+            cur.execute(sql("DELETE FROM warehouse_recent_slots WHERE zone=? AND column_index=? AND slot_number=?"), (zone,column_index,slot_number))
+            cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number=slot_number-1 WHERE zone=? AND column_index=? AND slot_number>?"), (zone,column_index,slot_number))
+        except Exception as e:
+            log_error('v76_recent_shift_remove', str(e))
+        conn.commit()
+        return {'success': True, 'removed_slot': slot_number}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    slot_number = int(slot_number or 0)
+    if zone not in ('A','B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        _warehouse_ensure_column_slots(cur, zone, column_index, slot_number)
+        _yx_v76_ensure_problem_flag(cur)
+        flag = 'problem' if marked else ''
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET problem_flag=?, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+        """), (flag, now(), zone, column_index, slot_number))
+        conn.commit()
+        return {'success': True, 'marked': bool(marked)}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+# ============================================================
+# V77 MAINFILE WAREHOUSE SOFT-DELETE SLOT FIX
+# Rules: no clearing, no rebuilding warehouse_cells, no reordering product cells.
+# - delete slot = mark empty slot is_deleted=1
+# - add/insert slot = restore a hidden empty slot when possible, otherwise insert new empty row
+# - visible cells exclude is_deleted=1
+# ============================================================
+def _yx_v77_ensure_warehouse_soft_delete_columns(cur):
+    try:
+        if USE_POSTGRES:
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS is_deleted INTEGER DEFAULT 0")
+            cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS problem_flag TEXT DEFAULT ''")
+        else:
+            cur.execute("PRAGMA table_info(warehouse_cells)")
+            cols = [r[1] for r in cur.fetchall()]
+            if 'is_deleted' not in cols:
+                cur.execute("ALTER TABLE warehouse_cells ADD COLUMN is_deleted INTEGER DEFAULT 0")
+            if 'problem_flag' not in cols:
+                cur.execute("ALTER TABLE warehouse_cells ADD COLUMN problem_flag TEXT DEFAULT ''")
+    except Exception as e:
+        log_error('v77_ensure_warehouse_soft_delete_columns', str(e))
+
+
+def _yx_v77_is_deleted_expr():
+    return "COALESCE(is_deleted,0)=0"
+
+
+def _yx_v77_empty_items_json(value):
+    try:
+        arr = json.loads(value or '[]')
+        return not (isinstance(arr, list) and len(arr) > 0)
+    except Exception:
+        return True
+
+
+def _yx_v77_ensure_min_grid(cur):
+    """Ensure physical default slots 1..25 for every A/B column.
+    Important: this only creates rows that do not exist at all. If a row exists but
+    is_deleted=1 because the user deleted/hidden it, we leave it hidden and do not
+    restore it automatically. This keeps delete/hidden behavior stable while still
+    filling truly missing DB gaps.
+    """
+    _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+    default_slots = 25
+    for z in ('A','B'):
+        for c in range(1,7):
+            cur.execute(sql("""
+                SELECT slot_number FROM warehouse_cells
+                WHERE zone=? AND column_index=?
+                  AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+            """), (z,c))
+            physical = set()
+            for row in cur.fetchall():
+                try: val = row['slot_number'] if hasattr(row, 'keys') else row[0]
+                except Exception: val = row[0]
+                try:
+                    if int(val or 0) > 0:
+                        physical.add(int(val or 0))
+                except Exception:
+                    pass
+            for num in range(1, default_slots + 1):
+                if num in physical:
+                    continue
+                cur.execute(sql("""
+                    INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                    VALUES(?,?,?,?,?,?,?,?,0)
+                """), (z,c,'direct',num,'[]','',now(),''))
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+        _yx_v77_ensure_min_grid(cur)
+        conn.commit()
+        cur.execute(sql("""
+            SELECT *, COALESCE(problem_flag,'') AS problem_flag, COALESCE(is_deleted,0) AS is_deleted
+            FROM warehouse_cells
+            WHERE COALESCE(NULLIF(TRIM(slot_type),''),'direct') = ?
+              AND COALESCE(is_deleted,0)=0
+            ORDER BY zone, column_index, slot_number
+        """), ('direct',))
+        return rows_to_dict(cur)
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_summary():
+    cells = warehouse_get_cells()
+    zones = {'A': {}, 'B': {}}
+    for cell in cells:
+        zone = cell.get('zone') if isinstance(cell, dict) else cell['zone']
+        col = int(cell.get('column_index') if isinstance(cell, dict) else cell['column_index'])
+        num = int(cell.get('slot_number') if isinstance(cell, dict) else cell['slot_number'])
+        zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
+    return zones
+
+
+def _warehouse_ensure_column_slots(cur, zone, column_index, upto=25):
+    """Fill only truly missing physical slots up to requested slot.
+    Hidden rows remain hidden. Existing product rows are never shifted or cleared.
+    """
+    _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 1)
+    upto = max(1, int(upto or 25))
+    cur.execute(sql("""
+        SELECT slot_number FROM warehouse_cells
+        WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+    """), (zone,column_index))
+    physical = set()
+    for row in cur.fetchall():
+        try: val = row['slot_number'] if hasattr(row, 'keys') else row[0]
+        except Exception: val = row[0]
+        try:
+            if int(val or 0) > 0:
+                physical.add(int(val or 0))
+        except Exception:
+            pass
+    for num in range(1, upto+1):
+        if num in physical:
+            continue
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+            VALUES(?,?,?,?,?,?,?,?,0)
+        """), (zone,column_index,'direct',num,'[]','',now(),''))
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=""):
+    """Save exact cell contents without clearing/rebuilding warehouse_cells.
+    Uses update-by-id instead of ON CONFLICT so legacy duplicate/hidden rows do not
+    make Render/Postgres fail on import or save.
+    """
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+        zone = (zone or 'A').strip().upper()
+        column_index = int(column_index or 0)
+        slot_number = int(slot_number or 0)
+        slot_type = 'direct'
+        if zone not in ('A','B') or column_index < 1 or slot_number < 1:
+            raise ValueError('格位參數錯誤')
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(25, slot_number))
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        items = _normalize_warehouse_items(items)
+        note = '' if str(note or '') in ('__USER_ADDED__','__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
+        items_json = json.dumps(items, ensure_ascii=False)
+        ts = now()
+        cur.execute(sql("""
+            SELECT id FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND slot_number=?
+            ORDER BY COALESCE(is_deleted,0) ASC, id DESC LIMIT 1
+        """), (zone,column_index,slot_number))
+        target = fetchone_dict(cur)
+        if target:
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type='direct', items_json=?, note=?, updated_at=?, is_deleted=0
+                WHERE id=?
+            """), (items_json, note, ts, target.get('id')))
+        else:
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                VALUES(?,?,?,?,?,?,?,?,0)
+            """), (zone,column_index,slot_type,slot_number,items_json,note,ts,''))
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    """Add slot by restoring a hidden empty slot or appending a new empty slot.
+    This does not shift/reorder product cells and therefore avoids unique-index collisions.
+    """
+    zone=(zone or 'A').strip().upper(); column_index=int(column_index or 0)
+    if zone not in ('A','B') or column_index < 1:
+        raise ValueError('格位參數錯誤')
+    conn=get_db(); cur=conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+        _warehouse_ensure_column_slots(cur, zone, column_index, 25)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        try: after = int(insert_after) if insert_after not in (None,'') else 0
+        except Exception: after = 0
+        # Restore a hidden empty slot after the chosen position only when no active slot uses that number.
+        cur.execute(sql("""
+            SELECT h.id, h.slot_number, h.items_json
+            FROM warehouse_cells h
+            WHERE h.zone=? AND h.column_index=? AND COALESCE(NULLIF(TRIM(h.slot_type),''),'direct')='direct'
+              AND COALESCE(h.is_deleted,0)=1 AND h.slot_number>?
+              AND NOT EXISTS (
+                SELECT 1 FROM warehouse_cells a
+                WHERE a.zone=h.zone AND a.column_index=h.column_index
+                  AND COALESCE(NULLIF(TRIM(a.slot_type),''),'direct')='direct'
+                  AND COALESCE(a.is_deleted,0)=0 AND a.slot_number=h.slot_number
+              )
+            ORDER BY h.slot_number ASC, h.id DESC LIMIT 1
+        """), (zone,column_index,after))
+        row=fetchone_dict(cur)
+        if row and _yx_v77_empty_items_json(row.get('items_json')):
+            new_slot=int(row.get('slot_number') or 0)
+            cur.execute(sql("UPDATE warehouse_cells SET slot_type='direct', is_deleted=0, updated_at=? WHERE id=?"), (now(), row.get('id')))
+        else:
+            cur.execute(sql("""
+                SELECT COALESCE(MAX(slot_number),0) AS max_slot FROM warehouse_cells
+                WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+            """), (zone,column_index))
+            max_slot=int((fetchone_dict(cur) or {}).get('max_slot') or 0)
+            new_slot=max(max_slot+1, 1)
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,problem_flag,is_deleted)
+                VALUES(?,?,?,?,?,?,?,?,0)
+            """), (zone,column_index,'direct',new_slot,'[]','',now(),''))
+        conn.commit(); return new_slot
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    """Soft delete an empty slot. Does not shift or delete product cells."""
+    zone=(zone or 'A').strip().upper(); column_index=int(column_index or 0); slot_number=int(slot_number or 0)
+    if zone not in ('A','B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+        _warehouse_ensure_column_slots(cur, zone, column_index, slot_number)
+        _yx_v76_merge_duplicate_direct_slots(cur, zone, column_index)
+        cur.execute(sql("""
+            SELECT COUNT(*) AS cnt FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND COALESCE(is_deleted,0)=0
+        """), (zone,column_index))
+        if int((fetchone_dict(cur) or {}).get('cnt') or 0) <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
+        cur.execute(sql("""
+            SELECT id, items_json FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct'
+              AND slot_number=? AND COALESCE(is_deleted,0)=0
+            ORDER BY id DESC LIMIT 1
+        """), (zone,column_index,slot_number))
+        target=fetchone_dict(cur)
+        if not target:
+            return {'success': False, 'error': '格號不存在或已隱藏'}
+        if not _yx_v77_empty_items_json(target.get('items_json')):
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, updated_at=? WHERE id=?"), (now(), target.get('id')))
+        try:
+            cur.execute(sql("DELETE FROM warehouse_recent_slots WHERE zone=? AND column_index=? AND slot_number=?"), (zone,column_index,slot_number))
+        except Exception as e:
+            log_error('v77_recent_soft_delete', str(e))
+        conn.commit(); return {'success': True, 'removed_slot': slot_number, 'soft_deleted': True}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    zone=(zone or 'A').strip().upper(); column_index=int(column_index or 0); slot_number=int(slot_number or 0)
+    if zone not in ('A','B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v77_ensure_warehouse_soft_delete_columns(cur)
+        _warehouse_ensure_column_slots(cur, zone, column_index, slot_number)
+        flag='problem' if marked else ''
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET problem_flag=?, is_deleted=0, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')='direct' AND slot_number=?
+        """), (flag, now(), zone, column_index, slot_number))
+        conn.commit(); return {'success': True, 'marked': bool(marked)}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass

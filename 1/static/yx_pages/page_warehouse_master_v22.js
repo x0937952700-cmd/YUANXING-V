@@ -498,7 +498,17 @@
   }
   function cellFromData(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    return (state.data.cells||[]).find(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c && Number(x.slot_number)===s) || null;
+    return (state.data.cells||[]).find(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c && Number(x.slot_number)===s && !isDeletedCell(x)) || null;
+  }
+  function isDeletedCell(cell){ return ['1','true','yes','deleted',1,true].includes(cell?.is_deleted); }
+  function activeColumnCells(z,c){
+    z=clean(z).toUpperCase(); c=Number(c);
+    return (state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c && !isDeletedCell(x)).sort((a,b)=>Number(a.slot_number)-Number(b.slot_number));
+  }
+  function visibleSlotNumbers(z,c){
+    const nums=activeColumnCells(z,c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
+    if(nums.length) return nums;
+    return Array.from({length:25},(_,i)=>i+1);
   }
   function cellItems(z,c,s){
     const cell=cellFromData(z,c,s);
@@ -508,9 +518,8 @@
   }
   function cellNote(z,c,s){ return clean(cellFromData(z,c,s)?.note || ''); }
   function maxSlot(z,c){
-    z=clean(z).toUpperCase(); c=Number(c);
-    const nums=(state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c).map(x=>Number(x.slot_number)||0);
-    return nums.length ? Math.max(...nums) : 20;
+    const nums=visibleSlotNumbers(z,c);
+    return nums.length ? Math.max(...nums) : 25;
   }
   function getColumnList(z,c){ return document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"] .vertical-slot-list`); }
   function createSlotElement(z,c,s){
@@ -547,11 +556,11 @@
     }
     return el;
   }
-  function ensureSlotRange(){ zones.forEach(z=>{ for(let c=1;c<=6;c++){ for(let s=1;s<=maxSlot(z,c);s++) ensureSlotElement(z,c,s); } }); }
+  function ensureSlotRange(){ zones.forEach(z=>{ for(let c=1;c<=6;c++){ visibleSlotNumbers(z,c).forEach(s=>ensureSlotElement(z,c,s)); } }); }
   function removeExtraDom(z,c){
     const list=getColumnList(z,c); if(!list) return;
-    const max=maxSlot(z,c);
-    list.querySelectorAll('[data-slot]').forEach(el=>{ if(Number(el.dataset.slot)>max) el.remove(); });
+    const visible=new Set(visibleSlotNumbers(z,c).map(n=>String(n)));
+    list.querySelectorAll('[data-slot]').forEach(el=>{ if(!visible.has(String(Number(el.dataset.slot)))) el.remove(); });
   }
   function updateSlotUI(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -565,6 +574,9 @@
     const hi=state.searchKeys.has(key(z,c,s));
     el.classList.toggle('filled', items.length>0);
     el.classList.toggle('highlight', hi);
+    const markedCell = cellFromData(z,c,s);
+    const marked = ['problem','marked','1','true',true,1].includes(markedCell?.problem_flag);
+    el.classList.toggle('yx-warehouse-problem', !!marked);
     el.dataset.hasItems=items.length?'1':'0';
     if(!items.length){
       customers && (customers.textContent='空格', customers.classList.add('yx108-slot-empty'));
@@ -586,11 +598,11 @@
   }
   function updateAllSlots(){
     ensureSlotRange();
-    zones.forEach(z=>{ for(let c=1;c<=6;c++){ for(let s=1;s<=maxSlot(z,c);s++) updateSlotUI(z,c,s); removeExtraDom(z,c); } });
+    zones.forEach(z=>{ for(let c=1;c<=6;c++){ visibleSlotNumbers(z,c).forEach(s=>updateSlotUI(z,c,s)); removeExtraDom(z,c); } });
     updateNotes(); bindSlots(); setWarehouseZone(state.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
   }
   function updateNotes(){
-    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 20 格'; }
+    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 25 格'; }
   }
   async function loadAvailable(){
     try{
@@ -1053,7 +1065,9 @@
       closeWarehouseModal();
       highlightWarehouseCell(saveZone,saveCol,saveSlot);
       saveCellRaw(saveZone,saveCol,saveSlot,items,saveNote).then(async saved=>{
-        if(saved && Array.isArray(saved.cells)) state.data.cells=saved.cells;
+        // Do not wholesale replace state.data.cells here. A slower background save from a previous
+        // cell can overwrite a newer front-end edit and make quantities jump. Only refresh available
+        // quantities; the cell itself has already been applied locally and saved in DB.
         await loadAvailable().catch(()=>{});
         updateAllSlots();
         highlightWarehouseCell(saveZone,saveCol,saveSlot);
@@ -1089,14 +1103,18 @@
   function localInsertSlot(z,c,after){
     z=clean(z).toUpperCase(); c=Number(c); after=Number(after||0);
     state.data.cells = Array.isArray(state.data.cells) ? state.data.cells : [];
-    state.data.cells.forEach(cell=>{ if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>after){ cell.slot_number=Number(cell.slot_number)+1; } });
-    state.data.cells.push({zone:z,column_index:c,slot_type:'direct',slot_number:after+1,items:[],items_json:'[]',note:''});
+    // Soft-delete add: do not renumber product cells. Restore first hidden slot is not known
+    // in front-end data, so we append visually and let the DB response reconcile exact slot.
+    const existing=visibleSlotNumbers(z,c);
+    const newSlot=Math.max(after+1, existing.length ? Math.max(...existing)+1 : 1);
+    state.data.cells.push({zone:z,column_index:c,slot_type:'direct',slot_number:newSlot,items:[],items_json:'[]',note:'',problem_flag:'',is_deleted:0});
     state.data.cells.sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
+    return newSlot;
   }
   function localDeleteSlot(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
+    // Soft-delete visual behavior: hide only this empty slot; never shift product cells.
     state.data.cells = (state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)===s));
-    state.data.cells.forEach(cell=>{ if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>s){ cell.slot_number=Number(cell.slot_number)-1; } });
   }
   async function batchInsertWarehouseCells(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
@@ -1109,7 +1127,7 @@
       let last=null;
       for(let i=0;i<count;i++) last=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s+i,slot_type:'direct'})});
       if(last && Array.isArray(last.cells)) state.data.cells=last.cells;
-      updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
+      updateAllSlots(); highlightWarehouseCell(z,c,Number(last?.slot_number||s+1)); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
     })().catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'批量新增格子失敗，已還原','error'); });
   }
   async function batchDeleteWarehouseCells(z,c,s){
@@ -1125,7 +1143,7 @@
     updateAllSlots(); toast(`已先批量刪除 ${count} 格，背景儲存`,'ok');
     (async()=>{
       let last=null;
-      for(let i=0;i<count;i++) last=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s,slot_type:'direct'})});
+      for(let i=0;i<count;i++) last=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s+i,slot_type:'direct'})});
       if(last && Array.isArray(last.cells)) state.data.cells=last.cells;
       updateAllSlots(); toast(`批量刪除 ${count} 格已永久存入資料庫`,'ok');
     })().catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'批量刪除格子失敗，已還原','error'); });
@@ -1134,9 +1152,9 @@
   async function insertWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
-    localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast('已先插入格子，背景儲存','ok');
+    const localSlot=localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast('已先插入格子，背景儲存','ok');
     api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s,slot_type:'direct'})}).then(d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells; updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); toast('新增格子已永久存入資料庫','ok');
+      if(Array.isArray(d.cells)) state.data.cells=d.cells; updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||localSlot)); toast('新增格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'新增格子失敗，已還原','error'); });
   }
   async function deleteWarehouseCell(z,c,s){
@@ -1174,8 +1192,25 @@
       toast(e.message||'退回該格背景儲存失敗，已還原畫面','error');
     });
   }
-  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">開啟 / 編輯格位</button><button data-wh-act="insert">在此格後插入格子</button><button data-wh-act="batch-insert">批量新增格子</button><button data-wh-act="delete">刪除此格</button><button data-wh-act="batch-delete">批量刪除空格</button><button data-wh-act="return">返回該格</button>'; document.body.appendChild(m); return m; }
+  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">開啟 / 編輯格位</button><button data-wh-act="mark">標記 / 取消問題格</button><button data-wh-act="insert">在此格後插入格子</button><button data-wh-act="batch-insert">批量新增格子</button><button data-wh-act="delete">刪除此格</button><button data-wh-act="batch-delete">批量刪除空格</button><button data-wh-act="return">返回該格</button>'; document.body.appendChild(m); return m; }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }
+  async function toggleProblemMark(z,c,s){
+    z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
+    let cell=cellFromData(z,c,s);
+    if(!cell){ cell={zone:z,column_index:c,slot_type:'direct',slot_number:s,items:[],items_json:'[]',note:'',problem_flag:''}; state.data.cells.push(cell); }
+    const nowMarked = !(['problem','marked','1','true',true,1].includes(cell.problem_flag));
+    const oldFlag = cell.problem_flag || '';
+    cell.problem_flag = nowMarked ? 'problem' : '';
+    updateSlotUI(z,c,s);
+    toast(nowMarked?'已先標記成問題格，背景儲存':'已先取消問題格標記，背景儲存','ok');
+    try{
+      const d=await api('/api/warehouse/mark-cell',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:s,marked:nowMarked})});
+      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      updateAllSlots();
+    }catch(e){
+      cell.problem_flag=oldFlag; updateSlotUI(z,c,s); toast(e.message||'標記格子失敗，已還原','error');
+    }
+  }
   function bindSlot(slot){
     if(!slot || slot.dataset.yxFinalBound==='1') return; slot.dataset.yxFinalBound='1'; let press=null;
     const data=()=>({zone:slot.dataset.zone,col:Number(slot.dataset.column),slot:Number(slot.dataset.slot)});
@@ -1200,7 +1235,7 @@
       ['pointerup','pointercancel','pointerleave'].forEach(t=>unplacedPill.addEventListener(t,clear));
     }
     document.addEventListener('click',async ev=>{
-      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='return') await returnWarehouseCell(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-insert') await batchInsertWarehouseCells(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-delete') await batchDeleteWarehouseCells(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
+      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='mark') await toggleProblemMark(z,c,s); if(act.dataset.whAct==='return') await returnWarehouseCell(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-insert') await batchInsertWarehouseCells(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-delete') await batchDeleteWarehouseCells(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) menu().classList.add('hidden');
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); return; }
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }
