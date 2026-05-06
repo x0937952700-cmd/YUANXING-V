@@ -1,11 +1,15 @@
 
-/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
+  function parenAdjust(v){
+    // V58：括號只當備註，像 115x51(東昇-8) 一律以 51 件計，不扣 -8。
+    return 0;
+  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -18,7 +22,7 @@
     if (!right) return raw ? 1 : (fb || 0);
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (rightForCanonical === canonical) return 10;
+    if (rightForCanonical === canonical) return 15;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return raw ? 1 : (fb || 0);
     const xParts = parts.filter(isSingleQtyX);
@@ -31,9 +35,9 @@
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
+      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Number(m[1] || 0); hit = true; }
+      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -354,6 +358,17 @@
     return String(a?.id ?? '').localeCompare(String(b?.id ?? ''), 'zh-Hant', {numeric:true});
   }
   function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
+
+  async function deleteShipGroup(ids){
+    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
+    if(!list.length) return;
+    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
+    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
+    if(card) card.remove();
+    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
+    loadTodayChanges112({force:true});
+  }
+
   function install(){
     document.documentElement.dataset.yx118ProductSort = 'locked';
     window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
@@ -371,14 +386,15 @@
   const YX = window.YXHardLock;
   if (!YX) return;
 
-  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0};
+  const state = {filter:'orders', data:null, loading:null, installed:false, longPress:null, blockClickUntil:0, forceNext:false};
   const panels = [
-    {key:'inbound', label:'進貨', list:'today-inbound-list', empty:'今天沒有進貨'},
-    {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
+    {key:'inbound', label:'新增庫存', list:'today-inbound-list', empty:'今天沒有新增庫存'},
     {key:'orders', label:'新增訂單', list:'today-order-list', empty:'今天沒有新增訂單'},
+    {key:'masters', label:'新增總單', list:'today-master-list', empty:'今天沒有新增總單'},
+    {key:'outbound', label:'出貨', list:'today-outbound-list', empty:'今天沒有出貨'},
     {key:'unplaced', label:'未錄入倉庫圖', list:'today-unplaced-list', empty:'目前沒有未錄入倉庫圖商品'},
   ];
-  const countMap = {inbound:'inbound_count', outbound:'outbound_count', orders:'new_order_count', unplaced:'unplaced_count'};
+  const countMap = {inbound:'inbound_count', orders:'new_order_count', masters:'new_master_count', outbound:'outbound_count', unplaced:'unplaced_count'};
 
   function $(id){ return document.getElementById(id); }
   function isToday(){ return YX.moduleKey() === 'today_changes' || !!$('today-summary-cards'); }
@@ -407,7 +423,7 @@
     document.querySelectorAll('[data-today-panel]').forEach(panel => {
       panel.classList.add('yx112-today-panel');
       const k = panel.getAttribute('data-today-panel');
-      const filter = state.filter || 'orders';
+      const filter = state.filter || 'all';
       const show = filter === 'all' || filter === k;
       panel.classList.toggle('yx112-filter-hidden', !show);
       panel.style.display = show ? '' : 'none';
@@ -419,12 +435,12 @@
     return Number.isFinite(n) ? n : 0;
   }
   function setFilter(next){
-    state.filter = next || 'orders';
+    state.filter = next || 'all';
     try { localStorage.setItem('yx112TodayFilter', state.filter); } catch(_e) {}
     applyFilter();
   }
   function applyFilter(){
-    const filter = state.filter || 'orders';
+    const filter = state.filter || 'all';
     document.querySelectorAll('[data-today-filter]').forEach(btn => {
       const k = btn.getAttribute('data-today-filter') || 'all';
       btn.classList.toggle('active', k === filter);
@@ -459,6 +475,21 @@
     }).join('');
     box.innerHTML = cards;
   }
+  function renderUnplacedZonePill(summary){
+    let pill = document.getElementById('today-unplaced-zone-pill');
+    const tools = document.querySelector('.yx112-today-fixed-tools');
+    if (!tools) return;
+    if (!pill) {
+      pill = document.createElement('span');
+      pill.id = 'today-unplaced-zone-pill';
+      pill.className = 'pill warn interactive-pill yx-v58-today-zone-pill';
+      pill.title = '長按刷新 A/B/未分區/總計';
+      tools.insertBefore(pill, tools.firstChild);
+    }
+    const z = summary?.unplaced_zone_summary || {};
+    const a = Number(z.A || 0), b = Number(z.B || 0), u = Number(z.unassigned || 0), t = Number(z.total || (a + b + u));
+    pill.textContent = `A區 ${a} 件 / B區 ${b} 件 / 未分區 ${u} 件 / 總計 ${t} 件`;
+  }
   function rowText(r){
     const parts = [];
     const target = YX.clean(r?.customer_name || r?.target || r?.customer || '');
@@ -468,6 +499,28 @@
     if (r?.source_summary) parts.push(`來源：${r.source_summary}`);
     return parts.join('｜');
   }
+
+  function groupOutboundRows(rows){
+    const map=new Map();
+    (Array.isArray(rows)?rows:[]).forEach(r=>{
+      const customer=YX.clean(r?.customer_name||r?.target||r?.customer||'未填客戶');
+      const date=YX.clean(String(r?.created_at||r?.time||'').slice(0,10)) || '未填日期';
+      const key=customer+'::'+date;
+      if(!map.has(key)) map.set(key,{id:0, action:'出貨', customer_name:customer, date, rows:[], qty:0});
+      const g=map.get(key); g.rows.push(r); g.qty += qtyOf(r); if(!g.id && r?.id) g.id=Number(r.id||0);
+    });
+    return Array.from(map.values()).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(a.customer_name).localeCompare(String(b.customer_name),'zh-Hant'));
+  }
+  function todayOutboundCard(g){
+    const lines=(g.rows||[]).map(r=>YX.clean(r?.product_text||r?.product||r?.message||'')).filter(Boolean);
+    const ids=(g.rows||[]).map(r=>Number(r?.id||0)).filter(Boolean).join(',');
+    return `<div class="today-item deduct-card yx112-today-row yx-v63-outbound-card" data-kind="outbound" data-ship-record-ids="${YX.esc(ids)}">
+      <div class="yx112-today-main yx-v63-outbound-head"><strong>${g.rows.length}/${g.rows.length}</strong><span>${YX.esc(g.customer_name)}</span>${ids?`<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx63-delete-ship-group="${YX.esc(ids)}">刪除</button>`:''}</div>
+      <div class="yx-v63-outbound-lines">${lines.map(x=>`<div>${YX.esc(x)}</div>`).join('')}</div>
+      <div class="small-note">${YX.esc(g.date)}｜${g.rows.length}筆 / ${g.qty}件</div>
+    </div>`;
+  }
+
   function todayRow(r, kind){
     const id = Number(r?.id || 0);
     const detail = rowText(r);
@@ -486,6 +539,11 @@
     if (!el) return;
     const arr = Array.isArray(rows) ? rows : [];
     el.classList.add('yx112-fixed-card-list');
+    if(kind === 'outbound'){
+      const groups = groupOutboundRows(arr);
+      el.innerHTML = groups.length ? groups.map(todayOutboundCard).join('') : `<div class="empty-state-card compact-empty yx112-empty">${YX.esc(empty)}</div>`;
+      return;
+    }
     el.innerHTML = arr.length ? arr.map(r => todayRow(r, kind)).join('') : `<div class="empty-state-card compact-empty yx112-empty">${YX.esc(empty)}</div>`;
   }
   function render(data){
@@ -496,9 +554,11 @@
     if ($('today-unread-badge')) $('today-unread-badge').textContent = '0';
     renderLabels(summary);
     renderSummaryCards(summary);
+    renderUnplacedZonePill(summary);
     fill('today-inbound-list', state.data.feed?.inbound, '今天沒有進貨', 'inbound');
-    fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
     fill('today-order-list', state.data.feed?.new_orders, '今天沒有新增訂單', 'orders');
+    fill('today-master-list', state.data.feed?.new_masters, '今天沒有新增總單', 'masters');
+    fill('today-outbound-list', state.data.feed?.outbound, '今天沒有出貨', 'outbound');
     fill('today-unplaced-list', state.data.unplaced_items, '目前沒有未錄入倉庫圖商品', 'unplaced');
     applyFilter();
     return data;
@@ -509,7 +569,12 @@
     state.loading = (async () => {
       try {
         cleanLegacyTodayDom();
-        const data = await YX.api('/api/today-changes?yx112=1&ts=' + Date.now(), {method:'GET'});
+        let data = await YX.api('/api/today-changes?yx112=1&force=' + (opts.force || state.forceNext ? '1' : '0') + '&ts=' + Date.now(), {method:'GET'}); state.forceNext=false;
+        try {
+          const wz = await YX.api('/api/warehouse/available-items?ts=' + Date.now(), {method:'GET'});
+          data.summary = data.summary || {};
+          data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
+        } catch(_e) {}
         render(data);
         try { await YX.api('/api/today-changes/read', {method:'POST', body:JSON.stringify({})}); } catch(_e) {}
         if ($('today-unread-badge')) $('today-unread-badge').textContent = '0';
@@ -529,7 +594,7 @@
     const clearLongPress = () => { if (state.longPress?.timer) clearTimeout(state.longPress.timer); state.longPress = null; };
     document.addEventListener('pointerdown', ev => {
       if (!isToday()) return;
-      const trigger = ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger');
+      const trigger = ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger,#today-unplaced-zone-pill,#yx112-refresh-today');
       if (!trigger) return;
       const x = ev.clientX, y = ev.clientY;
       clearLongPress();
@@ -547,7 +612,7 @@
 
     document.addEventListener('click', async ev => {
       if (!isToday()) return;
-      if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
+      if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger,#today-unplaced-zone-pill,#yx112-refresh-today')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
       if (ev.target && ev.target.id === 'yx112-refresh-today') {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         await loadTodayChanges112({force:true});
@@ -560,6 +625,12 @@
         const id = del.getAttribute('data-yx112-delete-today');
         try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); await loadTodayChanges112({force:true}); }
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
+        return;
+      }
+      const delShip = ev.target?.closest?.('[data-yx63-delete-ship-group]');
+      if (delShip) {
+        ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+        await deleteShipGroup(delShip.getAttribute('data-yx63-delete-ship-group') || '');
         return;
       }
       const filter = ev.target?.closest?.('[data-today-filter]');
@@ -600,12 +671,23 @@
       try { window.YX_MASTER = Object.freeze({...window.YX_MASTER, version:'fix142-speed-ship-master-hardlock', loadTodayChanges:fn}); } catch(_e) {}
     }
   }
+
+  async function deleteShipGroup(ids){
+    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
+    if(!list.length) return;
+    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
+    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
+    if(card) card.remove();
+    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
+    loadTodayChanges112({force:true});
+  }
+
   function install(){
     if (!isToday()) return;
     // V24：每次打開今日異動固定先顯示「新增訂單」單一卡片版，
     // 不讀取上次 all/inbound/outbound 篩選，避免先跳舊的三區塊畫面再跳新版。
-    state.filter = 'orders';
-    try { localStorage.setItem('yx112TodayFilter', 'orders'); } catch(_e) {}
+    state.filter = 'all';
+    try { localStorage.setItem('yx112TodayFilter', 'all'); } catch(_e) {}
     YX.cancelLegacyTimers('today_changes');
     document.documentElement.dataset.yx112Today = 'locked';
     document.documentElement.dataset.yx114Today = 'locked';
@@ -663,6 +745,17 @@
       el.setAttribute('aria-hidden','true');
     });
   }
+
+  async function deleteShipGroup(ids){
+    const list=String(ids||'').split(',').map(x=>Number(x)).filter(Boolean);
+    if(!list.length) return;
+    if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。')) return;
+    const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
+    if(card) card.remove();
+    for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
+    loadTodayChanges112({force:true});
+  }
+
   function install(){
     stopLegacyLayoutNames();
     protectStaticShell();

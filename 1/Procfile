@@ -1,1 +1,3 @@
-web: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+# V76 warehouse add/edit stable overlay verified
+web: gunicorn wsgi:app --bind 0.0.0.0:$PORT
+# V58: wsgi entrypoint retained for Render/Gunicorn.

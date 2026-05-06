@@ -1,3 +1,5 @@
+# V65: frontend batch-edit/warehouse-speed fix uses existing API routes.
+# V59 mainfile event/db/ui lock
 # V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
@@ -85,6 +87,21 @@ PUBLIC_PATHS = {
 
 def current_username():
     return session.get("user", "")
+
+
+def ensure_runtime_product_schema(cur):
+    """V58 runtime guard: routes that update month_tag/location must not fail on old PostgreSQL/SQLite schemas."""
+    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
+        for column, definition in (('month_tag', 'TEXT'), ('location', 'TEXT')):
+            if table == 'shipping_records' and column == 'location':
+                continue
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            except Exception:
+                try:
+                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                except Exception:
+                    pass
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
@@ -403,12 +420,93 @@ def aggregate_customer_items(items):
 
 
 def warehouse_item_size_key(text):
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw).lower()
     parts = [p for p in left.split('x') if p != '']
     if len(parts) >= 3 and all(part.strip().isdigit() for part in parts[:3]):
         return 'x'.join(str(int(part.strip())) for part in parts[:3])
     return left
+
+def warehouse_item_display_size(text):
+    """Return the visible size exactly as entered, preserving leading zeros like 396x30x06.
+    This is for UI / saved product text only; warehouse_item_size_key still normalizes for matching.
+    """
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = re.sub(r'[\(（][^\)）]*[\)）]', '', raw).strip()
+    left = (raw.split('=', 1)[0].strip() or raw)
+    return left
+
+def warehouse_customer_key(customer_name):
+    customer = (customer_name or '').strip()
+    return customer if customer else '庫存'
+
+def warehouse_item_exact_key(text):
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    try:
+        raw = format_product_text_height2(raw)
+    except Exception:
+        pass
+    size = warehouse_item_size_key(raw)
+    if '=' not in raw:
+        return size
+    right = raw.split('=', 1)[1].strip().lower()
+    right = re.sub(r'\s+', '', right)
+    return f"{size}={right}" if right else size
+
+def warehouse_support_text(text):
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    if '=' not in raw:
+        return ''
+    return raw.split('=', 1)[1].strip()
+
+
+def warehouse_support_qty_adjustment(part):
+    # V58：括號只當備註，倉庫支數件數不因 (東昇-8) 這類文字被扣掉。
+    return 0
+
+
+def warehouse_support_plain(part):
+    return re.sub(r'[\(（][^\)）]*[\)）]', '', str(part or '')).strip()
+
+
+
+def warehouse_split_support_components(product_text, row_qty):
+    """把 61x12x10=750x21+822+610 拆成可獨立入倉的支數項。
+    回傳每一支數自己的 product_text / support_text / qty。若沒有 =，維持原商品與資料庫 qty。
+    """
+    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
+    try:
+        row_qty = int(row_qty or 0)
+    except Exception:
+        row_qty = 0
+    if not raw or '=' not in raw:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    size = warehouse_item_size_key(raw)
+    display_size = warehouse_item_display_size(raw) or size
+    right = raw.split('=', 1)[1].strip()
+    parts = [x.strip() for x in re.split(r'[+＋]', right) if x and x.strip()]
+    if not size or not parts:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    out = []
+    for part in parts:
+        part_raw = part.strip()
+        plain_part = warehouse_support_plain(part_raw)
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', plain_part.lower())
+        if m:
+            support = part_raw
+            qty = int(m.group(2) or 1) + warehouse_support_qty_adjustment(part_raw)
+        else:
+            support = part_raw
+            qty = 1 + warehouse_support_qty_adjustment(part_raw)
+        qty = max(0, qty)
+        if qty > 0:
+            out.append({'product_text': f'{display_size}={support}', 'support_text': support, 'qty': qty})
+    if not out:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    # 若右側拆出的件數明顯不是 row_qty，而且只有一項，採資料庫 qty；多項維持支數表達本身，避免「可加入 25 件」亂選。
+    if len(out) == 1 and row_qty > 0:
+        out[0]['qty'] = row_qty
+    return out
 
 def safe_cell_items(cell):
     try:
@@ -416,38 +514,130 @@ def safe_cell_items(cell):
     except Exception:
         return []
 
+
+def warehouse_saved_item_component_details(it, qty=None):
+    """When a grouped dropdown row is saved as one item, distribute placed qty back to source_details."""
+    if not isinstance(it, dict):
+        return []
+    details = it.get('source_details') or []
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except Exception:
+            details = []
+    if not isinstance(details, list) or not details:
+        return []
+    try:
+        remaining = int(qty if qty is not None else (it.get('qty') or it.get('quantity') or 0))
+    except Exception:
+        remaining = 0
+    out = []
+    for d in details:
+        if not isinstance(d, dict):
+            continue
+        product = (d.get('product_text') or d.get('product') or '').strip()
+        if not product:
+            continue
+        try:
+            dqty = int(d.get('qty') or d.get('quantity') or 0)
+        except Exception:
+            dqty = 0
+        if dqty <= 0:
+            continue
+        use_qty = min(dqty, remaining) if remaining > 0 else dqty
+        if use_qty <= 0:
+            continue
+        row = dict(d)
+        row['qty'] = use_qty
+        row['customer_name'] = warehouse_customer_key(row.get('customer_name') or it.get('customer_name') or '')
+        row['source'] = row.get('source') or row.get('source_table') or it.get('source') or it.get('source_table') or '庫存'
+        row['source_table'] = row.get('source_table') or row.get('source') or '庫存'
+        row['source_id'] = str(row.get('source_id') or row.get('id') or '')
+        out.append(row)
+        remaining -= use_qty
+        if remaining <= 0:
+            break
+    return out
+
 def warehouse_source_totals():
+    """Return source quantities for warehouse placement.
+
+    V48 main-file fix:
+    - 庫存空客戶統一視為「庫存」，避免前端顯示「庫存」但後端驗證用空字串造成儲存失敗。
+    - 同尺寸不同支數 / 不同來源分開列入 source_details，讓下拉可選「這支數 x 件」與「另一支數 x 件」。
+    - totals 同時保留 exact key 與 size aggregate，支援舊格位只存尺寸的資料。 
+    """
     totals = {}
     details = {}
     source_rows = []
-    for row in list_inventory():
-        source_rows.append(('庫存', row))
-    for row in get_orders():
-        source_rows.append(('訂單', row))
-    for row in get_master_orders():
-        source_rows.append(('總單', row))
+    # V49 mainfile: 倉庫圖下拉要使用資料庫永久數量，不使用列表顯示層的 effective qty。
+    # 這樣「80x30x125 / qty=18」會顯示可加入 18 件；
+    # 若商品文字本身有 =支數，仍保留該支數文字，讓不同支數分開選。
+    try:
+        conn = get_db(); cur = conn.cursor()
+        for source_label, table in [('庫存','inventory'), ('訂單','orders'), ('總單','master_orders')]:
+            try:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(qty,0) > 0"))
+                for row in rows_to_dict(cur):
+                    source_rows.append((source_label, row))
+            except Exception as e:
+                log_error('warehouse_source_totals_raw_' + table, str(e))
+        try: conn.close()
+        except Exception: pass
+    except Exception as e:
+        log_error('warehouse_source_totals_raw', str(e))
+        for row in list_inventory():
+            source_rows.append(('庫存', row))
+        for row in get_orders():
+            source_rows.append(('訂單', row))
+        for row in get_master_orders():
+            source_rows.append(('總單', row))
     for source_label, row in source_rows:
-        product = (row.get('product_text') or row.get('product') or '').strip()
-        size = warehouse_item_size_key(product)
-        if not size:
-            continue
-        customer = (row.get('customer_name') or '').strip()
+        original_product = (row.get('product_text') or row.get('product') or '').strip()
+        customer = warehouse_customer_key(row.get('customer_name') or '')
         try:
-            qty = int(row.get('qty') or 0)
+            row_qty = int(row.get('qty') or 0)
         except Exception:
-            qty = 0
-        if qty <= 0:
+            row_qty = 0
+        if row_qty <= 0:
             continue
-        key = (size, customer)
-        totals[key] = totals.get(key, 0) + qty
-        details.setdefault(key, []).append({
-            'source': source_label,
-            'id': row.get('id'),
-            'product_text': product,
-            'qty': qty,
-            'customer_name': customer,
-            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper(),
-        })
+        material = (row.get('material') or row.get('product_code') or '').strip()
+        zone_text = (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper()
+        components = warehouse_split_support_components(original_product, row_qty)
+        for comp_i, comp in enumerate(components):
+            product = (comp.get('product_text') or original_product).strip()
+            qty = int(comp.get('qty') or 0)
+            size = warehouse_item_size_key(product)
+            exact = warehouse_item_exact_key(product)
+            if not size or qty <= 0:
+                continue
+            exact_key = (exact, customer)
+            totals[exact_key] = totals.get(exact_key, 0) + qty
+            # 注意：有支數的商品不再累加 size_key，避免 25 件總數被隨機套到任一支數。
+            if '=' not in exact:
+                size_key = (size, customer)
+                totals[size_key] = totals.get(size_key, 0) + qty
+            source_id = f"{row.get('id') or ''}:{comp_i}:{comp.get('support_text') or ''}" if len(components) > 1 else str(row.get('id') or '')
+            detail_key = (exact, customer, source_label, source_id)
+            details.setdefault(detail_key, []).append({
+                'source': source_label,
+                'source_table': source_label,
+                'source_id': source_id,
+                'origin_source_id': row.get('id'),
+                'id': source_id,
+                'product_text': product,
+                'original_product_text': original_product,
+                'product_size': size,
+                'display_product_size': warehouse_item_display_size(product) or warehouse_item_display_size(original_product) or size,
+                'support_text': comp.get('support_text') or warehouse_support_text(product),
+                'exact_key': exact,
+                'size_key': size,
+                'qty': qty,
+                'customer_name': customer,
+                'material': material,
+                'product_code': material,
+                'zone': zone_text,
+            })
     return totals, details
 
 def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
@@ -460,100 +650,135 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
         else:
             items = safe_cell_items(cell)
         for it in items:
-            size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+            product = it.get('product_text') or it.get('product') or ''
+            size = warehouse_item_size_key(product)
+            exact = warehouse_item_exact_key(product)
             if not size:
                 continue
-            customer = (it.get('customer_name') or '').strip()
+            customer = warehouse_customer_key(it.get('customer_name') or '')
             try:
                 qty = int(it.get('qty') or 0)
             except Exception:
                 qty = 0
             if qty <= 0:
                 continue
-            key = (size, customer)
-            placed[key] = placed.get(key, 0) + qty
+            component_details = warehouse_saved_item_component_details(it, qty)
+            if component_details:
+                for d in component_details:
+                    dproduct = d.get('product_text') or d.get('product') or ''
+                    dsize = warehouse_item_size_key(dproduct)
+                    dexact = warehouse_item_exact_key(dproduct)
+                    dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                    try:
+                        dq = int(d.get('qty') or 0)
+                    except Exception:
+                        dq = 0
+                    if not dsize or dq <= 0:
+                        continue
+                    placed[(dexact, dcustomer)] = placed.get((dexact, dcustomer), 0) + dq
+                    if (dsize, dcustomer) != (dexact, dcustomer) and '=' not in dexact:
+                        placed[(dsize, dcustomer)] = placed.get((dsize, dcustomer), 0) + dq
+                continue
+            exact_key = (exact, customer)
+            size_key = (size, customer)
+            placed[exact_key] = placed.get(exact_key, 0) + qty
+            if size_key != exact_key:
+                placed[size_key] = placed.get(size_key, 0) + qty
     return placed
 
 def normalize_warehouse_payload_items(items):
-    """Normalize warehouse modal payload without changing the existing UI/event flow.
-
-    V25 safe fix: the frontend can submit the same product in 後排 / 中間 / 前排.
-    The previous app-layer merge only used (size, customer), so different batch rows
-    could be collapsed before db.py received their placement_label, making save look
-    like it had no effect or causing selected rows to disappear.  Keep placement,
-    material and source identity in the merge key; db.py still performs its own
-    final normalization and quantity checks.
-    """
-    merged = {}
-
-    def _clean(v):
-        return str(v or '').strip()
-
-    for raw in (items or []):
-        if not isinstance(raw, dict):
+    # V47: normalize warehouse modal payload and merge exact duplicate rows.
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
             continue
-        product = _clean(raw.get('product_text') or raw.get('product'))
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
         if not product:
             continue
         try:
-            qty = int(raw.get('qty') or 0)
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
         except Exception:
-            qty = 0
-        if qty <= 0:
-            continue
-
-        customer = _clean(raw.get('customer_name'))
-        placement_label = _clean(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label'))
-        material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product)
-        source = _clean(raw.get('source') or raw.get('source_table'))
-        source_table = _clean(raw.get('source_table') or source)
-        source_id = _clean(raw.get('source_id') or raw.get('id'))
-
-        key = (warehouse_item_size_key(product), customer, placement_label, material, source_table, source_id)
-        if key not in merged:
-            item = dict(raw)
-            item['product_text'] = product
-            item['product'] = product
-            item['product_code'] = material or _clean(raw.get('product_code')) or product
-            item['material'] = material
-            item['customer_name'] = customer
-            item['qty'] = qty
-            if placement_label:
-                item['placement_label'] = placement_label
-                item['layer_label'] = placement_label
-            if source:
-                item['source'] = source
-            if source_table:
-                item['source_table'] = source_table
-            if source_id:
-                item['source_id'] = source_id
-            merged[key] = item
+            qty = 1
+        qty = max(1, qty)
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        # V50：同一來源同一商品禁止因前/中/後不同列重複放入；合併成同一筆數量。
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
         else:
-            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
-            if not merged[key].get('source_summary') and raw.get('source_summary'):
-                merged[key]['source_summary'] = raw.get('source_summary')
-    return list(merged.values())
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
 
 def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
+    # V48: exact 支數 + 尺寸總量雙層驗證，並把空客戶與「庫存」對齊，避免儲存後刷新消失。
     source_totals, _details = warehouse_source_totals()
-    exclude_key = (str(zone), int(column_index), int(slot_number))
-    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
-    for it in items:
-        size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
-        customer = (it.get('customer_name') or '').strip()
-        key = (size, customer)
-        source_total = int(source_totals.get(key, 0) or 0)
-        if source_total <= 0:
-            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
-            source_total = max(size_matches) if size_matches else 0
-        placed_total = int(placed.get(key, 0) or 0)
-        if placed_total <= 0 and size:
-            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
-        if source_total > 0 and placed_total > source_total:
-            return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
-        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
-    return True, ''
+    exclude_key = ((zone or '').strip().upper(), int(column_index or 0), int(slot_number or 0))
+    proposed_exact = {}
+    proposed_size = {}
+    for it in items or []:
+        product = it.get('product_text') or it.get('product') or ''
+        size = warehouse_item_size_key(product)
+        exact = warehouse_item_exact_key(product)
+        customer = warehouse_customer_key(it.get('customer_name') or '')
+        if not size:
+            continue
+        try:
+            q = int(it.get('qty') or it.get('quantity') or 0)
+        except Exception:
+            q = 0
+        if q <= 0:
+            continue
+        component_details = warehouse_saved_item_component_details(it, q)
+        if component_details:
+            for d in component_details:
+                dproduct = d.get('product_text') or d.get('product') or ''
+                dsize = warehouse_item_size_key(dproduct)
+                dexact = warehouse_item_exact_key(dproduct)
+                dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                try:
+                    dq = int(d.get('qty') or 0)
+                except Exception:
+                    dq = 0
+                if not dsize or dq <= 0:
+                    continue
+                proposed_exact[(dexact, dcustomer)] = proposed_exact.get((dexact, dcustomer), 0) + dq
+                proposed_size[(dsize, dcustomer)] = proposed_size.get((dsize, dcustomer), 0) + dq
+            continue
+        proposed_exact[(exact, customer)] = proposed_exact.get((exact, customer), 0) + q
+        proposed_size[(size, customer)] = proposed_size.get((size, customer), 0) + q
+    placed_other = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=[])
+    for key, proposed_qty in proposed_exact.items():
+        source_qty = int(source_totals.get(key, 0) or 0)
+        # 舊資料只有尺寸、沒有支數時，允許走尺寸總量驗證。
+        if source_qty <= 0 and '=' not in key[0]:
+            source_qty = int(source_totals.get(key, 0) or 0)
+        if source_qty > 0:
+            already = int(placed_other.get(key, 0) or 0)
+            if already + proposed_qty > source_qty:
+                # V74：倉庫格位由前端先固定顯示，使用者輸入 41 就要保存 41，不再用舊來源數量阻擋。
+                # 來源剩餘改由未錄入下拉清單背景校正，不回滾使用者當下格位。
+                continue
+    for key, proposed_qty in proposed_size.items():
+        # V50：若有 exact 支數驗證，尺寸總量只當 fallback；避免同一筆 exact 又被尺寸層重複誤判。
+        has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
+        if has_exact_for_size:
+            continue
+        source_qty = int(source_totals.get(key, 0) or 0)
+        if source_qty <= 0:
+            # V74：舊資料或已手動調整支數時，來源找不到也不可阻擋儲存。
+            continue
+        already = int(placed_other.get(key, 0) or 0)
+        if already + proposed_qty > source_qty:
+            # V74：不要阻擋使用者輸入數字；前端固定顯示，後台保存。
+            continue
+    return True, ""
 
 def grouped_inventory():
     return inventory_summary()
@@ -1292,6 +1517,25 @@ def api_shipping_records():
     rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
     return jsonify(success=True, items=rows, records=rows)
 
+@app.route("/api/shipping_records/<int:record_id>", methods=["DELETE"])
+@login_required_json
+def api_shipping_record_delete(record_id):
+    # V61：出貨查詢管理員可刪單；刪除後其他人查不到。
+    if current_username() != '陳韋廷':
+        return error_response('權限不足', 403)
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM shipping_records WHERE id = ?'), (record_id,))
+        before = rows_to_dict(cur)
+        cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (record_id,))
+        conn.commit(); conn.close()
+        yx_v35_safe_side_effect('shipping_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', str(record_id), before_json={'row': before[0] if before else {}}, after_json={'deleted': True})
+        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已刪除', extra={'id': record_id})
+        return jsonify(success=True)
+    except Exception as e:
+        log_error('shipping_record_delete', str(e))
+        return error_response('刪除出貨紀錄失敗')
+
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
@@ -1421,7 +1665,7 @@ def api_customers_move():
             before_region = (row.get("region") or "").strip()
             item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
         yx_v35_safe_side_effect('customer_move_log', log_action, current_username(), f"移動客戶 {name} 到 {region}")
-        yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
+        yx_v35_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json=(row or {'name': name, 'region': before_region}), after_json={'name': name, 'region': region})
         yx_v35_safe_side_effect('customer_move_notify', notify_sync_event, kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
         return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
@@ -1510,7 +1754,7 @@ def api_warehouse_cell():
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
@@ -1525,6 +1769,15 @@ def api_warehouse_cell():
             return error_response(msg)
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
+        saved_after = next((c for c in warehouse_get_cells() if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
+        if not saved_after:
+            return error_response("格位沒有確實寫入資料庫")
+        try:
+            saved_items = json.loads(saved_after.get('items_json') or '[]')
+        except Exception:
+            saved_items = []
+        if len(saved_items or []) != len(items or []):
+            return error_response("格位寫入後讀回數量不一致，請再儲存一次")
     except Exception as e:
         log_error("warehouse_cell_main_save_v40", str(e))
         return error_response("格位更新失敗")
@@ -1607,14 +1860,15 @@ def api_warehouse_search():
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    """列出尚未放入倉庫圖的商品；FIX138 支援 A/B 區未入倉篩選。"""
+    """列出尚未放入倉庫圖的商品；V48 支援 A/B/未分區統計、來源與支數分開。"""
     try:
         zone_filter = (request.args.get("zone") or "").strip().upper()
         if zone_filter not in ("A", "B"):
             zone_filter = ""
         source_totals, source_details = warehouse_source_totals()
         placed_all = warehouse_placed_totals()
-        placed_by_zone = {}
+        placed_detail = {}
+        placed_detail_by_zone = {}
         for cell in warehouse_get_cells():
             cell_zone = str(cell.get('zone') or '').strip().upper()
             try:
@@ -1622,53 +1876,107 @@ def api_warehouse_available_items():
             except Exception:
                 items_in_cell = []
             for it in items_in_cell:
-                size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
-                customer = (it.get('customer_name') or '').strip()
+                product = it.get('product_text') or it.get('product') or ''
+                exact = warehouse_item_exact_key(product)
+                customer = warehouse_customer_key(it.get('customer_name') or '')
+                source_label = (it.get('source_table') or it.get('source') or '').strip()
+                source_label = {'master_orders': '總單', 'master_order': '總單', 'orders': '訂單', 'order': '訂單', 'inventory': '庫存', 'stock': '庫存'}.get(source_label, source_label)
+                if not source_label:
+                    source_label = '庫存'
+                source_id = str(it.get('source_id') or it.get('id') or '').strip()
                 try:
                     q = int(it.get('qty') or 0)
                 except Exception:
                     q = 0
-                if size and q > 0:
-                    placed_by_zone[(size, customer, cell_zone)] = placed_by_zone.get((size, customer, cell_zone), 0) + q
+                component_details = warehouse_saved_item_component_details(it, q)
+                if component_details:
+                    for d in component_details:
+                        dexact = warehouse_item_exact_key(d.get('product_text') or d.get('product') or '')
+                        dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
+                        dsource = (d.get('source_table') or d.get('source') or source_label or '庫存').strip()
+                        dsource = {'master_orders': '總單', 'master_order': '總單', 'orders': '訂單', 'order': '訂單', 'inventory': '庫存', 'stock': '庫存'}.get(dsource, dsource)
+                        did = str(d.get('source_id') or d.get('id') or '')
+                        try:
+                            dq = int(d.get('qty') or 0)
+                        except Exception:
+                            dq = 0
+                        if dexact and dq > 0:
+                            dkey = (dexact, dcustomer, dsource, did)
+                            placed_detail[dkey] = placed_detail.get(dkey, 0) + dq
+                            placed_detail_by_zone[(dexact, dcustomer, dsource, did, cell_zone)] = placed_detail_by_zone.get((dexact, dcustomer, dsource, did, cell_zone), 0) + dq
+                    continue
+                if exact and q > 0:
+                    dkey = (exact, customer, source_label, source_id)
+                    placed_detail[dkey] = placed_detail.get(dkey, 0) + q
+                    placed_detail_by_zone[(exact, customer, source_label, source_id, cell_zone)] = placed_detail_by_zone.get((exact, customer, source_label, source_id, cell_zone), 0) + q
         items = []
-        for key, total_qty_all in source_totals.items():
-            size, customer = key
-            details_all = source_details.get(key, [])
+        zone_summary = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+        for detail_key, details_all in source_details.items():
+            exact, customer, source_label, source_id = detail_key
+            details_for_item_all = details_all
             if zone_filter:
-                zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
-                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
-                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
-                details_for_item = zone_details
+                # V49 mainfile: A/B 格位的下拉選單要同時顯示該區商品 + 尚未分 A/B 區商品；
+                # 已放入任一格的數量仍用全倉扣除，避免別的格子又看得到同一筆。
+                details_for_item = [d for d in details_for_item_all if (str(d.get('zone') or '').strip().upper().startswith(zone_filter) or not str(d.get('zone') or '').strip())]
+                total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
+                placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
+                if placed_qty <= 0:
+                    placed_qty = int(placed_all.get((exact, customer), 0) or 0)
             else:
-                total_qty = int(total_qty_all or 0)
-                placed_qty = int(placed_all.get(key, 0) or 0)
-                details_for_item = details_all
+                details_for_item = details_for_item_all
+                total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
+                placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
+                # 若舊格位沒有 source_id/source，只能用 exact 總量扣掉，避免舊資料重複出現在下拉。
+                if placed_qty <= 0:
+                    placed_qty = int(placed_all.get((exact, customer), 0) or 0)
             unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if not zone_filter:
+                row_zone = (details_for_item_all[0].get('zone') if details_for_item_all else '') or ''
+                z = str(row_zone).strip().upper()
+                if z.startswith('A'):
+                    zone_summary['A'] += unplaced_qty
+                elif z.startswith('B'):
+                    zone_summary['B'] += unplaced_qty
+                else:
+                    zone_summary['unassigned'] += unplaced_qty
+                zone_summary['total'] += unplaced_qty
             if unplaced_qty <= 0:
                 continue
-            source_qty = {}
-            for detail in details_for_item:
-                source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
+            first = details_for_item[0] if details_for_item else (details_for_item_all[0] if details_for_item_all else {})
+            product = first.get('product_text') or exact
+            size = first.get('product_size') or warehouse_item_size_key(product)
+            display_size = first.get('display_product_size') or warehouse_item_display_size(product) or size
+            support = first.get('support_text') or warehouse_support_text(product)
+            material = first.get('material') or first.get('product_code') or ''
             items.append({
-                'product_text': size,
+                'product_text': product,
+                'product': product,
                 'product_size': size,
+                'display_product_size': display_size,
+                'support_text': support,
+                'exact_key': exact,
                 'customer_name': customer,
+                'material': material,
+                'product_code': material,
                 'total_qty': int(total_qty or 0),
                 'placed_qty': placed_qty,
                 'unplaced_qty': unplaced_qty,
                 'qty': unplaced_qty,
-                'zone': zone_filter or '',
-                'source_qty': source_qty,
-                'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
+                'zone': zone_filter or (first.get('zone') or ''),
+                'source': source_label,
+                'source_table': source_label,
+                'source_id': str(source_id),
+                'source_qty': {source_label: int(total_qty or 0)},
+                'sources': [{'source': source_label, 'qty': int(total_qty or 0)}],
                 'source_details': details_for_item,
-                'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
+                'source_summary': f"{source_label}{int(total_qty or 0)}",
                 'needs_red': True,
             })
-        items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
-        return jsonify(success=True, items=items, zone=zone_filter)
+        items.sort(key=lambda r: (r.get('zone') or '', r.get('customer_name') or '庫存', r.get('material') or '', product_sort_tuple(r.get('product_text') or '')))
+        return jsonify(success=True, items=items, zone=zone_filter, zone_summary=zone_summary)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
-        return jsonify(success=True, items=[])
+        return jsonify(success=True, items=[], zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0})
 
 
 @app.route("/api/customer-items", methods=["GET"])
@@ -1941,6 +2249,7 @@ def api_customer_items_batch_update():
             "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
         }
         conn = get_db(); cur = conn.cursor()
+        ensure_runtime_product_schema(cur)
         before_items = []
         updated = 0
         changed = []
@@ -2104,7 +2413,7 @@ def api_warehouse_return_unplaced():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         cells = warehouse_get_cells()
         cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
@@ -2128,27 +2437,20 @@ def api_warehouse_add_slot():
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6:
+        if zone not in ("A", "B") or column_index < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         insert_after = data.get("insert_after", None)
         if insert_after is None and data.get("slot_number") not in (None, ""):
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
-        # V78：格子已寫入 DB 後，紀錄 / 通知不能反過來讓新增判定失敗。
-        yx_v35_safe_side_effect('warehouse_add_slot_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
-        yx_v35_safe_side_effect('warehouse_add_slot_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
-        yx_v35_safe_side_effect('warehouse_add_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        try:
-            cells = warehouse_get_cells()
-            zones = warehouse_summary()
-        except Exception as payload_err:
-            log_error('warehouse_add_slot_payload', str(payload_err))
-            cells, zones = [], {}
-        return jsonify(success=True, slot_number=slot_number, zones=zones, cells=cells)
+        yx_v35_safe_side_effect('yx85_add_slot_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        yx_v35_safe_side_effect('yx85_add_slot_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
+        yx_v35_safe_side_effect('yx85_add_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
+        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
-        return error_response(f"新增格子失敗：{e}")
+        return error_response("新增格子失敗")
 
 @app.route("/api/warehouse/remove-slot", methods=["POST"])
 @login_required_json
@@ -2158,27 +2460,53 @@ def api_warehouse_remove_slot():
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
         slot_type = 'direct'
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
-        # V78：格子已從 DB 刪除後，紀錄 / 通知不能反過來讓刪除判定失敗。
-        yx_v35_safe_side_effect('warehouse_remove_slot_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
-        yx_v35_safe_side_effect('warehouse_remove_slot_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
-        yx_v35_safe_side_effect('warehouse_remove_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        try:
-            cells = warehouse_get_cells()
-            zones = warehouse_summary()
-        except Exception as payload_err:
-            log_error('warehouse_remove_slot_payload', str(payload_err))
-            cells, zones = [], {}
-        return jsonify(success=True, zones=zones, cells=cells)
+        yx_v35_safe_side_effect('yx85_remove_slot_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        yx_v35_safe_side_effect('yx85_remove_slot_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
+        yx_v35_safe_side_effect('yx85_remove_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
-        return error_response(f"刪除格子失敗：{e}")
+        return error_response("刪除格子失敗")
 
+
+
+@app.route("/api/warehouse/remove-slots", methods=["POST"])
+@login_required_json
+def api_warehouse_remove_slots():
+    """V75：批量刪除倉庫空格；同欄格號由大到小刪，避免往前補號時刪錯格。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        raw_slots = data.get("slots") or []
+        if not isinstance(raw_slots, list) or not raw_slots:
+            return error_response("沒有選擇要刪除的格子")
+        normalized = []
+        for item in raw_slots:
+            zone = (item.get("zone") or "A").strip().upper()
+            column_index = int(item.get("column_index") or item.get("col") or 0)
+            slot_number = int(item.get("slot_number") or item.get("slot") or 0)
+            if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
+                return error_response("格位參數錯誤")
+            normalized.append({"zone": zone, "column_index": column_index, "slot_number": slot_number})
+        normalized.sort(key=lambda x: (x["zone"], x["column_index"], -x["slot_number"]))
+        removed = []
+        for item in normalized:
+            result = warehouse_remove_slot(item["zone"], item["column_index"], 'direct', item["slot_number"])
+            if not result.get('success'):
+                return error_response(result.get('error') or f"刪除 {item['zone']}{item['column_index']}-{item['slot_number']} 失敗")
+            removed.append(item)
+        log_action(current_username(), f"批量刪除倉庫格子 {len(removed)} 格")
+        add_audit_trail(current_username(), 'delete', 'warehouse_cells', 'batch-remove-slots', before_json={'slots': normalized}, after_json={'removed': removed, 'count': len(removed)})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫批量刪除格子', extra={'count': len(removed), 'slots': removed})
+        return jsonify(success=True, count=len(removed), removed=removed, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error("warehouse_remove_slots", str(e))
+        return error_response("批量刪除格子失敗")
 
 @app.route("/api/orders/to-master", methods=["POST"])
 @login_required_json
@@ -2342,48 +2670,142 @@ def _today_unplaced_all_sources():
     return out
 
 
-def _today_changes_payload():
+
+def _today_unplaced_zone_summary():
+    """V58: A/B/未分區/總計 for 今日異動, same meaning as warehouse unplaced pill."""
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
+        out = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+        for detail_key, details_all in source_details.items():
+            exact, customer, source_label, source_id = detail_key
+            total_qty = sum(int(d.get('qty') or 0) for d in (details_all or []))
+            placed_qty = int(placed.get((exact, customer), 0) or 0)
+            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if unplaced_qty <= 0:
+                continue
+            first = (details_all or [{}])[0]
+            z = str(first.get('zone') or '').strip().upper()
+            if z.startswith('A'):
+                out['A'] += unplaced_qty
+            elif z.startswith('B'):
+                out['B'] += unplaced_qty
+            else:
+                out['unassigned'] += unplaced_qty
+            out['total'] += unplaced_qty
+        return out
+    except Exception as e:
+        try: log_error('today_unplaced_zone_summary', str(e))
+        except Exception: pass
+        return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
+
+def _today_logs_detail(today):
+    # V61：今日異動卡片要能點開看客戶與商品；從當日四張主表補詳細資料，避免只顯示一句 log。
+    detail = {'inventory': [], 'orders': [], 'master_orders': [], 'shipping_records': []}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        specs = [
+            ('inventory', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM inventory WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('master_orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM master_orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('shipping_records', "SELECT id, customer_name, product_text, material, qty, operator, shipped_at AS created_at FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+        ]
+        for k, q in specs:
+            try:
+                cur.execute(sql(q), (today,))
+                rows = rows_to_dict(cur)
+                for r in rows:
+                    r['created_at'] = _format_24h(r.get('created_at'))
+                    r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', (str(r.get('qty')) + '件') if r.get('qty') not in (None,'') else ''] if x])
+                    r['action'] = {'inventory':'新增庫存','orders':'新增訂單','master_orders':'新增總單','shipping_records':'出貨'}.get(k, '異動')
+                    r['username'] = r.get('operator') or r.get('username') or ''
+                detail[k] = rows
+            except Exception as e:
+                log_error('today_detail_' + k, str(e))
+        conn.close()
+    except Exception as e:
+        try: log_error('today_logs_detail', str(e))
+        except Exception: pass
+    return detail
+
+
+def _today_unplaced_cached(force=False):
+    # V61：今日異動先快速顯示，不每次開頁都重算重型未錄入；長按刷新或刷新按鈕才強制重算。
+    import json as _json
+    cache_key = 'today_unplaced_cache_v61'
+    if not force:
+        try:
+            raw = get_setting(cache_key, '') or ''
+            if raw:
+                obj = _json.loads(raw)
+                if obj.get('date') == _today_key():
+                    return obj.get('items') or [], obj.get('zone') or {'A':0,'B':0,'unassigned':0,'total':0}
+        except Exception:
+            pass
+        return [], {'A':0,'B':0,'unassigned':0,'total':0}
+    items = _today_unplaced_all_sources()
+    zone = _today_unplaced_zone_summary()
+    try:
+        set_setting(cache_key, _json.dumps({'date': _today_key(), 'items': items[:200], 'zone': zone}, ensure_ascii=False))
+    except Exception as e:
+        try: log_error('today_unplaced_cache_save', str(e))
+        except Exception: pass
+    return items, zone
+
+
+def _today_changes_payload(force_unplaced=False):
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 120"), (today,))
     logs = rows_to_dict(cur)
     conn.close()
 
     inbound = []
     outbound = []
     new_orders = []
+    new_masters = []
     for r in logs:
         r['created_at'] = _format_24h(r.get('created_at'))
         action = r.get('action') or ''
-        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
         if action == '完成出貨' or action.startswith('完成出貨'):
             outbound.append(r)
         elif action == '建立訂單' or action.startswith('建立訂單'):
             new_orders.append(r)
-        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
+        elif action == '建立總單' or action.startswith('建立總單') or action.startswith('新增總單'):
+            new_masters.append(r)
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('新增庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    unplaced = _today_unplaced_all_sources()
+    detail = _today_logs_detail(today)
+    if detail.get('inventory'): inbound = detail['inventory']
+    if detail.get('orders'): new_orders = detail['orders']
+    if detail.get('master_orders'): new_masters = detail['master_orders']
+    if detail.get('shipping_records'): outbound = detail['shipping_records']
+
+    unplaced, zone_summary = _today_unplaced_cached(bool(force_unplaced))
     read_at = get_setting('today_changes_read_at', '') or ''
-    visible_logs = inbound + outbound + new_orders
+    visible_logs = inbound + new_orders + new_masters + outbound
     unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
     unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
         'summary': {
             'inbound_count': len(inbound),
-            'outbound_count': len(outbound),
             'new_order_count': len(new_orders),
+            'new_master_count': len(new_masters),
+            'outbound_count': len(outbound),
             'unplaced_count': unplaced_total_qty,
             'unplaced_row_count': len(unplaced),
+            'unplaced_zone_summary': zone_summary,
             'anomaly_count': 0,
             'unread_count': unread_count,
         },
         'feed': {
             'inbound': inbound[:60],
-            'outbound': outbound[:60],
             'new_orders': new_orders[:60],
+            'new_masters': new_masters[:60],
+            'outbound': outbound[:60],
             'others': [],
         },
         'unplaced_items': unplaced[:200],
@@ -2395,7 +2817,7 @@ def _today_changes_payload():
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    return jsonify(success=True, **_today_changes_payload())
+    return jsonify(success=True, **_today_changes_payload(force_unplaced=(request.args.get('force') == '1')))
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
@@ -2525,7 +2947,7 @@ def _audit_entity_label(entity_type=''):
     return {
         'inventory': '庫存 / 進貨', 'orders': '訂單', 'master_orders': '總單',
         'shipping_records': '出貨', 'warehouse_cells': '倉庫圖',
-        'customer_profiles': '客戶資料', 'customer_aliases': '客戶別名',
+        'customer_profiles': '客戶資料', 'customer_items': '客戶商品 / A/B區', 'customer_aliases': '客戶別名',
         'corrections': 'OCR修正詞', 'todo_items': '代辦事項', 'undo': '還原紀錄'
     }.get(entity_type, entity_type or '資料')
 
@@ -2536,7 +2958,7 @@ def _audit_field_label(key=''):
         'quantity': '數量', 'location': '倉庫位置', 'operator': '操作人',
         'target': '目標', 'source': '來源', 'source_label': '來源', 'target_label': '目標',
         'zone': '區域', 'column_index': '欄位', 'slot_number': '格號',
-        'from_key': '原格位', 'to_key': '新格位', 'note': '備註',
+        'from_key': '原格位', 'to_key': '新格位', 'batch_zone': '批量移動 A/B 區', 'note': '備註',
         'items': '商品', 'breakdown': '出貨扣除明細', 'message': '訊息',
         'region': '區域', 'phone': '電話', 'address': '地址', 'notes': '特殊要求',
         'wrong_text': '錯誤字', 'correct_text': '正確字', 'alias': '別名', 'target_name': '正式客戶'
@@ -2579,11 +3001,33 @@ def _audit_dict_to_text(data):
     return '\n'.join(lines) if lines else '無資料'
 
 def _audit_summary_text(item):
-    action = _audit_action_label(item.get('action_type'))
-    entity = _audit_entity_label(item.get('entity_type'))
+    action_type = (item.get('action_type') or '').strip()
+    entity_type = (item.get('entity_type') or '').strip()
+    action = _audit_action_label(action_type)
+    entity = _audit_entity_label(entity_type)
     after = _parse_maybe_json(item.get('after_json'))
     before = _parse_maybe_json(item.get('before_json'))
     data = after if isinstance(after, dict) and after else before if isinstance(before, dict) else {}
+    if action_type == 'move' and entity_type == 'customer_items':
+        customer = (data.get('customer_name') or data.get('name') or data.get('customer') or '') if isinstance(data, dict) else ''
+        target_zone = (data.get('target') or data.get('to_zone') or data.get('zone') or data.get('batch_zone') or '') if isinstance(data, dict) else ''
+        parts = ['移動客戶商品 A/B 區']
+        if customer:
+            parts.append(f'客戶：{customer}')
+        if target_zone:
+            parts.append(f'目標：{target_zone}')
+        return '｜'.join(parts)
+    if action_type == 'upsert' and entity_type == 'warehouse_cells' and isinstance(data, dict):
+        z = data.get('zone') or ''
+        col = data.get('column_index') or ''
+        slot = data.get('slot_number') or ''
+        count = len(data.get('items') or []) if isinstance(data.get('items'), list) else ''
+        bits = ['儲存倉庫格位']
+        if z and col and slot:
+            bits.append(f'位置：{z}區第{col}欄第{slot}格')
+        if count != '':
+            bits.append(f'商品：{count}筆')
+        return '｜'.join(bits)
     customer = (data.get('customer_name') or data.get('name') or '') if isinstance(data, dict) else ''
     product = (data.get('product_text') or '') if isinstance(data, dict) else ''
     qty = (data.get('qty') or data.get('quantity') or '') if isinstance(data, dict) else ''
@@ -2639,8 +3083,8 @@ def api_audit_trails():
     entity_type = (request.args.get('entity_type') or '').strip()
     keyword = (request.args.get('q') or '').strip().lower()
     today = _today_key()
-    start_date = (request.args.get('start_date') or today).strip() or today
-    end_date = (request.args.get('end_date') or today).strip() or today
+    start_date = (request.args.get('start_date') or ('' if undo_mode else today)).strip()
+    end_date = (request.args.get('end_date') or ('' if undo_mode else today)).strip()
     items = list_audit_trails(limit=max(limit * 6, 500))
     filtered = []
     for item in items:
@@ -3370,3 +3814,337 @@ def notify_sync_event(*args, **kwargs):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+# V53_WAREHOUSE_CURRENT_EDIT_MAINFILE_MARKER
+# - 倉庫格位目前商品由前端主檔直接編輯尺寸/支數/件數後送回 /api/warehouse/cell。
+# - /api/warehouse/available-items 維持用 warehouse_placed_totals 扣除所有已入倉數量，所以下拉只列剩餘未錄入數量。
+
+
+# V59_MAINFILE_REQUEST_LOCK: UI/button/optimistic-submit changes are in templates + static JS; app keeps Render-safe startup and ship snapshots.
+
+# ============================================================
+# V68 FINAL WAREHOUSE PAYLOAD OVERRIDE
+# Purpose: warehouse current-item input box uses = right side as the source of qty.
+# ============================================================
+def _yx_v68_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    if '=' not in raw:
+        try: return max(1, int(fallback or 1))
+        except Exception: return 1
+    right = raw.split('=', 1)[1]
+    total = 0; hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit and total > 0:
+        return total
+    try: return max(1, int(fallback or 1))
+    except Exception: return 1
+
+
+def normalize_warehouse_payload_items(items):
+    # V68 final: normalize warehouse modal payload and force qty from product_text when product_text contains '='.
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        if '=' in product:
+            qty = _yx_v68_qty_from_product_text(product, qty)
+        qty = max(1, qty)
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+        else:
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
+
+
+# ============================================================
+# V70 FINAL MAINFILE QTY + WAREHOUSE PAYLOAD LOCK
+# This final definition intentionally appears after older definitions so Flask routes
+# resolve this version at request time. It fixes old duplicate overrides.
+# ============================================================
+def _yx_v70_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    try:
+        fb = int(fallback or 0)
+    except Exception:
+        fb = 0
+    if not raw:
+        return max(0, fb)
+    right = raw.split('=', 1)[1] if '=' in raw else raw
+    total = 0
+    hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        explicit = re.search(r'(\d+)\s*[件片]', plain)
+        if explicit:
+            total += max(0, int(explicit.group(1) or 0)); hit = True; continue
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit:
+        return total
+    return max(1, fb or 1)
+
+def normalize_warehouse_payload_items(items):
+    """V70: normalize warehouse modal payload and force qty from current product_text right side.
+    132x60x08=162x26 -> qty 26. If text changes from x28 to x26, saved qty becomes 26.
+    """
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        if '=' in product:
+            qty = _yx_v70_qty_from_product_text(product, qty)
+        qty = max(1, int(qty or 1))
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or it.get('product_code') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+        else:
+            row = dict(it)
+            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'product_code': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            out_map[key] = row
+    return list(out_map.values())
+
+# V71 warehouse optimistic stable overlay: frontend fixed-display operations; backend schema/migration entry retained.
+
+# ============================================================
+# V76 FINAL WAREHOUSE ADD/EDIT ROOT LOCK
+# Purpose:
+# - Manual current-cell qty must not be overwritten by product_text parsing.
+# - If product_text is edited, stale source_details must not redistribute old support/qty.
+# - Source rows with explicit '=支數x件數' use the expression qty, not stale DB qty.
+# - Warehouse add/edit validation must never rollback the optimistic front-end display.
+# ============================================================
+def _yx_v76_qty_from_product_text(product, fallback=1):
+    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
+    try:
+        fb = int(fallback or 0)
+    except Exception:
+        fb = 0
+    if not raw:
+        return max(0, fb)
+    right = raw.split('=', 1)[1] if '=' in raw else raw
+    total = 0
+    hit = False
+    for seg in [x.strip() for x in right.split('+') if x.strip()]:
+        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
+        explicit = re.search(r'(\d+)\s*[件片]', plain)
+        if explicit:
+            total += max(0, int(explicit.group(1) or 0)); hit = True; continue
+        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
+        if m:
+            total += max(0, int(m.group(1) or 0)); hit = True
+        elif re.search(r'\d', plain):
+            total += 1; hit = True
+    if hit:
+        return total
+    return max(1, fb or 1)
+
+
+def warehouse_split_support_components(product_text, row_qty):
+    """V76: source rows with explicit support use the support expression as qty.
+
+    Examples:
+    132x60x08=162x26 -> 26
+    132x60x08=162x26+133x4+142 -> 31
+    Lx50x083=1x22 -> 22
+    If there is no '=', keep database row qty.
+    """
+    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
+    try:
+        row_qty = int(row_qty or 0)
+    except Exception:
+        row_qty = 0
+    if not raw or '=' not in raw:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    size = warehouse_item_size_key(raw)
+    display_size = warehouse_item_display_size(raw) or size
+    right = raw.split('=', 1)[1].strip()
+    parts = [x.strip() for x in re.split(r'[+＋]', right) if x and x.strip()]
+    if not size or not parts:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    out = []
+    for part in parts:
+        part_raw = part.strip()
+        plain_part = warehouse_support_plain(part_raw)
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', plain_part.lower())
+        if m:
+            support = part_raw
+            qty = int(m.group(2) or 1)
+        else:
+            support = part_raw
+            qty = 1
+        qty = max(0, qty)
+        if qty > 0:
+            out.append({'product_text': f'{display_size}={support}', 'support_text': support, 'qty': qty})
+    if not out:
+        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
+    return out
+
+
+def warehouse_saved_item_component_details(it, qty=None):
+    """V76: ignore stale source_details after user edits product/support text."""
+    if not isinstance(it, dict):
+        return []
+    if it.get('__product_touched') or it.get('product_touched'):
+        return []
+    details = it.get('source_details') or []
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except Exception:
+            details = []
+    if not isinstance(details, list) or not details:
+        return []
+    try:
+        remaining = int(qty if qty is not None else (it.get('qty') or it.get('quantity') or 0))
+    except Exception:
+        remaining = 0
+    out = []
+    for d in details:
+        if not isinstance(d, dict):
+            continue
+        product = (d.get('product_text') or d.get('product') or '').strip()
+        if not product:
+            continue
+        try:
+            dqty = int(d.get('qty') or d.get('quantity') or 0)
+        except Exception:
+            dqty = 0
+        if dqty <= 0:
+            continue
+        use_qty = min(dqty, remaining) if remaining > 0 else dqty
+        if use_qty <= 0:
+            continue
+        row = dict(d)
+        row['qty'] = use_qty
+        row['customer_name'] = warehouse_customer_key(row.get('customer_name') or it.get('customer_name') or '')
+        row['source'] = row.get('source') or row.get('source_table') or it.get('source') or it.get('source_table') or '庫存'
+        row['source_table'] = row.get('source_table') or row.get('source') or '庫存'
+        row['source_id'] = str(row.get('source_id') or row.get('id') or '')
+        out.append(row)
+        remaining -= use_qty
+        if remaining <= 0:
+            break
+    return out
+
+
+def normalize_warehouse_payload_items(items):
+    """V76 final warehouse payload normalization.
+
+    - If manual_qty is true, keep the explicit qty from the right-side input.
+    - If product text was edited and manual_qty is not true, parse qty from product_text.
+    - Clear stale source_details when product/support text was edited.
+    """
+    out_map = {}
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        if not product:
+            continue
+        try:
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+        except Exception:
+            qty = 1
+        manual_qty = bool(it.get('__manual_qty') or it.get('manual_qty'))
+        product_touched = bool(it.get('__product_touched') or it.get('product_touched'))
+        if '=' in product and not manual_qty:
+            qty = _yx_v76_qty_from_product_text(product, qty)
+        qty = max(1, int(qty or 1))
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
+        material = (it.get('material') or it.get('wood_type') or it.get('product_code') or '').strip()
+        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or '').strip()
+        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        row = out_map.get(key)
+        if row:
+            row['qty'] = int(row.get('qty') or 0) + qty
+            row['quantity'] = row['qty']
+            row['pieces'] = row['qty']
+        else:
+            row = dict(it)
+            if product_touched:
+                row['source_details'] = []
+            row.update({
+                'product_text': product,
+                'product': product,
+                'qty': qty,
+                'quantity': qty,
+                'pieces': qty,
+                'customer_name': customer,
+                'material': material,
+                'product_code': material,
+                'source': source_table,
+                'source_table': source_table,
+                'source_id': source_id,
+                'placement_label': placement_label,
+                'layer_label': placement_label,
+                '__manual_qty': manual_qty,
+                'manual_qty': manual_qty,
+                '__product_touched': product_touched,
+                'product_touched': product_touched,
+            })
+            out_map[key] = row
+    return list(out_map.values())
+
+
+def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
+    """V76: warehouse cell save should not be blocked by stale source totals.
+
+    The front-end now performs optimistic fixed display and the unplaced list is recalculated
+    from saved cells. This endpoint only validates basic payload shape so add/edit can be
+    saved immediately without reverting the UI.
+    """
+    try:
+        if (zone or '').strip().upper() not in ('A', 'B'):
+            return False, '格位區域錯誤'
+        if int(column_index or 0) < 1 or int(slot_number or 0) < 1:
+            return False, '格位參數錯誤'
+        for it in items or []:
+            product = (it.get('product_text') or it.get('product') or '').strip()
+            if not product:
+                continue
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
+            if qty < 0:
+                return False, '件數不可小於 0'
+        return True, ''
+    except Exception:
+        return False, '格位資料格式錯誤'
