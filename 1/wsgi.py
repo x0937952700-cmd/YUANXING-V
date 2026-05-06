@@ -1,9 +1,6 @@
-# V76 warehouse add/edit stable overlay verified.
-# V65 startup entry verified.
-# V59 Render entrypoint retained; DB init is still handled by app startup/releaseCommand.
-# V58 full warehouse/ship/product repair: keep existing app entrypoint, no page/event logic changes.
+# V44 mainfile real repaired lock: keep existing app entrypoint, no page/event logic changes.
 """
-Render / Gunicorn entrypoint. V58 full warehouse/ship/product repair build.
+Render / Gunicorn entrypoint. V44 mainfile real repaired lock build.
 This file exists so both of these start commands work:
   gunicorn wsgi:app --bind 0.0.0.0:$PORT
   gunicorn app:app --config gunicorn.conf.py
@@ -12,5 +9,3 @@ from app import app
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))
-
-# V71 warehouse optimistic stable overlay: frontend fixed-display operations; backend schema/migration entry retained.

@@ -1,15 +1,11 @@
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
-  function parenAdjust(v){
-    // V58：括號只當備註，像 115x51(東昇-8) 一律以 51 件計，不扣 -8。
-    return 0;
-  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -22,7 +18,7 @@
     if (!right) return raw ? 1 : (fb || 0);
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (rightForCanonical === canonical) return 15;
+    if (rightForCanonical === canonical) return 10;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return raw ? 1 : (fb || 0);
     const xParts = parts.filter(isSingleQtyX);
@@ -35,9 +31,9 @@
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
+      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
+      if (m){ total += Number(m[1] || 0); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -368,20 +364,10 @@
 
 /* ===== END static/yx_modules/product_sort_hardlock.js ===== */
 
-/* ===== V61 shipping query grouped cards + admin delete ===== */
-(function(){'use strict';
-  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}
-  function dateOf(r){return String(r.shipped_at||r.created_at||'').slice(0,10)||'未填日期'}
-  function timeOf(r){return String(r.shipped_at||r.created_at||'').slice(0,19)}
-  function qty(r){const n=Number(r.qty||r.effective_qty||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0}
-  function groupRows(rows){const map=new Map();(rows||[]).forEach(r=>{const k=[r.customer_name||'未填客戶',dateOf(r)].join('::');if(!map.has(k))map.set(k,{customer:r.customer_name||'未填客戶',date:dateOf(r),items:[],qty:0});const g=map.get(k);g.items.push(r);g.qty+=qty(r);});return Array.from(map.values()).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(a.customer).localeCompare(String(b.customer),'zh-Hant'));}
-  function detailTable(g){return `<div class="yx-ship-query-detail hidden yx-v63-ship-detail-list">${g.items.map(r=>`<div class="yx-v63-ship-detail-row" data-ship-record-id="${Number(r.id||0)}"><span>${esc(r.product_text||'')}</span><b>${qty(r)}件</b><small>${esc(timeOf(r))}</small>${Number(r.id||0)?`<button type="button" class="ghost-btn tiny-btn danger-btn" data-delete-ship-record="${Number(r.id||0)}">刪除</button>`:''}</div>`).join('')}</div>`}
-  function card(g,i){return `<div class="deduct-card yx-ship-query-card yx-v63-ship-query-card" data-ship-group="${i}"><button type="button" class="yx-ship-query-head yx-v63-ship-query-head" data-toggle-ship-group="${i}"><span class="yx-v63-ship-date">${esc(g.date)}</span><strong>${esc(g.customer)}</strong><span>${g.items.length}筆 / ${g.qty}件</span></button>${detailTable(g)}</div>`}
-  window.loadShippingRecords=async function(){const box=document.getElementById('shipping-results');if(!box)return;box.innerHTML='載入中…';try{const q=new URLSearchParams({q:document.getElementById('ship-keyword')?.value||'',range:document.getElementById('ship-range')?.value||'7',start_date:document.getElementById('ship-start')?.value||'',end_date:document.getElementById('ship-end')?.value||''});const d=await api('/api/shipping_records?'+q.toString());const rows=d.items||d.records||[];const groups=groupRows(rows);box.innerHTML=groups.length?groups.map(card).join(''):'沒有資料';}catch(e){box.textContent=e.message;}};
-  document.addEventListener('click',async ev=>{const t=ev.target.closest?.('[data-toggle-ship-group]');if(t){ev.preventDefault();t.closest('.yx-ship-query-card')?.querySelector('.yx-ship-query-detail')?.classList.toggle('hidden');return;}const del=ev.target.closest?.('[data-delete-ship-record]');if(del){ev.preventDefault();const id=del.dataset.deleteShipRecord;if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。'))return;try{await api('/api/shipping_records/'+encodeURIComponent(id),{method:'DELETE'});del.closest('tr')?.remove();}catch(e){alert(e.message||'刪除失敗');}}});
-})();
-/* ===== END V61 shipping_query ===== */
+/* ===== V2 MERGED FROM static/yx_modules/shipping_query_manual.js ===== */
+(function(){'use strict';const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));async function api(url){const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}window.loadShippingRecords=async function(){const box=document.getElementById('shipping-results');if(!box)return;box.innerHTML='載入中…';try{const q=new URLSearchParams({q:document.getElementById('ship-keyword')?.value||'',range:document.getElementById('ship-range')?.value||'7',start:document.getElementById('ship-start')?.value||'',end:document.getElementById('ship-end')?.value||''});const d=await api('/api/shipping_records?'+q.toString());const rows=d.items||d.records||[];box.innerHTML=rows.length?`<table><thead><tr><th>時間</th><th>客戶</th><th>商品</th><th>件數</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.created_at||'')}</td><td>${esc(r.customer_name||'')}</td><td>${esc(r.product_text||'')}</td><td>${esc(r.qty||'')}</td></tr>`).join('')}</tbody></table>`:'沒有資料';}catch(e){box.textContent=e.message;}}})();
+
+/* ===== END static/yx_modules/shipping_query_manual.js ===== */
 
 /* ===== V2 MERGED FROM static/yx_pages/page_bootstrap_master.js ===== */
 /* v18 EXACT HTML_DIRECT_MASTER_LOCK

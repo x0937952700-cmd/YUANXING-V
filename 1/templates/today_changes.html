@@ -16,18 +16,16 @@
     </div>
     <div class="today-filter-bar yx112-today-labels" aria-label="今日異動分類">
       <button class="chip yx112-today-label" type="button" data-today-filter="all"><span>全部</span><strong>0</strong></button>
-      <button class="chip yx112-today-label" type="button" data-today-filter="inbound"><span>新增庫存</span><strong>0</strong></button>
-      <button class="chip yx112-today-label active" type="button" data-today-filter="orders"><span>新增訂單</span><strong>0</strong></button>
-      <button class="chip yx112-today-label" type="button" data-today-filter="masters"><span>新增總單</span><strong>0</strong></button>
+      <button class="chip yx112-today-label" type="button" data-today-filter="inbound"><span>進貨</span><strong>0</strong></button>
       <button class="chip yx112-today-label" type="button" data-today-filter="outbound"><span>出貨</span><strong>0</strong></button>
+      <button class="chip yx112-today-label active" type="button" data-today-filter="orders"><span>新增訂單</span><strong>0</strong></button>
       <button class="chip yx112-today-label" type="button" data-today-filter="unplaced"><span>未錄入倉庫圖</span><strong>0件</strong></button>
     </div>
     <div id="today-summary-cards" class="card-list yx112-today-summary" hidden aria-hidden="true"></div>
     <div class="today-columns today-columns-vertical yx112-single-panel-list">
-      <div class="glass panel yx112-today-panel yx112-filter-hidden" data-today-panel="inbound" style="display:none"><div class="section-title">新增庫存</div><div id="today-inbound-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有新增庫存</div></div></div>
-      <div class="glass panel yx112-today-panel" data-today-panel="orders"><div class="section-title">新增訂單</div><div id="today-order-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有新增訂單</div></div></div>
-      <div class="glass panel yx112-today-panel yx112-filter-hidden" data-today-panel="masters" style="display:none"><div class="section-title">新增總單</div><div id="today-master-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有新增總單</div></div></div>
+      <div class="glass panel yx112-today-panel yx112-filter-hidden" data-today-panel="inbound" style="display:none"><div class="section-title">進貨</div><div id="today-inbound-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有進貨</div></div></div>
       <div class="glass panel yx112-today-panel yx112-filter-hidden" data-today-panel="outbound" style="display:none"><div class="section-title">出貨</div><div id="today-outbound-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有出貨</div></div></div>
+      <div class="glass panel yx112-today-panel" data-today-panel="orders"><div class="section-title">新增訂單</div><div id="today-order-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">今天沒有新增訂單</div></div></div>
       <div class="glass panel yx112-today-panel yx112-filter-hidden" data-today-panel="unplaced" style="display:none"><div class="section-title">未錄入倉庫圖</div><div id="today-unplaced-list" class="chip-list stacked-list"><div class="empty-state-card compact-empty yx112-empty">目前沒有未錄入倉庫圖商品</div></div></div>
     </div>
   </div>

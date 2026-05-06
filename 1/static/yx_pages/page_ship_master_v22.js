@@ -1,16 +1,11 @@
-try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{window.YXPageUndo?.snapshot?.(String(label||source||'操作'),function(){});}catch(_e){}};}catch(_e){}
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V30 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
   function clean(v){ return String(v == null ? '' : v).trim(); }
   function norm(v){ return clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/[＋，,；;]/g,'+').replace(/\s+/g,''); }
   function stripParen(v){ return String(v || '').replace(/[\(（][^\)）]*[\)）]/g,''); }
-  function parenAdjust(v){
-    // V58：括號只當備註，像 115x51(東昇-8) 一律以 51 件計，不扣 -8。
-    return 0;
-  }
   function isSingleQtyX(seg){
     const s = stripParen(seg).replace(/\s+/g,'').toLowerCase();
     return s.split('x').length === 2 && /x\s*\d+\s*$/i.test(s);
@@ -23,7 +18,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     if (!right) return raw ? 1 : (fb || 0);
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (rightForCanonical === canonical) return 15;
+    if (rightForCanonical === canonical) return 10;
     const parts = right.split('+').map(clean).filter(Boolean);
     if (!parts.length) return raw ? 1 : (fb || 0);
     const xParts = parts.filter(isSingleQtyX);
@@ -36,9 +31,9 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
-      if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
+      if (explicit){ total += Number(explicit[1] || 0); hit = true; continue; }
       const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
-      if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
+      if (m){ total += Number(m[1] || 0); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
     return hit ? total : (raw ? 1 : (fb || 0));
@@ -945,9 +940,8 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     const candidates=[sourceBefore,preview.before_qty,preview.available_before,preview.selected_available,item.available_qty,item.original_qty,preview.master_available,preview.order_available,preview.inventory_available];
     let before=0;
     for(const v of candidates){const n=Number(v);if(Number.isFinite(n)&&n>0){before=n;break;}}
-    // V50：只要扣後不是負數就是可出貨；3 → 0 不能顯示不足。
+    const shortage=Number(preview.shortage||preview.shortage_qty||0)>0||(before>0&&q>before);
     const after=before>0?Math.max(0,before-q):'';
-    const shortage=(Number.isFinite(Number(after)) && Number(after) < 0) || (before>0 && q>before);
     const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
     return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${shortage?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`;
   }
@@ -1053,31 +1047,170 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
 (function(){
   if (window.YXPageUndo) return;
   const stack=[];
-  function update(){ const b=document.getElementById('yx-local-page-undo-btn-disabled'); if(b) b.disabled=!stack.length; }
+  function update(){ const b=document.getElementById('yx-page-undo-btn'); if(b) b.disabled=!stack.length; }
   window.YXPageUndo={
     snapshot(label, undo){ if(typeof undo!=='function') return; stack.push({label:String(label||'操作'), undo}); while(stack.length>10) stack.shift(); update(); },
     undo(){ const item=stack.pop(); update(); if(!item) return; try{ item.undo(); (window.toast||console.log)('已復原：'+item.label,'ok'); }catch(e){ (window.toast||console.error)(e.message||'復原失敗','error'); } },
     size(){ return stack.length; }
   };
-  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-local-page-undo-btn-disabled'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
+  document.addEventListener('click', ev=>{ const b=ev.target?.closest?.('#yx-page-undo-btn'); if(!b) return; ev.preventDefault(); ev.stopPropagation(); window.YXPageUndo.undo(); }, true);
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', update, {once:true}); else update();
 })();
 /* ===== END V42 MAINFILE UNDO MANAGER ===== */
 
 
-
-
-/* ===== V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
+/* ===== V44 MAINFILE REAL FIX: focus-safe toast + page undo picker + no legacy jump ===== */
 (function(){
   'use strict';
-  if(window.__YX_V55_COMMON_CLEAN__) return; window.__YX_V55_COMMON_CLEAN__=true;
-  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  window.toast=window.showToast=window.notify=function(message,kind='ok'){
-    const a=document.activeElement; const editable=a&&a.matches?.('input,textarea,select,[contenteditable="true"]'); let s=null,e=null; try{if(editable&&'selectionStart'in a){s=a.selectionStart;e=a.selectionEnd;}}catch(_e){}
-    let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML='<strong>'+(kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功')+'</strong><div>'+esc(message||'')+'</div>'; box.style.display='block'; box.classList.add('show'); clearTimeout(window.__YX_V55_COMMON_TOAST__); window.__YX_V55_COMMON_TOAST__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);
-    if(editable&&document.contains(a)) setTimeout(()=>{try{a.focus({preventScroll:true}); if(s!=null&&a.setSelectionRange)a.setSelectionRange(s,e??s);}catch(_e){}},0);
+  if (window.__YX_V44_COMMON_MAINFILE_FIX__) return;
+  window.__YX_V44_COMMON_MAINFILE_FIX__ = true;
+  const clean = v => String(v ?? '').trim();
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const mod = () => document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || '';
+  let toastTimer = null;
+  function focusSnapshot(){
+    const a = document.activeElement;
+    if (!a || !a.matches?.('input,textarea,select,[contenteditable="true"]')) return null;
+    let s = null, e = null;
+    try { s = a.selectionStart; e = a.selectionEnd; } catch(_e) {}
+    return {el:a, s, e, v:a.value};
+  }
+  function restoreFocus(snap){
+    if (!snap || !snap.el || !document.contains(snap.el)) return;
+    const a = document.activeElement;
+    if (a === snap.el) return;
+    try { snap.el.focus({preventScroll:true}); if (snap.s != null && snap.el.setSelectionRange) snap.el.setSelectionRange(snap.s, snap.e ?? snap.s); } catch(_e) {}
+  }
+  window.toast = window.showToast = window.notify = function(message, kind='ok'){
+    const snap = focusSnapshot();
+    let box = document.getElementById('yx-v20-toast');
+    if (!box) { box = document.createElement('div'); box.id = 'yx-v20-toast'; document.body.appendChild(box); }
+    box.setAttribute('aria-live','polite'); box.setAttribute('role','status'); box.tabIndex = -1;
+    box.className = 'yx-v20-toast-card ' + (kind || 'ok');
+    box.innerHTML = `<strong>${kind==='error'?'錯誤':kind==='warn'?'提醒':'完成'}</strong><span>${esc(message || '')}</span>`;
+    box.style.display = 'block';
+    box.style.pointerEvents = 'none';
+    box.querySelectorAll('*').forEach(x=>x.style.pointerEvents='none');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>{ try{ box.style.display='none'; }catch(_e){} }, 2300);
+    restoreFocus(snap);
   };
-  if(window.YXHardLock) window.YXHardLock.toast=window.toast;
+  if (window.YXHardLock) window.YXHardLock.toast = window.toast;
+  async function api(url,opt={}){
+    const r = await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
+    const t = await r.text(); let d={}; try{ d=t?JSON.parse(t):{}; }catch(_e){ d={success:false,error:t}; }
+    if(!r.ok || d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d;
+  }
+  function actionAllowed(a,e){
+    const m = mod();
+    if (m === 'inventory') return e === 'inventory';
+    if (m === 'orders') return e === 'orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'master_order') return e === 'master_orders' || e === 'customer_profiles' || e === 'customer_items';
+    if (m === 'ship') return e === 'shipping_records' || a === 'ship' || e === 'orders' || e === 'master_orders' || e === 'inventory';
+    if (m === 'warehouse') return e === 'warehouse_cells';
+    return true;
+  }
+  async function openUndoPicker(){
+    let modal = document.getElementById('yx-v44-undo-modal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id='yx-v44-undo-modal'; modal.className='modal hidden yx-v44-undo-modal';
+      modal.innerHTML = '<div class="modal-card glass yx-v44-undo-card"><div class="modal-head"><div class="section-title">復原前一步操作</div><button class="ghost-btn small-btn" type="button" data-yx44-close-undo>關閉</button></div><div class="small-note">只顯示目前頁面最近 10 筆可還原操作，點哪一筆就還原哪一筆。</div><div id="yx-v44-undo-list" class="card-list"><div class="empty-state-card compact-empty">載入中…</div></div></div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', async ev=>{
+        if (ev.target.matches('[data-yx44-close-undo]') || ev.target === modal) { modal.classList.add('hidden'); return; }
+        const btn = ev.target.closest('[data-yx44-undo-id]'); if(!btn) return;
+        const id = btn.dataset.yx44UndoId; btn.disabled=true; btn.textContent='還原中…';
+        try{ const d = await api('/api/undo-last',{method:'POST',body:JSON.stringify({id})}); window.toast(d.message||'已還原','ok'); modal.classList.add('hidden'); setTimeout(()=>location.reload(),280); }
+        catch(e){ window.toast(e.message||'還原失敗','error'); btn.disabled=false; }
+      }, true);
+    }
+    const list = modal.querySelector('#yx-v44-undo-list'); list.innerHTML='<div class="empty-state-card compact-empty">載入中…</div>'; modal.classList.remove('hidden');
+    try{
+      const d = await api('/api/audit-trails?limit=80&undo=1');
+      const items = (Array.isArray(d.items)?d.items:[]).filter(x=>x.action_type!=='undo' && x.entity_type!=='undo' && actionAllowed(x.action_type,x.entity_type)).slice(0,10);
+      list.innerHTML = items.length ? items.map(x=>{
+        const a = x.action_type || ''; const e = x.entity_type || ''; const k = x.entity_key || ''; const at = x.created_at || x.timestamp || '';
+        return `<button type="button" class="deduct-card yx-v44-undo-item" data-yx44-undo-id="${esc(x.id)}"><strong>${esc(at)}｜${esc(a)}｜${esc(e)}</strong><div>${esc(k)}</div><div class="small-note">${esc(x.username||'')}</div></button>`;
+      }).join('') : '<div class="empty-state-card compact-empty">目前頁面沒有可還原的最近操作</div>';
+    } catch(e){ list.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message||'載入失敗')}</div>`; }
+  }
+  window.YXPageUndo = window.YXPageUndo || {};
+  window.YXPageUndo.open = openUndoPicker;
+  document.addEventListener('click', ev=>{ const b=ev.target.closest('.yx-page-undo-btn,#yx-page-undo-btn'); if(b){ ev.preventDefault(); openUndoPicker(); } }, true);
+  document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('.yx-page-undo-btn,#yx-page-undo-btn').forEach(b=>{ b.disabled=false; b.textContent='復原前一步'; }); }, {once:true});
 })();
-/* ===== END V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
 
+
+/* ===== V45 focus-safe toast override: green prompt never steals editing focus ===== */
+(function(){
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
+  window.toast=window.showToast=window.notify=function(message,kind){
+    kind=kind||'ok';
+    var active=document.activeElement, ss=0, se=0, isEdit=false;
+    try{isEdit=!!(active&&document.contains(active)&&active.matches&&active.matches('input,textarea,select,[contenteditable="true"]')); if(isEdit&&'selectionStart' in active){ss=active.selectionStart||0;se=active.selectionEnd||0;}}catch(e){}
+    var box=document.getElementById('yx-v20-toast');
+    if(!box){box=document.createElement('div');box.id='yx-v20-toast';box.setAttribute('aria-live','polite');document.body.appendChild(box);}
+    box.setAttribute('tabindex','-1'); box.style.pointerEvents='none'; box.style.userSelect='none';
+    box.className='yx-v20-toast-card '+kind+' show';
+    box.innerHTML='<strong>'+esc(kind==='error'?'操作失敗':(kind==='warn'?'請注意':'操作成功'))+'</strong><div>'+esc(message||'已完成')+'</div>';
+    try{ if(isEdit){ setTimeout(function(){try{active.focus({preventScroll:true}); if('selectionStart' in active) active.setSelectionRange(ss,se);}catch(e){}},0); } }catch(e){}
+    clearTimeout(box._yx45t); box._yx45t=setTimeout(function(){box.classList.remove('show');},1800);
+  };
+})();
+/* ===== END V45 focus-safe toast override ===== */
+
+
+/* ===== V45 customer-region move safety: moving region must never clear customer goods ===== */
+(function(){
+  function clean(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
+  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
+  function normRegion(v){v=clean(v);return v.includes('中')?'中區':(v.includes('南')?'南區':'北區');}
+  function moveDom(name,region){
+    document.querySelectorAll('[data-customer-name],[data-customer]').forEach(function(card){
+      var n=clean(card.dataset.customerName||card.dataset.customer||''); if(n!==name)return; card.dataset.region=region;
+    });
+    var card=Array.from(document.querySelectorAll('[data-customer-name],[data-customer]')).find(function(el){return clean(el.dataset.customerName||el.dataset.customer||'')===name;});
+    var targetId=region==='中區'?'region-center':(region==='南區'?'region-south':'region-north');
+    var target=document.getElementById(targetId);
+    if(card&&target){var empty=target.querySelector('.empty-state-card'); if(empty)empty.remove(); if(!target.contains(card))target.appendChild(card);}
+  }
+  window.YXV45MoveCustomerSafe=async function(name,region){
+    name=clean(name); region=normRegion(region); if(!name)return;
+    var prevActive=document.querySelector('.customer-region-card.is-active,[data-customer-name].is-active');
+    moveDom(name,region);
+    try{var m=JSON.parse(localStorage.getItem('yx_customer_regions_v18')||'{}')||{};m[name]=region;localStorage.setItem('yx_customer_regions_v18',JSON.stringify(m));}catch(e){}
+    try{await api('/api/customers/move',{method:'POST',body:JSON.stringify({name:name,region:region,preserve_existing:true})}); window.toast&&window.toast(name+' 已移到'+region,'ok');}
+    catch(e){window.toast&&window.toast(e.message||'移動客戶失敗','error');}
+    try{ if(prevActive) prevActive.classList.add('is-active'); }catch(e){}
+  };
+  document.addEventListener('click',function(ev){
+    var b=ev.target&&ev.target.closest&&ev.target.closest('[data-yx113-customer-act]'); if(!b)return;
+    var act=b.dataset.yx113CustomerAct||''; if(!/^move-/.test(act))return;
+    var modal=document.getElementById('yx113-customer-actions'); var name=clean(modal&&modal.dataset.customer||''); if(!name)return;
+    ev.preventDefault();ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation(); if(modal)modal.classList.add('hidden');
+    var region=act==='move-center'?'中區':(act==='move-south'?'南區':'北區'); window.YXV45MoveCustomerSafe(name,region);
+  },true);
+})();
+/* ===== END V45 customer-region move safety ===== */
+
+
+/* ===== V45 ship preview submit lock: always show preview before deduct ===== */
+(function(){
+  function clean(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
+  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
+  function getItems(){try{var o=document.getElementById('ocr-text');var lines=(o&&o.value||'').split(/\n+/).map(clean).filter(Boolean);return lines.map(function(x){return{product_text:x,qty:(window.YX30EffectiveQty?window.YX30EffectiveQty(x,1):1)};});}catch(e){return []}}
+  document.addEventListener('click',async function(ev){
+    var btn=ev.target&&ev.target.closest&&ev.target.closest('#submit-btn,[data-ship-submit],button[type="submit"]'); if(!btn||!document.body||document.body.dataset.module!=='ship')return;
+    if(btn.id==='yx22-confirm-ship')return;
+    var panel=document.getElementById('ship-preview-panel')||document.getElementById('module-result');
+    var hasPreview=panel&&panel.textContent&&panel.textContent.indexOf('出貨預覽')>=0; if(hasPreview)return;
+    var customer=clean((document.getElementById('customer-name')||document.getElementById('ship-customer-search')||{}).value||window.__YX_SELECTED_CUSTOMER__||'');
+    var items=getItems(); if(!customer||!items.length)return;
+    ev.preventDefault(); ev.stopPropagation(); if(ev.stopImmediatePropagation)ev.stopImmediatePropagation();
+    try{btn.disabled=true;var old=btn.textContent;btn.textContent='預覽中…';var payload={customer_name:customer,items:items,allow_inventory_fallback:true,skip_snapshot:true,request_key:'ship_v45_preview_'+Date.now()};var d=await api('/api/ship-preview',{method:'POST',body:JSON.stringify(payload)});
+      if(panel){panel.classList.remove('hidden');panel.style.display='block';var rows=Array.isArray(d.breakdown)?d.breakdown:[];panel.innerHTML='<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>客戶</span><b>'+customer+'</b><em></em></div><div><span>商品筆數</span><b>'+items.length+'</b><em>筆</em></div><div><span>確認後才扣</span><b>預覽</b><em></em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>件數</th><th>扣前→扣後</th><th>狀態</th></tr></thead><tbody>'+items.map(function(it,i){var r=rows[i]||{};var before=Number(r.before_qty||r.master_available||r.order_available||r.inventory_available||0);var q=Number(it.qty||1);return'<tr><td>'+(i+1)+'</td><td>'+it.product_text+'</td><td>'+q+'件</td><td>'+(before?before+' → '+Math.max(0,before-q):'待確認')+'</td><td>可確認</td></tr>';}).join('')+'</tbody></table><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>';panel.scrollIntoView({behavior:'smooth',block:'start'});document.getElementById('yx22-cancel-preview').onclick=function(){panel.classList.add('hidden')};document.getElementById('yx22-confirm-ship').onclick=async function(){var b=this;b.disabled=true;b.textContent='扣除中…';try{await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_v45_confirm_'+Date.now()})});panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>';window.toast&&window.toast('出貨完成','ok');}catch(e){window.toast&&window.toast(e.message||'出貨失敗','error');b.disabled=false;b.textContent='確認扣除';}};}
+    }catch(e){window.toast&&window.toast(e.message||'出貨預覽失敗','error');}
+    finally{btn.disabled=false;btn.textContent=old||'確認送出';}
+  },true);
+})();
+/* ===== END V45 ship preview submit lock ===== */

@@ -1,7 +1,4 @@
-# V76 warehouse add/edit stable overlay verified
-# V65 Render startup/migration verified
-# V59 Render config: releaseCommand runs PostgreSQL migration before web start.
-# V58 full warehouse/ship/product repair: Render build/start kept stable; smoke test retained.
+# V78 warehouse slot/order-master button lock: Render build/start kept stable; smoke test retained.
 services:
   - type: web
     name: yuanxing
@@ -9,7 +6,6 @@ services:
     plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python tools/smoke_test.py
     startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
-    releaseCommand: python -c "from db import init_db; init_db()"
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -21,5 +17,3 @@ services:
         value: "120"
       - key: SECRET_KEY
         generateValue: true
-
-# V71 warehouse optimistic stable overlay
