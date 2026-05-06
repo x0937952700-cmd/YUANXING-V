@@ -2361,6 +2361,9 @@
   document.addEventListener('click', async ev=>{
     const p=page(); if(!['inventory','orders','master_order'].includes(p)) return;
     const undo=ev.target.closest?.('.yx-page-undo-btn,#yx-page-undo-btn'); if(undo){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); return window.YXPageUndo.open();}
+    // V71 targeted fix: these product buttons are handled by the main product_actions renderer above.
+    // This old fallback must not stopImmediatePropagation, wait for DB, or reload the page.
+    if(ev.target.closest?.('[data-yx113-batch-material],[data-yx113-batch-delete],[data-yx132-batch-zone],[data-yx132-batch-transfer],[data-yx128-edit-all],[data-yx128-save-all]')) return;
     const mat=ev.target.closest?.('[data-yx113-batch-material]');
     if(mat){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(mat); const material=clean(document.getElementById(`yx113-${source}-material`)?.value||''); if(!material) return toast('請先選擇材質','warn'); const items=idsFor(source,true); if(!items.length) return toast('目前沒有可套用材質的商品','warn'); try{ await api('/api/customer-items/batch-material',{method:'POST',body:JSON.stringify({material,items})}); toast(`已套用材質 ${material}`,'ok'); refresh(); }catch(e){toast(e.message||'批量材質失敗','error');} return;}
     const del=ev.target.closest?.('[data-yx113-batch-delete]');

@@ -601,7 +601,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                 for col in range(1, 7):
                     cur.execute(sql("""
                         SELECT COUNT(*) AS cnt FROM warehouse_cells
-                        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ?
+                        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct') = ?
                     """), (zone, col, 'direct'))
                     r = fetchone_dict(cur) or {}
                     if int(r.get('cnt') or 0) == 0:
@@ -2781,7 +2781,7 @@ def warehouse_get_cells():
         # V25 safe fix: when missing slots are auto-completed during read, persist them
         # immediately so PostgreSQL pooled connections do not roll them back on close.
         conn.commit()
-        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(TRIM(slot_type),''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
         rows = rows_to_dict(cur)
         return rows
     except Exception:
@@ -2798,7 +2798,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(TRIM(slot_type),''), 'direct') = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -2818,7 +2818,9 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         column_index = int(column_index or 0)
         slot_number = int(slot_number or 0)
         slot_type = 'direct'
-        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
+        # V71 targeted fix: only fill missing empty slots up to the operated slot.
+        # Do not refill a manually reduced column back to 20 on every cell save.
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(1, slot_number))
         items = _normalize_warehouse_items(items)
         note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
         items_json = json.dumps(items, ensure_ascii=False)
@@ -2996,7 +2998,9 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
+        # V71 targeted fix: only fill missing empty slots up to the operated slot.
+        # Do not refill a manually reduced column back to 20 on every cell save.
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(1, slot_number))
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:
@@ -4055,7 +4059,9 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         column_index = int(column_index or 0)
         slot_type = 'direct'
         slot_number = int(slot_number or 0)
-        _warehouse_ensure_column_slots(cur, zone, column_index, max(20, slot_number))
+        # V71 targeted fix: only fill missing empty slots up to the operated slot.
+        # Do not refill a manually reduced column back to 20 on every cell save.
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(1, slot_number))
         items = _normalize_warehouse_items(items)
         note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
         items_json = json.dumps(items, ensure_ascii=False)
@@ -4197,6 +4203,10 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         column_index = int(column_index or 0)
         slot_type = 'direct'
         slot_number = int(slot_number or 0)
+        # V71 targeted fix: when saving a cell that the frontend can see but the DB is missing,
+        # fill only the missing empty slots up to that exact slot. Do not clear/rebuild or
+        # force a manually edited column back to 20 on every save.
+        _warehouse_ensure_column_slots(cur, zone, column_index, max(1, slot_number))
         items = _normalize_warehouse_items(items)
         note = '' if str(note or '') in ('__USER_ADDED__', '__USER_INSERTED_SLOT__') or str(note or '').startswith('__USER_') else (note or '')
         items_json = json.dumps(items, ensure_ascii=False)
@@ -4382,6 +4392,122 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
             cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number = slot_number - 1 WHERE zone = ? AND column_index = ? AND slot_number > ?"), (zone, column_index, slot_number))
         except Exception as e:
             log_error('v69_warehouse_recent_shift_remove', str(e))
+        conn.commit()
+        return {'success': True, 'removed_slot': slot_number}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        conn.close()
+
+
+# ============================================================
+# V70 EXACT WAREHOUSE SLOT OVERRIDE
+# Fix insert/delete slot failures by using a large temporary offset instead of
+# negative values. This avoids UNIQUE conflicts on SQLite/PostgreSQL while still
+# never clearing, rebuilding, or reordering product cells beyond the required
+# slot shift.
+# ============================================================
+def _yx_v70_direct_expr():
+    return "COALESCE(NULLIF(TRIM(slot_type),''),'direct')"
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    if zone not in ('A', 'B') or column_index < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v69_normalize_direct_slots(cur, zone, column_index)
+        cur.execute(sql("""
+            SELECT COALESCE(MAX(slot_number),0) AS max_slot
+            FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=?
+        """), (zone, column_index, 'direct'))
+        max_slot = int((fetchone_dict(cur) or {}).get('max_slot') or 0)
+        if max_slot < 1:
+            cur.execute(sql("""INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?,?)"""), (zone,column_index,'direct',1,'[]','',now()))
+            max_slot = 1
+        if insert_after is None or insert_after == '':
+            insert_after = max_slot
+        insert_after = max(0, min(int(insert_after), max_slot))
+        new_slot = insert_after + 1
+        offset = 1000000
+        # move following rows to temp range, then back shifted +1
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_number = slot_number + ?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number >= ?
+        """), (offset, zone, column_index, 'direct', new_slot))
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_type='direct', slot_number = slot_number - ? + 1, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number >= ?
+        """), (offset, now(), zone, column_index, 'direct', offset + new_slot))
+        cur.execute(sql("""INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at) VALUES(?,?,?,?,?,?,?)"""), (zone,column_index,'direct',new_slot,'[]','',now()))
+        try:
+            cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number=slot_number+1 WHERE zone=? AND column_index=? AND slot_number>?"), (zone,column_index,insert_after))
+        except Exception as e:
+            log_error('v70_recent_shift_add', str(e))
+        conn.commit()
+        return new_slot
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        conn.close()
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    slot_number = int(slot_number or 0)
+    if zone not in ('A', 'B') or column_index < 1 or slot_number < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        ensure_fixed_warehouse_grid(conn, cur)
+        _yx_v69_normalize_direct_slots(cur, zone, column_index)
+        cur.execute(sql("""
+            SELECT COUNT(*) AS cnt FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=?
+        """), (zone,column_index,'direct'))
+        if int((fetchone_dict(cur) or {}).get('cnt') or 0) <= 1:
+            return {'success': False, 'error': '每欄至少要保留 1 格'}
+        cur.execute(sql("""
+            SELECT id,items_json,note FROM warehouse_cells
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number=?
+            ORDER BY id DESC LIMIT 1
+        """), (zone,column_index,'direct',slot_number))
+        target = fetchone_dict(cur)
+        if not target:
+            # If the front-end clicked a virtual missing slot, create missing empty slots only up to that slot then delete it.
+            _warehouse_ensure_column_slots(cur, zone, column_index, slot_number)
+            cur.execute(sql("""
+                SELECT id,items_json,note FROM warehouse_cells
+                WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number=?
+                ORDER BY id DESC LIMIT 1
+            """), (zone,column_index,'direct',slot_number))
+            target = fetchone_dict(cur)
+        if not target:
+            return {'success': False, 'error': '格號不存在'}
+        if _yx_v69_cell_items_from_row(target):
+            return {'success': False, 'error': '格子內還有商品，無法刪除'}
+        cur.execute(sql("DELETE FROM warehouse_cells WHERE id=?"), (target.get('id'),))
+        offset = 1000000
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_number = slot_number + ?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number > ?
+        """), (offset, zone, column_index, 'direct', slot_number))
+        cur.execute(sql("""
+            UPDATE warehouse_cells SET slot_type='direct', slot_number = slot_number - ? - 1, updated_at=?
+            WHERE zone=? AND column_index=? AND COALESCE(NULLIF(TRIM(slot_type),''),'direct')=? AND slot_number > ?
+        """), (offset, now(), zone, column_index, 'direct', offset + slot_number))
+        try:
+            cur.execute(sql("DELETE FROM warehouse_recent_slots WHERE zone=? AND column_index=? AND slot_number=?"), (zone,column_index,slot_number))
+            cur.execute(sql("UPDATE warehouse_recent_slots SET slot_number=slot_number-1 WHERE zone=? AND column_index=? AND slot_number>?"), (zone,column_index,slot_number))
+        except Exception as e:
+            log_error('v70_recent_shift_remove', str(e))
         conn.commit()
         return {'success': True, 'removed_slot': slot_number}
     except Exception:

@@ -964,3 +964,43 @@ body[data-module="master_order"] #yx113-master_order-toolbar [data-yx132-batch-z
 body[data-module="master_order"] #yx113-master_order-toolbar [data-yx132-batch-transfer],
 body[data-module="master_order"] #yx113-master_order-toolbar [data-yx113-batch-delete],
 body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-edit-all]{display:none!important;}
+
+/* V70 exact: 訂單/總單清單表格上方批量按鈕固定顯示，不放到上方工具列 */
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls,
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls,
+body[data-module="orders"] .yx-v68-order-master-actions,
+body[data-module="orders"] .yx-v65-orders-summary-actions,
+body[data-module="master_order"] .yx113-summary-head .yx128-summary-controls,
+body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls,
+body[data-module="master_order"] .yx-v68-order-master-actions,
+body[data-module="master_order"] .yx-v65-master-summary-actions{display:flex!important;visibility:visible!important;opacity:1!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:wrap!important;}
+body[data-module="orders"] .yx128-summary-controls>button,
+body[data-module="master_order"] .yx128-summary-controls>button{display:inline-flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;}
+body[data-module="orders"] #yx113-orders-toolbar [data-yx132-batch-zone],
+body[data-module="orders"] #yx113-orders-toolbar [data-yx113-batch-delete],
+body[data-module="orders"] #yx113-orders-toolbar [data-yx128-edit-all],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx132-batch-zone],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx113-batch-delete],
+body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-edit-all]{display:none!important;}
+
+/* V71 mainfile-only bugfix: order/master summary action buttons must remain visible inside the list header.
+   This overrides older broad hide rules only for the summary header; toolbar duplicates stay hidden. */
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls [data-yx132-batch-zone][data-source="orders"],
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls [data-yx132-batch-transfer][data-source="orders"],
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls [data-yx113-batch-delete="orders"],
+body[data-module="orders"] .yx113-summary-head .yx128-summary-controls [data-yx128-edit-all="orders"],
+body[data-module="master_order"] .yx113-summary-head .yx128-summary-controls [data-yx132-batch-zone][data-source="master_order"],
+body[data-module="master_order"] .yx113-summary-head .yx128-summary-controls [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] .yx113-summary-head .yx128-summary-controls [data-yx128-edit-all="master_order"],
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls [data-yx132-batch-zone][data-source="orders"],
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls [data-yx132-batch-transfer][data-source="orders"],
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls [data-yx113-batch-delete="orders"],
+body[data-module="orders"] .yx128-summary-head .yx128-summary-controls [data-yx128-edit-all="orders"],
+body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [data-yx132-batch-zone][data-source="master_order"],
+body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [data-yx128-edit-all="master_order"]{
+  display:inline-flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+}

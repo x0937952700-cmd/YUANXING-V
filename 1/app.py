@@ -460,6 +460,32 @@ def warehouse_support_text(text):
     return raw.split('=', 1)[1].strip()
 
 
+
+def warehouse_rewrite_product_qty_for_unplaced(product_text, qty):
+    """Return product_text adjusted to the remaining unplaced quantity for dropdown display."""
+    raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    try:
+        qty = max(0, int(qty or 0))
+    except Exception:
+        qty = 0
+    if not raw or '=' not in raw or qty <= 0:
+        return raw
+    left = warehouse_item_display_size(raw) or raw.split('=', 1)[0].strip()
+    support = warehouse_support_text(raw)
+    if not support:
+        return raw
+    parts = [x.strip() for x in support.split('+') if str(x).strip()]
+    if len(parts) == 1:
+        part = parts[0]
+        if re.search(r'x\s*\d+\s*$', part, re.I):
+            part = re.sub(r'x\s*\d+\s*$', 'x' + str(qty), part, flags=re.I)
+        elif re.fullmatch(r'\d+(?:\.\d+)?', part):
+            part = f'{part}x{qty}'
+        else:
+            part = f'{part}x{qty}'
+        return f'{left}={part}'
+    return raw
+
 def warehouse_support_qty_adjustment(part):
     # V58：括號只當備註，倉庫支數件數不因 (東昇-8) 這類文字被扣掉。
     return 0
@@ -1756,11 +1782,9 @@ def api_warehouse_cell():
             return error_response("格位參數錯誤")
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
-        if not previous_cell:
-            same_col = [c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index]
-            max_slot = max([int(c.get('slot_number') or 0) for c in same_col] or [0])
-            if max_slot and slot_number > max_slot + 1:
-                return error_response("格位不存在，請先在格子內點「插入格子」")
+        # V71 targeted fix: front-end may display a slot that is missing in DB after old/broken
+        # migrations. Do not reject it here; warehouse_save_cell will only fill missing empty
+        # slots up to the operated slot and then save this exact cell. No clearing/rebuild.
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
         if not ok:
@@ -1868,6 +1892,8 @@ def api_warehouse_available_items():
         placed_all = warehouse_placed_totals()
         placed_detail = {}
         placed_detail_by_zone = {}
+        placed_size_detail = {}
+        placed_size_detail_by_zone = {}
         for cell in warehouse_get_cells():
             cell_zone = str(cell.get('zone') or '').strip().upper()
             try:
@@ -1903,29 +1929,51 @@ def api_warehouse_available_items():
                             dkey = (dexact, dcustomer, dsource, did)
                             placed_detail[dkey] = placed_detail.get(dkey, 0) + dq
                             placed_detail_by_zone[(dexact, dcustomer, dsource, did, cell_zone)] = placed_detail_by_zone.get((dexact, dcustomer, dsource, did, cell_zone), 0) + dq
+                            dsize = warehouse_item_size_key(dexact)
+                            if dsize:
+                                skey = (dsize, dcustomer, dsource, did)
+                                placed_size_detail[skey] = placed_size_detail.get(skey, 0) + dq
+                                placed_size_detail_by_zone[(dsize, dcustomer, dsource, did, cell_zone)] = placed_size_detail_by_zone.get((dsize, dcustomer, dsource, did, cell_zone), 0) + dq
                     continue
                 if exact and q > 0:
                     dkey = (exact, customer, source_label, source_id)
                     placed_detail[dkey] = placed_detail.get(dkey, 0) + q
                     placed_detail_by_zone[(exact, customer, source_label, source_id, cell_zone)] = placed_detail_by_zone.get((exact, customer, source_label, source_id, cell_zone), 0) + q
+                    dsize = warehouse_item_size_key(exact)
+                    if dsize:
+                        skey = (dsize, customer, source_label, source_id)
+                        placed_size_detail[skey] = placed_size_detail.get(skey, 0) + q
+                        placed_size_detail_by_zone[(dsize, customer, source_label, source_id, cell_zone)] = placed_size_detail_by_zone.get((dsize, customer, source_label, source_id, cell_zone), 0) + q
         items = []
         zone_summary = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
         for detail_key, details_all in source_details.items():
             exact, customer, source_label, source_id = detail_key
             details_for_item_all = details_all
+            size_key_for_placed = warehouse_item_size_key(exact)
             if zone_filter:
                 # V69：A 區格位下拉只顯示 A 區未入倉商品；B 區只顯示 B 區。
                 # 未分區只留在總統計，不混入 A/B 格子的下拉。
                 details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
                 placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
+                # When user places only part of a support line, e.g. source = 160x30x125=240x29
+                # and cell item = 160x30x125=240x22, exact keys differ. Deduct by base size + customer
+                # only when exact/source_id matching cannot find a placement.
+                if placed_qty <= 0 and size_key_for_placed:
+                    placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
+                if placed_qty <= 0 and size_key_for_placed:
+                    placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
                 if placed_qty <= 0:
                     placed_qty = int(placed_all.get((exact, customer), 0) or 0)
             else:
                 details_for_item = details_for_item_all
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
                 placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
-                # 若舊格位沒有 source_id/source，只能用 exact 總量扣掉，避免舊資料重複出現在下拉。
+                if placed_qty <= 0 and size_key_for_placed:
+                    placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
+                # 若舊格位沒有 source_id/source，只能用尺寸 + 客戶總量扣掉，避免舊資料重複出現在下拉。
+                if placed_qty <= 0 and size_key_for_placed:
+                    placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
                 if placed_qty <= 0:
                     placed_qty = int(placed_all.get((exact, customer), 0) or 0)
             unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
@@ -1943,9 +1991,10 @@ def api_warehouse_available_items():
                 continue
             first = details_for_item[0] if details_for_item else (details_for_item_all[0] if details_for_item_all else {})
             product = first.get('product_text') or exact
+            product = warehouse_rewrite_product_qty_for_unplaced(product, unplaced_qty)
             size = first.get('product_size') or warehouse_item_size_key(product)
             display_size = first.get('display_product_size') or warehouse_item_display_size(product) or size
-            support = first.get('support_text') or warehouse_support_text(product)
+            support = warehouse_support_text(product) or first.get('support_text') or ''
             material = first.get('material') or first.get('product_code') or ''
             items.append({
                 'product_text': product,

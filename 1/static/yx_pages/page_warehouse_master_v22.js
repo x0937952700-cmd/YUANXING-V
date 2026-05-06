@@ -388,13 +388,12 @@
   const zones = ['A','B'];
   function itemQty(it){
     const text=clean(it?.product_text||it?.product||'');
-    // V60：已放入倉庫格的商品、API 回傳的未錄入商品，優先吃明確 qty/unplaced_qty。
-    // 這樣在「目前此格商品」把 49 件改成 47 件後，格子與下拉都會以 47 件為準，
-    // 不會又被 product_text 右側的 240x49 覆蓋回 49。
-    const explicitPriority = [it?.unplaced_qty, it?.available_qty, it?.remaining_qty];
-    for(const v of explicitPriority){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
+    // V70：已放入倉庫格的商品必須先吃此格實際 qty。
+    // 避免從下拉選單帶入 unplaced_qty/available_qty=29 後，即使格內輸入改成 =240x22，格子還顯示 29 件。
     const explicitQty=Number(it?.qty ?? it?.quantity ?? it?.pieces ?? it?.count ?? it?.piece_count ?? it?.件數);
     if((it?.placement_label || it?.layer_label || it?.__warehouseCellItem) && Number.isFinite(explicitQty) && explicitQty>0) return Math.floor(explicitQty);
+    const explicitPriority = [it?.unplaced_qty, it?.available_qty, it?.remaining_qty];
+    for(const v of explicitPriority){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
     // 倉庫下拉 / 批量加入若沒有明確剩餘數，才用「=右側支數x件數」推算。
     const noParen=text.replace(/[\(（][^\)）]*[\)）]/g,'');
     const right=noParen.includes('=') ? noParen.split('=').slice(1).join('=') : '';
@@ -493,7 +492,8 @@
   }
   function normalizedItem(it, qty, placement){
     const product=productText(it);
-    return {...it, product_text:product, product, customer_name:cleanCustomer(it?.customer_name||it?.customer||''), material:materialOf(it), qty:Math.max(1,Math.floor(Number(qty||itemQty(it)||1))), source:sourceOf(it), source_table:it?.source_table || it?.source || sourceOf(it), source_id:it?.source_id || it?.id || '', placement_label:placement || it?.placement_label || it?.layer_label || '前排', layer_label:placement || it?.placement_label || it?.layer_label || '前排'};
+    const q=Math.max(1,Math.floor(Number(qty||itemQty(it)||1)));
+    return {...it, product_text:product, product, customer_name:cleanCustomer(it?.customer_name||it?.customer||''), material:materialOf(it), qty:q, unplaced_qty:q, available_qty:q, remaining_qty:q, __warehouseCellItem:true, source:sourceOf(it), source_table:it?.source_table || it?.source || sourceOf(it), source_id:it?.source_id || it?.id || '', placement_label:placement || it?.placement_label || it?.layer_label || '前排', layer_label:placement || it?.placement_label || it?.layer_label || '前排'};
   }
   function cellFromData(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -845,6 +845,35 @@
       </div>
     </div>`;
   }
+  function rewriteProductSupportQty(product, qty){
+    product=clean(product).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
+    qty=Math.max(1, Math.floor(Number(qty||1)));
+    if(!product.includes('=')) return product;
+    const left=product.split('=')[0];
+    const right=product.split('=').slice(1).join('=') || '';
+    const parts=right.split('+');
+    if(!parts.length) return product;
+    const last=parts[parts.length-1] || '';
+    if(/x\s*\d+\s*$/i.test(last)) parts[parts.length-1]=last.replace(/x\s*\d+\s*$/i,'x'+qty);
+    else if(/^\s*\d+(?:\.\d+)?\s*$/.test(last)) parts[parts.length-1]=`${last}x${qty}`;
+    else parts.push(String(qty));
+    return `${left}=${parts.join('+')}`;
+  }
+  function syncCurrentRowQtyFromProduct(row){
+    const p=row?.querySelector?.('[data-current-product]');
+    const q=row?.querySelector?.('[data-current-qty]');
+    if(!p||!q) return;
+    const parsed=qtyFromProductTextForInput(p.value, 0);
+    if(parsed>0) q.value=String(parsed);
+  }
+  function syncCurrentRowProductFromQty(row){
+    const p=row?.querySelector?.('[data-current-product]');
+    const q=row?.querySelector?.('[data-current-qty]');
+    if(!p||!q) return;
+    const n=Math.max(1, Math.floor(Number(q.value||1)));
+    if(p.value && p.value.includes('=')) p.value=rewriteProductSupportQty(p.value,n);
+  }
+
   function renderCellItems(preserve=true){
     const box=$('warehouse-cell-items'); if(!box) return;
     if(preserve) applyCurrentItemInputs();
@@ -1103,6 +1132,8 @@
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); return; }
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){ ev.preventDefault(); applyCurrentItemInputs(); state.current.items.splice(Number(rm.dataset.removeCellItem),1); renderCellItems(false); return; }
+      const curProd=ev.target?.closest?.('[data-current-product]'); if(curProd){ setTimeout(()=>syncCurrentRowQtyFromProduct(curProd.closest('.yx-direct-current-item')),0); return; }
+      const curQty=ev.target?.closest?.('[data-current-qty]'); if(curQty){ setTimeout(()=>syncCurrentRowProductFromQty(curQty.closest('.yx-direct-current-item')),0); return; }
     },true);
     document.addEventListener('change', ev=>{ const sel=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-select'); if(sel){ syncBatchSelectLimits(); } }, true);
     document.addEventListener('input', ev=>{
@@ -1115,7 +1146,10 @@
         if(qtyEl && n>0) qtyEl.value=String(n);
       }
       const curQty=ev.target?.closest?.('#warehouse-current-items-html [data-current-qty]');
-      if(curQty && Number(curQty.value)<1){ curQty.value='1'; }
+      if(curQty){
+        if(Number(curQty.value)<1) curQty.value='1';
+        syncCurrentRowProductFromQty(curQty.closest('.yx-direct-current-item'));
+      }
       const support=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-support');
       if(support){
         support.value=normalizeSupportInputValue(support.value);
