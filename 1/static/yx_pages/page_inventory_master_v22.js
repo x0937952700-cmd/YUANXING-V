@@ -609,7 +609,7 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn yx-page-undo-btn" type="button" id="yx-page-undo-btn">復原前一步</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -788,7 +788,9 @@
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
+    const editButtonText = editing ? '儲存批量編輯' : (selectedIds(source).size ? '批量編輯已勾選' : '批量編輯全部');
+    const batchButtons = `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editButtonText}</button>`;
+    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}${batchButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -963,18 +965,23 @@
       items.push({source:apiSource(source), id, ...payload});
     }
     if (!items.length) return YX.toast('沒有可儲存的商品', 'warn');
-    // V29：儲存批量編輯時不退出編輯模式、不重畫整個表格，避免正在選取/輸入的欄位被刷新打斷。
-    updateSummaryHeaderOnly(source);
-    YX.toast(`正在儲存 ${items.length} 筆商品，可繼續編輯`, 'ok');
+    // V80：按下「儲存批量編輯」後，先用已輸入內容更新前端、立刻關閉編輯狀態，再背景寫入資料庫。
+    // 成功後用後端 snapshot 校正；失敗才重抓資料庫復原，避免停留在編輯狀態造成誤以為沒儲存。
+    state.editAll[source] = false;
+    state.editScope[source] = null;
+    clearSelected(source);
+    renderSummary(source);
+    renderCards(source);
+    YX.toast(`正在永久儲存 ${items.length} 筆商品`, 'ok');
     try{
       const d = await YX.api('/api/customer-items/batch-update', {method:'POST', body:JSON.stringify({items})});
-      YX.toast(`已批量更新 ${d.count || items.length} 筆商品，可繼續編輯其他欄位`, 'ok');
-      mergeSnapshotQuiet(d, source);
+      const merged = mergeSnapshotQuiet(d, source);
+      if (merged) { renderSummary(source); renderCards(source); }
+      YX.toast(`已批量更新 ${d.count || items.length} 筆商品，編輯狀態已關閉`, 'ok');
       try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer()).catch(()=>{}); } catch(_e) {}
     }catch(e){
-      // 失敗時才重新讀後端；成功時完全不打斷目前編輯。
-      await loadSource(source);
-      YX.toast(e.message || '批量編輯儲存失敗', 'error');
+      await loadSource(source, {force:true});
+      YX.toast(e.message || '批量編輯儲存失敗，已還原資料庫狀態', 'error');
     }
   }
   async function bulkMaterial(source){

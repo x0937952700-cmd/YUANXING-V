@@ -531,12 +531,12 @@ def log_error(source, message):
 
 
 def ensure_fixed_warehouse_grid(conn=None, cur=None):
-    """建立倉庫格位表，但不再強制每欄固定 20 格。
+    """建立倉庫格位表，並保留使用者既有資料。
 
-    FIX67：
-    - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 20 格作為起始版面。
-    - 之後使用者刪除或插入格子後，不再於每次啟動 / 查詢時補回 20 格。
-    - 每欄至少保留 1 格，避免前台完全無法點選插入。
+    V80 原則：
+    - 全新資料庫：A/B 各 6 欄、每欄預先建立 20 格。
+    - 既有資料庫：不刪資料、不重排使用者已刪減的格數，只補完全空欄至少 1 格。
+    - V79 若造成每欄只剩少量格子，init_db 會執行一次性救援補回 20 格，不影響之後使用者手動刪減。
     """
     own_conn = False
     if conn is None or cur is None:
@@ -573,38 +573,270 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                 )
             """)
 
+        _warehouse_dedupe_cells_safe(cur)
         cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
         row = fetchone_dict(cur) or {}
         total = int(row.get('cnt') or 0)
 
-        # 只有全新空表時，才建立起始 20 格；後續不再強制補回 20 格。
         if total == 0:
-            for zone in ('A', 'B'):
-                for col in range(1, 7):
-                    for num in range(1, 21):
-                        cur.execute(sql("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """), (zone, col, 'direct', num, '[]', '', now()))
+            _warehouse_seed_missing_slots(cur, min_slots=20)
         else:
-            # 不固定 20 格，但每欄至少保留 1 格，避免欄位完全空掉無法再插入。
-            for zone in ('A', 'B'):
-                for col in range(1, 7):
-                    cur.execute(sql("""
-                        SELECT COUNT(*) AS cnt FROM warehouse_cells
-                        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
-                    """), (zone, col, 'direct'))
-                    r = fetchone_dict(cur) or {}
-                    if int(r.get('cnt') or 0) == 0:
-                        cur.execute(sql("""
-                            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """), (zone, col, 'direct', 1, '[]', '', now()))
+            _warehouse_seed_missing_slots(cur, min_slots=1)
         if own_conn:
             conn.commit()
     finally:
         if own_conn:
             conn.close()
+
+
+def _warehouse_insert_empty_slot_if_missing(cur, zone, col, slot_no):
+    """跨 PostgreSQL / SQLite 安全插入空格。"""
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (zone, column_index, slot_type, slot_number) DO NOTHING
+        """, (zone, int(col), 'direct', int(slot_no), '[]', '', now()))
+    else:
+        cur.execute("""
+            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (zone, int(col), 'direct', int(slot_no), '[]', '', now()))
+
+
+def _warehouse_seed_missing_slots(cur, min_slots=20):
+    """只補缺格，不刪除、不覆蓋既有商品。"""
+    min_slots = max(1, int(min_slots or 1))
+    for zone in ('A', 'B'):
+        for col in range(1, 7):
+            cur.execute(sql("""
+                SELECT slot_number FROM warehouse_cells
+                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ?
+                ORDER BY slot_number
+            """), (zone, col, 'direct'))
+            rows = rows_to_dict(cur)
+            existing = {int(r.get('slot_number') or 0) for r in rows if int(r.get('slot_number') or 0) > 0}
+            max_slot = max([min_slots] + list(existing or [0]))
+            for slot_no in range(1, max_slot + 1):
+                if slot_no not in existing:
+                    _warehouse_insert_empty_slot_if_missing(cur, zone, col, slot_no)
+
+
+def _warehouse_dedupe_cells_safe(cur):
+    """合併重複格位，不讓建立唯一索引時丟失商品資料。"""
+    try:
+        cur.execute(sql("""
+            SELECT id, zone, column_index, COALESCE(slot_type, 'direct') AS slot_type,
+                   slot_number, items_json, note, updated_at
+            FROM warehouse_cells
+            ORDER BY zone, column_index, slot_type, slot_number, id
+        """))
+        rows = rows_to_dict(cur)
+    except Exception:
+        return
+    grouped = {}
+    for row in rows:
+        try:
+            zone = (row.get('zone') or 'A').strip().upper()
+            if zone not in ('A', 'B'):
+                zone = 'A'
+            col = int(row.get('column_index') or 1)
+            col = min(6, max(1, col))
+            slot_type = (row.get('slot_type') or 'direct').strip().lower() or 'direct'
+            slot_no = int(row.get('slot_number') or 1)
+            slot_no = max(1, slot_no)
+            if slot_type in ('front', '前'):
+                slot_type = 'direct'
+            elif slot_type in ('back', '後'):
+                slot_type = 'direct'
+                slot_no += 10
+            else:
+                slot_type = 'direct'
+        except Exception:
+            continue
+        k = (zone, col, slot_type, slot_no)
+        if k not in grouped:
+            grouped[k] = {
+                'keep_id': row.get('id'),
+                'delete_ids': [],
+                'items_json': row.get('items_json') or '[]',
+                'note': row.get('note') or '',
+                'updated_at': row.get('updated_at') or now(),
+                'zone': zone, 'column_index': col, 'slot_type': slot_type, 'slot_number': slot_no,
+            }
+        else:
+            g = grouped[k]
+            g['delete_ids'].append(row.get('id'))
+            g['items_json'] = _merge_json_item_lists(g.get('items_json'), row.get('items_json'))
+            g['note'] = g.get('note') or row.get('note') or ''
+            g['updated_at'] = max(str(g.get('updated_at') or ''), str(row.get('updated_at') or '')) or now()
+    for g in grouped.values():
+        keep_id = g.get('keep_id')
+        if not keep_id:
+            continue
+        try:
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET zone = ?, column_index = ?, slot_type = ?, slot_number = ?,
+                    items_json = ?, note = ?, updated_at = ?
+                WHERE id = ?
+            """), (g['zone'], g['column_index'], g['slot_type'], g['slot_number'], g.get('items_json') or '[]', g.get('note') or '', g.get('updated_at') or now(), keep_id))
+            for did in g.get('delete_ids') or []:
+                if did and did != keep_id:
+                    cur.execute(sql("DELETE FROM warehouse_cells WHERE id = ?"), (did,))
+        except Exception as e:
+            log_error('warehouse_dedupe_cells_safe', str(e))
+
+
+def _warehouse_has_saved_items(cur):
+    try:
+        cur.execute(sql("SELECT items_json FROM warehouse_cells"))
+        rows = rows_to_dict(cur)
+        for row in rows:
+            try:
+                items = json.loads(row.get('items_json') or '[]')
+                if isinstance(items, list) and len(items) > 0:
+                    return True
+            except Exception:
+                if row.get('items_json') and row.get('items_json') not in ('[]', '{}', 'null'):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _warehouse_table_exists(cur, table_name):
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT to_regclass(%s)", (f'public.{table_name}',))
+            row = cur.fetchone()
+            return bool(row and row[0])
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _warehouse_upsert_raw_cell(cur, zone, col, slot_no, items_json, note='', updated_at=None):
+    zone = (zone or 'A').strip().upper()
+    if zone not in ('A', 'B'):
+        zone = 'A'
+    col = min(6, max(1, int(col or 1)))
+    slot_no = max(1, int(slot_no or 1))
+    items_json = items_json or '[]'
+    if USE_POSTGRES:
+        cur.execute("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (zone, column_index, slot_type, slot_number)
+            DO UPDATE SET
+                items_json = CASE
+                    WHEN warehouse_cells.items_json IS NULL OR warehouse_cells.items_json = '' OR warehouse_cells.items_json = '[]'
+                    THEN EXCLUDED.items_json ELSE warehouse_cells.items_json END,
+                note = CASE WHEN warehouse_cells.note IS NULL OR warehouse_cells.note = '' THEN EXCLUDED.note ELSE warehouse_cells.note END,
+                updated_at = EXCLUDED.updated_at
+        """, (zone, col, 'direct', slot_no, items_json, note or '', updated_at or now()))
+    else:
+        cur.execute("""
+            INSERT OR IGNORE INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (zone, col, 'direct', slot_no, items_json, note or '', updated_at or now()))
+        cur.execute("""
+            UPDATE warehouse_cells
+            SET items_json = CASE WHEN items_json IS NULL OR items_json = '' OR items_json = '[]' THEN ? ELSE items_json END,
+                note = CASE WHEN note IS NULL OR note = '' THEN ? ELSE note END,
+                updated_at = ?
+            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        """, (items_json, note or '', updated_at or now(), zone, col, 'direct', slot_no))
+
+
+def _warehouse_rescue_from_legacy_sources(cur):
+    """若目前倉庫格全部空白，嘗試從 legacy / audit 記錄救回格內商品。"""
+    if _warehouse_has_saved_items(cur):
+        return
+    rescued = 0
+    for table_name in ('warehouse_cells_legacy', 'warehouse_cells_rescue_v80', 'warehouse_cells_backup', 'warehouse_cells_old'):
+        if not _warehouse_table_exists(cur, table_name):
+            continue
+        try:
+            cur.execute(f"SELECT * FROM {table_name}")
+            rows = rows_to_dict(cur)
+        except Exception:
+            continue
+        for row in rows:
+            items_json = row.get('items_json') or '[]'
+            try:
+                items = json.loads(items_json or '[]')
+                if not isinstance(items, list) or not items:
+                    continue
+            except Exception:
+                continue
+            zone = (row.get('zone') or row.get('area') or 'A')
+            col = row.get('column_index') or row.get('col') or row.get('column') or 1
+            slot_no = int(row.get('slot_number') or row.get('row') or row.get('position') or 1)
+            st = (row.get('slot_type') or row.get('front_back') or row.get('side') or 'direct').strip().lower()
+            if st in ('back', '後'):
+                slot_no += 10
+            _warehouse_upsert_raw_cell(cur, zone, col, slot_no, items_json, row.get('note') or row.get('memo') or row.get('remark') or '', row.get('updated_at') or row.get('created_at') or now())
+            rescued += 1
+    if rescued:
+        log_error('warehouse_v80_rescue', f'restored {rescued} cells from legacy tables')
+        return
+    if not _warehouse_table_exists(cur, 'audit_trails'):
+        return
+    try:
+        cur.execute(sql("""
+            SELECT after_json FROM audit_trails
+            WHERE entity_type = ? AND after_json IS NOT NULL AND after_json <> ''
+            ORDER BY id ASC
+        """), ('warehouse_cells',))
+        rows = rows_to_dict(cur)
+        for row in rows:
+            try:
+                data = json.loads(row.get('after_json') or '{}')
+            except Exception:
+                continue
+            items = data.get('items') if isinstance(data, dict) else None
+            if not isinstance(items, list) or not items:
+                continue
+            zone = data.get('zone') or 'A'
+            col = data.get('column_index') or 1
+            slot_no = data.get('slot_number') or 1
+            _warehouse_upsert_raw_cell(cur, zone, col, slot_no, json.dumps(items, ensure_ascii=False), data.get('note') or '', now())
+            rescued += 1
+        if rescued:
+            log_error('warehouse_v80_audit_rescue', f'restored {rescued} cells from audit_trails')
+    except Exception as e:
+        log_error('warehouse_v80_audit_rescue_error', str(e))
+
+
+def _warehouse_seed_minimum_20_once(cur):
+    """V80 一次性救援：若 V79 讓每欄只剩少量格，補回預設 20 格。"""
+    try:
+        cur.execute(sql("SELECT value FROM app_settings WHERE key = ?"), ('warehouse_grid_v80_min20_rescued',))
+        row = fetchone_dict(cur)
+        if row and str(row.get('value') or '') == '1':
+            return
+    except Exception:
+        return
+    try:
+        _warehouse_rescue_from_legacy_sources(cur)
+        _warehouse_dedupe_cells_safe(cur)
+        _warehouse_seed_missing_slots(cur, min_slots=20)
+        if USE_POSTGRES:
+            cur.execute("""
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            """, ('warehouse_grid_v80_min20_rescued', '1', now()))
+        else:
+            cur.execute("""
+                INSERT INTO app_settings(key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """, ('warehouse_grid_v80_min20_rescued', '1', now()))
+    except Exception as e:
+        log_error('warehouse_seed_minimum_20_once', str(e))
 
 def init_db():
     conn = get_db()
@@ -1045,41 +1277,12 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
 
-    # normalize warehouse to direct 1-20 model
+    # V80: safe warehouse migration. Do not wipe/rewrite whole table; merge duplicates and preserve every saved item.
     try:
-        cur.execute(sql("SELECT zone, column_index, slot_type, slot_number, items_json, note, updated_at FROM warehouse_cells ORDER BY zone, column_index, slot_number"))
-        raw_cells = rows_to_dict(cur)
-        direct_map = {}
-        for cell in raw_cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            col = int(cell.get('column_index') or 1)
-            slot_type = (cell.get('slot_type') or 'direct').strip().lower()
-            slot_no = int(cell.get('slot_number') or 1)
-            if slot_type == 'back':
-                slot_no += 10
-            elif slot_type == 'front':
-                slot_no = slot_no
-            key = (zone, col, slot_no)
-            prev = direct_map.get(key)
-            if prev:
-                prev['items_json'] = _merge_json_item_lists(prev.get('items_json'), cell.get('items_json'))
-                prev['note'] = prev.get('note') or cell.get('note') or ''
-                prev['updated_at'] = max(str(prev.get('updated_at') or ''), str(cell.get('updated_at') or ''))
-            else:
-                direct_map[key] = {'zone': zone, 'column_index': col, 'slot_type': 'direct', 'slot_number': slot_no, 'items_json': cell.get('items_json') or '[]', 'note': cell.get('note') or '', 'updated_at': cell.get('updated_at') or now()}
-        cur.execute(sql("DELETE FROM warehouse_cells"))
-        for zone in ('A','B'):
-            for col in range(1, 7):
-                _slots = [k[2] for k in direct_map.keys() if k[0] == zone and k[1] == col]
-                max_slot = max(_slots) if _slots else 1
-                for num in range(1, max_slot + 1):
-                    row = direct_map.get((zone, col, num), {'items_json': '[]', 'note': '', 'updated_at': now()})
-                    cur.execute(sql("""
-                        INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """), (zone, col, 'direct', num, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
+        _warehouse_rescue_from_legacy_sources(cur)
+        _warehouse_dedupe_cells_safe(cur)
     except Exception as e:
-        log_error('warehouse_normalize_direct_model', str(e))
+        log_error('warehouse_v80_safe_normalize', str(e))
 
     # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
     try:
@@ -1105,13 +1308,8 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 note = COALESCE(note, ''),
                 updated_at = COALESCE(NULLIF(updated_at, ''), ?)
         """), (now(),))
-        cur.execute(sql("""
-            DELETE FROM warehouse_cells
-            WHERE id NOT IN (
-                SELECT MIN(id) FROM warehouse_cells
-                GROUP BY zone, column_index, slot_type, slot_number
-            )
-        """))
+        _warehouse_dedupe_cells_safe(cur)
+        _warehouse_seed_minimum_20_once(cur)
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_warehouse_cells_slot ON warehouse_cells(zone, column_index, slot_type, slot_number)")
     except Exception as e:
         log_error('v23_warehouse_slot_migration', str(e))
@@ -2750,11 +2948,10 @@ def warehouse_get_cells():
     cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        # V79：讀取前先把舊資料 gaps / 重複格號收斂成連續真實格號；
-        # 前端只顯示 DB 存在的格子，新增/刪除才不會遇到「格號超出範圍」。
-        warehouse_normalize_slot_grid(conn, cur)
+        # V25 safe fix: when missing slots are auto-completed during read, persist them
+        # immediately so PostgreSQL pooled connections do not roll them back on close.
         conn.commit()
-        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
         rows = rows_to_dict(cur)
         return rows
     except Exception:
@@ -2771,7 +2968,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -2789,7 +2986,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(NULLIF(slot_type,''), 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -2800,7 +2997,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute(sql("""
             UPDATE warehouse_cells
             SET items_json = ?, note = ?, updated_at = ?
-            WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
+            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
         """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute(sql("""
@@ -2826,9 +3023,9 @@ def warehouse_add_column(zone):
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
     cur.execute(sql("""
-        SELECT zone, column_index, COALESCE(NULLIF(slot_type,''), 'direct') AS slot_type, slot_number, items_json, note, updated_at
+        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
         FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
         ORDER BY slot_number
     """), (zone, column_index, 'direct'))
     rows = rows_to_dict(cur)
@@ -2858,7 +3055,7 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
     """整欄刪掉後依序重寫，避免 UNIQUE(zone,column,slot_type,slot_number) 位移衝突。"""
     cur.execute(sql("""
         DELETE FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
     """), (zone, column_index, 'direct'))
     cleaned = []
     for row in slots:
@@ -2879,45 +3076,6 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
         """), (zone, column_index, 'direct', idx, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
 
 
-def warehouse_normalize_slot_grid(conn=None, cur=None, zone_filter=None, column_filter=None):
-    """V79：把倉庫格位收斂成資料庫真實、連續格號。
-
-    用途：
-    - 清掉舊版 HTML 固定 20 格造成的不存在格號。
-    - 把舊資料 gaps / 重複格號 / slot_type front/back 混用整理回 direct。
-    - 每欄至少 1 格，但不再強制補回 20 格，讓新增 / 刪除格子永久有效。
-    """
-    own_conn = False
-    if conn is None or cur is None:
-        conn = get_db()
-        cur = conn.cursor()
-        own_conn = True
-    try:
-        zones = [str(zone_filter or '').strip().upper()] if zone_filter else ['A', 'B']
-        zones = [z for z in zones if z in ('A', 'B')] or ['A', 'B']
-        cols = [int(column_filter)] if column_filter else list(range(1, 7))
-        for z in zones:
-            for c in cols:
-                if c < 1 or c > 6:
-                    continue
-                slots = _warehouse_column_slots(cur, z, c, 'direct')
-                # 至少保留一格，但不固定 20 格。
-                if not slots:
-                    slots = [{'items_json': '[]', 'note': '', 'updated_at': now()}]
-                _warehouse_rewrite_column_slots(cur, z, c, slots)
-        if own_conn:
-            conn.commit()
-    except Exception:
-        if own_conn:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        raise
-    finally:
-        if own_conn:
-            conn.close()
-
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
     """新增格子。
 
@@ -2933,7 +3091,6 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        warehouse_normalize_slot_grid(conn, cur, zone_filter=zone, column_filter=column_index)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if insert_after is None or insert_after == '':
@@ -2970,17 +3127,12 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        warehouse_normalize_slot_grid(conn, cur, zone_filter=zone, column_filter=column_index)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:
             return {'success': False, 'error': '每欄至少要保留 1 格'}
-        if slot_number < 1:
-            return {'success': False, 'error': '格位參數錯誤'}
-        if slot_number > max_slot:
-            # V79：舊版 HTML/快取可能留下 DB 已不存在的假格；刪除這種格子視為成功並回傳最新 cells，避免紅色失敗提示。
-            conn.commit()
-            return {'success': True, 'removed_slot': slot_number, 'already_absent': True}
+        if slot_number < 1 or slot_number > max_slot:
+            return {'success': False, 'error': '格號超出範圍'}
         target = slots[slot_number - 1]
         try:
             items = json.loads(target.get('items_json') or '[]')
@@ -3022,7 +3174,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
             zone, column_index, slot_type, slot_number = _norm(key)
             cur.execute(sql("""
                 SELECT * FROM warehouse_cells
-                WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
         from_norm = _norm(from_key)
@@ -3080,8 +3232,8 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
         normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
         conn.commit(); return {'success': True}
     except Exception as e:
         conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
@@ -3899,4 +4051,4 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 # V45_REAL_MAINFILE_REPAIR_DB_MARKER: migrations in init_db already ensure PostgreSQL/SQLite columns and warehouse unique index.
 
 
-# V79_REAL_WAREHOUSE_SLOT_AND_ORDER_MASTER_BUTTON_FIX: warehouse add/delete slot uses actual DB slots; app.py guards side effects; front-end no longer displays fake DOM-only slots.
+# V80_REAL_WAREHOUSE_DATA_RESCUE_BATCH_EDIT_FIX: one-time warehouse 20-slot rescue, safe dedupe, no data wipe, slot add/delete linked to DB.

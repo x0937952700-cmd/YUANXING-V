@@ -587,32 +587,29 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx22-preview-table th,.yx22-preview-table td{padding:8px!important;background:rgba(255,255,255,.82)!important;border-bottom:1px solid rgba(120,80,40,.08)!important;}
 /* ===== END V45 REAL MAINFILE REPAIR LOCK ===== */
 
-/* ===== V79: 訂單/總單主動作按鈕固定在清單表頭，不再被舊版隱藏規則蓋掉 ===== */
-#orders-list-section .yx128-summary-controls,
-#master-list-section .yx128-summary-controls,
-#yx113-orders-summary .yx128-summary-controls,
-#yx113-master_order-summary .yx128-summary-controls{
+/* ===== V80 SUMMARY ACTION BUTTON LOCK: 訂單/總單/庫存批量按鈕固定在清單表頭，不再被 V44 隱藏 ===== */
+.module-screen .yx128-summary-head .yx128-summary-controls,
+html[data-yx132-products="locked"] .module-screen .yx128-summary-head .yx128-summary-controls{
   display:flex!important;
   align-items:center!important;
-  justify-content:center!important;
+  justify-content:flex-end!important;
   flex-wrap:wrap!important;
   gap:8px!important;
   margin-left:auto!important;
   margin-top:0!important;
 }
-#orders-list-section .yx113-summary-head,
-#master-list-section .yx113-summary-head,
-#yx113-orders-summary .yx113-summary-head,
-#yx113-master_order-summary .yx113-summary-head{
-  display:flex!important;
-  align-items:center!important;
-  justify-content:space-between!important;
-  gap:12px!important;
-  flex-wrap:wrap!important;
+.module-screen .yx128-summary-head .yx128-summary-controls .ghost-btn{
+  min-height:36px!important;
+  padding:0 14px!important;
+  border-radius:999px!important;
+  font-weight:950!important;
 }
-.yx-warehouse-loading-slot{
-  margin:8px!important;
-  text-align:center!important;
-  font-weight:900!important;
-  color:#64748b!important;
+.module-screen .yx128-summary-head .yx128-summary-controls .danger-btn{
+  color:#dc2626!important;
+  border-color:rgba(220,38,38,.42)!important;
+  background:linear-gradient(180deg,#fff,#fff7ed)!important;
+}
+@media(max-width:760px){
+  .module-screen .yx128-summary-head .yx128-summary-controls{width:100%!important;justify-content:flex-start!important;margin-left:0!important;}
+  .module-screen .yx128-summary-head .yx128-summary-controls .ghost-btn{flex:1 1 auto!important;}
 }

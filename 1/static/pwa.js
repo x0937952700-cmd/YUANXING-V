@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'full-master-v79_warehouse_slot_add_delete_gapless_buttons_fixed';
+  const PWA_VERSION = 'full-master-v80_warehouse_data_rescue_batch_edit_fixed';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -18,7 +18,7 @@
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      window.__YX_PWA_VERSION__='full-master-v79_warehouse_slot_add_delete_gapless_buttons_fixed';
+      window.__YX_PWA_VERSION__='full-master-v80_warehouse_data_rescue_batch_edit_fixed';
       try { caches?.keys?.().then(keys=>Promise.all(keys.filter(k=>String(k).startsWith('yuanxing-')).map(k=>caches.delete(k)))); } catch(_){}
       navigator.serviceWorker.getRegistrations?.().then(regs=>{
         regs.forEach(r=>{ try{ (r.active||r.waiting||r.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); }catch(_){} });
@@ -35,7 +35,7 @@
 })();
 
 
-/* ===== V79 global page undo: every page can pick one of latest 10 actions ===== */
+/* ===== V78 global page undo: every page can pick one of latest 10 actions ===== */
 (function(){
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
   async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const t=await res.text();let d={};try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}

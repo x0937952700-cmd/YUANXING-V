@@ -1515,10 +1515,8 @@ def api_warehouse_cell():
         existing_cells = warehouse_get_cells()
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
         if not previous_cell:
-            same_col = [c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index]
-            max_slot = max([int(c.get('slot_number') or 0) for c in same_col] or [0])
-            if max_slot and slot_number > max_slot + 1:
-                return error_response("格位不存在，請先在格子內點「插入格子」")
+            # V80：HTML 會預先顯示 20 格；若舊資料庫缺格，直接允許儲存時建立該格，避免跳「格位不存在」。
+            previous_cell = {}
         items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
         if not ok:
@@ -2135,7 +2133,7 @@ def api_warehouse_add_slot():
         if insert_after is None and data.get("slot_number") not in (None, ""):
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
-        # V79：格子已寫入 DB 後，紀錄 / 通知不能反過來讓新增判定失敗。
+        # V80：格子已寫入 DB 後，紀錄 / 通知不能反過來讓新增判定失敗。
         yx_v35_safe_side_effect('warehouse_add_slot_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_add_slot_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         yx_v35_safe_side_effect('warehouse_add_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
@@ -2158,7 +2156,7 @@ def api_warehouse_remove_slot():
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
-        # V79：格子已從 DB 刪除後，紀錄 / 通知不能反過來讓刪除判定失敗。
+        # V80：格子已從 DB 刪除後，紀錄 / 通知不能反過來讓刪除判定失敗。
         yx_v35_safe_side_effect('warehouse_remove_slot_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_remove_slot_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         yx_v35_safe_side_effect('warehouse_remove_slot_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
