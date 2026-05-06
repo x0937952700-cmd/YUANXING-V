@@ -2395,3 +2395,71 @@
   setInterval(ensure, 600);
 })();
 /* ===== END V73 ORDER/MASTER TOP BUTTON HARDLOCK ===== */
+
+/* ===== V75 PRODUCT TOOLBAR + SUMMARY BUTTON HARDLOCK =====
+   目的：訂單清單 / 總單清單按鈕完全不再被舊 renderer 吃掉。
+   - 工具列照庫存清單：搜尋、全部區、A區、B區、批量增加材質、套用材質、批量刪除、批量編輯全部。
+   - 清單標題列固定補回批量動作：移到A/B；訂單另有加到總單。
+*/
+(function(){
+  'use strict';
+  if (window.__YX_V75_PRODUCT_BUTTON_HARDLOCK__) return;
+  window.__YX_V75_PRODUCT_BUTTON_HARDLOCK__ = true;
+  function src(){
+    var m=(document.body&&document.body.dataset&&document.body.dataset.module||'').trim();
+    return m==='orders'?'orders':(m==='master_order'?'master_order':'');
+  }
+  function materialOptions(){return '<option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option>';}
+  function btn(label, attrs, danger){ return '<button class="ghost-btn small-btn '+(danger?'danger-btn':'')+'" type="button" '+attrs+'>'+label+'</button>'; }
+  function toolbarHTML(s){
+    return '<input id="yx113-'+s+'-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區">'
+      + btn('全部區','data-yx132-zone-filter="ALL" data-source="'+s+'"',false)
+      + btn('A區','data-yx132-zone-filter="A" data-source="'+s+'"',false)
+      + btn('B區','data-yx132-zone-filter="B" data-source="'+s+'"',false)
+      + '<select id="yx113-'+s+'-material" class="text-input small">'+materialOptions()+'</select>'
+      + btn('套用材質','data-yx113-batch-material="'+s+'" data-source="'+s+'"',false)
+      + btn('批量刪除','data-yx113-batch-delete="'+s+'" data-source="'+s+'"',true)
+      + btn('批量編輯全部','data-yx128-edit-all="'+s+'" data-source="'+s+'"',false);
+  }
+  function summaryHTML(s){
+    return btn('移到A區','data-yx132-batch-zone="A" data-source="'+s+'"',false)
+      + btn('移到B區','data-yx132-batch-zone="B" data-source="'+s+'"',false)
+      + (s==='orders' ? btn('加到總單','data-yx132-batch-transfer="master_order" data-source="orders"',false) : '')
+      + btn('批量刪除','data-yx113-batch-delete="'+s+'" data-source="'+s+'"',true)
+      + btn('批量編輯全部','data-yx128-edit-all="'+s+'" data-source="'+s+'"',false);
+  }
+  function ensureToolbar(s){
+    var toolbar=document.getElementById('yx113-'+s+'-toolbar');
+    if(!toolbar) return;
+    var box=toolbar.querySelector('.yx114-batch-actions,.yx-direct-batch-actions,.yx-html-one-row-actions');
+    if(!box){ box=document.createElement('div'); box.className='yx114-batch-actions yx-direct-batch-actions yx-html-one-row-actions yx-v75-product-toolbar'; toolbar.appendChild(box); }
+    box.classList.add('yx-v75-product-toolbar');
+    var h=toolbarHTML(s);
+    if(box.dataset.v75ToolbarHtml!==h){ box.dataset.v75ToolbarHtml=h; box.innerHTML=h; }
+    box.style.display='flex'; box.style.visibility='visible'; box.hidden=false;
+    var all=box.querySelector('[data-yx132-zone-filter="ALL"]'); if(all) all.classList.add('is-active','yx132-zone-filter');
+    box.querySelectorAll('[data-yx132-zone-filter]').forEach(function(b){b.classList.add('yx132-zone-filter');});
+  }
+  function ensureSummaryControls(s){
+    var summary=document.getElementById('yx113-'+s+'-summary'); if(!summary) return;
+    var head=summary.querySelector('.yx113-summary-head,.yx128-summary-head');
+    if(!head){ head=document.createElement('div'); head.className='yx113-summary-head yx128-summary-head'; summary.insertBefore(head, summary.firstChild); }
+    var controls=head.querySelector('.yx128-summary-controls.yx-v75-order-master-actions');
+    if(!controls){
+      controls=head.querySelector('.yx128-summary-controls');
+      if(!controls){ controls=document.createElement('div'); controls.className='yx128-summary-controls yx-v75-order-master-actions'; head.appendChild(controls); }
+      controls.classList.add('yx-v75-order-master-actions');
+    }
+    var h=summaryHTML(s);
+    if(controls.dataset.v75SummaryHtml!==h){ controls.dataset.v75SummaryHtml=h; controls.innerHTML=h; }
+    controls.style.display='flex'; controls.style.visibility='visible'; controls.hidden=false;
+  }
+  function ensure(){ var s=src(); if(!s) return; ensureToolbar(s); ensureSummaryControls(s); }
+  document.addEventListener('DOMContentLoaded', ensure);
+  document.addEventListener('click', function(){ setTimeout(ensure,0); setTimeout(ensure,80); }, true);
+  document.addEventListener('input', function(){ setTimeout(ensure,80); }, true);
+  var mo=new MutationObserver(function(){ if(window.__YX_V75_BUTTON_BUSY__) return; window.__YX_V75_BUTTON_BUSY__=true; setTimeout(function(){ window.__YX_V75_BUTTON_BUSY__=false; ensure(); },80); });
+  document.addEventListener('DOMContentLoaded', function(){ try{ mo.observe(document.body,{childList:true,subtree:true}); }catch(e){} ensure(); });
+  setInterval(ensure,800);
+})();
+/* ===== END V75 PRODUCT TOOLBAR + SUMMARY BUTTON HARDLOCK ===== */

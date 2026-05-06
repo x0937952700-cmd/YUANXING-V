@@ -913,3 +913,9 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
   min-height:42px!important;
 }
 .yx-v73-required-btn{display:inline-flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;}
+
+/* V75：訂單/總單按鈕與倉庫批量刪格強制顯示 */
+.yx-v75-product-toolbar,
+.yx-v75-order-master-actions{display:flex!important;visibility:visible!important;opacity:1!important;}
+#yx121-batch-delete-slots{display:inline-flex!important;visibility:visible!important;}
+#warehouse-root .yx75-slot-delete-selected{outline:3px solid #ef4444!important;}

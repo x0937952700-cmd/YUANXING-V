@@ -1,3 +1,4 @@
+# V76 warehouse add/edit stable overlay verified.
 # V65: existing init_db migration remains Render releaseCommand source of truth.
 # V31 edit-safe/month-left/font lock: PostgreSQL/SQLite migration helpers retained; month_tag column auto補欄位 kept.
 

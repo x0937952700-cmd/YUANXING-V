@@ -5450,3 +5450,35 @@ body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:
 .yx-recorded-hit span{color:#066;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .yx-recorded-hit b{color:#06f;font-weight:800;}
 @media(max-width:720px){.yx-recorded-hit{grid-template-columns:1fr;gap:3px;font-size:15px}.yx-recorded-hit strong{text-align:left}.yx-recorded-hit span{white-space:normal}}
+
+/* ===== V75 warehouse batch-slot delete + product button hardlock ===== */
+.yx-v75-product-toolbar,
+.yx-v75-order-master-actions{
+  display:flex !important;
+  align-items:center !important;
+  gap:10px !important;
+  flex-wrap:wrap !important;
+  visibility:visible !important;
+}
+.yx75-batch-delete-slots-mode #warehouse-root .vertical-slot,
+.yx75-batch-delete-slots-mode #warehouse-root .yx108-slot{
+  cursor:cell;
+  outline:1px dashed rgba(220,38,38,.35);
+}
+#warehouse-root .yx75-slot-delete-selected{
+  box-shadow:0 0 0 4px rgba(239,68,68,.45), 0 8px 20px rgba(239,68,68,.25) !important;
+  border-color:#ef4444 !important;
+  transform:scale(.98);
+}
+#yx121-batch-delete-slots.is-active{
+  background:#fff1f2 !important;
+  color:#be123c !important;
+  border-color:#ef4444 !important;
+  font-weight:900 !important;
+}
+@media (max-width: 700px){
+  .yx-v75-product-toolbar .text-input.small,
+  .yx-v75-product-toolbar select.text-input.small{ min-width: 140px; flex:1 1 140px; }
+  .yx-v75-product-toolbar .ghost-btn.small-btn{ min-height:38px; font-size:14px; }
+}
+/* ===== END V75 ===== */

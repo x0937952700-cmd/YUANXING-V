@@ -1,3 +1,4 @@
+# V76 warehouse add/edit stable overlay verified.
 # V65 startup entry verified.
 # V59 Render entrypoint retained; DB init is still handled by app startup/releaseCommand.
 # V58 full warehouse/ship/product repair: keep existing app entrypoint, no page/event logic changes.
