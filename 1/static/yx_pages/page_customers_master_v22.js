@@ -1,5 +1,5 @@
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display stable rule: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -123,17 +123,17 @@
   window.YX30CompareRows = compareRows;
   window.YX30SortRows = rows => Array.isArray(rows) ? [...rows].sort(compareRows) : [];
 })();
-/* ===== END V30 quantity/month/support display lock ===== */
+/* ===== END V30 quantity/month/support display stable rule ===== */
 
 /* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_customers_master_v22 */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_customers_master_v22'; })();
 
-/* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
-/* 沅興木業 FIX118 core hard-lock registry
+/* ===== V2 MERGED FROM static/yx_modules/core_main.js ===== */
+/* 沅興木業 FIX118 core main registry registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix142-speed-ship-master-hardlock') return;
+  if (window.YXCore && window.YXCore.version === 'v93-main-core') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -176,44 +176,35 @@
     }
     return data;
   }
-  function hardAssign(name, value, opts={}){
-    // FIX135：硬鎖要可重複安裝。若同名屬性已是 non-configurable，
-    // 直接尊重既有母版，不再 fallback 指派，避免 readonly / __yx113HardLock 紅色錯誤。
+  function safeExpose(name, value, opts={}){
+    // V95 safeAssign：只建立可覆寫的單一主檔入口，不做 non-configurable 鎖死。
     try {
-      const desc = Object.getOwnPropertyDescriptor(window, name);
-      if (desc && desc.configurable === false) {
-        try {
-          const current = ('value' in desc) ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined);
-          if (current && current.__yx113HardLock) return current;
-        } catch(_e0) {}
-        return ('value' in desc) ? desc.value : value;
+      const current = Object.getOwnPropertyDescriptor(window, name);
+      if (current && current.configurable === false) {
+        // 尊重既有瀏覽器狀態，但不再新增鎖死屬性，避免舊版互相覆蓋或拋錯。
+        return ('value' in current) ? current.value : value;
       }
       Object.defineProperty(window, name, {
-        configurable: opts.configurable !== false,
-        enumerable: false,
-        get(){ return value; },
-        set(v){
-          if (opts.allowReplace && typeof v === 'function' && v.__yx113HardLock) value = v;
-        }
+        configurable: true, enumerable: false, writable: true, value
       });
     } catch(_e) {
-      // 不做 window[name] = value；舊版唯讀 getter/setter 會在這裡噴錯。
+      try { window[name] = value; } catch(_e2) {}
     }
     return value;
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
       try {
-        if (Object.prototype.hasOwnProperty.call(fn, '__yx113HardLock')) return fn;
-        Object.defineProperty(fn, '__yx113HardLock', {value:name || true, configurable:false, enumerable:false, writable:false});
+        if (Object.prototype.hasOwnProperty.call(fn, '__yx113CoreFn')) return fn;
+        Object.defineProperty(fn, '__yx113CoreFn', {value:name || true, configurable:true, enumerable:false, writable:true});
       } catch(_e) {
-        // 不直接指派唯讀屬性，避免 product_source_bridge 重複硬鎖時中斷。
+        // 不直接指派唯讀屬性，避免 product_source_bridge 重複主檔固定時中斷。
       }
     }
     return fn;
   }
   function cancelLegacyTimers(scope){
-    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入硬鎖時清掉，避免舊版延遲重畫。
+    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入主檔固定時清掉，避免舊版延遲重畫。
     try {
       const nativeClear = window.__YX96_NATIVE_CLEAR_TIMEOUT__ || window.clearTimeout;
       if (window.__YX96_TIMEOUTS__) {
@@ -237,18 +228,18 @@
       try { install(name, opts); } catch(e) { toast(`${name} 安裝失敗：${e.message || e}`, 'error'); }
     });
   }
-  window.YXHardLock = {
-    version: 'fix142-speed-ship-master-hardlock',
+  window.YXCore = {
+    version: 'v93-main-core',
     register, install, installAll, registry, installed,
-    clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
+    clean, esc, api, toast, moduleKey, safeExpose, mark, cancelLegacyTimers,
   };
   document.documentElement.dataset.yx113Core = 'on';
 })();
 
-/* ===== END static/yx_modules/core_hardlock.js ===== */
+/* ===== END static/yx_modules/core_main.js ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/quantity_rule_hardlock.js ===== */
-/* FIX126 數量規則硬鎖：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
+/* ===== V2 MERGED FROM static/yx_modules/quantity_rule_main.js ===== */
+/* FIX126 數量規則主檔固定：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
 (function(){
   'use strict';
   function clean(v){ return String(v == null ? '' : v).trim(); }
@@ -261,25 +252,25 @@
   window.calcTotalQty = qty;
 })();
 
-/* ===== END static/yx_modules/quantity_rule_hardlock.js ===== */
+/* ===== END static/yx_modules/quantity_rule_main.js ===== */
 
-/* ===== V5 STATIC VISUAL LOCK (replaces ornate_label_hardlock live observer) ===== */
+/* ===== V5 STATIC VISUAL BASELINE (replaces ornate_label_main live observer) ===== */
 (function(){
   'use strict';
-  document.documentElement.dataset.yx124OrnateLabel = 'locked';
-  document.documentElement.dataset.yx124MasterLabel = 'locked';
-  document.documentElement.dataset.yx127GrayRingEqualHome = 'locked';
+  document.documentElement.dataset.yx124OrnateLabel = 'main';
+  document.documentElement.dataset.yx124MasterLabel = 'main';
+  document.documentElement.dataset.yx127GrayRingEqualHome = 'main';
   document.documentElement.classList.add('yx124-ornate-scope');
-  window.YX124OrnateLabel = Object.freeze({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
+  window.YX124OrnateLabel = ({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
 })();
-/* ===== END V5 STATIC VISUAL LOCK ===== */
+/* ===== END V5 STATIC VISUAL BASELINE ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/product_sort_hardlock.js ===== */
-/* FIX118 商品排序母版硬鎖：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
+/* ===== V2 MERGED FROM static/yx_modules/product_sort_main.js ===== */
+/* FIX118 商品排序母版主檔固定：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
    排序規則：材質 → 高 → 寬 → 長 由小到大；同商品再依 件數 → 支數 由大到小。 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
 
   function clean(v){ return String(v ?? '').replace(/[\u3000\s]+/g, ' ').trim(); }
@@ -359,20 +350,20 @@
   }
   function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
   function install(){
-    document.documentElement.dataset.yx118ProductSort = 'locked';
+    document.documentElement.dataset.yx118ProductSort = 'main';
     window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
   }
   YX.register('product_sort', {install, compareRows, sortRows});
   install();
 })();
 
-/* ===== END static/yx_modules/product_sort_hardlock.js ===== */
+/* ===== END static/yx_modules/product_sort_main.js ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/customer_regions_hardlock.js ===== */
-/* FIX120 北中南客戶母版硬鎖：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
+/* ===== V2 MERGED FROM static/yx_modules/customer_regions_main.js ===== */
+/* FIX120 北中南客戶母版主檔固定：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
   const $ = id => document.getElementById(id);
   const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0, itemCache:new Map()};
@@ -505,7 +496,7 @@
         window.YX113ProductActions.renderSummary?.(source);
         window.YX113ProductActions.renderCards?.(source);
         const target = document.getElementById(source === 'orders' ? 'orders-list-section' : 'master-list-section');
-        target?.scrollIntoView?.({behavior:'smooth', block:'start'});
+        target?.scrollIntoView?.({behavior:'smooth', bstable:'start'});
       }
     } catch(_e) {}
     const m = moduleKey();
@@ -513,18 +504,18 @@
       try { await window.fillCustomerForm(name); } catch(_e) {}
       return;
     }
-    // 出貨頁專用分工：北中南客戶只負責選客戶，不再渲染 selected-customer-items，避免和 ship_single_lock.js 同時打 /api/customer-items。
+    // 出貨頁專用分工：北中南客戶只負責選客戶，不再渲染 selected-customer-items，避免和 ship_single_main.js 同時打 /api/customer-items。
     if (m === 'ship') {
       try {
         if (window.YX116ShipPicker) {
           window.YX116ShipPicker.load(name).catch(()=>{});
-          document.getElementById('ship-customer-picker')?.scrollIntoView?.({behavior:'smooth', block:'start'});
+          document.getElementById('ship-customer-picker')?.scrollIntoView?.({behavior:'smooth', bstable:'start'});
         }
       } catch(_e) {}
       return;
     }
     // FIX120/121：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
-    // 商品清單統一交給 product_actions_hardlock 母版與 selected-customer panel 刷新。
+    // 商品清單統一交給 product_actions_main 母版與 selected-customer panel 刷新。
     renderSelectedCustomerPanel(name).catch(()=>{});
     try {
       const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
@@ -735,13 +726,13 @@
       await selectCustomer(name);
     }, true);
   }
-  function lockGlobals(){
+  function publishGlobals(){
     if (!state.oldSelect && typeof window.selectCustomerForModule === 'function') state.oldSelect = window.selectCustomerForModule;
     const selectFn = YX.mark(selectCustomer, 'customer_select');
     window.selectCustomerForModule = selectFn;
     const loadFn = YX.mark(loadCustomerBlocks, 'customer_blocks');
-    try { YX.hardAssign('loadCustomerBlocks', loadFn, {configurable:false}); } catch(_e) { window.loadCustomerBlocks = loadFn; }
-    try { YX.hardAssign('renderCustomers', loadFn, {configurable:false}); } catch(_e) { window.renderCustomers = loadFn; }
+    try { YX.safeExpose('loadCustomerBlocks', loadFn, {configurable:true}); } catch(_e) { window.loadCustomerBlocks = loadFn; }
+    try { YX.safeExpose('renderCustomers', loadFn, {configurable:true}); } catch(_e) { window.renderCustomers = loadFn; }
     window.YX113CustomerRegions = {loadCustomerBlocks, renderBoards, selectCustomer};
     window.YX114CustomerRegions = window.YX113CustomerRegions;
     window.YX115CustomerRegions = window.YX113CustomerRegions;
@@ -750,19 +741,19 @@
   }
   function install(){
     if (!isRegionPage()) return;
-    document.documentElement.dataset.yx113Customers = 'locked';
-    document.documentElement.dataset.yx114Customers = 'locked';
-    document.documentElement.dataset.yx115Customers = 'locked';
-    document.documentElement.dataset.yx116Customers = 'locked';
-    document.documentElement.dataset.yx117Customers = 'locked';
-    bindEvents(); lockGlobals();
+    document.documentElement.dataset.yx113Customers = 'main';
+    document.documentElement.dataset.yx114Customers = 'main';
+    document.documentElement.dataset.yx115Customers = 'main';
+    document.documentElement.dataset.yx116Customers = 'main';
+    document.documentElement.dataset.yx117Customers = 'main';
+    bindEvents(); publishGlobals();
     if (!state.productLoadedBound) { state.productLoadedBound = true; window.addEventListener('yx:product-source-loaded', () => { try { renderFromCurrentRows(); } catch(_e) {} }); }
     loadCustomerBlocks(true);
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();
 
-/* ===== END static/yx_modules/customer_regions_hardlock.js ===== */
+/* ===== END static/yx_modules/customer_regions_main.js ===== */
 
 /* ===== V2 MERGED FROM static/yx_pages/page_customers_master.js ===== */
 /* 沅興木業 v17 customers master：補齊客戶資料頁 inline 按鈕，避免舊 app.js 缺失。 */
@@ -773,7 +764,7 @@
   const $ = id => document.getElementById(id);
   const clean = v => String(v == null ? '' : v).replace(/\s+/g,' ').trim();
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const toast = (m,k='ok') => { try { (window.YXHardLock?.toast || window.alert)(m,k); } catch(_){ alert(m); } };
+  const toast = (m,k='ok') => { try { (window.YXCore?.toast || window.alert)(m,k); } catch(_){ alert(m); } };
   async function api(url,opt={}){
     const res = await fetch(`${url}${url.includes('?')?'&':'?'}_=${Date.now()}`, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
     const text = await res.text(); let data={}; try{data=text?JSON.parse(text):{};}catch{data={success:false,error:text};}
@@ -852,39 +843,27 @@
 /* ===== END static/yx_pages/page_customers_master.js ===== */
 
 /* ===== V2 MERGED FROM static/yx_pages/page_bootstrap_master.js ===== */
-/* v18 EXACT HTML_DIRECT_MASTER_LOCK
+/* v18 EXACT HTML_DIRECT_MAIN_BASELINE
    只保留一套 HTML 結構；這支 JS 只負責安裝資料處理模組，不再重建頁面外殼。 */
 (function(){
   'use strict';
-  if (window.__YX_HTML_DIRECT_MASTER_LOCK__) return;
-  window.__YX_HTML_DIRECT_MASTER_LOCK__ = true;
-  const YX = window.YXHardLock;
+  if (window.__YX_HTML_DIRECT_MASTER_MAIN__) return;
+  window.__YX_HTML_DIRECT_MASTER_MAIN__ = true;
+  const YX = window.YXCore;
   const moduleKey = () => {
     try { return YX && YX.moduleKey ? YX.moduleKey() : ''; } catch(_e) { return ''; }
   };
   function safeInstall(name){
-    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name, {force:true}); }
+    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name); }
     catch(e){ try { (YX.toast || console.warn)(`${name} 載入失敗：${e.message || e}`, 'error'); } catch(_e){} }
     return null;
   }
   function stopLegacyLayoutNames(){
-    const noop = function(){ return undefined; };
-    [
-      'renderLegacyHome','renderOldHome','renderWarehouseLegacyA','renderWarehouseLegacyB',
-      'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102',
-      'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96',
-      'mountLegacyUI','masterRender','renderFix135','renderFix138','renderFix140'
-    ].forEach(name => {
-      try {
-        const current = window[name];
-        if (typeof current === 'function' && !current.__yxHtmlDirectAllowed) {
-          Object.defineProperty(window, name, {value: noop, writable:false, configurable:false});
-        }
-      } catch(_e) {}
-    });
+    // V104: old renderer files are not loaded by templates; keep this empty to avoid multiple renderer aliases.
+    return undefined;
   }
   function protectStaticShell(){
-    document.documentElement.dataset.yxHtmlDirectMaster = 'locked';
+    document.documentElement.dataset.yxHtmlDirectMaster = 'main';
     document.querySelectorAll('[data-html-direct-shell]').forEach(el => {
       el.dataset.htmlDirectLocked = '1';
     });
@@ -912,7 +891,7 @@
     if (m === 'ship') safeInstall('ship_text_validate');
     protectStaticShell();
   }
-  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'v20-true-clean-master-no-pageshow', install});
+  window.YX_HTML_DIRECT_MASTER = ({version:'v111-mainfile-single-install', install});
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
   // no pageshow reinstall: avoid settings -> home lag
@@ -934,7 +913,7 @@
       return (!raw || raw === txt || raw.includes('=')) ? '未填材質' : raw;
     }
   };
-  document.documentElement.dataset.yx30QtyParenMonthSort = 'locked';
+  document.documentElement.dataset.yx30QtyParenMonthSort = 'main';
 })();
 /* ===== END V30 final product sort override ===== */
 

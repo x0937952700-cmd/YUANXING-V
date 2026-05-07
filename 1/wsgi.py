@@ -1,5 +1,5 @@
-"""Render/Gunicorn entrypoint for 沅興木業.
-Fast import: app.py no longer runs heavy DB migration before binding PORT.
+"""Render/Gunicorn entrypoint for 沅興木業 V111.
+Fast import: app.py does not run heavy DB migration before binding PORT.
 """
 from app import app
 

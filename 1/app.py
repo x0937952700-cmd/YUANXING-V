@@ -1,6 +1,4 @@
-# V65: frontend batch-edit/warehouse-speed fix uses existing API routes.
-# V59 mainfile event/db/ui lock
-# V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
+# V111 mainfile stability: cache-safe, fast startup, stable system mainfile.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -34,6 +32,8 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
 app = Flask(__name__)
+APP_VERSION = "V111"
+STATIC_VERSION = "V111"
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -72,20 +72,29 @@ def run_startup_self_check():
             pass
     return checks
 
-# V90 Render fast-start: do not run heavy DB migration while Gunicorn is importing app.
+# V95 Render fast-start: do not run heavy DB migration while Gunicorn is importing app.
 # Render must see the HTTP port quickly; migrations run in releaseCommand and lazily before real pages/API.
 STARTUP_DB_ERROR = ''
 STARTUP_CHECKS = {'uploads': True, 'todo_uploads': True, 'backups': True, 'todos': True, 'deferred_db_init': True}
 _RUNTIME_INIT_DONE = False
 _RUNTIME_INIT_LOCK = threading.Lock()
+_RUNTIME_INIT_LAST_TRY = 0.0
+_RUNTIME_INIT_RETRY_SECONDS = 30
 
 def ensure_runtime_initialized():
-    global STARTUP_DB_ERROR, STARTUP_CHECKS, _RUNTIME_INIT_DONE
+    global STARTUP_DB_ERROR, STARTUP_CHECKS, _RUNTIME_INIT_DONE, _RUNTIME_INIT_LAST_TRY
     if _RUNTIME_INIT_DONE:
         return True
+    current = time.time()
+    if STARTUP_DB_ERROR and (current - float(_RUNTIME_INIT_LAST_TRY or 0)) < _RUNTIME_INIT_RETRY_SECONDS:
+        return False
     with _RUNTIME_INIT_LOCK:
         if _RUNTIME_INIT_DONE:
             return True
+        current = time.time()
+        if STARTUP_DB_ERROR and (current - float(_RUNTIME_INIT_LAST_TRY or 0)) < _RUNTIME_INIT_RETRY_SECONDS:
+            return False
+        _RUNTIME_INIT_LAST_TRY = current
         try:
             init_db()
             STARTUP_CHECKS = run_startup_self_check()
@@ -95,8 +104,35 @@ def ensure_runtime_initialized():
             return True
         except Exception as e:
             STARTUP_DB_ERROR = str(e)
-            print('[V90] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+            print('[V111] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
             return False
+
+
+_RUNTIME_INIT_STARTED = False
+
+def kick_runtime_init_background():
+    """V92: pages must open immediately. Start DB migration in background once; API calls still guard with ensure_runtime_initialized()."""
+    global _RUNTIME_INIT_STARTED
+    if _RUNTIME_INIT_DONE or _RUNTIME_INIT_STARTED:
+        return
+    with _RUNTIME_INIT_LOCK:
+        if _RUNTIME_INIT_DONE or _RUNTIME_INIT_STARTED:
+            return
+        _RUNTIME_INIT_STARTED = True
+    def _runner():
+        global _RUNTIME_INIT_STARTED
+        try:
+            ensure_runtime_initialized()
+        finally:
+            # keep started=true after success/failure to avoid spawning a thread per page refresh
+            pass
+    try:
+        threading.Thread(target=_runner, name='yx-runtime-init', daemon=True).start()
+    except Exception as e:
+        try:
+            print('[V111] background init start failed:', e, flush=True)
+        except Exception:
+            pass
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
@@ -299,19 +335,28 @@ def login_required_json(f):
 
 @app.after_request
 def add_cache_headers(response):
-    # V23：HTML / API 永遠 no-store；靜態檔使用版本 query string 長快取。
-    # 這樣重新整理會直接向 DB 抓最新資料，但 JS/CSS 不會每頁重下載造成卡頓。
+    # V111：HTML / API 永遠 no-store；靜態檔使用版本 query string 長快取。
+    # 頁面資料直接向 DB/API 抓最新狀態，JS/CSS 依 ?v=V111 控制更新，避免舊快取干擾。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
-    if path == '/sw.js' or path.endswith('service-worker.js'):
+    response.headers['X-Yuanxing-Version'] = APP_VERSION
+    response.headers['X-Yuanxing-Mainfile'] = 'V111-mainfile-stable'
+    if path == '/sw.js' or path.endswith('service-worker.js') or path.endswith('manifest.webmanifest'):
         response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
     if path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'  # V43 no stale static cache
-        response.headers.pop('Pragma', None)
-        response.headers.pop('Expires', None)
+        # V111: only files requested with ?v=V111 are immutable.
+        # If a browser asks an old/unversioned static URL, force revalidation so stale JS/CSS cannot keep old event bindings.
+        if request.args.get('v') == STATIC_VERSION:
+            response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            response.headers.pop('Pragma', None)
+            response.headers.pop('Expires', None)
+        else:
+            response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
         return response
     response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
@@ -320,23 +365,25 @@ def add_cache_headers(response):
 
 @app.before_request
 def protect_pages():
-    path = request.path
-    if path not in ('/health', '/api/health') and not path.startswith('/static/'):
-        ensure_runtime_initialized()
-    # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
-    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
-    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
-        ensure_daily_backup()
-    if path.startswith("/static/") or path in ("/health",):
-        return None
+    path = request.path or ''
     public = [
         "/login", "/api/login", "/api/health", "/api/db-diagnostics", "/api/native-shell/config",
         "/sw.js", "/manifest.webmanifest"
     ]
-    if path in public:
+    if path.startswith("/static/") or path in ("/health",) or path in public:
         return None
+
+    # V111: 頁面 GET 與一般查詢 API 不同步跑重 migration，避免一開頁/切頁變慢。
+    # Render preDeployCommand 會先跑 init_db；真正會寫入資料的 POST/PUT/PATCH/DELETE 才在請求前保護 schema。
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') or request.args.get('force') in ('1', 'true', 'yes'):
+        ensure_runtime_initialized()
+
+    # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
+    # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
+    if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
+        ensure_daily_backup()
+
     if not require_login() and path not in ("/",):
-        # Let / redirect to login
         if path.startswith("/api/"):
             return jsonify(success=False, error="請先登入"), 401
         return redirect(url_for("login_page"))
@@ -348,6 +395,7 @@ def serve_root_service_worker():
     resp = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
     resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["X-Yuanxing-SW"] = "disabled"
     return resp
 
 def allowed_file(filename):
@@ -880,7 +928,15 @@ def login_page():
 @app.route("/settings")
 def settings_page():
     is_admin = current_username() == '陳韋廷'
-    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=(str(get_setting('native_ocr_mode', '1')) == '1'))
+    # V99: Settings page must render immediately like other pages.
+    # Do not block a GET page render on DB initialization; the setting API can refresh later.
+    native_mode = True
+    if _RUNTIME_INIT_DONE:
+        try:
+            native_mode = (str(get_setting('native_ocr_mode', '1')) == '1')
+        except Exception:
+            native_mode = True
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=native_mode)
 
 @app.route("/inventory")
 def inventory_page():
@@ -1849,6 +1905,9 @@ def api_warehouse_cell():
             saved_items = []
         if len(saved_items or []) != len(items or []):
             return error_response("格位寫入後讀回數量不一致，請再儲存一次")
+        saved_cell_payload = dict(saved_after or {})
+        saved_cell_payload['items'] = saved_items
+        saved_cell_payload['items_json'] = json.dumps(saved_items, ensure_ascii=False)
     except Exception as e:
         log_error("warehouse_cell_main_save_v40", str(e))
         return error_response("格位更新失敗")
@@ -1860,7 +1919,7 @@ def api_warehouse_cell():
     yx_v35_safe_side_effect('warehouse_audit', add_audit_trail, current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
     yx_v35_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
     try:
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells(), saved_cell=saved_cell_payload)
     except Exception as e:
         log_error('warehouse_cell_response_v40', str(e))
         return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
@@ -2004,16 +2063,12 @@ def api_warehouse_available_items():
                 # 未分區只留在總統計，不混入 A/B 格子的下拉。
                 details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
-                placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
-                # When user places only part of a support line, e.g. source = 160x30x125=240x29
-                # and cell item = 160x30x125=240x22, exact keys differ. Deduct by base size + customer
-                # only when exact/source_id matching cannot find a placement.
+                # V111: A/B 格位下拉只能扣同一區已放入的數量。
+                # 舊版用全倉 placed_detail / placed_all，會造成 A 區商品被 B 區已入倉數量吃掉，
+                # 下拉選單看起來亂跳或商品消失。這裡改成同區精準扣除，不跨區扣數。
+                placed_qty = int(placed_detail_by_zone.get((exact, customer, source_label, str(source_id), zone_filter), 0) or 0)
                 if placed_qty <= 0 and size_key_for_placed:
-                    placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
-                if placed_qty <= 0 and size_key_for_placed:
-                    placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
-                if placed_qty <= 0:
-                    placed_qty = int(placed_all.get((exact, customer), 0) or 0)
+                    placed_qty = int(placed_size_detail_by_zone.get((size_key_for_placed, customer, source_label, str(source_id), zone_filter), 0) or 0)
             else:
                 details_for_item = details_for_item_all
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
@@ -3888,17 +3943,9 @@ def api_v17_items_batch_transfer():
         return error_response('批量轉入失敗')
 
 
-# V12_NO_STORE_STATIC: deploy must always load the real current HTML/JS/CSS, not old v2/v9 cache.
-@app.after_request
-def yx_v12_no_store_static(resp):
-    try:
-        p = request.path or ''
-        if p.startswith('/static/') or p.endswith('.html'):
-            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-            resp.headers['Pragma'] = 'no-cache'
-            resp.headers['Expires'] = '0'
-    except Exception:
-        pass
+# V111_WAREHOUSE_DROPDOWN_SAFE: the old V12 no-store static after_request is intentionally disabled.
+# Static files are versioned with ?v=V111 and controlled only by add_cache_headers().
+def yx_v12_no_store_static_disabled(resp):
     return resp
 
 
@@ -4063,7 +4110,7 @@ def normalize_warehouse_payload_items(items):
 # ============================================================
 # V87 MAINFILE WAREHOUSE QUANTITY VALIDATION REPAIR
 # Fix: editing/saving the same cell must not count that cell as already placed.
-# No overlay/timer; this replaces the global validator used by /api/warehouse/cell.
+# No extra layer/timer; this replaces the global validator used by /api/warehouse/cell.
 # ============================================================
 def _yx_v87_same_cell(cell, zone, column_index, slot_number):
     try:

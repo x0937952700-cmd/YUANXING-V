@@ -1,5 +1,5 @@
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display stable rule: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -123,7 +123,7 @@
   window.YX30CompareRows = compareRows;
   window.YX30SortRows = rows => Array.isArray(rows) ? [...rows].sort(compareRows) : [];
 })();
-/* ===== END V30 quantity/month/support display lock ===== */
+/* ===== END V30 quantity/month/support display stable rule ===== */
 
 
 /* ===== V57 global product undo bridge: avoid missing old helper breaking batch buttons ===== */
@@ -146,15 +146,15 @@
 })();
 /* ===== END V57 global product undo bridge ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 V68 buttons lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_inventory_master_v22 V68 buttons baseline */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_inventory_master_v22'; })();
 
-/* ===== MERGED INTO V22 FROM static/yx_modules/core_hardlock.js ===== */
-/* 沅興木業 FIX118 core hard-lock registry
+/* ===== MERGED INTO V22 FROM static/yx_modules/core_main.js ===== */
+/* 沅興木業 FIX118 core main registry registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix142-speed-ship-master-hardlock') return;
+  if (window.YXCore && window.YXCore.version === 'v93-main-core') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -197,44 +197,35 @@
     }
     return data;
   }
-  function hardAssign(name, value, opts={}){
-    // FIX135：硬鎖要可重複安裝。若同名屬性已是 non-configurable，
-    // 直接尊重既有母版，不再 fallback 指派，避免 readonly / __yx113HardLock 紅色錯誤。
+  function safeExpose(name, value, opts={}){
+    // V95 safeAssign：只建立可覆寫的單一主檔入口，不做 non-configurable 鎖死。
     try {
-      const desc = Object.getOwnPropertyDescriptor(window, name);
-      if (desc && desc.configurable === false) {
-        try {
-          const current = ('value' in desc) ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined);
-          if (current && current.__yx113HardLock) return current;
-        } catch(_e0) {}
-        return ('value' in desc) ? desc.value : value;
+      const current = Object.getOwnPropertyDescriptor(window, name);
+      if (current && current.configurable === false) {
+        // 尊重既有瀏覽器狀態，但不再新增鎖死屬性，避免舊版互相覆蓋或拋錯。
+        return ('value' in current) ? current.value : value;
       }
       Object.defineProperty(window, name, {
-        configurable: opts.configurable !== false,
-        enumerable: false,
-        get(){ return value; },
-        set(v){
-          if (opts.allowReplace && typeof v === 'function' && v.__yx113HardLock) value = v;
-        }
+        configurable: true, enumerable: false, writable: true, value
       });
     } catch(_e) {
-      // 不做 window[name] = value；舊版唯讀 getter/setter 會在這裡噴錯。
+      try { window[name] = value; } catch(_e2) {}
     }
     return value;
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
       try {
-        if (Object.prototype.hasOwnProperty.call(fn, '__yx113HardLock')) return fn;
-        Object.defineProperty(fn, '__yx113HardLock', {value:name || true, configurable:false, enumerable:false, writable:false});
+        if (Object.prototype.hasOwnProperty.call(fn, '__yx113CoreFn')) return fn;
+        Object.defineProperty(fn, '__yx113CoreFn', {value:name || true, configurable:true, enumerable:false, writable:true});
       } catch(_e) {
-        // 不直接指派唯讀屬性，避免 product_source_bridge 重複硬鎖時中斷。
+        // 不直接指派唯讀屬性，避免 product_source_bridge 重複主檔固定時中斷。
       }
     }
     return fn;
   }
   function cancelLegacyTimers(scope){
-    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入硬鎖時清掉，避免舊版延遲重畫。
+    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入主檔固定時清掉，避免舊版延遲重畫。
     try {
       const nativeClear = window.__YX96_NATIVE_CLEAR_TIMEOUT__ || window.clearTimeout;
       if (window.__YX96_TIMEOUTS__) {
@@ -280,18 +271,18 @@
     };
   }
   ensureVisualToast();
-  window.YXHardLock = {
-    version: 'fix142-speed-ship-master-hardlock',
+  window.YXCore = {
+    version: 'v93-main-core',
     register, install, installAll, registry, installed,
-    clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
+    clean, esc, api, toast, moduleKey, safeExpose, mark, cancelLegacyTimers,
   };
   document.documentElement.dataset.yx113Core = 'on';
 })();
 
-/* ===== END merged module static/yx_modules/core_hardlock.js ===== */
+/* ===== END merged module static/yx_modules/core_main.js ===== */
 
-/* ===== MERGED INTO V22 FROM static/yx_modules/quantity_rule_hardlock.js ===== */
-/* FIX126 數量規則硬鎖：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
+/* ===== MERGED INTO V22 FROM static/yx_modules/quantity_rule_main.js ===== */
+/* FIX126 數量規則主檔固定：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
 (function(){
   'use strict';
   function clean(v){ return String(v == null ? '' : v).trim(); }
@@ -304,25 +295,25 @@
   window.calcTotalQty = qty;
 })();
 
-/* ===== END merged module static/yx_modules/quantity_rule_hardlock.js ===== */
+/* ===== END merged module static/yx_modules/quantity_rule_main.js ===== */
 
-/* ===== V5 STATIC VISUAL LOCK (replaces ornate_label_hardlock live observer) ===== */
+/* ===== V5 STATIC VISUAL BASELINE (replaces ornate_label_main live observer) ===== */
 (function(){
   'use strict';
-  document.documentElement.dataset.yx124OrnateLabel = 'locked';
-  document.documentElement.dataset.yx124MasterLabel = 'locked';
-  document.documentElement.dataset.yx127GrayRingEqualHome = 'locked';
+  document.documentElement.dataset.yx124OrnateLabel = 'main';
+  document.documentElement.dataset.yx124MasterLabel = 'main';
+  document.documentElement.dataset.yx127GrayRingEqualHome = 'main';
   document.documentElement.classList.add('yx124-ornate-scope');
-  window.YX124OrnateLabel = Object.freeze({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
+  window.YX124OrnateLabel = ({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
 })();
-/* ===== END V5 STATIC VISUAL LOCK ===== */
+/* ===== END V5 STATIC VISUAL BASELINE ===== */
 
-/* ===== MERGED INTO V22 FROM static/yx_modules/product_sort_hardlock.js ===== */
-/* FIX118 商品排序母版硬鎖：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
+/* ===== MERGED INTO V22 FROM static/yx_modules/product_sort_main.js ===== */
+/* FIX118 商品排序母版主檔固定：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
    排序規則：材質 → 高 → 寬 → 長 由小到大；同商品再依 件數 → 支數 由大到小。 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
 
   function clean(v){ return String(v ?? '').replace(/[\u3000\s]+/g, ' ').trim(); }
@@ -402,24 +393,24 @@
   }
   function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
   function install(){
-    document.documentElement.dataset.yx118ProductSort = 'locked';
+    document.documentElement.dataset.yx118ProductSort = 'main';
     window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
   }
   YX.register('product_sort', {install, compareRows, sortRows});
   install();
 })();
 
-/* ===== END merged module static/yx_modules/product_sort_hardlock.js ===== */
+/* ===== END merged module static/yx_modules/product_sort_main.js ===== */
 
 /* ===== MERGED INTO V22 FROM static/yx_pages/page_products_master.js ===== */
 /* 沅興木業 v20-true-clean-master product page master
-   來源：完整商品事件已吸收後重新收斂；移除內部 v11～v16 疊加補丁，避免同頁重複 renderer / submit handler 互相覆蓋。 */
+   來源：完整商品事件已吸收後重新收斂；同頁只保留主事件線。 */
 
-/* ===== absorbed from product_actions_hardlock.js ===== */
+/* ===== absorbed from product_actions_main.js ===== */
 /* v20 TRUE CLEAN PRODUCT MASTER：商品頁唯一 renderer / 唯一事件主線；批量操作走單次 API。 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
@@ -917,7 +908,7 @@
     }).join('');
     panel.innerHTML = `<strong>商品位置</strong><div class="small-note">勾選 ${selectedRows.length} 筆，共找到 ${found.length} 個位置。</div><div class="yx-product-location-list">${html}</div>`;
     panel.querySelectorAll('[data-hit]').forEach(btn=>btn.addEventListener('click',()=>{ const item=all[Number(btn.dataset.hit||0)]; if(!item?.hit) return; const c=(item.hit.cell||item.hit); if (typeof window.highlightWarehouseCell === 'function') window.highlightWarehouseCell(c.zone,c.column_index,c.slot_number); else window.location.href = `/warehouse?highlight=${encodeURIComponent(`${c.zone}-${c.column_index}-${c.slot_number}`)}`; }));
-    panel.scrollIntoView?.({behavior:'smooth', block:'nearest'});
+    panel.scrollIntoView?.({behavior:'smooth', bstable:'nearest'});
   }
 
   async function showProductLocations(source, id){
@@ -948,7 +939,7 @@
       }
       panel.innerHTML = `<strong>商品位置</strong><div class="small-note">共 ${hits.length} 個位置；點位置可在倉庫頁高亮。</div><div class="yx-product-location-list">${hits.map((h,i)=>{ const c=h.cell||h; const it=h.item||h; const qty=Number(it.qty||it.unplaced_qty||0)||''; return `<button type="button" class="deduct-card yx-location-hit" data-hit="${i}"><b>${YX.esc(c.zone)}區 第${Number(c.column_index)}欄 第${Number(c.slot_number)}格</b><span>${YX.esc(it.customer_name||customer||'庫存')}</span><span>${YX.esc(it.material||it.product_code||'')} ${YX.esc(it.product_text||it.product||product)}</span><em>${qty ? qty + '件' : ''}</em></button>`; }).join('')}</div>`;
       panel.querySelectorAll('[data-hit]').forEach((btn,i)=>btn.addEventListener('click',()=>{ const c=(hits[i].cell||hits[i]); if (typeof window.highlightWarehouseCell === 'function') window.highlightWarehouseCell(c.zone,c.column_index,c.slot_number); else window.location.href = `/warehouse?highlight=${encodeURIComponent(`${c.zone}-${c.column_index}-${c.slot_number}`)}`; }));
-      panel.scrollIntoView?.({behavior:'smooth', block:'nearest'});
+      panel.scrollIntoView?.({behavior:'smooth', bstable:'nearest'});
     } catch(e) {
       panel.innerHTML = `<strong style="color:#b91c1c">商品位置查詢失敗</strong><div class="small-note">${YX.esc(e.message || '請稍後再試')}</div>`;
     }
@@ -1288,7 +1279,7 @@
     wrapped.__yx113ProductWrapped = true;
     window.selectCustomerForModule = wrapped;
   }
-  function lockGlobals(){
+  function publishGlobals(){
     window.YX113ProductActions = {loadSource, refreshCurrent, renderSummary, renderCards, rowsStore};
     window.YX114ProductActions = window.YX113ProductActions;
     window.YX115ProductActions = window.YX113ProductActions;
@@ -1312,12 +1303,12 @@
       renderOrdersRows: YX.mark(renderRows('orders'), 'render_orders_121'),
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
-    Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'full-master-v26-dream-ui-lock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    Object.entries(bridges).forEach(([name, fn]) => { try { YX.safeExpose(name, fn, {configurable:true}); } catch(_e) {} });
+    try { window.YX_MASTER = {...(window.YX_MASTER || {}), version:'v95-main-core', productActions:window.YX113ProductActions}; } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     // V6：不再掃 DOM 隱藏舊版，也不再二次 render，避免庫存/訂單/總單跳版。
-    document.documentElement.dataset.yx115Products = 'locked';
+    document.documentElement.dataset.yx115Products = 'main';
     ensureBatchToolbar(source);
     ensureSummary(source);
   }
@@ -1325,11 +1316,11 @@
   function observeProductPage(source){ return; }
   function install(){
     const source = sourceFromModule(); if (!source) return;
-    document.documentElement.dataset.yx113Products = 'locked';
-    document.documentElement.dataset.yx114Products = 'locked';
-    document.documentElement.dataset.yx132Products = 'locked';
-    document.documentElement.dataset.yx135Products = 'locked';
-    bindEvents(); wrapSelectCustomer(); lockGlobals();
+    document.documentElement.dataset.yx113Products = 'main';
+    document.documentElement.dataset.yx114Products = 'main';
+    document.documentElement.dataset.yx132Products = 'main';
+    document.documentElement.dataset.yx135Products = 'main';
+    bindEvents(); wrapSelectCustomer(); publishGlobals();
     ensureBatchToolbar(source); ensureSummary(source); cleanupLegacyProductDom(source);
     if (state.installedSource === source && rowsStore(source).length) {
       renderSummary(source); renderCards(source);
@@ -1339,7 +1330,7 @@
     }
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
-  const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };
+  const bootProductActions = () => { try { YX.install('product_actions'); } catch(_e) {} };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootProductActions, {once:true}); else bootProductActions();
 })();
 
@@ -1356,7 +1347,7 @@
   let submitting = false;
 
   function toast(msg, type){
-    try { (window.YXHardLock?.toast || window.toast || window.showToast || window.notify || window.alert)(msg, type); }
+    try { (window.YXCore?.toast || window.toast || window.showToast || window.notify || window.alert)(msg, type); }
     catch(_e){ alert(msg); }
   }
   async function api(url, opt={}){
@@ -1575,7 +1566,7 @@
   async function finalConfirmSubmit(ev){
     if (ev) { ev.preventDefault?.(); ev.stopPropagation?.(); ev.stopImmediatePropagation?.(); }
     const m = page();
-    if (m === 'ship' && window.__YX_SHIP_SINGLE_LOCK__) return;
+    if (m === 'ship' && window.__YX_SHIP_SINGLE_MAIN__) return;
     if (!['inventory','orders','master_order'].includes(m)) return;
     const btn = $('submit-btn');
     const ta = $('ocr-text');
@@ -1682,39 +1673,27 @@
 /* ===== END merged page static/yx_pages/page_products_master.js ===== */
 
 /* ===== MERGED INTO V22 FROM static/yx_pages/page_bootstrap_master.js ===== */
-/* v18 EXACT HTML_DIRECT_MASTER_LOCK
+/* v18 EXACT HTML_DIRECT_MAIN_BASELINE
    只保留一套 HTML 結構；這支 JS 只負責安裝資料處理模組，不再重建頁面外殼。 */
 (function(){
   'use strict';
-  if (window.__YX_HTML_DIRECT_MASTER_LOCK__) return;
-  window.__YX_HTML_DIRECT_MASTER_LOCK__ = true;
-  const YX = window.YXHardLock;
+  if (window.__YX_HTML_DIRECT_MASTER_MAIN__) return;
+  window.__YX_HTML_DIRECT_MASTER_MAIN__ = true;
+  const YX = window.YXCore;
   const moduleKey = () => {
     try { return YX && YX.moduleKey ? YX.moduleKey() : ''; } catch(_e) { return ''; }
   };
   function safeInstall(name){
-    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name, {force:true}); }
+    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name); }
     catch(e){ try { (YX.toast || console.warn)(`${name} 載入失敗：${e.message || e}`, 'error'); } catch(_e){} }
     return null;
   }
   function stopLegacyLayoutNames(){
-    const noop = function(){ return undefined; };
-    [
-      'renderLegacyHome','renderOldHome','renderWarehouseLegacyA','renderWarehouseLegacyB',
-      'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102',
-      'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96',
-      'mountLegacyUI','masterRender','renderFix135','renderFix138','renderFix140'
-    ].forEach(name => {
-      try {
-        const current = window[name];
-        if (typeof current === 'function' && !current.__yxHtmlDirectAllowed) {
-          Object.defineProperty(window, name, {value: noop, writable:false, configurable:false});
-        }
-      } catch(_e) {}
-    });
+    // V104: old renderer files are not loaded by templates; keep this empty to avoid multiple renderer aliases.
+    return undefined;
   }
   function protectStaticShell(){
-    document.documentElement.dataset.yxHtmlDirectMaster = 'locked';
+    document.documentElement.dataset.yxHtmlDirectMaster = 'main';
     document.querySelectorAll('[data-html-direct-shell]').forEach(el => {
       el.dataset.htmlDirectLocked = '1';
     });
@@ -1742,7 +1721,7 @@
     if (m === 'ship') safeInstall('ship_text_validate');
     protectStaticShell();
   }
-  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'v20-true-clean-master-no-pageshow', install});
+  window.YX_HTML_DIRECT_MASTER = ({version:'v111-mainfile-single-install', install});
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
   // no pageshow reinstall: avoid settings -> home lag
@@ -1764,7 +1743,7 @@
       return (!raw || raw === txt || raw.includes('=')) ? '未填材質' : raw;
     }
   };
-  document.documentElement.dataset.yx30QtyParenMonthSort = 'locked';
+  document.documentElement.dataset.yx30QtyParenMonthSort = 'main';
 })();
 /* ===== END V30 final product sort override ===== */
 
@@ -1801,33 +1780,23 @@
     let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.setAttribute('aria-live','polite'); box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML=`<strong>${kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功'}</strong><div>${esc(message||'')}</div>`; box.classList.add('show'); box.style.display='block'; clearTimeout(window.__YX_V55_TOAST_TIMER__); window.__YX_V55_TOAST_TIMER__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);
     if(editable&&document.contains(active)){ setTimeout(()=>{try{active.focus({preventScroll:true}); if(ss!=null&&active.setSelectionRange) active.setSelectionRange(ss,se??ss);}catch(_e){}},0); }
   }
-  window.toast=window.showToast=window.notify=toast; if(window.YXHardLock) window.YXHardLock.toast=toast;
+  window.toast=window.showToast=window.notify=toast; if(window.YXCore) window.YXCore.toast=toast;
   function sourceFromButton(btn){ return btn?.dataset?.source || btn?.dataset?.yx113BatchMaterial || btn?.dataset?.yx113BatchDelete || btn?.dataset?.yx128EditAll || page(); }
   function apiSource(s){ return s==='master_order'?'master_order':s; }
   function selectedRows(source){ return Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-summary-row[data-id]`)).filter(tr=>tr.querySelector('.yx113-row-check:checked')||tr.classList.contains('yx113-row-selected')); }
   function allRows(source){ return Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-summary-row[data-id]`)); }
   function idsFor(source, allWhenNone=false){ let rows=selectedRows(source); if(!rows.length&&allWhenNone) rows=allRows(source); return rows.map(tr=>({source:apiSource(source), id:Number(tr.dataset.id||tr.querySelector('.yx113-row-check')?.dataset.id||0)})).filter(x=>x.id>0); }
-  function refresh(){ setTimeout(()=>{try{location.reload();}catch(_e){}},280); }
-  function ensureUndo(){ window.YXPageUndo=window.YXPageUndo||{}; window.YXPageUndo.open=async function(){ try{ const d=await api('/api/audit-trails?limit=10&undo=1'); const items=Array.isArray(d.items)?d.items.slice(0,10):[]; if(!items.length) return toast('目前沒有可還原的最近操作','warn'); const text=items.map((x,i)=>`${i+1}. ${x.created_at||''} ${x.action_label||x.action_type||''} ${x.entity_label||x.entity_type||''} ${x.summary_text||x.entity_key||''}`).join('\n'); const n=prompt('輸入要還原第幾筆：\n'+text,'1'); const idx=Number(n)-1; if(!items[idx]) return; await api('/api/undo-last',{method:'POST',body:JSON.stringify({id:items[idx].id})}); toast('已還原，重新整理中','ok'); refresh(); }catch(e){toast(e.message||'還原失敗','error');} }; }
+  function refresh(){ try{ const src=page(); if(window.YX128ProductActions?.refreshCurrent) return window.YX128ProductActions.refreshCurrent(); if(typeof refreshCurrent==='function') return refreshCurrent(); window.dispatchEvent(new CustomEvent('yx:refresh-current-page',{detail:{source:src}})); }catch(_e){} }
+  function ensureUndo(){ window.YXPageUndo=window.YXPageUndo||{}; window.YXPageUndo.open=async function(){ try{ const d=await api('/api/audit-trails?limit=10&undo=1'); const items=Array.isArray(d.items)?d.items.slice(0,10):[]; if(!items.length) return toast('目前沒有可還原的最近操作','warn'); const text=items.map((x,i)=>`${i+1}. ${x.created_at||''} ${x.action_label||x.action_type||''} ${x.entity_label||x.entity_type||''} ${x.summary_text||x.entity_key||''}`).join('\n'); const n=prompt('輸入要還原第幾筆：\n'+text,'1'); const idx=Number(n)-1; if(!items[idx]) return; await api('/api/undo-last',{method:'POST',body:JSON.stringify({id:items[idx].id})}); toast('已還原','ok'); refresh(); }catch(e){toast(e.message||'還原失敗','error');} }; }
   ensureUndo();
   document.addEventListener('click', async ev=>{
     const p=page(); if(!['inventory','orders','master_order'].includes(p)) return;
-    const undo=ev.target.closest?.('.yx-page-undo-btn,#yx-page-undo-btn'); if(undo){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); return window.YXPageUndo.open();}
-    // V71 targeted fix: these product buttons are handled by the main product_actions renderer above.
-    // This old fallback must not stopImmediatePropagation, wait for DB, or reload the page.
-    if(ev.target.closest?.('[data-yx113-batch-material],[data-yx113-batch-delete],[data-yx132-batch-zone],[data-yx132-batch-transfer],[data-yx128-edit-all],[data-yx128-save-all]')) return;
-    const mat=ev.target.closest?.('[data-yx113-batch-material]');
-    if(mat){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(mat); const material=clean(document.getElementById(`yx113-${source}-material`)?.value||''); if(!material) return toast('請先選擇材質','warn'); const items=idsFor(source,true); if(!items.length) return toast('目前沒有可套用材質的商品','warn'); try{ await api('/api/customer-items/batch-material',{method:'POST',body:JSON.stringify({material,items})}); toast(`已套用材質 ${material}`,'ok'); refresh(); }catch(e){toast(e.message||'批量材質失敗','error');} return;}
-    const del=ev.target.closest?.('[data-yx113-batch-delete]');
-    if(del){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(del); const items=idsFor(source,false); if(!items.length) return toast('請先勾選要刪除的商品','warn'); if(!confirm(`確定刪除 ${items.length} 筆商品？`)) return; try{ await api('/api/customer-items/batch-delete',{method:'POST',body:JSON.stringify({items})}); toast('已批量刪除','ok'); refresh(); }catch(e){toast(e.message||'批量刪除失敗','error');} return;}
-    const zone=ev.target.closest?.('[data-yx132-batch-zone]');
-    if(zone){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(zone); const items=idsFor(source,true); if(!items.length) return toast('目前沒有可移到 A/B 區的商品','warn'); try{ await api('/api/customer-items/batch-zone',{method:'POST',body:JSON.stringify({zone:zone.dataset.yx132BatchZone,items})}); toast(`已移到 ${zone.dataset.yx132BatchZone}區`,'ok'); refresh(); }catch(e){toast(e.message||'A/B區移動失敗','error');} return;}
-    const trans=ev.target.closest?.('[data-yx132-batch-transfer]');
-    if(trans){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const source=sourceFromButton(trans); const target=trans.dataset.yx132BatchTransfer; const items=idsFor(source,false); if(!items.length) return toast('請先勾選要移動的商品','warn'); let customer=clean(document.getElementById('customer-name')?.value||window.__YX_SELECTED_CUSTOMER__||''); if(!customer) customer=prompt('請輸入客戶名稱')||''; customer=clean(customer); if(!customer) return toast('請先輸入客戶名稱','warn'); try{ await api('/api/items/batch-transfer',{method:'POST',body:JSON.stringify({items:items.map(x=>({...x,customer_name:customer})),target,customer_name:customer,region:'北區',allow_inventory_fallback:true,request_key:'v55-'+Date.now()})}); toast('已加入清單','ok'); refresh(); }catch(e){toast(e.message||'加到清單失敗','error');} return;}
+    const undo=ev.target.closest?.('.yx-page-undo-btn,#yx-page-undo-btn');
+    if(undo){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); return window.YXPageUndo.open();}
   }, true);
 })();
 /* ===== END V55 PRODUCT MAINFILE DIRECT REPAIR ===== */
 
 
 
-/* V59 requested mainfile locks installed: instant edit close, optimistic submit, clean toolbar, audit undo modal. */
+/* V59 requested mainfile stability installed: instant edit close, optimistic submit, clean toolbar, audit undo modal. */

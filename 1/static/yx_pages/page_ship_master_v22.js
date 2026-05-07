@@ -1,6 +1,6 @@
 try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{window.YXPageUndo?.snapshot?.(String(label||source||'操作'),function(){});}catch(_e){}};}catch(_e){}
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display stable rule: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -124,17 +124,17 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   window.YX30CompareRows = compareRows;
   window.YX30SortRows = rows => Array.isArray(rows) ? [...rows].sort(compareRows) : [];
 })();
-/* ===== END V30 quantity/month/support display lock ===== */
+/* ===== END V30 quantity/month/support display stable rule ===== */
 
 /* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_ship_master_v22 */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_ship_master_v22'; })();
 
-/* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
-/* 沅興木業 FIX118 core hard-lock registry
+/* ===== V2 MERGED FROM static/yx_modules/core_main.js ===== */
+/* 沅興木業 FIX118 core main registry registry
    目的：把功能拆成獨立模組，再由 master_integrator 統一安裝，避免舊 FIX 函式覆蓋新版。 */
 (function(){
   'use strict';
-  if (window.YXHardLock && window.YXHardLock.version === 'fix142-speed-ship-master-hardlock') return;
+  if (window.YXCore && window.YXCore.version === 'v93-main-core') return;
 
   const registry = Object.create(null);
   const installed = Object.create(null);
@@ -177,44 +177,35 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     }
     return data;
   }
-  function hardAssign(name, value, opts={}){
-    // FIX135：硬鎖要可重複安裝。若同名屬性已是 non-configurable，
-    // 直接尊重既有母版，不再 fallback 指派，避免 readonly / __yx113HardLock 紅色錯誤。
+  function safeExpose(name, value, opts={}){
+    // V95 safeAssign：只建立可覆寫的單一主檔入口，不做 non-configurable 鎖死。
     try {
-      const desc = Object.getOwnPropertyDescriptor(window, name);
-      if (desc && desc.configurable === false) {
-        try {
-          const current = ('value' in desc) ? desc.value : (typeof desc.get === 'function' ? desc.get.call(window) : undefined);
-          if (current && current.__yx113HardLock) return current;
-        } catch(_e0) {}
-        return ('value' in desc) ? desc.value : value;
+      const current = Object.getOwnPropertyDescriptor(window, name);
+      if (current && current.configurable === false) {
+        // 尊重既有瀏覽器狀態，但不再新增鎖死屬性，避免舊版互相覆蓋或拋錯。
+        return ('value' in current) ? current.value : value;
       }
       Object.defineProperty(window, name, {
-        configurable: opts.configurable !== false,
-        enumerable: false,
-        get(){ return value; },
-        set(v){
-          if (opts.allowReplace && typeof v === 'function' && v.__yx113HardLock) value = v;
-        }
+        configurable: true, enumerable: false, writable: true, value
       });
     } catch(_e) {
-      // 不做 window[name] = value；舊版唯讀 getter/setter 會在這裡噴錯。
+      try { window[name] = value; } catch(_e2) {}
     }
     return value;
   }
   function mark(fn, name){
     if (typeof fn === 'function') {
       try {
-        if (Object.prototype.hasOwnProperty.call(fn, '__yx113HardLock')) return fn;
-        Object.defineProperty(fn, '__yx113HardLock', {value:name || true, configurable:false, enumerable:false, writable:false});
+        if (Object.prototype.hasOwnProperty.call(fn, '__yx113CoreFn')) return fn;
+        Object.defineProperty(fn, '__yx113CoreFn', {value:name || true, configurable:true, enumerable:false, writable:true});
       } catch(_e) {
-        // 不直接指派唯讀屬性，避免 product_source_bridge 重複硬鎖時中斷。
+        // 不直接指派唯讀屬性，避免 product_source_bridge 重複主檔固定時中斷。
       }
     }
     return fn;
   }
   function cancelLegacyTimers(scope){
-    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入硬鎖時清掉，避免舊版延遲重畫。
+    // FIX96/111 已將 timer 收到集合；這裡只在目前頁面進入主檔固定時清掉，避免舊版延遲重畫。
     try {
       const nativeClear = window.__YX96_NATIVE_CLEAR_TIMEOUT__ || window.clearTimeout;
       if (window.__YX96_TIMEOUTS__) {
@@ -238,18 +229,18 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       try { install(name, opts); } catch(e) { toast(`${name} 安裝失敗：${e.message || e}`, 'error'); }
     });
   }
-  window.YXHardLock = {
-    version: 'fix142-speed-ship-master-hardlock',
+  window.YXCore = {
+    version: 'v93-main-core',
     register, install, installAll, registry, installed,
-    clean, esc, api, toast, moduleKey, hardAssign, mark, cancelLegacyTimers,
+    clean, esc, api, toast, moduleKey, safeExpose, mark, cancelLegacyTimers,
   };
   document.documentElement.dataset.yx113Core = 'on';
 })();
 
-/* ===== END static/yx_modules/core_hardlock.js ===== */
+/* ===== END static/yx_modules/core_main.js ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/quantity_rule_hardlock.js ===== */
-/* FIX126 數量規則硬鎖：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
+/* ===== V2 MERGED FROM static/yx_modules/quantity_rule_main.js ===== */
+/* FIX126 數量規則主檔固定：不再跳數量輸入，件數一律由 = 右側 xN / 支數清單判定 */
 (function(){
   'use strict';
   function clean(v){ return String(v == null ? '' : v).trim(); }
@@ -262,25 +253,25 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   window.calcTotalQty = qty;
 })();
 
-/* ===== END static/yx_modules/quantity_rule_hardlock.js ===== */
+/* ===== END static/yx_modules/quantity_rule_main.js ===== */
 
-/* ===== V5 STATIC VISUAL LOCK (replaces ornate_label_hardlock live observer) ===== */
+/* ===== V5 STATIC VISUAL BASELINE (replaces ornate_label_main live observer) ===== */
 (function(){
   'use strict';
-  document.documentElement.dataset.yx124OrnateLabel = 'locked';
-  document.documentElement.dataset.yx124MasterLabel = 'locked';
-  document.documentElement.dataset.yx127GrayRingEqualHome = 'locked';
+  document.documentElement.dataset.yx124OrnateLabel = 'main';
+  document.documentElement.dataset.yx124MasterLabel = 'main';
+  document.documentElement.dataset.yx127GrayRingEqualHome = 'main';
   document.documentElement.classList.add('yx124-ornate-scope');
-  window.YX124OrnateLabel = Object.freeze({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
+  window.YX124OrnateLabel = ({version:'v5-static-no-observer', install:function(){return true;}, apply:function(){return true;}});
 })();
-/* ===== END V5 STATIC VISUAL LOCK ===== */
+/* ===== END V5 STATIC VISUAL BASELINE ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/product_sort_hardlock.js ===== */
-/* FIX118 商品排序母版硬鎖：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
+/* ===== V2 MERGED FROM static/yx_modules/product_sort_main.js ===== */
+/* FIX118 商品排序母版主檔固定：只接管庫存 / 訂單 / 總單顯示排序，不改 API / 資料 / 送出流程
    排序規則：材質 → 高 → 寬 → 長 由小到大；同商品再依 件數 → 支數 由大到小。 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
 
   function clean(v){ return String(v ?? '').replace(/[\u3000\s]+/g, ' ').trim(); }
@@ -360,20 +351,20 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   }
   function sortRows(rows){ return Array.isArray(rows) ? [...rows].sort(compareRows) : []; }
   function install(){
-    document.documentElement.dataset.yx118ProductSort = 'locked';
+    document.documentElement.dataset.yx118ProductSort = 'main';
     window.YX118ProductSort = {compareRows, sortRows, parseDims, parseSupport, materialOf};
   }
   YX.register('product_sort', {install, compareRows, sortRows});
   install();
 })();
 
-/* ===== END static/yx_modules/product_sort_hardlock.js ===== */
+/* ===== END static/yx_modules/product_sort_main.js ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/customer_regions_hardlock.js ===== */
-/* FIX120 北中南客戶母版硬鎖：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
+/* ===== V2 MERGED FROM static/yx_modules/customer_regions_main.js ===== */
+/* FIX120 北中南客戶母版主檔固定：一排一個客戶、FOB/CNF 標籤置中、件/筆靠右、長按操作、操作後立即刷新 */
 (function(){
   'use strict';
-  const YX = window.YXHardLock;
+  const YX = window.YXCore;
   if (!YX) return;
   const $ = id => document.getElementById(id);
   const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0, itemCache:new Map()};
@@ -506,7 +497,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
         window.YX113ProductActions.renderSummary?.(source);
         window.YX113ProductActions.renderCards?.(source);
         const target = document.getElementById(source === 'orders' ? 'orders-list-section' : 'master-list-section');
-        target?.scrollIntoView?.({behavior:'smooth', block:'start'});
+        target?.scrollIntoView?.({behavior:'smooth', bstable:'start'});
       }
     } catch(_e) {}
     const m = moduleKey();
@@ -514,18 +505,18 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       try { await window.fillCustomerForm(name); } catch(_e) {}
       return;
     }
-    // 出貨頁專用分工：北中南客戶只負責選客戶，不再渲染 selected-customer-items，避免和 ship_single_lock.js 同時打 /api/customer-items。
+    // 出貨頁專用分工：北中南客戶只負責選客戶，不再渲染 selected-customer-items，避免和 ship_single_main.js 同時打 /api/customer-items。
     if (m === 'ship') {
       try {
         if (window.YX116ShipPicker) {
           window.YX116ShipPicker.load(name).catch(()=>{});
-          document.getElementById('ship-customer-picker')?.scrollIntoView?.({behavior:'smooth', block:'start'});
+          document.getElementById('ship-customer-picker')?.scrollIntoView?.({behavior:'smooth', bstable:'start'});
         }
       } catch(_e) {}
       return;
     }
     // FIX120/121：不再呼叫舊版 selectCustomerForModule，避免舊版清空新版商品清單。
-    // 商品清單統一交給 product_actions_hardlock 母版與 selected-customer panel 刷新。
+    // 商品清單統一交給 product_actions_main 母版與 selected-customer panel 刷新。
     renderSelectedCustomerPanel(name).catch(()=>{});
     try {
       const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
@@ -774,13 +765,13 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       await selectCustomer(name);
     }, true);
   }
-  function lockGlobals(){
+  function publishGlobals(){
     if (!state.oldSelect && typeof window.selectCustomerForModule === 'function') state.oldSelect = window.selectCustomerForModule;
     const selectFn = YX.mark(selectCustomer, 'customer_select');
     window.selectCustomerForModule = selectFn;
     const loadFn = YX.mark(loadCustomerBlocks, 'customer_blocks');
-    try { YX.hardAssign('loadCustomerBlocks', loadFn, {configurable:false}); } catch(_e) { window.loadCustomerBlocks = loadFn; }
-    try { YX.hardAssign('renderCustomers', loadFn, {configurable:false}); } catch(_e) { window.renderCustomers = loadFn; }
+    try { YX.safeExpose('loadCustomerBlocks', loadFn, {configurable:true}); } catch(_e) { window.loadCustomerBlocks = loadFn; }
+    try { YX.safeExpose('renderCustomers', loadFn, {configurable:true}); } catch(_e) { window.renderCustomers = loadFn; }
     window.YX113CustomerRegions = {loadCustomerBlocks, renderBoards, selectCustomer};
     window.YX114CustomerRegions = window.YX113CustomerRegions;
     window.YX115CustomerRegions = window.YX113CustomerRegions;
@@ -789,19 +780,19 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   }
   function install(){
     if (!isRegionPage()) return;
-    document.documentElement.dataset.yx113Customers = 'locked';
-    document.documentElement.dataset.yx114Customers = 'locked';
-    document.documentElement.dataset.yx115Customers = 'locked';
-    document.documentElement.dataset.yx116Customers = 'locked';
-    document.documentElement.dataset.yx117Customers = 'locked';
-    bindEvents(); lockGlobals();
+    document.documentElement.dataset.yx113Customers = 'main';
+    document.documentElement.dataset.yx114Customers = 'main';
+    document.documentElement.dataset.yx115Customers = 'main';
+    document.documentElement.dataset.yx116Customers = 'main';
+    document.documentElement.dataset.yx117Customers = 'main';
+    bindEvents(); publishGlobals();
     if (!state.productLoadedBound) { state.productLoadedBound = true; window.addEventListener('yx:product-source-loaded', () => { try { renderFromCurrentRows(); } catch(_e) {} }); }
     loadCustomerBlocks(true);
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();
 
-/* ===== END static/yx_modules/customer_regions_hardlock.js ===== */
+/* ===== END static/yx_modules/customer_regions_main.js ===== */
 
 /* ===== V2 MERGED FROM static/yx_pages/page_customers_master.js ===== */
 /* 沅興木業 v17 customers master：補齊客戶資料頁 inline 按鈕，避免舊 app.js 缺失。 */
@@ -812,7 +803,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   const $ = id => document.getElementById(id);
   const clean = v => String(v == null ? '' : v).replace(/\s+/g,' ').trim();
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-  const toast = (m,k='ok') => { try { (window.YXHardLock?.toast || window.alert)(m,k); } catch(_){ alert(m); } };
+  const toast = (m,k='ok') => { try { (window.YXCore?.toast || window.alert)(m,k); } catch(_){ alert(m); } };
   async function api(url,opt={}){
     const res = await fetch(`${url}${url.includes('?')?'&':'?'}_=${Date.now()}`, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
     const text = await res.text(); let data={}; try{data=text?JSON.parse(text):{};}catch{data={success:false,error:text};}
@@ -890,11 +881,11 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
 
 /* ===== END static/yx_pages/page_customers_master.js ===== */
 
-/* ===== V2 MERGED FROM static/yx_modules/ship_single_lock.js ===== */
+/* ===== V2 MERGED FROM static/yx_modules/ship_single_main.js ===== */
 /* 沅興木業 出貨單一母版 V7：HTML 固定完整商品清單 + 已選商品一商品一行，JS 只接資料事件 */
 (function(){
   'use strict';
-  if (!window.__YX_SHIP_SINGLE_LOCK__) return;
+  if (!window.__YX_SHIP_SINGLE_MAIN__) return;
   const $=(id)=>document.getElementById(id);
   const state={customer:'',items:[],selected:[],customers:[],loadingName:'',itemCache:new Map(),bound:false};
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -929,7 +920,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   function selectedCardHtml(it,i){const p=splitProduct(it.product_text);const q=selectedQtyOf(it);const over=warnOverQty(it);return`<div class="yx-ship-selected-html-card yx-ship-selected-tag-card yx-ship-one-line-card ${over?'is-over-qty':''}" data-selected-card="${i}"><div class="yx-ship-selected-main yx-ship-selected-main-editable" title="直接在這一行修改支數；例如 220x12 改成 220x9，或刪掉不要的 +段"><span class="yx-ship-source-pill">出貨源：${esc(shipSourceLabel(it))}</span><span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span><span class="yx-ship-selected-size">${esc(p.size)}=</span><input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="直接改 220x12 或刪除不要的 +段"><span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span><span class="yx-ship-over-note" data-over-note="${i}">${over?`超出可出貨 ${over.max} 件`:''}</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div></div>`;}
   function updateSelectedProductFromSupport(i,support){const row=state.selected[i];if(!row)return;const p=splitProduct(row.product_text||'');const spt=normalizeText(support);row.product_text=productFromSupport(p.size,spt);row.qty=supportTotalPieces(spt)||qtyFromText(row.product_text,row.qty)||1;const total=document.querySelector(`[data-selected-total="${i}"]`);if(total)total.textContent=`${row.qty}件`;const over=warnOverQty(row);const card=document.querySelector(`[data-selected-card="${i}"]`);if(card)card.classList.toggle('is-over-qty',!!over);const note=document.querySelector(`[data-over-note="${i}"]`);if(note)note.textContent=over?`超出可出貨 ${over.max} 件`:'';if(over)toast(`出貨 ${over.q} 件大於可出貨 ${over.max} 件，請先修改`,'warn');const hidden=$('ocr-text');if(hidden)hidden.value=state.selected.map(it=>it.product_text).join('\n');}
   function renderSelected(){const box=$('ship-selected-items');if(!box)return;if(!state.selected.length)box.innerHTML='<div class="empty-state-card compact-empty">尚未加入出貨商品</div>';else box.innerHTML=state.selected.map(selectedCardHtml).join('');const hidden=$('ocr-text');if(hidden)hidden.value=state.selected.map(it=>it.product_text).join('\n');}
-  function addItem(i){const it=state.items[Number(i)];if(!it)return toast('找不到商品','warn');const max=availableQtyOf(it)||qtyFromText(it.product_text,it.qty)||9999;const product_text=it.product_text||'';const row={product_text,qty:qtyFromText(product_text,it.qty)||max,material:materialOf(it),product_code:materialOf(it),source:shipSourceLabel(it),source_preference:sourcePreferenceOf(it),deduct_source:sourcePreferenceOf(it),source_label:shipSourceLabel(it),id:it.id,original_id:it.id,available_qty:max,original_qty:max,_key:productKey(it)};const exists=state.selected.findIndex(x=>(x._key||productKey(x))===row._key);if(exists>=0){toast('同樣商品已加入，請直接在下面那一行修改，不會重複添加','warn');const card=document.querySelector(`[data-selected-card="${exists}"]`);card?.scrollIntoView?.({behavior:'smooth',block:'center'});card?.classList.add('flash-highlight');return;}state.selected.push(row);renderSelected();toast('已加入出貨商品，可直接修改件數','ok');$('ship-selected-items')?.scrollIntoView?.({behavior:'smooth',block:'nearest'});}
+  function addItem(i){const it=state.items[Number(i)];if(!it)return toast('找不到商品','warn');const max=availableQtyOf(it)||qtyFromText(it.product_text,it.qty)||9999;const product_text=it.product_text||'';const row={product_text,qty:qtyFromText(product_text,it.qty)||max,material:materialOf(it),product_code:materialOf(it),source:shipSourceLabel(it),source_preference:sourcePreferenceOf(it),deduct_source:sourcePreferenceOf(it),source_label:shipSourceLabel(it),id:it.id,original_id:it.id,available_qty:max,original_qty:max,_key:productKey(it)};const exists=state.selected.findIndex(x=>(x._key||productKey(x))===row._key);if(exists>=0){toast('同樣商品已加入，請直接在下面那一行修改，不會重複添加','warn');const card=document.querySelector(`[data-selected-card="${exists}"]`);card?.scrollIntoView?.({behavior:'smooth',bstable:'center'});card?.classList.add('flash-highlight');return;}state.selected.push(row);renderSelected();toast('已加入出貨商品，可直接修改件數','ok');$('ship-selected-items')?.scrollIntoView?.({behavior:'smooth',bstable:'nearest'});}
   window.clearShipSelectedItems=function(){state.selected=[];renderSelected();};
   function volumeCoeffLength(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?(n>210?n/1000:n/100):0;}
   function volumeCoeffWidth(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?n/10:0;}
@@ -951,8 +942,8 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
     return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${shortage?'<span class="danger-text">不足</span>':'可出貨'}</td></tr>`;
   }
-  async function confirmSubmit(){if(!state.customer)return toast('請先輸入客戶名稱','warn');if(!state.selected.length)return toast('請先加入出貨商品','warn');const overIdx=state.selected.findIndex(x=>warnOverQty(x));if(overIdx>=0){const o=warnOverQty(state.selected[overIdx]);renderSelected();toast(`第 ${overIdx+1} 筆出貨 ${o.q} 件大於可出貨 ${o.max} 件，不可扣除`,'error');document.querySelector(`[data-selected-card="${overIdx}"]`)?.scrollIntoView?.({behavior:'smooth',block:'center'});return;}const btn=$('submit-btn');if(btn){btn.disabled=true;btn.textContent='預覽中…';}const payload={customer_name:state.customer,items:state.selected,allow_inventory_fallback:true,skip_snapshot:true,request_key:'ship_single_'+Date.now()+'_'+Math.random().toString(36).slice(2)};try{const preview=await api('/api/ship-preview',{method:'POST',body:JSON.stringify(payload)});showPreview(preview,payload);}catch(e){toast(e.message||'出貨預覽失敗','error');}finally{if(btn){btn.disabled=false;btn.textContent='確認送出';}}}
-  function showPreview(data,payload){const panel=$('ship-preview-panel')||$('module-result');if(!panel)return;const rows=Array.isArray(data.breakdown)?data.breakdown:(Array.isArray(data.items)?data.items:[]);const draft=payload.items||[];const calcRaw=data.calc||data.volume_calc||{};const calc=(calcRaw.rows||calcRaw.items)?calcRaw:localVolumeCalc(draft);const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+selectedQtyOf(b),0));panel.classList.remove('hidden');panel.style.display='block';panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>出貨源</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(draft.length?draft:rows).map((x,i)=>previewRowHtml(x,i,rows[i]||{})).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;$('yx22-weight')?.addEventListener('input',e=>{const w=Number(e.target.value||0),v=Number(calc.total_volume||0),out=$('yx22-total-weight');if(out)out.textContent=w?`總重：${(w*v).toFixed(2)}`:'總重：--';});$('yx22-cancel-preview')?.addEventListener('click',()=>panel.classList.add('hidden'),{once:true});$('yx22-confirm-ship')?.addEventListener('click',async()=>{const b=$('yx22-confirm-ship');if(b){b.disabled=true;b.textContent='扣除中…';}try{await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_confirm_'+Date.now()+'_'+Math.random().toString(36).slice(2)})});panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>';state.selected=[];renderSelected();state.itemCache.delete(state.customer);await loadItems(state.customer,{force:true});toast('出貨完成','ok');}catch(e){toast(e.message||'出貨失敗','error');if(b){b.disabled=false;b.textContent='確認扣除';}}},{once:true});panel.scrollIntoView({behavior:'smooth',block:'start'});}
+  async function confirmSubmit(){if(!state.customer)return toast('請先輸入客戶名稱','warn');if(!state.selected.length)return toast('請先加入出貨商品','warn');const overIdx=state.selected.findIndex(x=>warnOverQty(x));if(overIdx>=0){const o=warnOverQty(state.selected[overIdx]);renderSelected();toast(`第 ${overIdx+1} 筆出貨 ${o.q} 件大於可出貨 ${o.max} 件，不可扣除`,'error');document.querySelector(`[data-selected-card="${overIdx}"]`)?.scrollIntoView?.({behavior:'smooth',bstable:'center'});return;}const btn=$('submit-btn');if(btn){btn.disabled=true;btn.textContent='預覽中…';}const payload={customer_name:state.customer,items:state.selected,allow_inventory_fallback:true,skip_snapshot:true,request_key:'ship_single_'+Date.now()+'_'+Math.random().toString(36).slice(2)};try{const preview=await api('/api/ship-preview',{method:'POST',body:JSON.stringify(payload)});showPreview(preview,payload);}catch(e){toast(e.message||'出貨預覽失敗','error');}finally{if(btn){btn.disabled=false;btn.textContent='確認送出';}}}
+  function showPreview(data,payload){const panel=$('ship-preview-panel')||$('module-result');if(!panel)return;const rows=Array.isArray(data.breakdown)?data.breakdown:(Array.isArray(data.items)?data.items:[]);const draft=payload.items||[];const calcRaw=data.calc||data.volume_calc||{};const calc=(calcRaw.rows||calcRaw.items)?calcRaw:localVolumeCalc(draft);const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+selectedQtyOf(b),0));panel.classList.remove('hidden');panel.style.display='block';panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>出貨源</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(draft.length?draft:rows).map((x,i)=>previewRowHtml(x,i,rows[i]||{})).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;$('yx22-weight')?.addEventListener('input',e=>{const w=Number(e.target.value||0),v=Number(calc.total_volume||0),out=$('yx22-total-weight');if(out)out.textContent=w?`總重：${(w*v).toFixed(2)}`:'總重：--';});$('yx22-cancel-preview')?.addEventListener('click',()=>panel.classList.add('hidden'),{once:true});$('yx22-confirm-ship')?.addEventListener('click',async()=>{const b=$('yx22-confirm-ship');if(b){b.disabled=true;b.textContent='扣除中…';}try{await api('/api/ship',{method:'POST',body:JSON.stringify({...payload,request_key:'ship_confirm_'+Date.now()+'_'+Math.random().toString(36).slice(2)})});panel.innerHTML='<div class="success-card">出貨完成，已扣除並寫入今日異動</div>';state.selected=[];renderSelected();state.itemCache.delete(state.customer);await loadItems(state.customer,{force:true});toast('出貨完成','ok');}catch(e){toast(e.message||'出貨失敗','error');if(b){b.disabled=false;b.textContent='確認扣除';}}},{once:true});panel.scrollIntoView({behavior:'smooth',bstable:'start'});}
   window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;window.__YX_SHIP_NATIVE_CONFIRM__=confirmSubmit;window.YX116ShipPicker={load:loadItems,addItem,renderItems,renderSelected,confirmSubmit};window.reverseLookup=function(){toast('請使用倉庫圖搜尋商品位置','warn');};
 
   async function showShipLocations(productText){
@@ -1003,51 +994,39 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
         if(window.highlightWarehouseCell){window.highlightWarehouseCell(zone,col,slot);}
         else if(zone&&col&&slot){location.href=`/warehouse?highlight=${encodeURIComponent(zone+'-'+col+'-'+slot)}`;}
       }));
-      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+      box.scrollIntoView({behavior:'smooth',bstable:'nearest'});
     }catch(e){box.innerHTML=`<div class="error-card">查詢倉庫位置失敗：${esc(e.message||e)}</div>`;}
   }
 
   function bind(){if(state.bound)return;state.bound=true;document.addEventListener('click',(e)=>{const loc=e.target.closest('.yx22-location-btn');if(loc){e.preventDefault();showShipLocations(loc.dataset.prod||'').catch(err=>toast(err.message||'查詢位置失敗','error'));return;}const c=e.target.closest('[data-ship-customer]');if(c){e.preventDefault();loadItems(c.dataset.shipCustomer).catch(err=>toast(err.message,'error'));return;}const add=e.target.closest('[data-ship-add-index]');if(add){e.preventDefault();addItem(add.dataset.shipAddIndex);return;}const rm=e.target.closest('[data-selected-remove]');if(rm){e.preventDefault();state.selected.splice(Number(rm.dataset.selectedRemove),1);renderSelected();return;}},true);document.addEventListener('keydown',(e)=>{if((e.target.id==='customer-name'||e.target.id==='ship-customer-search')&&e.key==='Enter'){e.preventDefault();loadItems(state.customer,{force:true}).catch(err=>toast(err.message,'error'));}},true);document.addEventListener('change',(e)=>{if(e.target.id==='ship-customer-item-select'&&e.target.value!==''){addItem(e.target.value);e.target.value='';}},true);document.addEventListener('input',(e)=>{if(e.target.id==='customer-name'||e.target.id==='ship-customer-search'){setCustomer(e.target.value);renderCustomers();renderItems();}if(e.target.matches('[data-support-editor]'))updateSelectedProductFromSupport(Number(e.target.dataset.supportEditor),e.target.value);},true);}
-  function install(){document.documentElement.dataset.yxShipSingle='locked-one-line-html-v12';bind();loadCustomers();window.addEventListener('yx:customers-loaded',e=>{state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers;},false);window.addEventListener('yx:customer-selected',e=>{const name=clean(e.detail?.name||'');if(name)loadItems(name,{force:true}).catch(err=>toast(err.message,'error'));},false);renderSelected();const name=clean($('customer-name')?.value||'');if(name)loadItems(name).catch(()=>{});else renderItems();window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;}
+  function install(){document.documentElement.dataset.yxShipSingle='main-one-line-html-v12';bind();loadCustomers();window.addEventListener('yx:customers-loaded',e=>{state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers;},false);window.addEventListener('yx:customer-selected',e=>{const name=clean(e.detail?.name||'');if(name)loadItems(name,{force:true}).catch(err=>toast(err.message,'error'));},false);renderSelected();const name=clean($('customer-name')?.value||'');if(name)loadItems(name).catch(()=>{});else renderItems();window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
 
-/* ===== END static/yx_modules/ship_single_lock.js ===== */
+/* ===== END static/yx_modules/ship_single_main.js ===== */
 
 /* ===== V2 MERGED FROM static/yx_pages/page_bootstrap_master.js ===== */
-/* v18 EXACT HTML_DIRECT_MASTER_LOCK
+/* v18 EXACT HTML_DIRECT_MAIN_BASELINE
    只保留一套 HTML 結構；這支 JS 只負責安裝資料處理模組，不再重建頁面外殼。 */
 (function(){
   'use strict';
-  if (window.__YX_HTML_DIRECT_MASTER_LOCK__) return;
-  window.__YX_HTML_DIRECT_MASTER_LOCK__ = true;
-  const YX = window.YXHardLock;
+  if (window.__YX_HTML_DIRECT_MASTER_MAIN__) return;
+  window.__YX_HTML_DIRECT_MASTER_MAIN__ = true;
+  const YX = window.YXCore;
   const moduleKey = () => {
     try { return YX && YX.moduleKey ? YX.moduleKey() : ''; } catch(_e) { return ''; }
   };
   function safeInstall(name){
-    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name, {force:true}); }
+    try { if (YX && YX.registry && YX.registry[name]) return YX.install(name); }
     catch(e){ try { (YX.toast || console.warn)(`${name} 載入失敗：${e.message || e}`, 'error'); } catch(_e){} }
     return null;
   }
   function stopLegacyLayoutNames(){
-    const noop = function(){ return undefined; };
-    [
-      'renderLegacyHome','renderOldHome','renderWarehouseLegacyA','renderWarehouseLegacyB',
-      'renderWarehouse82','renderWarehouse95','renderWarehouse96','renderWarehouse102',
-      'loadTodayChanges80','loadTodayChanges93','loadTodayChanges95','loadTodayChanges96',
-      'mountLegacyUI','masterRender','renderFix135','renderFix138','renderFix140'
-    ].forEach(name => {
-      try {
-        const current = window[name];
-        if (typeof current === 'function' && !current.__yxHtmlDirectAllowed) {
-          Object.defineProperty(window, name, {value: noop, writable:false, configurable:false});
-        }
-      } catch(_e) {}
-    });
+    // V104: old renderer files are not loaded by templates; keep this empty to avoid multiple renderer aliases.
+    return undefined;
   }
   function protectStaticShell(){
-    document.documentElement.dataset.yxHtmlDirectMaster = 'locked';
+    document.documentElement.dataset.yxHtmlDirectMaster = 'main';
     document.querySelectorAll('[data-html-direct-shell]').forEach(el => {
       el.dataset.htmlDirectLocked = '1';
     });
@@ -1075,7 +1054,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     if (m === 'ship') safeInstall('ship_text_validate');
     protectStaticShell();
   }
-  window.YX_HTML_DIRECT_MASTER = Object.freeze({version:'v20-true-clean-master-no-pageshow', install});
+  window.YX_HTML_DIRECT_MASTER = ({version:'v111-mainfile-single-install', install});
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
   // no pageshow reinstall: avoid settings -> home lag
@@ -1097,7 +1076,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       return (!raw || raw === txt || raw.includes('=')) ? '未填材質' : raw;
     }
   };
-  document.documentElement.dataset.yx30QtyParenMonthSort = 'locked';
+  document.documentElement.dataset.yx30QtyParenMonthSort = 'main';
 })();
 /* ===== END V30 final product sort override ===== */
 
@@ -1130,7 +1109,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML='<strong>'+(kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功')+'</strong><div>'+esc(message||'')+'</div>'; box.style.display='block'; box.classList.add('show'); clearTimeout(window.__YX_V55_COMMON_TOAST__); window.__YX_V55_COMMON_TOAST__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);
     if(editable&&document.contains(a)) setTimeout(()=>{try{a.focus({preventScroll:true}); if(s!=null&&a.setSelectionRange)a.setSelectionRange(s,e??s);}catch(_e){}},0);
   };
-  if(window.YXHardLock) window.YXHardLock.toast=window.toast;
+  if(window.YXCore) window.YXCore.toast=window.toast;
 })();
 /* ===== END V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
 

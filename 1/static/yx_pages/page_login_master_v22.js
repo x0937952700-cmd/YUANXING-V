@@ -1,5 +1,5 @@
 
-/* ===== V58 quantity/month/support display lock: parentheses ignored for qty; month asc sort; long support wraps ===== */
+/* ===== V58 quantity/month/support display stable rule: parentheses ignored for qty; month asc sort; long support wraps ===== */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -123,7 +123,7 @@
   window.YX30CompareRows = compareRows;
   window.YX30SortRows = rows => Array.isArray(rows) ? [...rows].sort(compareRows) : [];
 })();
-/* ===== END V30 quantity/month/support display lock ===== */
+/* ===== END V30 quantity/month/support display stable rule ===== */
 
 /* 沅興木業 FULL MASTER V4 PER PAGE - page_login_master_v4
    來源：原 login.html inline script 已搬入登入頁唯一母版 JS。 */
@@ -204,7 +204,7 @@
       return (!raw || raw === txt || raw.includes('=')) ? '未填材質' : raw;
     }
   };
-  document.documentElement.dataset.yx30QtyParenMonthSort = 'locked';
+  document.documentElement.dataset.yx30QtyParenMonthSort = 'main';
 })();
 /* ===== END V30 final product sort override ===== */
 

@@ -3240,7 +3240,7 @@ html[data-yx-fix106="FIX108_UNPLACED_SOURCE_AND_SLOT_DISPLAY_MASTER"] .yx108-slo
 /* ==== FIX108 end ==== */
 
 
-/* FIX111：進功能 / 返回主頁時關閉重動畫，避免舊補丁在離頁前重畫造成卡頓 */
+/* FIX111：進功能 / 返回主頁時關閉重動畫，避免離頁前重畫造成卡頓 */
 .yx111-fast-navigating *,
 .yx111-fast-navigating *::before,
 .yx111-fast-navigating *::after{
@@ -3267,18 +3267,18 @@ html[data-yx-fix106="FIX108_UNPLACED_SOURCE_AND_SLOT_DISPLAY_MASTER"] .yx108-slo
 .yx113-table .mat{color:#059669;}
 .yx113-table-wrap{overflow:auto;max-height:46vh;}
 
-/* FIX114 母版硬鎖：客戶兩欄、移除箭頭、批量工具列靠右、倉庫格位簡化 */
-html[data-yx114-customers="locked"] .yx114-customer-list{
+/* FIX114 母版主檔固定：客戶兩欄、移除箭頭、批量工具列靠右、倉庫格位簡化 */
+html[data-yx114-customers="stable"] .yx114-customer-list{
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
   gap:10px!important;
   align-items:start!important;
 }
-html[data-yx114-customers="locked"] .yx114-customer-list .empty-state-card{
+html[data-yx114-customers="stable"] .yx114-customer-list .empty-state-card{
   grid-column:1 / -1!important;
 }
-html[data-yx114-customers="locked"] .yx113-customer-card,
-html[data-yx114-customers="locked"] .yx114-customer-card{
+html[data-yx114-customers="stable"] .yx113-customer-card,
+html[data-yx114-customers="stable"] .yx114-customer-card{
   width:100%!important;
   min-width:0!important;
   margin:0!important;
@@ -3288,23 +3288,23 @@ html[data-yx114-customers="locked"] .yx114-customer-card{
   align-items:center!important;
   padding:13px 14px!important;
 }
-html[data-yx114-customers="locked"] .yx113-customer-arrow,
-html[data-yx114-customers="locked"] .customer-card-arrow,
-html[data-yx114-customers="locked"] .fix48-customer-arrow{
+html[data-yx114-customers="stable"] .yx113-customer-arrow,
+html[data-yx114-customers="stable"] .customer-card-arrow,
+html[data-yx114-customers="stable"] .fix48-customer-arrow{
   display:none!important;
 }
-html[data-yx114-customers="locked"] .yx113-customer-tag{
+html[data-yx114-customers="stable"] .yx113-customer-tag{
   justify-self:center!important;
   text-align:center!important;
   min-width:54px!important;
 }
-html[data-yx114-customers="locked"] .yx113-customer-count{
+html[data-yx114-customers="stable"] .yx113-customer-count{
   justify-self:end!important;
   text-align:right!important;
   white-space:nowrap!important;
 }
-html[data-yx114-products="locked"] .yx114-toolbar,
-html[data-yx113-products="locked"] .yx114-toolbar{
+html[data-yx114-products="stable"] .yx114-toolbar,
+html[data-yx113-products="stable"] .yx114-toolbar{
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
@@ -3335,14 +3335,14 @@ html[data-yx113-products="locked"] .yx114-toolbar{
   min-width:180px!important;
 }
 @media(max-width:760px){
-  html[data-yx114-products="locked"] .yx114-toolbar,
-  html[data-yx113-products="locked"] .yx114-toolbar{flex-wrap:wrap!important;}
+  html[data-yx114-products="stable"] .yx114-toolbar,
+  html[data-yx113-products="stable"] .yx114-toolbar{flex-wrap:wrap!important;}
   .yx114-toolbar-main{width:100%!important;}
   .yx114-batch-actions{width:100%!important; justify-content:flex-end!important;}
   .yx114-batch-actions .ghost-btn{width:auto!important;}
 }
-html[data-yx114-warehouse="locked"] .yx108-slot-row1,
-html[data-yx114Warehouse="locked"] .yx108-slot-row1{
+html[data-yx114-warehouse="stable"] .yx108-slot-row1,
+html[data-yx114Warehouse="stable"] .yx108-slot-row1{
   display:flex!important;
   align-items:flex-start!important;
   justify-content:flex-start!important;
@@ -3350,15 +3350,15 @@ html[data-yx114Warehouse="locked"] .yx108-slot-row1{
   width:100%!important;
   min-width:0!important;
 }
-html[data-yx114-warehouse="locked"] .yx108-slot-no,
-html[data-yx114Warehouse="locked"] .yx108-slot-no{
+html[data-yx114-warehouse="stable"] .yx108-slot-no,
+html[data-yx114Warehouse="stable"] .yx108-slot-no{
   flex:0 0 auto!important;
   min-width:auto!important;
   margin:0!important;
   padding:0!important;
 }
-html[data-yx114-warehouse="locked"] .yx108-slot-customers,
-html[data-yx114Warehouse="locked"] .yx108-slot-customers{
+html[data-yx114-warehouse="stable"] .yx108-slot-customers,
+html[data-yx114Warehouse="stable"] .yx108-slot-customers{
   flex:0 1 auto!important;
   margin-left:0!important;
   text-align:left!important;
@@ -3369,80 +3369,80 @@ html[data-yx114Warehouse="locked"] .yx108-slot-customers{
   white-space:nowrap!important;
   max-width:calc(100% - 28px)!important;
 }
-html[data-yx114-warehouse="locked"] .yx108-slot-row2,
-html[data-yx114Warehouse="locked"] .yx108-slot-row2{
+html[data-yx114-warehouse="stable"] .yx108-slot-row2,
+html[data-yx114Warehouse="stable"] .yx108-slot-row2{
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
   gap:8px!important;
   width:100%!important;
 }
-html[data-yx114-warehouse="locked"] .yx108-slot-sum,
-html[data-yx114-warehouse="locked"] .yx108-slot-total,
-html[data-yx114Warehouse="locked"] .yx108-slot-sum,
-html[data-yx114Warehouse="locked"] .yx108-slot-total{
+html[data-yx114-warehouse="stable"] .yx108-slot-sum,
+html[data-yx114-warehouse="stable"] .yx108-slot-total,
+html[data-yx114Warehouse="stable"] .yx108-slot-sum,
+html[data-yx114Warehouse="stable"] .yx108-slot-total{
   color:#1d4ed8!important;
   font-weight:950!important;
 }
-html[data-yx114-warehouse="locked"] .yx108-slot .small-note,
-html[data-yx114-warehouse="locked"] .yx108-slot .yx106-slot-group,
-html[data-yx114-warehouse="locked"] .yx108-slot .yx106-slot-head,
-html[data-yx114-warehouse="locked"] .yx108-slot .yx106-slot-qty,
-html[data-yx114Warehouse="locked"] .yx108-slot .small-note,
-html[data-yx114Warehouse="locked"] .yx108-slot .yx106-slot-group,
-html[data-yx114Warehouse="locked"] .yx108-slot .yx106-slot-head,
-html[data-yx114Warehouse="locked"] .yx108-slot .yx106-slot-qty{
+html[data-yx114-warehouse="stable"] .yx108-slot .small-note,
+html[data-yx114-warehouse="stable"] .yx108-slot .yx106-slot-group,
+html[data-yx114-warehouse="stable"] .yx108-slot .yx106-slot-head,
+html[data-yx114-warehouse="stable"] .yx108-slot .yx106-slot-qty,
+html[data-yx114Warehouse="stable"] .yx108-slot .small-note,
+html[data-yx114Warehouse="stable"] .yx108-slot .yx106-slot-group,
+html[data-yx114Warehouse="stable"] .yx108-slot .yx106-slot-head,
+html[data-yx114Warehouse="stable"] .yx108-slot .yx106-slot-qty{
   display:none!important;
 }
 .yx114-unplaced-refresh-trigger{
   -webkit-touch-callout:none;
   user-select:none;
 }
-html[data-yx114-products="locked"] .yx114-batch-actions .text-input.small,
-html[data-yx113-products="locked"] .yx114-batch-actions .text-input.small{
+html[data-yx114-products="stable"] .yx114-batch-actions .text-input.small,
+html[data-yx113-products="stable"] .yx114-batch-actions .text-input.small{
   width:auto!important;
   min-width:180px!important;
 }
-html[data-yx114-products="locked"] .yx114-batch-actions .ghost-btn,
-html[data-yx113-products="locked"] .yx114-batch-actions .ghost-btn{
+html[data-yx114-products="stable"] .yx114-batch-actions .ghost-btn,
+html[data-yx113-products="stable"] .yx114-batch-actions .ghost-btn{
   width:auto!important;
   flex:0 0 auto!important;
 }
 
 /* ==== FIX115 母版舊渲染隔離：只隱藏舊畫面，不影響資料功能 ==== */
-html[data-yx115-legacy-isolation="locked"] .yx115-hidden-legacy,
-html[data-yx115LegacyIsolation="locked"] .yx115-hidden-legacy,
+html[data-yx115-legacy-isolation="stable"] .yx115-hidden-legacy,
+html[data-yx115LegacyIsolation="stable"] .yx115-hidden-legacy,
 .yx115-hidden-legacy,
 .yx115-hidden-legacy-product{
   display:none!important;
   visibility:hidden!important;
   pointer-events:none!important;
 }
-html[data-yx115-customers="locked"] .yx114-customer-list,
-html[data-yx115Customers="locked"] .yx114-customer-list{
+html[data-yx115-customers="stable"] .yx114-customer-list,
+html[data-yx115Customers="stable"] .yx114-customer-list{
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
   gap:10px!important;
   align-items:start!important;
 }
-html[data-yx115-customers="locked"] .customer-card-arrow,
-html[data-yx115-customers="locked"] .fix48-customer-arrow,
-html[data-yx115-customers="locked"] .yx113-customer-arrow,
-html[data-yx115Customers="locked"] .customer-card-arrow,
-html[data-yx115Customers="locked"] .fix48-customer-arrow,
-html[data-yx115Customers="locked"] .yx113-customer-arrow{
+html[data-yx115-customers="stable"] .customer-card-arrow,
+html[data-yx115-customers="stable"] .fix48-customer-arrow,
+html[data-yx115-customers="stable"] .yx113-customer-arrow,
+html[data-yx115Customers="stable"] .customer-card-arrow,
+html[data-yx115Customers="stable"] .fix48-customer-arrow,
+html[data-yx115Customers="stable"] .yx113-customer-arrow{
   display:none!important;
 }
-html[data-yx115-products="locked"] .yx114-toolbar,
-html[data-yx115Products="locked"] .yx114-toolbar{
+html[data-yx115-products="stable"] .yx114-toolbar,
+html[data-yx115Products="stable"] .yx114-toolbar{
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
   flex-wrap:nowrap!important;
   gap:10px!important;
 }
-html[data-yx115-products="locked"] .yx114-batch-actions,
-html[data-yx115Products="locked"] .yx114-batch-actions{
+html[data-yx115-products="stable"] .yx114-batch-actions,
+html[data-yx115Products="stable"] .yx114-batch-actions{
   margin-left:auto!important;
   display:flex!important;
   align-items:center!important;
@@ -3450,24 +3450,24 @@ html[data-yx115Products="locked"] .yx114-batch-actions{
   gap:8px!important;
   white-space:nowrap!important;
 }
-html[data-yx115-products="locked"] .yx114-batch-actions select,
-html[data-yx115Products="locked"] .yx114-batch-actions select{
+html[data-yx115-products="stable"] .yx114-batch-actions select,
+html[data-yx115Products="stable"] .yx114-batch-actions select{
   min-width:180px!important;
 }
-html[data-yx115-warehouse="locked"] .yx108-slot-row1,
-html[data-yx115Warehouse="locked"] .yx108-slot-row1{
+html[data-yx115-warehouse="stable"] .yx108-slot-row1,
+html[data-yx115Warehouse="stable"] .yx108-slot-row1{
   display:flex!important;
   justify-content:flex-start!important;
   align-items:flex-start!important;
   gap:6px!important;
 }
-html[data-yx115-warehouse="locked"] .yx108-slot-no,
-html[data-yx115Warehouse="locked"] .yx108-slot-no{
+html[data-yx115-warehouse="stable"] .yx108-slot-no,
+html[data-yx115Warehouse="stable"] .yx108-slot-no{
   flex:0 0 auto!important;
   min-width:auto!important;
 }
-html[data-yx115-warehouse="locked"] .yx108-slot-customers,
-html[data-yx115Warehouse="locked"] .yx108-slot-customers{
+html[data-yx115-warehouse="stable"] .yx108-slot-customers,
+html[data-yx115Warehouse="stable"] .yx108-slot-customers{
   flex:0 1 auto!important;
   color:#b91c1c!important;
   font-weight:950!important;
@@ -3477,47 +3477,47 @@ html[data-yx115Warehouse="locked"] .yx108-slot-customers{
   overflow:hidden!important;
   text-overflow:ellipsis!important;
 }
-html[data-yx115-warehouse="locked"] .yx108-slot-sum,
-html[data-yx115-warehouse="locked"] .yx108-slot-total,
-html[data-yx115Warehouse="locked"] .yx108-slot-sum,
-html[data-yx115Warehouse="locked"] .yx108-slot-total{
+html[data-yx115-warehouse="stable"] .yx108-slot-sum,
+html[data-yx115-warehouse="stable"] .yx108-slot-total,
+html[data-yx115Warehouse="stable"] .yx108-slot-sum,
+html[data-yx115Warehouse="stable"] .yx108-slot-total{
   color:#1d4ed8!important;
   font-weight:950!important;
 }
-html[data-yx115-today="locked"] .today-filter-bar,
-html[data-yx115Today="locked"] .today-filter-bar,
-html[data-yx115-today="locked"] #today-summary-cards,
-html[data-yx115Today="locked"] #today-summary-cards{
+html[data-yx115-today="stable"] .today-filter-bar,
+html[data-yx115Today="stable"] .today-filter-bar,
+html[data-yx115-today="stable"] #today-summary-cards,
+html[data-yx115Today="stable"] #today-summary-cards{
   contain:layout style paint!important;
 }
 
-/* ==== FIX117 interface dominance hardlock ==== */
-html[data-yx116-customers="locked"] #region-picker-section .category-grid.compact-grid,
-html[data-yx116Customers="locked"] #region-picker-section .category-grid.compact-grid,
-html[data-yx116-customers="locked"] #customers-section .category-grid.compact-grid,
-html[data-yx116Customers="locked"] #customers-section .category-grid.compact-grid{
+/* ==== FIX117 interface dominance main-core ==== */
+html[data-yx116-customers="stable"] #region-picker-section .category-grid.compact-grid,
+html[data-yx116Customers="stable"] #region-picker-section .category-grid.compact-grid,
+html[data-yx116-customers="stable"] #customers-section .category-grid.compact-grid,
+html[data-yx116Customers="stable"] #customers-section .category-grid.compact-grid{
   display:grid!important;
   grid-template-columns:repeat(3,minmax(320px,1fr))!important;
   gap:16px!important;
   align-items:start!important;
 }
-html[data-yx116-customers="locked"] .category-box,
-html[data-yx116Customers="locked"] .category-box{
+html[data-yx116-customers="stable"] .category-box,
+html[data-yx116Customers="stable"] .category-box{
   min-width:0!important;
   padding:16px!important;
   border-radius:22px!important;
 }
-html[data-yx116-customers="locked"] .yx114-customer-list,
-html[data-yx116Customers="locked"] .yx114-customer-list,
-html[data-yx116-customers="locked"] .customer-list,
-html[data-yx116Customers="locked"] .customer-list{
+html[data-yx116-customers="stable"] .yx114-customer-list,
+html[data-yx116Customers="stable"] .yx114-customer-list,
+html[data-yx116-customers="stable"] .customer-list,
+html[data-yx116Customers="stable"] .customer-list{
   display:grid!important;
   grid-template-columns:repeat(2,minmax(176px,1fr))!important;
   gap:12px!important;
   align-items:stretch!important;
 }
-html[data-yx116-customers="locked"] .yx116-customer-card,
-html[data-yx116Customers="locked"] .yx116-customer-card{
+html[data-yx116-customers="stable"] .yx116-customer-card,
+html[data-yx116Customers="stable"] .yx116-customer-card{
   min-height:58px!important;
   padding:14px 16px!important;
   border-radius:18px!important;
@@ -3525,8 +3525,8 @@ html[data-yx116Customers="locked"] .yx116-customer-card{
   gap:8px!important;
   overflow:hidden!important;
 }
-html[data-yx116-customers="locked"] .yx116-customer-name,
-html[data-yx116Customers="locked"] .yx116-customer-name{
+html[data-yx116-customers="stable"] .yx116-customer-name,
+html[data-yx116Customers="stable"] .yx116-customer-name{
   overflow:visible!important;
   text-overflow:clip!important;
   white-space:nowrap!important;
@@ -3534,75 +3534,75 @@ html[data-yx116Customers="locked"] .yx116-customer-name{
   font-size:15px!important;
   letter-spacing:.01em!important;
 }
-html[data-yx116-customers="locked"] .yx116-customer-count,
-html[data-yx116Customers="locked"] .yx116-customer-count{
+html[data-yx116-customers="stable"] .yx116-customer-count,
+html[data-yx116Customers="stable"] .yx116-customer-count{
   justify-self:end!important;
   text-align:right!important;
   font-size:15px!important;
   white-space:nowrap!important;
   color:#334155!important;
 }
-html[data-yx116-customers="locked"] .yx116-customer-tag,
-html[data-yx116Customers="locked"] .yx116-customer-tag{
+html[data-yx116-customers="stable"] .yx116-customer-tag,
+html[data-yx116Customers="stable"] .yx116-customer-tag{
   justify-self:center!important;
   min-width:58px!important;
   padding:3px 10px!important;
 }
-html[data-yx116-customers="locked"] .customer-card-arrow,
-html[data-yx116Customers="locked"] .customer-card-arrow,
-html[data-yx116-customers="locked"] .fix48-customer-arrow,
-html[data-yx116Customers="locked"] .fix48-customer-arrow,
-html[data-yx116-customers="locked"] .yx113-customer-arrow,
-html[data-yx116Customers="locked"] .yx113-customer-arrow{
+html[data-yx116-customers="stable"] .customer-card-arrow,
+html[data-yx116Customers="stable"] .customer-card-arrow,
+html[data-yx116-customers="stable"] .fix48-customer-arrow,
+html[data-yx116Customers="stable"] .fix48-customer-arrow,
+html[data-yx116-customers="stable"] .yx113-customer-arrow,
+html[data-yx116Customers="stable"] .yx113-customer-arrow{
   display:none!important;
   visibility:hidden!important;
 }
 @media(max-width:1180px){
-  html[data-yx116-customers="locked"] #region-picker-section .category-grid.compact-grid,
-  html[data-yx116Customers="locked"] #region-picker-section .category-grid.compact-grid,
-  html[data-yx116-customers="locked"] #customers-section .category-grid.compact-grid,
-  html[data-yx116Customers="locked"] #customers-section .category-grid.compact-grid{grid-template-columns:1fr!important;}
-  html[data-yx116-customers="locked"] .yx114-customer-list,
-  html[data-yx116Customers="locked"] .yx114-customer-list,
-  html[data-yx116-customers="locked"] .customer-list,
-  html[data-yx116Customers="locked"] .customer-list{grid-template-columns:repeat(2,minmax(180px,1fr))!important;}
+  html[data-yx116-customers="stable"] #region-picker-section .category-grid.compact-grid,
+  html[data-yx116Customers="stable"] #region-picker-section .category-grid.compact-grid,
+  html[data-yx116-customers="stable"] #customers-section .category-grid.compact-grid,
+  html[data-yx116Customers="stable"] #customers-section .category-grid.compact-grid{grid-template-columns:1fr!important;}
+  html[data-yx116-customers="stable"] .yx114-customer-list,
+  html[data-yx116Customers="stable"] .yx114-customer-list,
+  html[data-yx116-customers="stable"] .customer-list,
+  html[data-yx116Customers="stable"] .customer-list{grid-template-columns:repeat(2,minmax(180px,1fr))!important;}
 }
 @media(max-width:560px){
-  html[data-yx116-customers="locked"] .yx114-customer-list,
-  html[data-yx116Customers="locked"] .yx114-customer-list,
-  html[data-yx116-customers="locked"] .customer-list,
-  html[data-yx116Customers="locked"] .customer-list{grid-template-columns:1fr!important;}
+  html[data-yx116-customers="stable"] .yx114-customer-list,
+  html[data-yx116Customers="stable"] .yx114-customer-list,
+  html[data-yx116-customers="stable"] .customer-list,
+  html[data-yx116Customers="stable"] .customer-list{grid-template-columns:1fr!important;}
 }
-html[data-yx116-warehouse="locked"] .yx116-warehouse-grid,
-html[data-yx116Warehouse="locked"] .yx116-warehouse-grid{
+html[data-yx116-warehouse="stable"] .yx116-warehouse-grid,
+html[data-yx116Warehouse="stable"] .yx116-warehouse-grid{
   gap:14px!important;
   align-items:start!important;
 }
-html[data-yx116-warehouse="locked"] .yx116-warehouse-column,
-html[data-yx116Warehouse="locked"] .yx116-warehouse-column{
+html[data-yx116-warehouse="stable"] .yx116-warehouse-column,
+html[data-yx116Warehouse="stable"] .yx116-warehouse-column{
   background:#fff!important;
   border-radius:20px!important;
   padding:14px!important;
   border:1px solid rgba(15,23,42,.08)!important;
   box-shadow:0 8px 20px rgba(15,23,42,.06)!important;
 }
-html[data-yx116-warehouse="locked"] .yx116-slot,
-html[data-yx116Warehouse="locked"] .yx116-slot{
+html[data-yx116-warehouse="stable"] .yx116-slot,
+html[data-yx116Warehouse="stable"] .yx116-slot{
   min-height:70px!important;
   padding:10px 10px!important;
   border-radius:15px!important;
   overflow:hidden!important;
 }
-html[data-yx116-warehouse="locked"] .yx116-slot-row1,
-html[data-yx116Warehouse="locked"] .yx116-slot-row1{
+html[data-yx116-warehouse="stable"] .yx116-slot-row1,
+html[data-yx116Warehouse="stable"] .yx116-slot-row1{
   display:flex!important;
   justify-content:flex-start!important;
   align-items:flex-start!important;
   gap:4px!important;
   width:100%!important;
 }
-html[data-yx116-warehouse="locked"] .yx108-slot-no,
-html[data-yx116Warehouse="locked"] .yx108-slot-no{
+html[data-yx116-warehouse="stable"] .yx108-slot-no,
+html[data-yx116Warehouse="stable"] .yx108-slot-no{
   flex:0 0 auto!important;
   min-width:auto!important;
   margin:0!important;
@@ -3611,8 +3611,8 @@ html[data-yx116Warehouse="locked"] .yx108-slot-no{
   font-size:18px!important;
   font-weight:950!important;
 }
-html[data-yx116-warehouse="locked"] .yx108-slot-customers,
-html[data-yx116Warehouse="locked"] .yx108-slot-customers{
+html[data-yx116-warehouse="stable"] .yx108-slot-customers,
+html[data-yx116Warehouse="stable"] .yx108-slot-customers{
   flex:1 1 auto!important;
   min-width:0!important;
   margin-left:2px!important;
@@ -3623,8 +3623,8 @@ html[data-yx116Warehouse="locked"] .yx108-slot-customers{
   overflow:hidden!important;
   text-overflow:ellipsis!important;
 }
-html[data-yx116-warehouse="locked"] .yx116-slot-row2,
-html[data-yx116Warehouse="locked"] .yx116-slot-row2{
+html[data-yx116-warehouse="stable"] .yx116-slot-row2,
+html[data-yx116Warehouse="stable"] .yx116-slot-row2{
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
@@ -3632,45 +3632,45 @@ html[data-yx116Warehouse="locked"] .yx116-slot-row2{
   width:100%!important;
   margin-top:8px!important;
 }
-html[data-yx116-warehouse="locked"] .yx108-slot-sum,
-html[data-yx116-warehouse="locked"] .yx108-slot-total,
-html[data-yx116Warehouse="locked"] .yx108-slot-sum,
-html[data-yx116Warehouse="locked"] .yx108-slot-total{
+html[data-yx116-warehouse="stable"] .yx108-slot-sum,
+html[data-yx116-warehouse="stable"] .yx108-slot-total,
+html[data-yx116Warehouse="stable"] .yx108-slot-sum,
+html[data-yx116Warehouse="stable"] .yx108-slot-total{
   color:#1d4ed8!important;
   font-weight:950!important;
   font-size:16px!important;
 }
-html[data-yx116-warehouse="locked"] .yx96-slot,
-html[data-yx116-warehouse="locked"] .yx102-slot:not(.yx116-slot),
-html[data-yx116-warehouse="locked"] .yx103-slot:not(.yx116-slot),
-html[data-yx116-warehouse="locked"] .yx105-slot:not(.yx116-slot),
-html[data-yx116Warehouse="locked"] .yx96-slot,
-html[data-yx116Warehouse="locked"] .yx102-slot:not(.yx116-slot),
-html[data-yx116Warehouse="locked"] .yx103-slot:not(.yx116-slot),
-html[data-yx116Warehouse="locked"] .yx105-slot:not(.yx116-slot){
+html[data-yx116-warehouse="stable"] .yx96-slot,
+html[data-yx116-warehouse="stable"] .yx102-slot:not(.yx116-slot),
+html[data-yx116-warehouse="stable"] .yx103-slot:not(.yx116-slot),
+html[data-yx116-warehouse="stable"] .yx105-slot:not(.yx116-slot),
+html[data-yx116Warehouse="stable"] .yx96-slot,
+html[data-yx116Warehouse="stable"] .yx102-slot:not(.yx116-slot),
+html[data-yx116Warehouse="stable"] .yx103-slot:not(.yx116-slot),
+html[data-yx116Warehouse="stable"] .yx105-slot:not(.yx116-slot){
   display:none!important;
   visibility:hidden!important;
 }
-html[data-yx116-ship-picker="locked"] #ship-customer-item-select,
-html[data-yx116ShipPicker="locked"] #ship-customer-item-select{
+html[data-yx116-ship-picker="stable"] #ship-customer-item-select,
+html[data-yx116ShipPicker="stable"] #ship-customer-item-select{
   min-height:42px!important;
   font-weight:800!important;
 }
 
-/* ==== FIX117 customer one-row + premium Apple-style button hardlock ==== */
-html[data-yx117-customers="locked"] .yx114-customer-list,
-html[data-yx117Customers="locked"] .yx114-customer-list,
-html[data-yx117-customers="locked"] .customer-list,
-html[data-yx117Customers="locked"] .customer-list{
+/* ==== FIX117 customer one-row + premium Apple-style button main-core ==== */
+html[data-yx117-customers="stable"] .yx114-customer-list,
+html[data-yx117Customers="stable"] .yx114-customer-list,
+html[data-yx117-customers="stable"] .customer-list,
+html[data-yx117Customers="stable"] .customer-list{
   display:grid!important;
   grid-template-columns:1fr!important;
   gap:12px!important;
   align-items:stretch!important;
 }
-html[data-yx117-customers="locked"] .yx117-customer-card,
-html[data-yx117Customers="locked"] .yx117-customer-card,
-html[data-yx117-customers="locked"] .yx116-customer-card,
-html[data-yx117Customers="locked"] .yx116-customer-card{
+html[data-yx117-customers="stable"] .yx117-customer-card,
+html[data-yx117Customers="stable"] .yx117-customer-card,
+html[data-yx117-customers="stable"] .yx116-customer-card,
+html[data-yx117Customers="stable"] .yx116-customer-card{
   width:100%!important;
   min-height:64px!important;
   padding:15px 18px!important;
@@ -3681,8 +3681,8 @@ html[data-yx117Customers="locked"] .yx116-customer-card{
   align-items:center!important;
   overflow:hidden!important;
 }
-html[data-yx117-customers="locked"] .yx116-customer-name,
-html[data-yx117Customers="locked"] .yx116-customer-name{
+html[data-yx117-customers="stable"] .yx116-customer-name,
+html[data-yx117Customers="stable"] .yx116-customer-name{
   display:block!important;
   max-width:none!important;
   overflow:hidden!important;
@@ -3693,15 +3693,15 @@ html[data-yx117Customers="locked"] .yx116-customer-name{
   letter-spacing:.01em!important;
   color:#0f172a!important;
 }
-html[data-yx117-customers="locked"] .yx116-customer-tag,
-html[data-yx117Customers="locked"] .yx116-customer-tag{
+html[data-yx117-customers="stable"] .yx116-customer-tag,
+html[data-yx117Customers="stable"] .yx116-customer-tag{
   justify-self:center!important;
   min-width:64px!important;
   padding:3px 12px!important;
   border-radius:999px!important;
 }
-html[data-yx117-customers="locked"] .yx116-customer-count,
-html[data-yx117Customers="locked"] .yx116-customer-count{
+html[data-yx117-customers="stable"] .yx116-customer-count,
+html[data-yx117Customers="stable"] .yx116-customer-count{
   justify-self:end!important;
   text-align:right!important;
   font-size:16px!important;
@@ -3709,48 +3709,48 @@ html[data-yx117Customers="locked"] .yx116-customer-count{
   white-space:nowrap!important;
   color:#334155!important;
 }
-html[data-yx117-customers="locked"] #region-picker-section .customer-region-card:not(.yx116-customer-card),
-html[data-yx117Customers="locked"] #region-picker-section .customer-region-card:not(.yx116-customer-card),
-html[data-yx117-customers="locked"] #customers-section .customer-region-card:not(.yx116-customer-card),
-html[data-yx117Customers="locked"] #customers-section .customer-region-card:not(.yx116-customer-card),
-html[data-yx117-customers="locked"] .customer-card-arrow,
-html[data-yx117Customers="locked"] .customer-card-arrow,
-html[data-yx117-customers="locked"] .fix48-customer-arrow,
-html[data-yx117Customers="locked"] .fix48-customer-arrow,
-html[data-yx117-customers="locked"] .yx113-customer-arrow,
-html[data-yx117Customers="locked"] .yx113-customer-arrow{
+html[data-yx117-customers="stable"] #region-picker-section .customer-region-card:not(.yx116-customer-card),
+html[data-yx117Customers="stable"] #region-picker-section .customer-region-card:not(.yx116-customer-card),
+html[data-yx117-customers="stable"] #customers-section .customer-region-card:not(.yx116-customer-card),
+html[data-yx117Customers="stable"] #customers-section .customer-region-card:not(.yx116-customer-card),
+html[data-yx117-customers="stable"] .customer-card-arrow,
+html[data-yx117Customers="stable"] .customer-card-arrow,
+html[data-yx117-customers="stable"] .fix48-customer-arrow,
+html[data-yx117Customers="stable"] .fix48-customer-arrow,
+html[data-yx117-customers="stable"] .yx113-customer-arrow,
+html[data-yx117Customers="stable"] .yx113-customer-arrow{
   display:none!important;
   visibility:hidden!important;
 }
 @media(max-width:1180px){
-  html[data-yx117-customers="locked"] .yx114-customer-list,
-  html[data-yx117Customers="locked"] .yx114-customer-list,
-  html[data-yx117-customers="locked"] .customer-list,
-  html[data-yx117Customers="locked"] .customer-list{grid-template-columns:1fr!important;}
+  html[data-yx117-customers="stable"] .yx114-customer-list,
+  html[data-yx117Customers="stable"] .yx114-customer-list,
+  html[data-yx117-customers="stable"] .customer-list,
+  html[data-yx117Customers="stable"] .customer-list{grid-template-columns:1fr!important;}
 }
 @media(max-width:560px){
-  html[data-yx117-customers="locked"] .yx117-customer-card,
-  html[data-yx117Customers="locked"] .yx117-customer-card,
-  html[data-yx117-customers="locked"] .yx116-customer-card,
-  html[data-yx117Customers="locked"] .yx116-customer-card{
+  html[data-yx117-customers="stable"] .yx117-customer-card,
+  html[data-yx117Customers="stable"] .yx117-customer-card,
+  html[data-yx117-customers="stable"] .yx116-customer-card,
+  html[data-yx117Customers="stable"] .yx116-customer-card{
     grid-template-columns:minmax(0,1fr) auto!important;
     row-gap:6px!important;
   }
-  html[data-yx117-customers="locked"] .yx116-customer-count,
-  html[data-yx117Customers="locked"] .yx116-customer-count{grid-column:1 / -1!important; justify-self:end!important;}
+  html[data-yx117-customers="stable"] .yx116-customer-count,
+  html[data-yx117Customers="stable"] .yx116-customer-count{grid-column:1 / -1!important; justify-self:end!important;}
 }
-html[data-yx117-apple-ui="locked"] button,
-html[data-yx117AppleUi="locked"] button,
-html[data-yx117-apple-ui="locked"] .primary-btn,
-html[data-yx117AppleUi="locked"] .primary-btn,
-html[data-yx117-apple-ui="locked"] .ghost-btn,
-html[data-yx117AppleUi="locked"] .ghost-btn,
-html[data-yx117-apple-ui="locked"] .secondary-btn,
-html[data-yx117AppleUi="locked"] .secondary-btn,
-html[data-yx117-apple-ui="locked"] .danger-btn,
-html[data-yx117AppleUi="locked"] .danger-btn,
-html[data-yx117-apple-ui="locked"] .icon-btn,
-html[data-yx117AppleUi="locked"] .icon-btn{
+html[data-yx117-apple-ui="stable"] button,
+html[data-yx117AppleUi="stable"] button,
+html[data-yx117-apple-ui="stable"] .primary-btn,
+html[data-yx117AppleUi="stable"] .primary-btn,
+html[data-yx117-apple-ui="stable"] .ghost-btn,
+html[data-yx117AppleUi="stable"] .ghost-btn,
+html[data-yx117-apple-ui="stable"] .secondary-btn,
+html[data-yx117AppleUi="stable"] .secondary-btn,
+html[data-yx117-apple-ui="stable"] .danger-btn,
+html[data-yx117AppleUi="stable"] .danger-btn,
+html[data-yx117-apple-ui="stable"] .icon-btn,
+html[data-yx117AppleUi="stable"] .icon-btn{
   -webkit-tap-highlight-color:transparent!important;
   border-radius:18px!important;
   border:1px solid rgba(15,23,42,.10)!important;
@@ -3763,53 +3763,53 @@ html[data-yx117AppleUi="locked"] .icon-btn{
   letter-spacing:.01em!important;
   transition:transform .16s ease, box-shadow .16s ease, background .16s ease, border-color .16s ease, opacity .16s ease!important;
 }
-html[data-yx117-apple-ui="locked"] button:hover,
-html[data-yx117AppleUi="locked"] button:hover,
-html[data-yx117-apple-ui="locked"] .ghost-btn:hover,
-html[data-yx117AppleUi="locked"] .ghost-btn:hover,
-html[data-yx117-apple-ui="locked"] .primary-btn:hover,
-html[data-yx117AppleUi="locked"] .primary-btn:hover{
+html[data-yx117-apple-ui="stable"] button:hover,
+html[data-yx117AppleUi="stable"] button:hover,
+html[data-yx117-apple-ui="stable"] .ghost-btn:hover,
+html[data-yx117AppleUi="stable"] .ghost-btn:hover,
+html[data-yx117-apple-ui="stable"] .primary-btn:hover,
+html[data-yx117AppleUi="stable"] .primary-btn:hover{
   transform:translateY(-1px)!important;
   box-shadow:0 12px 26px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.95)!important;
 }
-html[data-yx117-apple-ui="locked"] button:active,
-html[data-yx117AppleUi="locked"] button:active,
-html[data-yx117-apple-ui="locked"] .primary-btn:active,
-html[data-yx117AppleUi="locked"] .primary-btn:active,
-html[data-yx117-apple-ui="locked"] .ghost-btn:active,
-html[data-yx117AppleUi="locked"] .ghost-btn:active{
+html[data-yx117-apple-ui="stable"] button:active,
+html[data-yx117AppleUi="stable"] button:active,
+html[data-yx117-apple-ui="stable"] .primary-btn:active,
+html[data-yx117AppleUi="stable"] .primary-btn:active,
+html[data-yx117-apple-ui="stable"] .ghost-btn:active,
+html[data-yx117AppleUi="stable"] .ghost-btn:active{
   transform:scale(.985)!important;
   box-shadow:0 4px 14px rgba(15,23,42,.08), inset 0 1px 0 rgba(255,255,255,.78)!important;
 }
-html[data-yx117-apple-ui="locked"] button:disabled,
-html[data-yx117AppleUi="locked"] button:disabled{
+html[data-yx117-apple-ui="stable"] button:disabled,
+html[data-yx117AppleUi="stable"] button:disabled{
   opacity:.48!important;
   transform:none!important;
   cursor:not-allowed!important;
 }
-html[data-yx117-apple-ui="locked"] .primary-btn,
-html[data-yx117AppleUi="locked"] .primary-btn,
-html[data-yx117-apple-ui="locked"] button.primary-btn,
-html[data-yx117AppleUi="locked"] button.primary-btn,
-html[data-yx117-apple-ui="locked"] .btn-primary,
-html[data-yx117AppleUi="locked"] .btn-primary{
+html[data-yx117-apple-ui="stable"] .primary-btn,
+html[data-yx117AppleUi="stable"] .primary-btn,
+html[data-yx117-apple-ui="stable"] button.primary-btn,
+html[data-yx117AppleUi="stable"] button.primary-btn,
+html[data-yx117-apple-ui="stable"] .btn-primary,
+html[data-yx117AppleUi="stable"] .btn-primary{
   background:linear-gradient(180deg, rgba(29,29,31,.96), rgba(17,24,39,.96))!important;
   color:#fff!important;
   border-color:rgba(255,255,255,.12)!important;
   box-shadow:0 12px 28px rgba(17,24,39,.20), inset 0 1px 0 rgba(255,255,255,.18)!important;
 }
-html[data-yx117-apple-ui="locked"] .danger-btn,
-html[data-yx117AppleUi="locked"] .danger-btn,
-html[data-yx117-apple-ui="locked"] button.danger-btn,
-html[data-yx117AppleUi="locked"] button.danger-btn,
-html[data-yx117-apple-ui="locked"] .btn-danger,
-html[data-yx117AppleUi="locked"] .btn-danger{
+html[data-yx117-apple-ui="stable"] .danger-btn,
+html[data-yx117AppleUi="stable"] .danger-btn,
+html[data-yx117-apple-ui="stable"] button.danger-btn,
+html[data-yx117AppleUi="stable"] button.danger-btn,
+html[data-yx117-apple-ui="stable"] .btn-danger,
+html[data-yx117AppleUi="stable"] .btn-danger{
   color:#dc2626!important;
   background:rgba(255,245,245,.9)!important;
   border-color:rgba(248,113,113,.28)!important;
 }
-html[data-yx117-apple-ui="locked"] .icon-btn,
-html[data-yx117AppleUi="locked"] .icon-btn{
+html[data-yx117-apple-ui="stable"] .icon-btn,
+html[data-yx117AppleUi="stable"] .icon-btn{
   width:44px!important;
   min-width:44px!important;
   height:44px!important;
@@ -3819,33 +3819,33 @@ html[data-yx117AppleUi="locked"] .icon-btn{
   justify-content:center!important;
   border-radius:16px!important;
 }
-html[data-yx117-apple-ui="locked"] select,
-html[data-yx117AppleUi="locked"] select{
+html[data-yx117-apple-ui="stable"] select,
+html[data-yx117AppleUi="stable"] select{
   border-radius:16px!important;
   border:1px solid rgba(15,23,42,.10)!important;
   background:rgba(255,255,255,.88)!important;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 6px 18px rgba(15,23,42,.05)!important;
 }
-html[data-yx117-apple-ui="locked"] .yx113-customer-action-card .ghost-btn,
-html[data-yx117AppleUi="locked"] .yx113-customer-action-card .ghost-btn{
+html[data-yx117-apple-ui="stable"] .yx113-customer-action-card .ghost-btn,
+html[data-yx117AppleUi="stable"] .yx113-customer-action-card .ghost-btn{
   min-height:52px!important;
   font-size:15px!important;
 }
 
-/* ==== FIX118 Apple-style button hardlock + product sort marker ==== */
-html[data-yx118-apple-ui="locked"] button,
-html[data-yx118-apple-ui="locked"] a.menu-btn,
-html[data-yx118-apple-ui="locked"] a.home-mini-btn,
-html[data-yx118-apple-ui="locked"] a.back-btn,
-html[data-yx118-apple-ui="locked"] .primary-btn,
-html[data-yx118-apple-ui="locked"] .ghost-btn,
-html[data-yx118-apple-ui="locked"] .secondary-btn,
-html[data-yx118-apple-ui="locked"] .home-mini-btn,
-html[data-yx118-apple-ui="locked"] .menu-btn,
-html[data-yx118-apple-ui="locked"] .back-btn,
-html[data-yx118-apple-ui="locked"] .icon-btn,
-html[data-yx118-apple-ui="locked"] .chip,
-html[data-yx118-apple-ui="locked"] [role="button"]{
+/* ==== FIX118 Apple-style button main-core + product sort marker ==== */
+html[data-yx118-apple-ui="stable"] button,
+html[data-yx118-apple-ui="stable"] a.menu-btn,
+html[data-yx118-apple-ui="stable"] a.home-mini-btn,
+html[data-yx118-apple-ui="stable"] a.back-btn,
+html[data-yx118-apple-ui="stable"] .primary-btn,
+html[data-yx118-apple-ui="stable"] .ghost-btn,
+html[data-yx118-apple-ui="stable"] .secondary-btn,
+html[data-yx118-apple-ui="stable"] .home-mini-btn,
+html[data-yx118-apple-ui="stable"] .menu-btn,
+html[data-yx118-apple-ui="stable"] .back-btn,
+html[data-yx118-apple-ui="stable"] .icon-btn,
+html[data-yx118-apple-ui="stable"] .chip,
+html[data-yx118-apple-ui="stable"] [role="button"]{
   -webkit-tap-highlight-color:transparent!important;
   border-radius:18px!important;
   border:1px solid rgba(17,24,39,.10)!important;
@@ -3859,58 +3859,58 @@ html[data-yx118-apple-ui="locked"] [role="button"]{
   transition:transform .16s cubic-bezier(.2,.8,.2,1), box-shadow .16s ease, background .16s ease, border-color .16s ease, opacity .16s ease!important;
   touch-action:manipulation!important;
 }
-html[data-yx118-apple-ui="locked"] button:hover,
-html[data-yx118-apple-ui="locked"] a.menu-btn:hover,
-html[data-yx118-apple-ui="locked"] a.home-mini-btn:hover,
-html[data-yx118-apple-ui="locked"] a.back-btn:hover,
-html[data-yx118-apple-ui="locked"] .primary-btn:hover,
-html[data-yx118-apple-ui="locked"] .ghost-btn:hover,
-html[data-yx118-apple-ui="locked"] .chip:hover{
+html[data-yx118-apple-ui="stable"] button:hover,
+html[data-yx118-apple-ui="stable"] a.menu-btn:hover,
+html[data-yx118-apple-ui="stable"] a.home-mini-btn:hover,
+html[data-yx118-apple-ui="stable"] a.back-btn:hover,
+html[data-yx118-apple-ui="stable"] .primary-btn:hover,
+html[data-yx118-apple-ui="stable"] .ghost-btn:hover,
+html[data-yx118-apple-ui="stable"] .chip:hover{
   transform:translateY(-1px)!important;
   box-shadow:0 14px 34px rgba(15,23,42,.14), inset 0 1px 0 rgba(255,255,255,.96)!important;
 }
-html[data-yx118-apple-ui="locked"] button:active,
-html[data-yx118-apple-ui="locked"] a.menu-btn:active,
-html[data-yx118-apple-ui="locked"] a.home-mini-btn:active,
-html[data-yx118-apple-ui="locked"] a.back-btn:active,
-html[data-yx118-apple-ui="locked"] .primary-btn:active,
-html[data-yx118-apple-ui="locked"] .ghost-btn:active,
-html[data-yx118-apple-ui="locked"] .chip:active{
+html[data-yx118-apple-ui="stable"] button:active,
+html[data-yx118-apple-ui="stable"] a.menu-btn:active,
+html[data-yx118-apple-ui="stable"] a.home-mini-btn:active,
+html[data-yx118-apple-ui="stable"] a.back-btn:active,
+html[data-yx118-apple-ui="stable"] .primary-btn:active,
+html[data-yx118-apple-ui="stable"] .ghost-btn:active,
+html[data-yx118-apple-ui="stable"] .chip:active{
   transform:scale(.982)!important;
   box-shadow:0 5px 16px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.78)!important;
 }
-html[data-yx118-apple-ui="locked"] .primary-btn,
-html[data-yx118-apple-ui="locked"] button.primary-btn,
-html[data-yx118-apple-ui="locked"] .menu-btn,
-html[data-yx118-apple-ui="locked"] a.menu-btn{
+html[data-yx118-apple-ui="stable"] .primary-btn,
+html[data-yx118-apple-ui="stable"] button.primary-btn,
+html[data-yx118-apple-ui="stable"] .menu-btn,
+html[data-yx118-apple-ui="stable"] a.menu-btn{
   background:linear-gradient(180deg, rgba(31,31,34,.98), rgba(17,24,39,.98))!important;
   color:#fff!important;
   border-color:rgba(255,255,255,.14)!important;
   box-shadow:0 14px 32px rgba(17,24,39,.22), inset 0 1px 0 rgba(255,255,255,.20)!important;
 }
-html[data-yx118-apple-ui="locked"] .danger-btn,
-html[data-yx118-apple-ui="locked"] button.danger-btn,
-html[data-yx118-apple-ui="locked"] .btn-danger{
+html[data-yx118-apple-ui="stable"] .danger-btn,
+html[data-yx118-apple-ui="stable"] button.danger-btn,
+html[data-yx118-apple-ui="stable"] .btn-danger{
   color:#d70015!important;
   background:linear-gradient(180deg, rgba(255,247,247,.96), rgba(255,241,242,.92))!important;
   border-color:rgba(255,59,48,.24)!important;
 }
-html[data-yx118-apple-ui="locked"] button:disabled,
-html[data-yx118-apple-ui="locked"] .primary-btn:disabled,
-html[data-yx118-apple-ui="locked"] .ghost-btn:disabled{
+html[data-yx118-apple-ui="stable"] button:disabled,
+html[data-yx118-apple-ui="stable"] .primary-btn:disabled,
+html[data-yx118-apple-ui="stable"] .ghost-btn:disabled{
   opacity:.46!important;
   transform:none!important;
   cursor:not-allowed!important;
 }
-html[data-yx118-apple-ui="locked"] select,
-html[data-yx118-apple-ui="locked"] .text-input,
-html[data-yx118-apple-ui="locked"] .text-area{
+html[data-yx118-apple-ui="stable"] select,
+html[data-yx118-apple-ui="stable"] .text-input,
+html[data-yx118-apple-ui="stable"] .text-area{
   border-radius:18px!important;
   border:1px solid rgba(17,24,39,.10)!important;
   background:rgba(255,255,255,.92)!important;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.92), 0 6px 18px rgba(15,23,42,.05)!important;
 }
-html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
+html[data-yx118-product-sort="stable"] .yx113-summary-head::after{
   content:"排序：材質 → 高 → 寬 → 長 / 同商品件數 → 支數";
   font-size:12px;
   color:#64748b;
@@ -3918,10 +3918,10 @@ html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
   white-space:nowrap;
 }
 @media(max-width:640px){
-  html[data-yx118-product-sort="locked"] .yx113-summary-head::after{display:none;}
+  html[data-yx118-product-sort="stable"] .yx113-summary-head::after{display:none;}
 }
 
-/* FIX124 master bridge stability: keep only hardlocked mother-template surfaces visible and responsive */
+/* FIX124 master bridge stability: keep only main-coreed mother-template surfaces visible and responsive */
 .yx121-warehouse-grid .vertical-slot{appearance:none;-webkit-appearance:none;width:100%;border:0;text-align:left;cursor:pointer;touch-action:manipulation;}
 .yx121-warehouse-grid .vertical-slot:active,.yx108-slot:active{transform:scale(.985);}
 .yx121-warehouse-menu .modal-card,.yx113-customer-actions .modal-card{max-width:420px;width:min(92vw,420px);}
@@ -3947,22 +3947,22 @@ html[data-yx118-product-sort="locked"] .yx113-summary-head::after{
   --yx123-gold-soft:rgba(213,170,85,.28);
   --yx123-label-shadow:0 10px 22px rgba(15,23,42,.10), inset 0 1px 0 rgba(255,255,255,.95);
 }
-html[data-yx118-apple-ui="locked"] .menu-btn,
-html[data-yx118-apple-ui="locked"] a.menu-btn,
-html[data-yx118-apple-ui="locked"] .home-mini-btn,
-html[data-yx118-apple-ui="locked"] a.home-mini-btn,
-html[data-yx118-apple-ui="locked"] .primary-btn,
-html[data-yx118-apple-ui="locked"] button.primary-btn,
-html[data-yx118-apple-ui="locked"] .ghost-btn,
-html[data-yx118-apple-ui="locked"] button.ghost-btn,
-html[data-yx118-apple-ui="locked"] .back-btn,
-html[data-yx118-apple-ui="locked"] a.back-btn,
-html[data-yx118-apple-ui="locked"] .chip,
-html[data-yx118-apple-ui="locked"] button.chip,
-html[data-yx118-apple-ui="locked"] .pill,
-html[data-yx118-apple-ui="locked"] .tiny-btn,
-html[data-yx118-apple-ui="locked"] .small-btn,
-html[data-yx118-apple-ui="locked"] .icon-btn,
+html[data-yx118-apple-ui="stable"] .menu-btn,
+html[data-yx118-apple-ui="stable"] a.menu-btn,
+html[data-yx118-apple-ui="stable"] .home-mini-btn,
+html[data-yx118-apple-ui="stable"] a.home-mini-btn,
+html[data-yx118-apple-ui="stable"] .primary-btn,
+html[data-yx118-apple-ui="stable"] button.primary-btn,
+html[data-yx118-apple-ui="stable"] .ghost-btn,
+html[data-yx118-apple-ui="stable"] button.ghost-btn,
+html[data-yx118-apple-ui="stable"] .back-btn,
+html[data-yx118-apple-ui="stable"] a.back-btn,
+html[data-yx118-apple-ui="stable"] .chip,
+html[data-yx118-apple-ui="stable"] button.chip,
+html[data-yx118-apple-ui="stable"] .pill,
+html[data-yx118-apple-ui="stable"] .tiny-btn,
+html[data-yx118-apple-ui="stable"] .small-btn,
+html[data-yx118-apple-ui="stable"] .icon-btn,
 .pwa-install-btn{
   position:relative!important;
   isolation:isolate;
@@ -3976,16 +3976,16 @@ html[data-yx118-apple-ui="locked"] .icon-btn,
   box-shadow:var(--yx123-label-shadow), inset 0 0 0 5px var(--yx123-gold-soft)!important;
   text-shadow:none!important;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn::before,
-html[data-yx118-apple-ui="locked"] .home-mini-btn::before,
-html[data-yx118-apple-ui="locked"] .primary-btn::before,
-html[data-yx118-apple-ui="locked"] .ghost-btn::before,
-html[data-yx118-apple-ui="locked"] .back-btn::before,
-html[data-yx118-apple-ui="locked"] .chip::before,
-html[data-yx118-apple-ui="locked"] .pill::before,
-html[data-yx118-apple-ui="locked"] .tiny-btn::before,
-html[data-yx118-apple-ui="locked"] .small-btn::before,
-html[data-yx118-apple-ui="locked"] .icon-btn::before,
+html[data-yx118-apple-ui="stable"] .menu-btn::before,
+html[data-yx118-apple-ui="stable"] .home-mini-btn::before,
+html[data-yx118-apple-ui="stable"] .primary-btn::before,
+html[data-yx118-apple-ui="stable"] .ghost-btn::before,
+html[data-yx118-apple-ui="stable"] .back-btn::before,
+html[data-yx118-apple-ui="stable"] .chip::before,
+html[data-yx118-apple-ui="stable"] .pill::before,
+html[data-yx118-apple-ui="stable"] .tiny-btn::before,
+html[data-yx118-apple-ui="stable"] .small-btn::before,
+html[data-yx118-apple-ui="stable"] .icon-btn::before,
 .pwa-install-btn::before{
   content:"";
   position:absolute;
@@ -3996,16 +3996,16 @@ html[data-yx118-apple-ui="locked"] .icon-btn::before,
   pointer-events:none;
   z-index:0;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn::after,
-html[data-yx118-apple-ui="locked"] .home-mini-btn::after,
-html[data-yx118-apple-ui="locked"] .primary-btn::after,
-html[data-yx118-apple-ui="locked"] .ghost-btn::after,
-html[data-yx118-apple-ui="locked"] .back-btn::after,
-html[data-yx118-apple-ui="locked"] .chip::after,
-html[data-yx118-apple-ui="locked"] .pill::after,
-html[data-yx118-apple-ui="locked"] .tiny-btn::after,
-html[data-yx118-apple-ui="locked"] .small-btn::after,
-html[data-yx118-apple-ui="locked"] .icon-btn::after,
+html[data-yx118-apple-ui="stable"] .menu-btn::after,
+html[data-yx118-apple-ui="stable"] .home-mini-btn::after,
+html[data-yx118-apple-ui="stable"] .primary-btn::after,
+html[data-yx118-apple-ui="stable"] .ghost-btn::after,
+html[data-yx118-apple-ui="stable"] .back-btn::after,
+html[data-yx118-apple-ui="stable"] .chip::after,
+html[data-yx118-apple-ui="stable"] .pill::after,
+html[data-yx118-apple-ui="stable"] .tiny-btn::after,
+html[data-yx118-apple-ui="stable"] .small-btn::after,
+html[data-yx118-apple-ui="stable"] .icon-btn::after,
 .pwa-install-btn::after{
   content:"";
   position:absolute;
@@ -4016,57 +4016,57 @@ html[data-yx118-apple-ui="locked"] .icon-btn::after,
   pointer-events:none;
   z-index:0;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn:hover,
-html[data-yx118-apple-ui="locked"] .home-mini-btn:hover,
-html[data-yx118-apple-ui="locked"] .primary-btn:hover,
-html[data-yx118-apple-ui="locked"] .ghost-btn:hover,
-html[data-yx118-apple-ui="locked"] .back-btn:hover,
-html[data-yx118-apple-ui="locked"] .chip:hover,
-html[data-yx118-apple-ui="locked"] .pill:hover,
-html[data-yx118-apple-ui="locked"] .tiny-btn:hover,
-html[data-yx118-apple-ui="locked"] .small-btn:hover,
-html[data-yx118-apple-ui="locked"] .icon-btn:hover,
+html[data-yx118-apple-ui="stable"] .menu-btn:hover,
+html[data-yx118-apple-ui="stable"] .home-mini-btn:hover,
+html[data-yx118-apple-ui="stable"] .primary-btn:hover,
+html[data-yx118-apple-ui="stable"] .ghost-btn:hover,
+html[data-yx118-apple-ui="stable"] .back-btn:hover,
+html[data-yx118-apple-ui="stable"] .chip:hover,
+html[data-yx118-apple-ui="stable"] .pill:hover,
+html[data-yx118-apple-ui="stable"] .tiny-btn:hover,
+html[data-yx118-apple-ui="stable"] .small-btn:hover,
+html[data-yx118-apple-ui="stable"] .icon-btn:hover,
 .pwa-install-btn:hover{
   transform:translateY(-1px)!important;
   box-shadow:0 14px 28px rgba(15,23,42,.12), inset 0 0 0 5px rgba(213,170,85,.34)!important;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn:active,
-html[data-yx118-apple-ui="locked"] .home-mini-btn:active,
-html[data-yx118-apple-ui="locked"] .primary-btn:active,
-html[data-yx118-apple-ui="locked"] .ghost-btn:active,
-html[data-yx118-apple-ui="locked"] .back-btn:active,
-html[data-yx118-apple-ui="locked"] .chip:active,
-html[data-yx118-apple-ui="locked"] .pill:active,
-html[data-yx118-apple-ui="locked"] .tiny-btn:active,
-html[data-yx118-apple-ui="locked"] .small-btn:active,
-html[data-yx118-apple-ui="locked"] .icon-btn:active,
+html[data-yx118-apple-ui="stable"] .menu-btn:active,
+html[data-yx118-apple-ui="stable"] .home-mini-btn:active,
+html[data-yx118-apple-ui="stable"] .primary-btn:active,
+html[data-yx118-apple-ui="stable"] .ghost-btn:active,
+html[data-yx118-apple-ui="stable"] .back-btn:active,
+html[data-yx118-apple-ui="stable"] .chip:active,
+html[data-yx118-apple-ui="stable"] .pill:active,
+html[data-yx118-apple-ui="stable"] .tiny-btn:active,
+html[data-yx118-apple-ui="stable"] .small-btn:active,
+html[data-yx118-apple-ui="stable"] .icon-btn:active,
 .pwa-install-btn:active{
   transform:scale(.985)!important;
   box-shadow:0 5px 14px rgba(15,23,42,.10), inset 0 0 0 5px rgba(213,170,85,.30)!important;
 }
-html[data-yx118-apple-ui="locked"] .danger-btn,
-html[data-yx118-apple-ui="locked"] button.danger-btn,
-html[data-yx118-apple-ui="locked"] .btn-danger{
+html[data-yx118-apple-ui="stable"] .danger-btn,
+html[data-yx118-apple-ui="stable"] button.danger-btn,
+html[data-yx118-apple-ui="stable"] .btn-danger{
   color:#b91c1c!important;
   background:linear-gradient(180deg,#fffafa,#f3f4f6)!important;
   border-color:#e2b0a8!important;
 }
-html[data-yx118-apple-ui="locked"] .chip.active,
-html[data-yx118-apple-ui="locked"] .zone-switch.active,
-html[data-yx118-apple-ui="locked"] .today-filter-bar .chip.active,
-html[data-yx118-apple-ui="locked"] #today-summary-cards .card.active{
+html[data-yx118-apple-ui="stable"] .chip.active,
+html[data-yx118-apple-ui="stable"] .zone-switch.active,
+html[data-yx118-apple-ui="stable"] .today-filter-bar .chip.active,
+html[data-yx118-apple-ui="stable"] #today-summary-cards .card.active{
   background:linear-gradient(180deg,#ffffff,#e9ecef)!important;
   color:#111827!important;
   border-color:var(--yx123-gold-dark)!important;
   outline:2px solid rgba(213,170,85,.24)!important;
   box-shadow:0 10px 24px rgba(168,121,45,.12), inset 0 0 0 5px rgba(213,170,85,.28)!important;
 }
-html[data-yx118-apple-ui="locked"] .home-menu.vertical{
+html[data-yx118-apple-ui="stable"] .home-menu.vertical{
   width:min(560px,100%);
   align-items:center;
   gap:14px;
 }
-html[data-yx118-apple-ui="locked"] .home-menu.vertical .menu-btn{
+html[data-yx118-apple-ui="stable"] .home-menu.vertical .menu-btn{
   width:auto!important;
   min-width:min(350px,88vw);
   min-height:72px!important;
@@ -4075,34 +4075,34 @@ html[data-yx118-apple-ui="locked"] .home-menu.vertical .menu-btn{
   letter-spacing:.08em;
   line-height:1.05;
 }
-html[data-yx118-apple-ui="locked"] .home-top-actions.centered-actions{
+html[data-yx118-apple-ui="stable"] .home-top-actions.centered-actions{
   grid-template-columns:repeat(3,minmax(86px,1fr));
   max-width:min(520px,96vw);
   gap:10px;
 }
-html[data-yx118-apple-ui="locked"] .home-mini-btn,
-html[data-yx118-apple-ui="locked"] .user-cell{
+html[data-yx118-apple-ui="stable"] .home-mini-btn,
+html[data-yx118-apple-ui="stable"] .user-cell{
   min-height:48px!important;
   padding:8px 18px!important;
   font-weight:900!important;
   color:var(--yx123-label-text)!important;
 }
-html[data-yx118-apple-ui="locked"] .page-title,
-html[data-yx118-apple-ui="locked"] .module-title,
-html[data-yx118-apple-ui="locked"] .brand{
+html[data-yx118-apple-ui="stable"] .page-title,
+html[data-yx118-apple-ui="stable"] .module-title,
+html[data-yx118-apple-ui="stable"] .brand{
   color:#111827!important;
   text-shadow:0 1px 0 rgba(255,255,255,.75)!important;
 }
 @media (max-width:640px){
-  html[data-yx118-apple-ui="locked"] .home-menu.vertical{gap:12px;}
-  html[data-yx118-apple-ui="locked"] .home-menu.vertical .menu-btn{min-width:min(300px,88vw);min-height:66px!important;padding:14px 40px!important;}
-  html[data-yx118-apple-ui="locked"] .home-top-actions.centered-actions{grid-template-columns:repeat(3,minmax(0,1fr));}
-  html[data-yx118-apple-ui="locked"] .home-mini-btn{font-size:.92rem;padding:8px 10px!important;}
+  html[data-yx118-apple-ui="stable"] .home-menu.vertical{gap:12px;}
+  html[data-yx118-apple-ui="stable"] .home-menu.vertical .menu-btn{min-width:min(300px,88vw);min-height:66px!important;padding:14px 40px!important;}
+  html[data-yx118-apple-ui="stable"] .home-top-actions.centered-actions{grid-template-columns:repeat(3,minmax(0,1fr));}
+  html[data-yx118-apple-ui="stable"] .home-mini-btn{font-size:.92rem;padding:8px 10px!important;}
 }
 
-/* ==== FIX128 inline edit + full customer item list hardlock ==== */
-html[data-yx128-ship-picker="locked"] #ship-customer-item-select,
-html[data-yx128ShipPicker="locked"] #ship-customer-item-select,
+/* ==== FIX128 inline edit + full customer item list main-core ==== */
+html[data-yx128-ship-picker="stable"] #ship-customer-item-select,
+html[data-yx128ShipPicker="stable"] #ship-customer-item-select,
 #ship-customer-item-select.yx128-hidden-select{
   position:absolute!important;
   width:1px!important;
@@ -4279,7 +4279,7 @@ html[data-yx128ShipPicker="locked"] #ship-customer-item-select,
 
 /* FULL MASTER V8: warehouse cell batch editor is the final editor; never hide it with old FIX selectors. */
 #warehouse-modal #warehouse-cell-items.yx-final-html-cell-editor,
-#warehouse-modal #warehouse-cell-items[data-html-locked="warehouse-batch-zone-unplaced"]{
+#warehouse-modal #warehouse-cell-items[data-html-main="warehouse-batch-zone-unplaced"]{
   display:block!important;visibility:visible!important;height:auto!important;overflow:visible!important;margin:10px 0!important;padding:0!important;border:0!important;
 }
 #warehouse-modal #warehouse-cell-items .yx-direct-batch-panel,
@@ -4402,8 +4402,8 @@ html[data-yx128ShipPicker="locked"] #ship-customer-item-select,
 .yx-ship-selected-html-card,.yx-ship-selected-tag-card,.yx-ship-one-line-card{display:block!important;width:100%!important;margin:0 0 10px!important}
 
 /* ===== V23 persist warehouse/today final guards ===== */
-html.yx112-today-locked #today-summary-cards,
-html.yx112-today-locked .yx112-today-summary,
+html.yx112-today-stable #today-summary-cards,
+html.yx112-today-stable .yx112-today-summary,
 .yx112-today-initial #today-summary-cards,
 .yx112-today-initial .yx112-today-summary{
   display:none!important;
@@ -4439,7 +4439,7 @@ html.yx112-today-locked .yx112-today-summary,
 
 /* V24 safe persist no-event-change: only stability overrides, no layout/function change */
 #warehouse-modal:not(.hidden) #warehouse-cell-items.yx-final-html-cell-editor,
-#warehouse-modal:not(.hidden) #warehouse-cell-items[data-html-locked="warehouse-batch-zone-unplaced"]{
+#warehouse-modal:not(.hidden) #warehouse-cell-items[data-html-main="warehouse-batch-zone-unplaced"]{
   display:block!important;
   visibility:visible!important;
   height:auto!important;
@@ -4453,8 +4453,8 @@ html.yx112-today-locked .yx112-today-summary,
   pointer-events:auto!important;
 }
 .yx-final-warehouse-menu{z-index:99999!important;}
-html.yx112-today-locked #today-summary-cards{display:none!important;}
-html.yx112-today-locked [data-today-panel].yx112-filter-hidden{display:none!important;}
+html.yx112-today-stable #today-summary-cards{display:none!important;}
+html.yx112-today-stable [data-today-panel].yx112-filter-hidden{display:none!important;}
 
 
 /* V25 known-issue safe fix: 今日異動只顯示新版單一卡片；舊 summary 不再短暫閃出 */
@@ -4469,7 +4469,7 @@ body[data-module="today_changes"] .yx112-today-summary{
   overflow:hidden!important;
 }
 
-/* ===== V26 DREAM UI LOCK: 全頁背景 + 圖一膠囊按鈕；只改外觀，不改事件/資料邏輯 ===== */
+/* ===== V26 DREAM UI BASELINE: 全頁背景 + 圖一膠囊按鈕；只改外觀，不改事件/資料邏輯 ===== */
 :root{
   --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v34_real_submit_table_customer_lock');
   --yx-dream-pill: url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v34_real_submit_table_customer_lock');
@@ -4687,8 +4687,8 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
 }
 body[data-module="today_changes"] #today-summary-cards,
 body[data-module="today_changes"] .yx112-today-summary,
-html.yx112-today-locked #today-summary-cards,
-html.yx112-today-locked .yx112-today-summary,
+html.yx112-today-stable #today-summary-cards,
+html.yx112-today-stable .yx112-today-summary,
 .yx112-today-initial #today-summary-cards,
 .yx112-today-initial .yx112-today-summary{
   display:none!important;
@@ -4709,7 +4709,7 @@ body[data-yx-dream-ui="v26"] *{
 
 
 
-/* ===== V27 FULL-PAGE DREAM BACKGROUND + INNER-PILL BUTTON LOCK =====
+/* ===== V27 FULL-PAGE DREAM BACKGROUND + INNER-PILL BUTTON BASELINE =====
    只鎖外觀與已知問題：不新增舊 renderer、不改頁面事件流程。 */
 :root{
   --yx-dream-bg: url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v34_real_submit_table_customer_lock');
@@ -4925,8 +4925,8 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
 /* 今日異動仍然只顯示新版圖三，不讓舊版先閃 */
 body[data-module="today_changes"] #today-summary-cards,
 body[data-module="today_changes"] .yx112-today-summary,
-html.yx112-today-locked #today-summary-cards,
-html.yx112-today-locked .yx112-today-summary,
+html.yx112-today-stable #today-summary-cards,
+html.yx112-today-stable .yx112-today-summary,
 .yx112-today-initial #today-summary-cards,
 .yx112-today-initial .yx112-today-summary{
   display:none!important;
@@ -4996,7 +4996,7 @@ body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{display:none!impor
 }
 
 /* =========================================================
-   V28 FINAL UI LOCK
+   V28 FINAL UI BASELINE
    修正：背景鋪滿整個介面、按鈕白色內圈改為夢幻膠囊圖、避免舊樣式覆蓋。
 ========================================================= */
 :root{
@@ -5041,8 +5041,8 @@ body::after{display:none!important;content:none!important;}
   min-height:100dvh!important;
   background:transparent!important;
 }
-html[data-yx133-home-bg="locked"],
-html[data-yx133-home-bg="locked"] body,
+html[data-yx133-home-bg="stable"],
+html[data-yx133-home-bg="stable"] body,
 body[data-module="home"],
 body[data-module="home"] .page-shell,
 body[data-module="home"] .home-screen,
@@ -5200,7 +5200,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 /* ===== END V42 MAINFILE INTEGRATED ===== */
 
 
-/* ===== V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */
+/* ===== V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST BASELINE ===== */
 /* 庫存 / 訂單 / 總單：縮小材質、月份、總數量、A/B區，支數x件數吃掉空間；不顯示操作欄 */
 .yx113-table-wrap{overflow-x:auto!important;}
 .yx113-table.yx128-inline-table{width:100%!important;table-layout:auto!important;border-collapse:collapse!important;}
@@ -5245,7 +5245,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 #yx-v20-toast *, .yx-v20-toast-card *, #yx-ship-toast *, .yx-ship-toast *{pointer-events:none!important;user-select:none!important;}
 /* 復原按鈕 */
 .yx-page-undo-btn{margin-left:8px!important;}
-/* ===== END V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST LOCK ===== */
+/* ===== END V43 MAINFILE REAL INTEGRATED UI TABLE CUSTOMER TOAST BASELINE ===== */
 
 /* V48 MAINFILE warehouse persistence / unassigned-count alignment lock */
 #warehouse-unplaced-pill{
@@ -5323,7 +5323,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 /* ===== END V57 restore product action buttons ===== */
 
 
-/* V58 main-file lock: warehouse batch rows stay on one line; inventory buttons are split into the requested two blocks. */
+/* V58 main-file stable: warehouse batch rows stay on one line; inventory buttons are split into the requested two blocks. */
 #warehouse-modal .yx121-batch-row{
   display:grid!important;
   grid-template-columns:72px minmax(280px,1fr) 130px 90px!important;
@@ -5340,7 +5340,7 @@ html, body, .page-shell{min-height:100vh!important;min-height:100dvh!important;b
 }
 
 
-/* ===== V59 toolbar hard lock: remove duplicated / unwanted batch buttons ===== */
+/* ===== V59 toolbar hard stable: remove duplicated / unwanted batch buttons ===== */
 body[data-module="orders"] [data-yx113-batch-delete="orders"],
 body[data-module="orders"] [data-yx128-edit-all="orders"],
 body[data-module="orders"] [data-yx128-save-all="orders"],
@@ -5352,7 +5352,7 @@ body[data-module="master_order"] [data-yx128-save-all="master_order"],
 body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:none!important;}
 #yx-page-undo-btn,#yx-global-page-undo-btn{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
 #yx-page-undo-btn:disabled,#yx-global-page-undo-btn:disabled{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
-/* ===== END V59 toolbar hard lock ===== */
+/* ===== END V59 toolbar legacy lock ===== */
 
 
 /* ===== V60 warehouse cell product summary + editable quantity return lock ===== */
@@ -5658,12 +5658,14 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 #yx-final-warehouse-menu button{pointer-events:auto!important;}
 
 /* === YX FINAL REQUIREMENTS V89: mobile desktop-like layout, sync status, warehouse soft visual === */
-.yx-sync-status{position:fixed;top:10px;right:12px;z-index:9999;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.72);backdrop-filter:blur(12px);border:1px solid rgba(208,186,132,.5);box-shadow:0 4px 14px rgba(0,0,0,.06);font-size:13px;color:#314047;pointer-events:none}.yx-sync-status[data-type="error"]{background:#fff0f0;border-color:#efb1b1}.yx-sync-status[data-type="offline"]{background:#fff7df;border-color:#ead9a7}.warehouse-scroll-wrap,.warehouse-map,.warehouse-board,.warehouse-zone-body{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}.warehouse-board,.warehouse-grid,.yx-warehouse-grid{min-width:980px}.warehouse-cell,.yx-warehouse-cell,.yx-warehouse-slot{background:#fffdf3!important;border-color:#f1e6bf!important;box-shadow:0 2px 8px rgba(0,0,0,.035)!important;border-radius:14px!important}.warehouse-cell.has-items,.yx-warehouse-cell.has-items,.yx-warehouse-slot.has-items{background:#fff8e2!important;border-color:#ead9a7!important}.warehouse-cell.yx-warehouse-problem,.yx-warehouse-cell.yx-warehouse-problem,.yx-warehouse-slot.yx-warehouse-problem{background:#ffeded!important;border-color:#efb1b1!important}.warehouse-cell .customer,.yx-slot-customer,.yx-warehouse-customer{text-align:center!important;display:block!important}.warehouse-cell .size,.yx-slot-size,.yx-warehouse-size,.yx-direct-size{font-weight:700!important;font-size:1.08em!important}.skeleton-card{min-height:48px;border-radius:16px;background:linear-gradient(90deg,rgba(255,255,255,.35),rgba(255,255,255,.7),rgba(255,255,255,.35));box-shadow:0 2px 8px rgba(0,0,0,.03)}.bottom-sheet,.modal-card{backdrop-filter:blur(14px)}button,.primary-btn,.ghost-btn{transition:transform .18s ease,box-shadow .18s ease}button:active,.primary-btn:active,.ghost-btn:active{transform:scale(.98)}
+/* V103: yx-sync-status floating-layer removed; cache guard is silent. */
+.yx-sync-status{display:none!important}
+.warehouse-scroll-wrap,.warehouse-map,.warehouse-board,.warehouse-zone-body{overflow-x:auto;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}.warehouse-board,.warehouse-grid,.yx-warehouse-grid{min-width:980px}.warehouse-cell,.yx-warehouse-cell,.yx-warehouse-slot{background:#fffdf3!important;border-color:#f1e6bf!important;box-shadow:0 2px 8px rgba(0,0,0,.035)!important;border-radius:14px!important}.warehouse-cell.has-items,.yx-warehouse-cell.has-items,.yx-warehouse-slot.has-items{background:#fff8e2!important;border-color:#ead9a7!important}.warehouse-cell.yx-warehouse-problem,.yx-warehouse-cell.yx-warehouse-problem,.yx-warehouse-slot.yx-warehouse-problem{background:#ffeded!important;border-color:#efb1b1!important}.warehouse-cell .customer,.yx-slot-customer,.yx-warehouse-customer{text-align:center!important;display:block!important}.warehouse-cell .size,.yx-slot-size,.yx-warehouse-size,.yx-direct-size{font-weight:700!important;font-size:1.08em!important}.skeleton-card{min-height:48px;border-radius:16px;background:linear-gradient(90deg,rgba(255,255,255,.35),rgba(255,255,255,.7),rgba(255,255,255,.35));box-shadow:0 2px 8px rgba(0,0,0,.03)}.bottom-sheet,.modal-card{backdrop-filter:blur(14px)}button,.primary-btn,.ghost-btn{transition:transform .18s ease,box-shadow .18s ease}button:active,.primary-btn:active,.ghost-btn:active{transform:scale(.98)}
 @media (max-width: 768px){.page-shell{overflow-x:auto;-webkit-overflow-scrolling:touch}.module-screen{min-width:980px}.warehouse-scroll-wrap,.warehouse-map,.warehouse-board{width:100%;overflow-x:auto}.table-wrap,.list-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}.module-table{min-width:880px}.primary-btn,.ghost-btn{min-height:42px}}
 
 
-/* V90 integrated yx final ui styles; no separate overlay CSS is loaded. */
-/* V29 FINAL UI LOCK: loaded after style.css to prevent legacy FIX CSS from covering button/background. */
+/* V90 integrated yx final ui styles; no separate layer CSS is loaded. */
+/* V29 FINAL UI BASELINE: loaded after style.css to prevent legacy FIX CSS from covering button/background. */
 :root{
   --yx-v30-bg:url('/static/yx_assets/yx_dream_starry_background.png?v=full-master-v34_real_submit_table_customer_lock');
   --yx-v30-pill:url('/static/yx_assets/yx_dream_pill_button.png?v=full-master-v34_real_submit_table_customer_lock');
@@ -5762,21 +5764,21 @@ a.home-mini-btn,
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
-html[data-yx118-apple-ui="locked"] button,
-html[data-yx118-apple-ui="locked"] a.menu-btn,
-html[data-yx118-apple-ui="locked"] a.home-mini-btn,
-html[data-yx118-apple-ui="locked"] a.back-btn,
-html[data-yx118-apple-ui="locked"] .primary-btn,
-html[data-yx118-apple-ui="locked"] .ghost-btn,
-html[data-yx118-apple-ui="locked"] .home-mini-btn,
-html[data-yx118-apple-ui="locked"] .menu-btn,
-html[data-yx118-apple-ui="locked"] .back-btn,
-html[data-yx118-apple-ui="locked"] .icon-btn,
-html[data-yx118-apple-ui="locked"] .chip,
-html[data-yx118-apple-ui="locked"] .pill,
-html[data-yx118-apple-ui="locked"] .tiny-btn,
-html[data-yx118-apple-ui="locked"] .small-btn,
-html[data-yx118-apple-ui="locked"] [role="button"]{
+html[data-yx118-apple-ui="stable"] button,
+html[data-yx118-apple-ui="stable"] a.menu-btn,
+html[data-yx118-apple-ui="stable"] a.home-mini-btn,
+html[data-yx118-apple-ui="stable"] a.back-btn,
+html[data-yx118-apple-ui="stable"] .primary-btn,
+html[data-yx118-apple-ui="stable"] .ghost-btn,
+html[data-yx118-apple-ui="stable"] .home-mini-btn,
+html[data-yx118-apple-ui="stable"] .menu-btn,
+html[data-yx118-apple-ui="stable"] .back-btn,
+html[data-yx118-apple-ui="stable"] .icon-btn,
+html[data-yx118-apple-ui="stable"] .chip,
+html[data-yx118-apple-ui="stable"] .pill,
+html[data-yx118-apple-ui="stable"] .tiny-btn,
+html[data-yx118-apple-ui="stable"] .small-btn,
+html[data-yx118-apple-ui="stable"] [role="button"]{
   border-radius:999px!important;
   border:2px solid var(--yx-v30-gold)!important;
   background-color:transparent!important;
@@ -5789,16 +5791,16 @@ html[data-yx118-apple-ui="locked"] [role="button"]{
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn::before,
-html[data-yx118-apple-ui="locked"] .home-mini-btn::before,
-html[data-yx118-apple-ui="locked"] .primary-btn::before,
-html[data-yx118-apple-ui="locked"] .ghost-btn::before,
-html[data-yx118-apple-ui="locked"] .back-btn::before,
-html[data-yx118-apple-ui="locked"] .chip::before,
-html[data-yx118-apple-ui="locked"] .pill::before,
-html[data-yx118-apple-ui="locked"] .tiny-btn::before,
-html[data-yx118-apple-ui="locked"] .small-btn::before,
-html[data-yx118-apple-ui="locked"] .icon-btn::before,
+html[data-yx118-apple-ui="stable"] .menu-btn::before,
+html[data-yx118-apple-ui="stable"] .home-mini-btn::before,
+html[data-yx118-apple-ui="stable"] .primary-btn::before,
+html[data-yx118-apple-ui="stable"] .ghost-btn::before,
+html[data-yx118-apple-ui="stable"] .back-btn::before,
+html[data-yx118-apple-ui="stable"] .chip::before,
+html[data-yx118-apple-ui="stable"] .pill::before,
+html[data-yx118-apple-ui="stable"] .tiny-btn::before,
+html[data-yx118-apple-ui="stable"] .small-btn::before,
+html[data-yx118-apple-ui="stable"] .icon-btn::before,
 button::before,
 .pwa-install-btn::before{
   content:""!important;
@@ -5815,16 +5817,16 @@ button::before,
   background-repeat:no-repeat!important;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.75), inset 0 -10px 18px rgba(255,255,255,.20)!important;
 }
-html[data-yx118-apple-ui="locked"] .menu-btn::after,
-html[data-yx118-apple-ui="locked"] .home-mini-btn::after,
-html[data-yx118-apple-ui="locked"] .primary-btn::after,
-html[data-yx118-apple-ui="locked"] .ghost-btn::after,
-html[data-yx118-apple-ui="locked"] .back-btn::after,
-html[data-yx118-apple-ui="locked"] .chip::after,
-html[data-yx118-apple-ui="locked"] .pill::after,
-html[data-yx118-apple-ui="locked"] .tiny-btn::after,
-html[data-yx118-apple-ui="locked"] .small-btn::after,
-html[data-yx118-apple-ui="locked"] .icon-btn::after,
+html[data-yx118-apple-ui="stable"] .menu-btn::after,
+html[data-yx118-apple-ui="stable"] .home-mini-btn::after,
+html[data-yx118-apple-ui="stable"] .primary-btn::after,
+html[data-yx118-apple-ui="stable"] .ghost-btn::after,
+html[data-yx118-apple-ui="stable"] .back-btn::after,
+html[data-yx118-apple-ui="stable"] .chip::after,
+html[data-yx118-apple-ui="stable"] .pill::after,
+html[data-yx118-apple-ui="stable"] .tiny-btn::after,
+html[data-yx118-apple-ui="stable"] .small-btn::after,
+html[data-yx118-apple-ui="stable"] .icon-btn::after,
 button::after,
 .pwa-install-btn::after{
   content:""!important;
@@ -6072,7 +6074,7 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
 }
 
 
-/* ===== V33 submit/table/customer-count final lock ===== */
+/* ===== V33 submit/table/customer-count final stable ===== */
 /* 清單欄寬：讓支數 x 件數欄最大，其他欄縮小 */
 .yx113-table.yx128-inline-table{ table-layout:fixed!important; width:100%!important; }
 .yx113-table.yx128-inline-table th:nth-child(1), .yx113-table.yx128-inline-table td:nth-child(1){ width:9%!important; }
@@ -6120,10 +6122,10 @@ button[data-todo-action]:not([data-todo-action="delete"]):not([data-todo-action=
 .yx113-table.yx128-inline-table th:nth-child(7), .yx113-table.yx128-inline-table td:nth-child(7){ width:16%!important; }
 
 /* 北中南客戶名稱放大兩倍；FOB/CNF 維持原本小白膠囊 */
-html[data-yx113-customers="locked"] .yx113-customer-card,
-html[data-yx114-customers="locked"] .yx113-customer-card,
-html[data-yx116-customers="locked"] .yx113-customer-card,
-html[data-yx117-customers="locked"] .yx113-customer-card,
+html[data-yx113-customers="stable"] .yx113-customer-card,
+html[data-yx114-customers="stable"] .yx113-customer-card,
+html[data-yx116-customers="stable"] .yx113-customer-card,
+html[data-yx117-customers="stable"] .yx113-customer-card,
 .customer-region-card.yx113-customer-card{
   grid-template-columns:minmax(0,1fr) auto auto!important;
   align-items:center!important;
@@ -6176,7 +6178,7 @@ html[data-yx117-customers="locked"] .yx113-customer-card,
 #submit-btn{ pointer-events:auto!important; cursor:pointer!important; touch-action:manipulation!important; position:relative!important; z-index:5!important; }
 #submit-btn::before,#submit-btn::after{ pointer-events:none!important; }
 
-/* V35 table/customer hard lock: make support column wider, other columns tighter, enlarge customer names */
+/* V35 table/customer hard stable: make support column wider, other columns tighter, enlarge customer names */
 .yx113-table.yx128-inline-table{table-layout:fixed!important;width:100%!important;}
 .yx113-table.yx128-inline-table th:nth-child(1),
 .yx113-table.yx128-inline-table td:nth-child(1){width:12%!important;min-width:92px!important;}
@@ -6250,7 +6252,7 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 .yx22-preview{display:block!important;}
 .yx22-preview-table{width:100%!important;border-collapse:separate!important;border-spacing:0 6px!important;}
 .yx22-preview-table th,.yx22-preview-table td{padding:8px!important;background:rgba(255,255,255,.82)!important;border-bottom:1px solid rgba(120,80,40,.08)!important;}
-/* ===== END V45 REAL MAINFILE REPAIR LOCK ===== */
+/* ===== END V45 REAL MAINFILE REPAIR BASELINE ===== */
 
 /* ===== V47 REAL REWRITE UI: direct selectors used by loaded HTML ===== */
 #yx-v20-toast,.yx-v20-toast-card{pointer-events:none!important;user-select:none!important;outline:none!important;}
@@ -6386,7 +6388,7 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 /* ===== END V57 restore product action buttons ===== */
 
 
-/* V58 main-file lock: warehouse batch rows stay on one line; inventory buttons are split into the requested two blocks. */
+/* V58 main-file stable: warehouse batch rows stay on one line; inventory buttons are split into the requested two blocks. */
 #warehouse-modal .yx121-batch-row{
   display:grid!important;
   grid-template-columns:72px minmax(280px,1fr) 130px 90px!important;
@@ -6403,7 +6405,7 @@ body[data-module="login"] #yx-global-page-undo-btn{display:none!important;}
 }
 
 
-/* ===== V59 toolbar hard lock: remove duplicated / unwanted batch buttons ===== */
+/* ===== V59 toolbar hard stable: remove duplicated / unwanted batch buttons ===== */
 body[data-module="orders"] [data-yx113-batch-delete="orders"],
 body[data-module="orders"] [data-yx128-edit-all="orders"],
 body[data-module="orders"] [data-yx128-save-all="orders"],
@@ -6415,7 +6417,7 @@ body[data-module="master_order"] [data-yx128-save-all="master_order"],
 body[data-module="master_order"] [data-yx128-cancel-all="master_order"]{display:none!important;}
 #yx-page-undo-btn,#yx-global-page-undo-btn{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
 #yx-page-undo-btn:disabled,#yx-global-page-undo-btn:disabled{opacity:1!important;pointer-events:auto!important;cursor:pointer!important;}
-/* ===== END V59 toolbar hard lock ===== */
+/* ===== END V59 toolbar legacy lock ===== */
 
 
 /* ===== V60 warehouse cell product summary + editable quantity return lock ===== */
@@ -6772,3 +6774,40 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 }
 #yx-final-warehouse-menu{z-index:2147483600!important;pointer-events:auto!important;position:fixed!important;}
 #yx-final-warehouse-menu button{pointer-events:auto!important;}
+
+/* V98 mainfile stability: page undo button stays lightweight and non-blocking. */
+.yx-page-undo-btn{position:fixed;right:12px;bottom:12px;z-index:30;opacity:.88}
+.yx-page-undo-btn:active{transform:scale(.98)}
+
+
+/* V103_STABILITY_UI: direct main CSS file, silent cache, no floating-layer. */
+/* V103: yx-sync-status floating-layer removed; cache guard is silent. */
+.yx-sync-status{display:none!important}
+
+.yx-sync-status[data-type="syncing"]{opacity:.8}.yx-sync-status[data-type="error"]{color:#b42318}.yx-saving,.is-saving{opacity:.72;pointer-events:none}.yx-stable-hidden{display:none!important}
+
+/* V103_MAINFILE_STABILITY_MARKER: direct CSS only; no floating-layer patch/legacy-lock CSS. */
+
+/* V104 mainfile stability marker: direct CSS, no injected button layer. */
+.yx-v104-stability-marker{display:contents;}
+
+/* V111 performance containment: keeps large lists/cards from repainting the whole page; visual style unchanged. */
+.module-screen, .glass-card, .deduct-card, .yx-warehouse-slot, .yx22-card, .yx-today-card {
+  contain: layout paint;
+}
+@supports (content-visibility: auto) {
+  .deduct-list > *, .yx-card-list > *, .yx-today-list > *, #warehouse-root .warehouse-column {
+    content-visibility: auto;
+    contain-intrinsic-size: 96px;
+  }
+}
+
+
+/* V111 mainfile performance: direct CSS only, no injected buttons or floating UI. */
+.yx-v108-stability-marker{display:contents;}
+@supports (content-visibility: auto) {
+  .table-scroll, .yx22-list, .yx-direct-list, .yx-customer-list {
+    content-visibility:auto;
+    contain-intrinsic-size:120px;
+  }
+}
