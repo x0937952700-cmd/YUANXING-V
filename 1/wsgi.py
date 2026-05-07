@@ -1,13 +1,8 @@
-# V65 startup entry verified.
-# V59 Render entrypoint retained; DB init is still handled by app startup/releaseCommand.
-# V58 full warehouse/ship/product repair: keep existing app entrypoint, no page/event logic changes.
-"""
-Render / Gunicorn entrypoint. V58 full warehouse/ship/product repair build.
-This file exists so both of these start commands work:
-  gunicorn wsgi:app --bind 0.0.0.0:$PORT
-  gunicorn app:app --config gunicorn.conf.py
+"""Render/Gunicorn entrypoint for 沅興木業.
+Fast import: app.py no longer runs heavy DB migration before binding PORT.
 """
 from app import app
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))

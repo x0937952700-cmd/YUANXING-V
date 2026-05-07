@@ -508,7 +508,7 @@
   function visibleSlotNumbers(z,c){
     const nums=activeColumnCells(z,c).map(x=>Number(x.slot_number)||0).filter(n=>n>0);
     if(nums.length) return nums;
-    return Array.from({length:25},(_,i)=>i+1);
+    return Array.from({length:20},(_,i)=>i+1);
   }
   function cellItems(z,c,s){
     const cell=cellFromData(z,c,s);
@@ -519,7 +519,7 @@
   function cellNote(z,c,s){ return clean(cellFromData(z,c,s)?.note || ''); }
   function maxSlot(z,c){
     const nums=visibleSlotNumbers(z,c);
-    return nums.length ? Math.max(...nums) : 25;
+    return nums.length ? Math.max(...nums) : 20;
   }
   function getColumnList(z,c){ return document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"] .vertical-slot-list`); }
   function createSlotElement(z,c,s){
@@ -602,7 +602,7 @@
     updateNotes(); bindSlots(); setWarehouseZone(state.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
   }
   function updateNotes(){
-    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 25 格'; }
+    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 20 格'; }
   }
   async function loadAvailable(){
     try{

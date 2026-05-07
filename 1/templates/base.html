@@ -14,11 +14,10 @@
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v=V68">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v=V68">
   <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v=V68">
-  <script>document.documentElement.dataset.yx117AppleUi="locked";document.documentElement.dataset.yx118AppleUi="locked";document.documentElement.dataset.yx124OrnateLabel="locked";</script>
+  <script></script>
   <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_starry_background.png') }}?v=V68">
   <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_pill_button.png') }}?v=V68">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=V68">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_final_ui_lock.css') }}?v=V68">
     <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v=V89"></script>
 <script>window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }}; window.__YX_SHIP_SINGLE_LOCK__ = {{ 'true' if (request.endpoint or '') == 'ship_page' else 'false' }}; window.__YX_HTML_DIRECT_MASTER__ = true; window.__YX_FINAL_WAREHOUSE_HTML_LOCK__ = {{ 'true' if (request.endpoint or '') == 'warehouse_page' else 'false' }};</script>
   {% set _ep = request.endpoint or '' %}

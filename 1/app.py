@@ -11,6 +11,7 @@ import time
 import hashlib
 import json
 import re
+import threading
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -71,15 +72,31 @@ def run_startup_self_check():
             pass
     return checks
 
-# FIX141: Render 防 502 啟動保護。資料庫暫時連線/初始化失敗時不讓 Gunicorn 直接退出。
+# V90 Render fast-start: do not run heavy DB migration while Gunicorn is importing app.
+# Render must see the HTTP port quickly; migrations run in releaseCommand and lazily before real pages/API.
 STARTUP_DB_ERROR = ''
-try:
-    init_db()
-except Exception as e:
-    STARTUP_DB_ERROR = str(e)
-    print('[FIX141] init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+STARTUP_CHECKS = {'uploads': True, 'todo_uploads': True, 'backups': True, 'todos': True, 'deferred_db_init': True}
+_RUNTIME_INIT_DONE = False
+_RUNTIME_INIT_LOCK = threading.Lock()
 
-STARTUP_CHECKS = run_startup_self_check()
+def ensure_runtime_initialized():
+    global STARTUP_DB_ERROR, STARTUP_CHECKS, _RUNTIME_INIT_DONE
+    if _RUNTIME_INIT_DONE:
+        return True
+    with _RUNTIME_INIT_LOCK:
+        if _RUNTIME_INIT_DONE:
+            return True
+        try:
+            init_db()
+            STARTUP_CHECKS = run_startup_self_check()
+            STARTUP_CHECKS['deferred_db_init'] = False
+            STARTUP_DB_ERROR = ''
+            _RUNTIME_INIT_DONE = True
+            return True
+        except Exception as e:
+            STARTUP_DB_ERROR = str(e)
+            print('[V90] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+            return False
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
@@ -304,6 +321,8 @@ def add_cache_headers(response):
 @app.before_request
 def protect_pages():
     path = request.path
+    if path not in ('/health', '/api/health') and not path.startswith('/static/'):
+        ensure_runtime_initialized()
     # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
     # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
     if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
@@ -3595,12 +3614,15 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
+    force = str(request.args.get('force') or '').lower() in ('1', 'true', 'yes')
+    if force:
+        ensure_runtime_initialized()
     try:
-        db_info = database_mode_info()
+        db_info = database_mode_info() if force else {'mode': 'deferred', 'source': 'health_fast'}
     except Exception as e:
         db_info = {'mode': 'unknown', 'source': 'error', 'error': str(e)[:200]}
     try:
-        db_counts = table_counts()
+        db_counts = table_counts() if force else {}
     except Exception as _e:
         db_counts = {'_error': str(_e)[:200]}
     warning = ''
