@@ -514,10 +514,19 @@
   function todayOutboundCard(g){
     const lines=(g.rows||[]).map(r=>YX.clean(r?.product_text||r?.product||r?.message||'')).filter(Boolean);
     const ids=(g.rows||[]).map(r=>Number(r?.id||0)).filter(Boolean).join(',');
-    return `<div class="today-item deduct-card yx112-today-row yx-v63-outbound-card" data-kind="outbound" data-ship-record-ids="${YX.esc(ids)}">
+    const first=(g.rows||[])[0]||{};
+    const wh=[];
+    (g.rows||[]).forEach(r=>{
+      if(r?.warehouse_location) wh.push(String(r.warehouse_location));
+      else if(Array.isArray(r?.warehouse_deduct)) r.warehouse_deduct.forEach(w=>wh.push(`${String(w.zone||'').toUpperCase()}區${Number(w.column_index||0)}欄${Number(w.slot_number||0)}格 扣${Number(w.deduct_qty||0)}件`));
+    });
+    const whHtml=wh.length?`<div class="yx97-today-warehouse-deduct">${wh.slice(0,10).map(x=>`<span>${YX.esc(x)}</span>`).join('')}</div>`:'';
+    return `<div class="today-item deduct-card yx112-today-row yx-v63-outbound-card" data-kind="outbound" data-ship-record-ids="${YX.esc(ids)}" data-ref-table="shipping_records" data-ref-id="${YX.esc(first.id||g.id||'')}" data-ref-customer="${YX.esc(g.customer_name||first.customer_name||'')}" data-ref-product="${YX.esc(first.product_text||first.product||lines[0]||'')}" data-ref-material="${YX.esc(first.material||first.product_code||'')}">
       <div class="yx112-today-main yx-v63-outbound-head"><strong>${g.rows.length}/${g.rows.length}</strong><span>${YX.esc(g.customer_name)}</span>${ids?`<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx63-delete-ship-group="${YX.esc(ids)}">刪除</button>`:''}</div>
       <div class="yx-v63-outbound-lines">${lines.map(x=>`<div>${YX.esc(x)}</div>`).join('')}</div>
+      ${whHtml}
       <div class="small-note">${YX.esc(g.date)}｜${g.rows.length}筆 / ${g.qty}件</div>
+      <div class="yx-v91-row-actions"><span class="yx-v91-target-note">點查看可跳到商品/格位</span><button type="button" class="yx-v91-locate-btn" data-yx91-navigate-today="1">查看位置</button></div>
     </div>`;
   }
 
@@ -526,12 +535,17 @@
     const detail = rowText(r);
     const qty = qtyOf(r);
     const qtyLine = kind === 'unplaced' ? `<div class="small-note yx112-today-qty">未錄入 ${qty} 件${r?.placed_qty != null ? `｜已入倉 ${Number(r.placed_qty || 0)} 件` : ''}</div>` : '';
+    const warehouseLine = (r?.warehouse_location && kind === 'outbound') ? `<div class="yx97-today-warehouse-deduct"><span>${YX.esc(r.warehouse_location)}</span></div>` : '';
     const deleteButton = id ? `<button type="button" class="ghost-btn tiny-btn danger-btn" data-yx112-delete-today="${id}">刪除</button>` : '';
-    return `<div class="today-item deduct-card yx112-today-row" data-kind="${YX.esc(kind)}" data-log-id="${id}">
+    const table = kind === 'inbound' ? 'inventory' : kind === 'orders' ? 'orders' : kind === 'masters' ? 'master_orders' : kind === 'outbound' ? 'shipping_records' : 'unplaced';
+    const locateButton = `<button type="button" class="yx-v91-locate-btn" data-yx91-navigate-today="1">查看位置</button>`;
+    return `<div class="today-item deduct-card yx112-today-row" data-kind="${YX.esc(kind)}" data-log-id="${id}" data-ref-table="${YX.esc(table)}" data-ref-id="${id}" data-ref-customer="${YX.esc(r?.customer_name || '')}" data-ref-product="${YX.esc(r?.product_text || r?.message || '')}" data-ref-material="${YX.esc(r?.material || '')}">
       <div class="yx112-today-main"><strong>${YX.esc(r?.action || r?.type || (kind === 'unplaced' ? '未錄入倉庫圖' : '異動'))}</strong>${deleteButton}</div>
       ${detail ? `<div class="small-note yx112-today-detail">${YX.esc(detail)}</div>` : ''}
       ${qtyLine}
+      ${warehouseLine}
       <div class="small-note">${YX.esc(r?.created_at || r?.time || '')}${r?.username ? `｜${YX.esc(r.username)}` : ''}</div>
+      <div class="yx-v91-row-actions"><span class="yx-v91-target-note">點查看可跳到商品/格位</span>${locateButton}</div>
     </div>`;
   }
   function fill(id, rows, empty, kind){
@@ -799,3 +813,93 @@
 })();
 /* ===== END V30 final product sort override ===== */
 
+
+
+/* ===== V92 today notification click-to-location (mainfile, no overlay/no observer) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V92_TODAY_LOCATE__) return; window.__YX_V92_TODAY_LOCATE__=true;
+  async function api(url,opt){
+    const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});
+    const txt=await res.text(); let data={}; try{data=txt?JSON.parse(txt):{};}catch(_){data={success:false,error:txt||'伺服器回應格式錯誤'};}
+    if(!res.ok||data.success===false) throw new Error(data.error||data.message||'請求失敗');
+    return data;
+  }
+  function rowPayload(row){return {kind:row.dataset.kind||'', table:row.dataset.refTable||'', id:row.dataset.refId||'', customer_name:row.dataset.refCustomer||'', product_text:row.dataset.refProduct||'', material:row.dataset.refMaterial||''};}
+  function toast(msg,kind){try{(window.toast||window.YXHardLock?.toast||console.log)(msg,kind||'ok');}catch(_){}}
+  async function navigate(row){
+    if(!row) return;
+    row.classList.add('yx-v91-target-flash');
+    try{
+      const d=await api('/api/today-changes/resolve-target',{method:'POST',body:JSON.stringify(rowPayload(row))});
+      if(d.url){ location.href=d.url; return; }
+      toast('找不到可跳轉位置','warn');
+    }catch(e){ toast(e.message||'跳轉失敗','error'); }
+  }
+  document.addEventListener('click',ev=>{
+    const btn=ev.target?.closest?.('[data-yx91-navigate-today]');
+    if(!btn) return;
+    ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
+    navigate(btn.closest('.yx112-today-row'));
+  },true);
+})();
+/* ===== END V92 today notification click-to-location ===== */
+
+
+/* ===== V95 today row locator: source row + product highlight URL (mainfile) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V95_TODAY_PRECISE_LOCATE__) return; window.__YX_V95_TODAY_PRECISE_LOCATE__=true;
+  async function api(url,opt){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{}),headers:{'Content-Type':'application/json',...((opt&&opt.headers)||{})}});const txt=await res.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'請求失敗');return d;}
+  function payload(row){return {kind:row?.dataset?.kind||'', table:row?.dataset?.refTable||'', id:row?.dataset?.refId||'', customer_name:row?.dataset?.refCustomer||'', product_text:row?.dataset?.refProduct||'', material:row?.dataset?.refMaterial||''};}
+  function withTarget(url,row){try{const u=new URL(url,location.origin);const p=payload(row); if(p.id)u.searchParams.set('highlight_id',p.id); if(p.customer_name)u.searchParams.set('customer',p.customer_name); if(p.product_text)u.searchParams.set('highlight_item',p.product_text); u.searchParams.set('target_row','1'); return u.pathname+u.search;}catch(_){return url;}}
+  window.addEventListener('click',async ev=>{const btn=ev.target?.closest?.('[data-yx91-navigate-today]'); if(!btn)return; ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.(); const row=btn.closest('.yx112-today-row'); if(!row)return; row.classList.add('yx-v95-row-flash'); try{const d=await api('/api/today-changes/resolve-target',{method:'POST',body:JSON.stringify(payload(row))}); if(d.url) location.href=withTarget(d.url,row); else (window.toast||console.warn)('找不到可跳轉位置','warn');}catch(e){(window.toast||alert)(e.message||'跳轉失敗','error');}},true);
+})();
+/* ===== END V95 today row locator ===== */
+
+/* ===== V98 today warehouse slot actions feed (mainfile) ===== */
+(function(){'use strict';
+  if(window.__YX_V98_TODAY_WAREHOUSE_ACTIONS__) return; window.__YX_V98_TODAY_WAREHOUSE_ACTIONS__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(url){const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'今日異動載入失敗');return d}
+  function isToday(){return (document.body?.dataset?.module||'')==='today_changes'||location.pathname.includes('/today-changes')}
+  function row(r){let det={};try{det=typeof r.detail==='object'?r.detail:JSON.parse(r.detail_json||'{}')}catch{} const z=det.zone||'';const c=det.column_index||'';const slots=det.removed_slots||det.created_slots||([det.slot_number].filter(Boolean)); const loc=z&&c?`${z}區${c}欄 ${slots.length?slots.join('、')+'格':''}`:(r.product_text||'');return `<div class="today-item deduct-card yx112-today-row yx98-warehouse-action-row" data-kind="warehouse_action" data-ref-table="warehouse_cells" data-ref-product="${esc(r.product_text||loc)}"><div class="yx112-today-main"><strong>${esc(r.action||'倉庫異動')}</strong></div><div class="small-note yx112-today-detail">${esc(loc)}</div><div class="small-note">${esc(r.created_at||'')}｜${esc(r.username||'')}</div></div>`}
+  async function inject(){if(!isToday())return;try{const d=await api('/api/today-changes?force=0&ts='+Date.now());const arr=d.warehouse_actions||[];let box=document.getElementById('today-warehouse-actions-list');if(!box){const host=document.getElementById('today-outbound-list')||document.getElementById('today-summary-cards')||document.querySelector('.today-screen')||document.body;box=document.createElement('div');box.id='today-warehouse-actions-list';box.className='today-list yx98-today-warehouse-actions';box.innerHTML='';host.insertAdjacentElement(host.id==='today-outbound-list'?'afterend':'afterend',box);}box.innerHTML=arr.length?`<div class="yx98-section-title">倉庫格子異動</div>${arr.map(row).join('')}`:'';}catch(e){console.warn(e)}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject,{once:true});else inject();
+  document.addEventListener('click',ev=>{if(ev.target?.closest?.('#yx112-refresh-today,[data-today-filter]'))setTimeout(inject,500);},true);
+})();
+/* ===== END V98 today warehouse slot actions feed ===== */
+
+/* ===== V101 MAINFILE today-change warehouse audit target opener ===== */
+(function(){'use strict';
+  if(window.__YX_V101_TODAY_WAREHOUSE_TARGET__) return; window.__YX_V101_TODAY_WAREHOUSE_TARGET__=true;
+  async function api(url){const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'定位失敗');return d;}
+  function decorate(){document.querySelectorAll('[data-audit-id], [data-log-id], .today-card, .change-card, .activity-card').forEach(card=>{if(card.__yx101Decorated)return; const txt=card.textContent||''; if(!/倉庫|格|出貨扣/.test(txt))return; const id=card.dataset.auditId||card.dataset.logId||card.getAttribute('data-id')||card.querySelector('[data-audit-id]')?.dataset.auditId; if(!id)return; card.__yx101Decorated=true; const btn=document.createElement('button'); btn.type='button'; btn.className='ghost-btn tiny-btn yx101-open-audit-target'; btn.dataset.yx101AuditTarget=id; btn.textContent='開啟格位'; (card.querySelector('.btn-row')||card).appendChild(btn);});}
+  document.addEventListener('click',async e=>{const b=e.target.closest?.('[data-yx101-audit-target]'); if(!b)return; e.preventDefault(); try{const d=await api('/api/warehouse/activity-target/'+encodeURIComponent(b.dataset.yx101AuditTarget)); if(d.url) location.href=d.url; else (window.toast||console.log)(d.message||'已定位','ok');}catch(err){(window.toast||alert)(err.message||'定位失敗','error');}},true);
+  document.addEventListener('yx:sync-applied',()=>setTimeout(decorate,80));
+  const boot=()=>{decorate(); setTimeout(decorate,600);};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+/* ===== END V101 today-change warehouse audit target opener ===== */
+
+/* ===== V102 MAINFILE today activity: open exact source with filters ===== */
+(function(){'use strict';
+  if(window.__YX_V102_TODAY_SOURCE_TARGET__) return; window.__YX_V102_TODAY_SOURCE_TARGET__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function buildUrl(source,customer,item,id){const map={inventory:'/inventory',order:'/orders',orders:'/orders',master_order:'/master_order',master_orders:'/master_order',ship:'/shipping_query',shipping:'/shipping_query',shipping_records:'/shipping_query',warehouse:'/warehouse'}; const u=new URL(map[source]||'/today_changes',location.origin); if(customer)u.searchParams.set('customer',customer); if(item)u.searchParams.set('highlight_item',item); if(id)u.searchParams.set('highlight_id',id); u.searchParams.set('target_row','1'); return u.pathname+'?'+u.searchParams.toString();}
+  function addButtons(){document.querySelectorAll('.today-item,.deduct-card,.activity-card,.yx-today-card').forEach(card=>{if(card.dataset.yx102SourceBtn)return; const txt=card.textContent||''; let src=''; if(/庫存/.test(txt))src='inventory'; else if(/總單/.test(txt))src='master_order'; else if(/訂單/.test(txt))src='orders'; else if(/出貨/.test(txt))src='shipping_records'; else if(/倉庫|格/.test(txt))src='warehouse'; if(!src)return; const customer=(txt.match(/客戶[:：]?\s*([^\s｜|,，]+)/)||[])[1]||''; const item=(txt.match(/([A-Z]{0,4}\s*\d{2,3}\s*x\s*\d{1,3}\s*x\s*\d{1,3}[^\n\s]*)/i)||[])[1]||''; const id=card.dataset.id||card.dataset.refId||''; const a=document.createElement('a');a.className='ghost-btn small-btn yx102-open-source';a.textContent='開來源';a.href=buildUrl(src,customer,item,id); const row=card.querySelector('.btn-row,.actions')||card; row.appendChild(a); card.dataset.yx102SourceBtn='1';});}
+  function install(){addButtons();setTimeout(addButtons,600);setTimeout(addButtons,1600);} if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install(); document.addEventListener('yx:today-rendered',addButtons);
+})();
+/* ===== END V102 today activity source target ===== */
+
+
+/* ===== V103 MAINFILE today exact source resolver + warehouse open fallback ===== */
+(function(){'use strict';
+  if(window.__YX_V103_TODAY_EXACT_SOURCE__) return; window.__YX_V103_TODAY_EXACT_SOURCE__=true;
+  async function api(body){const r=await fetch('/api/source-target/resolve',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'定位失敗');return d;}
+  function rowData(card){const txt=card.textContent||'';return {source:card.dataset.refTable||card.dataset.source||card.dataset.kind||'', id:card.dataset.refId||card.dataset.id||'', customer_name:card.dataset.refCustomer||((txt.match(/客戶[:：]?\s*([^\s｜|,，]+)/)||[])[1]||''), product_text:card.dataset.refProduct||((txt.match(/([A-Z]{0,4}\s*\d{2,3}\s*x\s*\d{1,3}\s*x\s*\d{1,3}[^\n\s]*)/i)||[])[1]||''), material:card.dataset.refMaterial||'', zone:card.dataset.zone||'', column_index:card.dataset.columnIndex||'', slot_number:card.dataset.slotNumber||''};}
+  function decorate(){document.querySelectorAll('.today-item,.deduct-card,.activity-card,.yx112-today-row').forEach(card=>{if(card.dataset.yx103TodaySource)return; card.dataset.yx103TodaySource='1'; const btn=document.createElement('button');btn.type='button';btn.className='ghost-btn small-btn';btn.textContent='精準開來源';btn.dataset.yx103TodaySource='1'; (card.querySelector('.btn-row,.actions')||card).appendChild(btn);});}
+  document.addEventListener('click',async e=>{const b=e.target.closest?.('[data-yx103-today-source]'); if(!b)return; e.preventDefault(); const card=b.closest('.today-item,.deduct-card,.activity-card,.yx112-today-row'); try{const d=await api(rowData(card)); if(d.url) location.href=d.url; else (window.toast||console.log)('找不到來源','warn');}catch(err){(window.toast||alert)(err.message||'定位失敗','error');}},true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{decorate();setTimeout(decorate,900);},{once:true});else{decorate();setTimeout(decorate,900);} document.addEventListener('yx:today-rendered',decorate);
+})();
+/* ===== END V103 today exact source resolver ===== */

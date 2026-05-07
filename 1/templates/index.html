@@ -12,6 +12,44 @@
           </div>
   </div>
 
+  <div class="glass panel yx-v90-dashboard" id="yx-v90-dashboard">
+    <div class="section-head">
+      <div>
+        <h3>工作台總覽</h3>
+        <span class="muted">開首頁先快速顯示，背景讀 PostgreSQL 最新資料。</span>
+      </div>
+      <button class="ghost-btn small-btn" id="yx-v90-dashboard-refresh" type="button">刷新</button>
+    </div>
+    <div class="yx-v90-card-grid" id="yx-v90-dashboard-cards">
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+    </div>
+    <div class="yx-v90-dashboard-split">
+      <div>
+        <div class="section-title small-title">熱門商品</div>
+        <div id="yx-v90-top-products" class="chip-list stacked-list"><div class="empty-state-card compact-empty">載入中…</div></div>
+      </div>
+      <div>
+        <div class="section-title small-title">7 天趨勢</div>
+        <div id="yx-v90-trend" class="yx-v90-trend"><div class="empty-state-card compact-empty">載入中…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="glass panel yx-v90-search-panel">
+    <div class="section-head">
+      <div>
+        <h3>智能搜尋助手</h3>
+        <span class="muted">免費版：搜尋客戶、商品、材質、倉庫格位，不使用 AI API。</span>
+      </div>
+    </div>
+    <div class="search-row">
+      <input class="text-input" id="yx-v90-global-search" placeholder="輸入客戶 / 商品尺寸 / 材質 / A-3-4" autocomplete="off">
+      <button class="primary-btn" id="yx-v90-global-search-btn" type="button">搜尋</button>
+    </div>
+    <div id="yx-v93-search-suggestions" class="yx-v93-search-suggestions hidden"></div>
+    <div id="yx-v90-search-results" class="card-list yx-v90-search-results hidden"></div>
+  </div>
+
   <div class="home-menu vertical">
     <a class="menu-btn" href="{{ url_for('inventory_page') }}" target="_self">庫存</a>
     <a class="menu-btn" href="{{ url_for('orders_page') }}" target="_self">訂單</a>

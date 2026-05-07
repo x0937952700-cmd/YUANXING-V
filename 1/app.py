@@ -1,3 +1,4 @@
+from urllib.parse import quote
 # V65: frontend batch-edit/warehouse-speed fix uses existing API routes.
 # V59 mainfile event/db/ui lock
 # V29 button/month/edit/merge lock: backend routes/migrations retained; inventory duplicate_mode added safely.
@@ -1545,8 +1546,14 @@ def api_ship():
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
         if result.get("success"):
             yx_v35_safe_side_effect('ship_log', log_action, current_username(), "完成出貨")
-            yx_v35_safe_side_effect('ship_audit', add_audit_trail, current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
-            yx_v35_safe_side_effect('ship_notify', notify_sync_event, kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
+            wh_deduct = []
+            try:
+                for b in (result.get('breakdown') or []):
+                    wh_deduct.extend(b.get('warehouse_deduct') or [])
+            except Exception:
+                wh_deduct = []
+            yx_v35_safe_side_effect('ship_audit', add_audit_trail, current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', []), 'warehouse_deduct': wh_deduct})
+            yx_v35_safe_side_effect('ship_notify', notify_sync_event, kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items), 'warehouse_deduct': wh_deduct})
         if isinstance(result, dict) and customer_name and not data.get('skip_snapshot'):
             result.update(yx_v35_safe_response_payload(customer_name))
         return jsonify(result)
@@ -2525,6 +2532,7 @@ def api_warehouse_add_slot():
         yx_v35_safe_side_effect('warehouse_add_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_add_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         yx_v35_safe_side_effect('warehouse_add_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
+        _v98_record_today_change('倉庫新增格子', 'warehouse_cells', '', f'{zone}區{column_index}欄{slot_number}格', {'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'action': 'add_slot'})
         payload = {'success': True, 'slot_number': slot_number}
         try:
             payload['zones'] = warehouse_summary()
@@ -2553,6 +2561,7 @@ def api_warehouse_remove_slot():
         yx_v35_safe_side_effect('warehouse_remove_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         yx_v35_safe_side_effect('warehouse_remove_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         yx_v35_safe_side_effect('warehouse_remove_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        _v98_record_today_change('倉庫減少格子', 'warehouse_cells', '', f'{zone}區{column_index}欄{slot_number}格', {'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'action': 'remove_slot'})
         payload = {'success': True}
         try:
             payload['zones'] = warehouse_summary()
@@ -2794,7 +2803,7 @@ def _today_logs_detail(today):
             ('inventory', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM inventory WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
             ('orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
             ('master_orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM master_orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
-            ('shipping_records', "SELECT id, customer_name, product_text, material, qty, operator, shipped_at AS created_at FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
+            ('shipping_records', "SELECT id, customer_name, product_text, material, qty, operator, shipped_at AS created_at, source_table, before_qty, after_qty, warehouse_location, warehouse_deduct_json, note FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
         ]
         for k, q in specs:
             try:
@@ -2804,6 +2813,13 @@ def _today_logs_detail(today):
                     r['created_at'] = _format_24h(r.get('created_at'))
                     r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', (str(r.get('qty')) + '件') if r.get('qty') not in (None,'') else ''] if x])
                     r['action'] = {'inventory':'新增庫存','orders':'新增訂單','master_orders':'新增總單','shipping_records':'出貨'}.get(k, '異動')
+                    if k == 'shipping_records':
+                        try:
+                            r['warehouse_deduct'] = json.loads(r.get('warehouse_deduct_json') or '[]')
+                        except Exception:
+                            r['warehouse_deduct'] = []
+                        if r.get('warehouse_location'):
+                            r['message'] = (r.get('message') or '') + '｜倉庫扣除：' + str(r.get('warehouse_location') or '')
                     r['username'] = r.get('operator') or r.get('username') or ''
                 detail[k] = rows
             except Exception as e:
@@ -3937,9 +3953,816 @@ def api_warehouse_mark_cell():
         log_error('warehouse_mark_cell', str(e))
         return error_response('標記格子失敗')
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+
+
+# ============================================================
+# V89 MAINFILE INCREMENTAL SYNC API (IndexedDB display cache)
+# ============================================================
+@app.route('/api/sync-changes', methods=['GET'])
+@login_required_json
+def api_sync_changes():
+    """Return changed rows for mobile IndexedDB cache.
+    This endpoint only reads data and never mutates warehouse_cells.
+    """
+    try:
+        changed_after = (request.args.get('changed_after') or '').strip()
+        tables = [x.strip() for x in (request.args.get('tables') or 'inventory,orders,master_orders,shipping_records,today_changes,warehouse_cells,audit_trails,edit_locks').split(',') if x.strip()]
+        allowed = {'inventory','orders','master_orders','shipping_records','today_changes','warehouse_cells','audit_trails','edit_locks'}
+        conn = get_db(); cur = conn.cursor(); out = {}
+        for table in tables:
+            if table not in allowed:
+                continue
+            try:
+                cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(updated_at, created_at, '') > ? ORDER BY COALESCE(updated_at, created_at, '') ASC LIMIT 1000"), (changed_after,))
+            except Exception:
+                try:
+                    cur.execute(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 1000")
+                except Exception:
+                    out[table] = []
+                    continue
+            out[table] = rows_to_dict(cur)
+        try: conn.close()
+        except Exception: pass
+        return jsonify(success=True, server_time=now(), changed_after=changed_after, items=out)
+    except Exception as e:
+        log_error('api_sync_changes', str(e))
+        return error_response('同步資料失敗')
+
+
+
+# ============================================================
+# V90 MAINFILE DASHBOARD + GLOBAL SEARCH + WAREHOUSE BULK APIs
+# Direct main-file implementation: no overlay, no hardlock, no MutationObserver, no setInterval.
+# ============================================================
+def _v90_to_int(v, default=0):
+    try:
+        return int(v or default)
+    except Exception:
+        return default
+
+
+def _v90_item_qty(item):
+    try:
+        return max(0, int(item.get('qty') or item.get('quantity') or item.get('pieces') or 0))
+    except Exception:
+        return 0
+
+
+def _v90_fetch_rows(cur, table, limit=200):
+    try:
+        cur.execute(sql(f"SELECT * FROM {table} ORDER BY COALESCE(updated_at, created_at, '') DESC, id DESC LIMIT ?"), (int(limit),))
+        return rows_to_dict(cur)
+    except Exception as e1:
+        try:
+            cur.execute(sql(f"SELECT * FROM {table} ORDER BY COALESCE(created_at, shipped_at, '') DESC, id DESC LIMIT ?"), (int(limit),))
+            return rows_to_dict(cur)
+        except Exception as e2:
+            try: log_error('v90_fetch_rows_'+table, str(e1)+' | '+str(e2))
+            except Exception: pass
+            return []
+
+
+def _v90_like_clause_fields(q, fields):
+    tokens = [t for t in re.split(r'\s+', (q or '').strip().lower()) if t]
+    return tokens
+
+
+@app.route('/api/dashboard-summary', methods=['GET'])
+@login_required_json
+def api_dashboard_summary_v90():
+    """Home dashboard data. Read-only; never mutates warehouse_cells."""
+    conn = None
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        conn = get_db(); cur = conn.cursor()
+        def one(query, params=()):
+            cur.execute(sql(query), params)
+            return fetchone_dict(cur) or {}
+        def sum_today(table, date_field='created_at'):
+            try:
+                row = one(f"SELECT COALESCE(SUM(qty),0) AS qty, COUNT(*) AS rows FROM {table} WHERE COALESCE({date_field}, '') LIKE ?", (today+'%',))
+                return {'qty': _v90_to_int(row.get('qty')), 'rows': _v90_to_int(row.get('rows'))}
+            except Exception as e:
+                log_error('dashboard_sum_today_'+table, str(e)); return {'qty':0,'rows':0}
+        inv_today = sum_today('inventory')
+        ord_today = sum_today('orders')
+        mst_today = sum_today('master_orders')
+        ship_today = sum_today('shipping_records', 'COALESCE(shipped_at, created_at)')
+        try:
+            problem_row = one("SELECT COUNT(*) AS c FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0 AND COALESCE(problem_flag,'')<>''")
+            problem_count = _v90_to_int(problem_row.get('c'))
+        except Exception:
+            problem_count = 0
+        placed = {'A':0, 'B':0}
+        try:
+            for cell in warehouse_get_cells():
+                z = str(cell.get('zone') or '').strip().upper()
+                if z not in placed:
+                    continue
+                for it in safe_cell_items(cell):
+                    placed[z] += _v90_item_qty(it)
+        except Exception as e:
+            log_error('dashboard_placed_summary', str(e))
+        try:
+            unplaced = _today_unplaced_zone_summary()
+        except Exception:
+            unplaced = {'A':0,'B':0,'unassigned':0,'total':0}
+        top_map = {}
+        for table_name, label in (('inventory','庫存'),('orders','訂單'),('master_orders','總單')):
+            for row in _v90_fetch_rows(cur, table_name, limit=300):
+                product = (row.get('product_text') or '').strip()
+                if not product:
+                    continue
+                key = (product, (row.get('material') or '').strip())
+                item = top_map.setdefault(key, {'product_text': product, 'material': key[1], 'qty': 0, 'sources': set()})
+                item['qty'] += _v90_to_int(row.get('qty') or effective_product_qty(product, 0))
+                item['sources'].add(label)
+        top_products = sorted(top_map.values(), key=lambda x: (-x.get('qty',0), product_sort_tuple(x.get('product_text',''))))[:8]
+        for item in top_products:
+            item['sources'] = '、'.join(sorted(item.get('sources') or []))
+        trends = []
+        for i in range(6, -1, -1):
+            d = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+            try:
+                ship_row = one("SELECT COALESCE(SUM(qty),0) AS qty FROM shipping_records WHERE COALESCE(shipped_at, created_at, '') LIKE ?", (d+'%',))
+                new_row = {'qty': 0}
+                for table in ('inventory','orders','master_orders'):
+                    r = one(f"SELECT COALESCE(SUM(qty),0) AS qty FROM {table} WHERE COALESCE(created_at, '') LIKE ?", (d+'%',))
+                    new_row['qty'] += _v90_to_int(r.get('qty'))
+                trends.append({'date': d, 'ship_qty': _v90_to_int(ship_row.get('qty')), 'new_qty': _v90_to_int(new_row.get('qty'))})
+            except Exception as e:
+                log_error('dashboard_trend_'+d, str(e))
+        return jsonify(success=True, today=today, cards={
+            'today_shipping_qty': ship_today['qty'],
+            'today_shipping_rows': ship_today['rows'],
+            'today_new_qty': inv_today['qty'] + ord_today['qty'] + mst_today['qty'],
+            'today_new_rows': inv_today['rows'] + ord_today['rows'] + mst_today['rows'],
+            'problem_cells': problem_count,
+            'unplaced_total': _v90_to_int(unplaced.get('total')),
+            'unplaced_a': _v90_to_int(unplaced.get('A')),
+            'unplaced_b': _v90_to_int(unplaced.get('B')),
+            'unplaced_unassigned': _v90_to_int(unplaced.get('unassigned')),
+            'placed_a': placed['A'],
+            'placed_b': placed['B'],
+        }, top_products=top_products, trends=trends)
+    except Exception as e:
+        log_error('api_dashboard_summary_v90', str(e))
+        return error_response('Dashboard 資料讀取失敗')
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/search-assistant', methods=['GET'])
+@login_required_json
+def api_search_assistant_v90():
+    """Free global search helper. No AI API; only DB keyword matching and warehouse location lookup."""
+    q = (request.args.get('q') or '').strip()
+    category = (request.args.get('category') or request.args.get('type') or 'all').strip().lower()
+    if not q:
+        return jsonify(success=True, query=q, category=category, items=[])
+    tokens = _v90_like_clause_fields(q, [])
+    allowed_categories = {
+        'all': {'inventory','orders','master_orders','shipping_records','warehouse_cells'},
+        'inventory': {'inventory'}, '庫存': {'inventory'},
+        'orders': {'orders'}, 'order': {'orders'}, '訂單': {'orders'},
+        'master_order': {'master_orders'}, 'master_orders': {'master_orders'}, '總單': {'master_orders'},
+        'shipping': {'shipping_records'}, 'shipping_records': {'shipping_records'}, '出貨': {'shipping_records'},
+        'warehouse': {'warehouse_cells'}, 'warehouse_cells': {'warehouse_cells'}, '倉庫': {'warehouse_cells'}, '倉庫圖': {'warehouse_cells'},
+    }
+    allowed_tables = allowed_categories.get(category, allowed_categories['all'])
+    conn = None
+    out = []
+    try:
+        conn = get_db(); cur = conn.cursor()
+        for table_name, label, url in (
+            ('inventory','庫存','/inventory'),
+            ('orders','訂單','/orders'),
+            ('master_orders','總單','/master-order'),
+            ('shipping_records','出貨','/shipping-query'),
+        ):
+            if table_name not in allowed_tables:
+                continue
+            for row in _v90_fetch_rows(cur, table_name, limit=500):
+                hay = ' '.join(str(row.get(k) or '') for k in ('customer_name','product_text','material','product_code','location','note','source_table'))
+                if tokens and not all(t in hay.lower() for t in tokens):
+                    continue
+                out.append({
+                    'type': label,
+                    'table': table_name,
+                    'id': row.get('id'),
+                    'customer_name': row.get('customer_name') or ('庫存' if table_name=='inventory' else ''),
+                    'product_text': row.get('product_text') or '',
+                    'material': row.get('material') or '',
+                    'qty': _v90_to_int(row.get('qty')),
+                    'location': row.get('location') or '',
+                    'url': url,
+                })
+                if len(out) >= 80:
+                    break
+        # Warehouse search: directly scan cells so assistant can jump to location.
+        if 'warehouse_cells' in allowed_tables:
+            for cell in warehouse_get_cells():
+                cell_label = f"{cell.get('zone')}-{cell.get('column_index')}-{cell.get('slot_number')}"
+                for it in safe_cell_items(cell):
+                    hay = f"{cell_label} {it.get('customer_name','')} {it.get('product_text','')} {it.get('material','')}".lower()
+                    if tokens and not all(t in hay for t in tokens):
+                        continue
+                    out.append({
+                        'type': '倉庫圖', 'table': 'warehouse_cells', 'id': cell.get('id'),
+                        'customer_name': it.get('customer_name') or '庫存',
+                        'product_text': it.get('product_text') or '', 'material': it.get('material') or '',
+                        'qty': _v90_item_qty(it), 'location': cell_label, 'url': f"/warehouse?loc={cell.get('zone')}-{cell.get('column_index')}-{cell.get('slot_number')}&open=1&q={q}&highlight_item={q}",
+                        'zone': cell.get('zone'), 'column_index': cell.get('column_index'), 'slot_number': cell.get('slot_number'),
+                    })
+                    break
+        out = out[:120]
+        return jsonify(success=True, query=q, category=category, count=len(out), items=out)
+    except Exception as e:
+        log_error('api_search_assistant_v90', str(e))
+        return error_response('搜尋失敗')
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception:
+            pass
+
+
+@app.route('/api/warehouse/bulk-add-slots', methods=['POST'])
+@login_required_json
+def api_warehouse_bulk_add_slots_v90():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get('zone') or 'A').strip().upper()
+        column_index = int(data.get('column_index') or 0)
+        insert_after = data.get('insert_after')
+        count = max(1, min(80, int(data.get('count') or 1)))
+        if zone not in ('A','B') or column_index < 1:
+            return error_response('格位參數錯誤')
+        created = []
+        after = int(insert_after or 0)
+        for i in range(count):
+            slot_number = warehouse_add_slot(zone, column_index, 'direct', after)
+            created.append(slot_number)
+            after = int(slot_number or after)
+        yx_v35_safe_side_effect('warehouse_bulk_add_log', log_action, current_username(), f'批量新增格子 {zone}{column_index} x {count}')
+        yx_v35_safe_side_effect('warehouse_bulk_add_audit', add_audit_trail, current_username(), 'bulk_create', 'warehouse_cells', f'{zone}-{column_index}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'count': count, 'created_slots': created})
+        yx_v35_safe_side_effect('warehouse_bulk_add_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫批量新增格子', extra={'zone': zone, 'column_index': column_index, 'count': count})
+        _v98_record_today_change('倉庫批量新增格子', 'warehouse_cells', '', f'{zone}區{column_index}欄 +{count}格', {'zone': zone, 'column_index': column_index, 'count': count, 'created_slots': created, 'action': 'bulk_add_slots'})
+        return jsonify(success=True, count=count, created_slots=created, slot_number=(created[0] if created else None), zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error('api_warehouse_bulk_add_slots_v90', str(e))
+        return error_response('批量新增格子失敗')
+
+
+@app.route('/api/warehouse/bulk-remove-slots', methods=['POST'])
+@login_required_json
+def api_warehouse_bulk_remove_slots_v90():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get('zone') or 'A').strip().upper()
+        column_index = int(data.get('column_index') or 0)
+        start_slot = int(data.get('start_slot') or data.get('slot_number') or 0)
+        count = max(1, min(80, int(data.get('count') or 1)))
+        if zone not in ('A','B') or column_index < 1 or start_slot < 1:
+            return error_response('格位參數錯誤')
+        cells = warehouse_get_cells()
+        visible = sorted([int(c.get('slot_number') or 0) for c in cells if str(c.get('zone') or '').strip().upper()==zone and int(c.get('column_index') or 0)==column_index and int(c.get('slot_number') or 0)>=start_slot])[:count]
+        if not visible:
+            return error_response('找不到可刪除格子')
+        for n in visible:
+            cell = next((c for c in cells if str(c.get('zone') or '').strip().upper()==zone and int(c.get('column_index') or 0)==column_index and int(c.get('slot_number') or 0)==n), None)
+            if cell and safe_cell_items(cell):
+                return error_response(f'第 {n} 格內還有商品，無法批量刪除')
+        removed = []
+        for n in visible:
+            result = warehouse_remove_slot(zone, column_index, 'direct', n)
+            if not result.get('success'):
+                return error_response(result.get('error') or f'第 {n} 格刪除失敗')
+            removed.append(n)
+        yx_v35_safe_side_effect('warehouse_bulk_remove_log', log_action, current_username(), f'批量刪除格子 {zone}{column_index} x {len(removed)}')
+        yx_v35_safe_side_effect('warehouse_bulk_remove_audit', add_audit_trail, current_username(), 'bulk_delete', 'warehouse_cells', f'{zone}-{column_index}', before_json={'start_slot': start_slot, 'count': count}, after_json={'removed_slots': removed})
+        yx_v35_safe_side_effect('warehouse_bulk_remove_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫批量刪除格子', extra={'zone': zone, 'column_index': column_index, 'count': len(removed)})
+        _v98_record_today_change('倉庫批量減少格子', 'warehouse_cells', '', f'{zone}區{column_index}欄 -{len(removed)}格', {'zone': zone, 'column_index': column_index, 'removed_slots': removed, 'action': 'bulk_remove_slots'})
+        return jsonify(success=True, count=len(removed), removed_slots=removed, zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error('api_warehouse_bulk_remove_slots_v90', str(e))
+        return error_response('批量刪除格子失敗')
+
+
+# ============================================================
+# V96 MAINFILE WAREHOUSE +/- SLOT API
+# 增減格子只做 DB 同步：新增空格或軟刪除空格，不清空、不重建、不重排有商品格。
+# ============================================================
+@app.route('/api/warehouse/remove-empty-slots', methods=['POST'])
+@login_required_json
+def api_warehouse_remove_empty_slots_v96():
+    try:
+        data = request.get_json(silent=True) or {}
+        zone = (data.get('zone') or 'A').strip().upper()
+        column_index = int(data.get('column_index') or 0)
+        count = max(1, min(80, int(data.get('count') or 1)))
+        requested_slots = data.get('slots') if isinstance(data.get('slots'), list) else []
+        if zone not in ('A','B') or column_index < 1:
+            return error_response('格位參數錯誤')
+
+        cells = warehouse_get_cells()
+        col_cells = [c for c in cells if str(c.get('zone') or '').strip().upper() == zone and int(c.get('column_index') or 0) == column_index]
+        visible_slots = sorted({int(c.get('slot_number') or 0) for c in col_cells if int(c.get('slot_number') or 0) > 0})
+        if len(visible_slots) <= 1:
+            return error_response('每欄至少要保留 1 格')
+
+        if requested_slots:
+            candidates = []
+            for v in requested_slots:
+                try:
+                    n = int(v)
+                    if n > 0 and n not in candidates:
+                        candidates.append(n)
+                except Exception:
+                    pass
+        else:
+            candidates = sorted(visible_slots, reverse=True)
+
+        removable = []
+        for n in candidates:
+            if len(set(visible_slots) - set(removable) - {n}) < 1:
+                continue
+            cell = next((c for c in col_cells if int(c.get('slot_number') or 0) == n), None)
+            if cell and safe_cell_items(cell):
+                continue
+            if n in visible_slots:
+                removable.append(n)
+            if len(removable) >= count:
+                break
+
+        if not removable:
+            return error_response('沒有可減少的空格；有商品格不可刪，且每欄至少保留 1 格')
+
+        removed = []
+        for n in removable:
+            result = warehouse_remove_slot(zone, column_index, 'direct', n)
+            if result.get('success'):
+                removed.append(n)
+            elif requested_slots:
+                return error_response(result.get('error') or f'第 {n} 格刪除失敗')
+
+        if not removed:
+            return error_response('沒有成功減少任何格子')
+
+        yx_v35_safe_side_effect('warehouse_v96_remove_empty_log', log_action, current_username(), f'減少空格 {zone}{column_index} x {len(removed)}')
+        yx_v35_safe_side_effect('warehouse_v96_remove_empty_audit', add_audit_trail, current_username(), 'bulk_soft_delete_empty', 'warehouse_cells', f'{zone}-{column_index}', before_json={'requested_slots': requested_slots, 'count': count}, after_json={'removed_slots': removed})
+        yx_v35_safe_side_effect('warehouse_v96_remove_empty_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫減少空格', extra={'zone': zone, 'column_index': column_index, 'removed_slots': removed})
+        _v98_record_today_change('倉庫減少空格', 'warehouse_cells', '', f'{zone}區{column_index}欄 -{len(removed)}格', {'zone': zone, 'column_index': column_index, 'removed_slots': removed, 'action': 'remove_empty_slots'})
+        return jsonify(success=True, count=len(removed), removed_slots=removed, skipped=count-len(removed), zones=warehouse_summary(), cells=warehouse_get_cells())
+    except Exception as e:
+        log_error('api_warehouse_remove_empty_slots_v96', str(e))
+        return error_response('減少格子失敗')
+
+
+@app.route('/api/warehouse/slot-adjust-status', methods=['GET'])
+@login_required_json
+def api_warehouse_slot_adjust_status_v96():
+    try:
+        zone = (request.args.get('zone') or '').strip().upper()
+        column_index = int(request.args.get('column_index') or 0)
+        cells = warehouse_get_cells()
+        out = []
+        for z in ('A','B'):
+            if zone and z != zone:
+                continue
+            for col in range(1, 7):
+                if column_index and col != column_index:
+                    continue
+                col_cells = [c for c in cells if str(c.get('zone') or '').strip().upper()==z and int(c.get('column_index') or 0)==col]
+                visible = sorted({int(c.get('slot_number') or 0) for c in col_cells if int(c.get('slot_number') or 0)>0})
+                empty = []
+                filled = []
+                for n in visible:
+                    cell = next((c for c in col_cells if int(c.get('slot_number') or 0)==n), None)
+                    if cell and safe_cell_items(cell):
+                        filled.append(n)
+                    else:
+                        empty.append(n)
+                out.append({'zone': z, 'column_index': col, 'visible_count': len(visible), 'empty_slots': empty, 'filled_slots': filled, 'last_empty_slot': (empty[-1] if empty else None)})
+        return jsonify(success=True, columns=out)
+    except Exception as e:
+        log_error('api_warehouse_slot_adjust_status_v96', str(e))
+        return error_response('讀取格數狀態失敗')
+
+
+@app.route('/api/warehouse/preview-remove-empty-slots', methods=['POST'])
+@login_required_json
+def api_warehouse_preview_remove_empty_slots_v98():
+    try:
+        data = request.get_json(silent=True) or {}
+        result = _v98_warehouse_empty_slot_preview(
+            data.get('zone') or 'A',
+            int(data.get('column_index') or 0),
+            int(data.get('count') or 1),
+            data.get('slots') if isinstance(data.get('slots'), list) else []
+        )
+        if not result.get('success'):
+            return error_response(result.get('error') or '預覽失敗')
+        return jsonify(result)
+    except Exception as e:
+        log_error('api_warehouse_preview_remove_empty_slots_v98', str(e))
+        return error_response('預覽可刪格子失敗')
+
+
+# ============================================================
+# V98 MAINFILE TODAY/WAREHOUSE ACTION HELPERS
+# ============================================================
+def _v98_record_today_change(action, table_name, customer_name='', product_text='', detail=None):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("""
+            INSERT INTO today_changes(action, table_name, customer_name, product_text, detail_json, operator, created_at, unread)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        """), (str(action or ''), str(table_name or ''), str(customer_name or ''), str(product_text or ''), json.dumps(detail or {}, ensure_ascii=False), current_username(), now()))
+        conn.commit(); conn.close()
+    except Exception as e:
+        try: log_error('v98_record_today_change', str(e))
+        except Exception: pass
+
+def _v98_warehouse_empty_slot_preview(zone, column_index, count=1, slots=None):
+    zone = (zone or 'A').strip().upper()
+    column_index = int(column_index or 0)
+    count = max(1, min(80, int(count or 1)))
+    if zone not in ('A','B') or column_index < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    cells = warehouse_get_cells()
+    col_cells = [c for c in cells if str(c.get('zone') or '').strip().upper() == zone and int(c.get('column_index') or 0) == column_index]
+    visible_slots = sorted({int(c.get('slot_number') or 0) for c in col_cells if int(c.get('slot_number') or 0) > 0})
+    requested = []
+    if isinstance(slots, list) and slots:
+        for v in slots:
+            try:
+                n = int(v)
+                if n > 0 and n not in requested:
+                    requested.append(n)
+            except Exception:
+                pass
+    candidates = requested or sorted(visible_slots, reverse=True)
+    removable, blocked = [], []
+    for n in candidates:
+        cell = next((c for c in col_cells if int(c.get('slot_number') or 0) == n), None)
+        has_items = bool(cell and safe_cell_items(cell))
+        if len(set(visible_slots) - set(removable) - {n}) < 1:
+            blocked.append({'slot_number': n, 'reason': '每欄至少保留 1 格'})
+            continue
+        if has_items:
+            blocked.append({'slot_number': n, 'reason': '有商品不可刪'})
+            continue
+        if n in visible_slots:
+            removable.append(n)
+        if len(removable) >= count:
+            break
+    return {'success': True, 'zone': zone, 'column_index': column_index, 'count': len(removable), 'removable_slots': removable, 'blocked_slots': blocked, 'visible_count': len(visible_slots)}
+
+
+# ============================================================
+# V91 MAINFILE EDIT LOCK API
+# ============================================================
+def _v91_lock_key(data):
+    entity_type = (data.get('entity_type') or data.get('table') or '').strip()
+    entity_id = str(data.get('entity_id') or data.get('id') or '').strip()
+    if not entity_type or not entity_id:
+        return '', ''
+    return entity_type, entity_id
+
+@app.route('/api/edit-locks/acquire', methods=['POST'])
+@login_required_json
+def api_edit_locks_acquire_v91():
+    try:
+        data = request.get_json(silent=True) or {}
+        entity_type, entity_id = _v91_lock_key(data)
+        if not entity_type or not entity_id:
+            return error_response('缺少編輯鎖目標')
+        ttl = max(30, min(600, int(data.get('ttl_seconds') or 180)))
+        username = current_username() or 'user'
+        expires = (datetime.now() + timedelta(seconds=ttl)).strftime('%Y-%m-%d %H:%M:%S')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM edit_locks WHERE entity_type=? AND entity_id=?"), (entity_type, entity_id))
+        row = fetchone_dict(cur) or {}
+        now_s = now()
+        if row and (row.get('expires_at') or '') > now_s and (row.get('username') or '') != username and not bool(data.get('force')):
+            conn.close()
+            return jsonify(success=False, locked=True, username=row.get('username'), expires_at=row.get('expires_at'), error=f"{row.get('username')} 正在編輯這筆資料"), 409
+        if USE_POSTGRES:
+            cur.execute(sql("""
+                INSERT INTO edit_locks(entity_type, entity_id, username, expires_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(entity_type, entity_id) DO UPDATE SET username=excluded.username, expires_at=excluded.expires_at, updated_at=excluded.updated_at
+            """), (entity_type, entity_id, username, expires, now_s))
+        else:
+            cur.execute("""
+                INSERT INTO edit_locks(entity_type, entity_id, username, expires_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(entity_type, entity_id) DO UPDATE SET username=excluded.username, expires_at=excluded.expires_at, updated_at=excluded.updated_at
+            """, (entity_type, entity_id, username, expires, now_s))
+        conn.commit(); conn.close()
+        return jsonify(success=True, locked=False, username=username, expires_at=expires, force=bool(data.get('force')))
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        log_error('api_edit_locks_acquire_v91', str(e))
+        return error_response('取得編輯鎖失敗')
+
+@app.route('/api/edit-locks/release', methods=['POST'])
+@login_required_json
+def api_edit_locks_release_v91():
+    try:
+        data = request.get_json(silent=True) or {}
+        entity_type, entity_id = _v91_lock_key(data)
+        if not entity_type or not entity_id:
+            return error_response('缺少編輯鎖目標')
+        username = current_username() or 'user'
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("DELETE FROM edit_locks WHERE entity_type=? AND entity_id=? AND username=?"), (entity_type, entity_id, username))
+        conn.commit(); conn.close()
+        return jsonify(success=True)
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        log_error('api_edit_locks_release_v91', str(e))
+        return error_response('釋放編輯鎖失敗')
+
+
+# ============================================================
+# V91 MAINFILE CLICK-TO-LOCATION / SMART TARGET RESOLVER
+# ============================================================
+def _v91_norm_text(v):
+    return re.sub(r'\s+', '', str(v or '').strip().lower().replace('×','x').replace('Ｘ','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','='))
+
+def _v91_item_product_text(item):
+    return str((item or {}).get('product_text') or (item or {}).get('product') or (item or {}).get('size') or '').strip()
+
+def _v91_cell_label(cell):
+    return f"{cell.get('zone')}-{int(cell.get('column_index') or 0)}-{int(cell.get('slot_number') or 0)}"
+
+def _v91_find_warehouse_location(customer_name='', product_text='', material=''):
+    cn = _v91_norm_text(customer_name)
+    pt = _v91_norm_text(product_text)
+    mat = _v91_norm_text(material)
+    best = None
+    best_score = 0
+    try:
+        for cell in warehouse_get_cells():
+            for it in safe_cell_items(cell):
+                hay_customer = _v91_norm_text(it.get('customer_name') or '')
+                hay_product = _v91_norm_text(_v91_item_product_text(it))
+                hay_material = _v91_norm_text(it.get('material') or it.get('product_code') or '')
+                score = 0
+                if cn and (cn in hay_customer or hay_customer in cn): score += 4
+                if pt and (pt in hay_product or hay_product in pt or product_display_size(product_text) and _v91_norm_text(product_display_size(product_text)) in hay_product): score += 5
+                if mat and (mat in hay_material or hay_material in mat): score += 1
+                if score > best_score:
+                    best_score = score
+                    best = {'cell': cell, 'item': it, 'score': score}
+        if best and best_score >= 4:
+            cell = best['cell']
+            loc = _v91_cell_label(cell)
+            return {
+                'found': True,
+                'location': loc,
+                'url': f"/warehouse?loc={loc}&open=1&customer={customer_name or ''}&q={product_text or customer_name or ''}&highlight_item={product_text or customer_name or ''}",
+                'zone': cell.get('zone'),
+                'column_index': int(cell.get('column_index') or 0),
+                'slot_number': int(cell.get('slot_number') or 0),
+            }
+    except Exception as e:
+        try: log_error('v91_find_warehouse_location', str(e))
+        except Exception: pass
+    return {'found': False}
+
+def _v91_fetch_item(table_name, item_id):
+    allowed = {'inventory','orders','master_orders','shipping_records'}
+    if table_name not in allowed or not item_id:
+        return {}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql(f"SELECT * FROM {table_name} WHERE id=?"), (int(item_id),))
+        row = fetchone_dict(cur) or {}
+        conn.close()
+        return row
+    except Exception as e:
+        try: log_error('v91_fetch_item_'+str(table_name), str(e))
+        except Exception: pass
+        try: conn.close()
+        except Exception: pass
+        return {}
+
+@app.route('/api/today-changes/resolve-target', methods=['POST'])
+@login_required_json
+def api_today_changes_resolve_target_v91():
+    """Resolve a notification/product row to the best page and warehouse cell when possible."""
+    try:
+        data = request.get_json(silent=True) or {}
+        kind = (data.get('kind') or '').strip()
+        table_name = (data.get('table') or data.get('table_name') or '').strip()
+        item_id = data.get('id') or data.get('ref_id') or 0
+        if not table_name:
+            table_name = {'inbound':'inventory','orders':'orders','masters':'master_orders','outbound':'shipping_records','unplaced':'unplaced'}.get(kind, '')
+        row = _v91_fetch_item(table_name, item_id) if table_name != 'unplaced' else {}
+        customer = row.get('customer_name') or data.get('customer_name') or ''
+        product = row.get('product_text') or data.get('product_text') or ''
+        material = row.get('material') or data.get('material') or ''
+        if table_name == 'shipping_records':
+            try:
+                plan = json.loads(row.get('warehouse_deduct_json') or '[]') if isinstance(row, dict) else []
+            except Exception:
+                plan = []
+            if plan and isinstance(plan[0], dict):
+                w = plan[0]
+                loc_label = f"{str(w.get('zone') or '').upper()}-{int(w.get('column_index') or 0)}-{int(w.get('slot_number') or 0)}"
+                return jsonify(success=True, target='warehouse', found=True, location=loc_label, zone=w.get('zone'), column_index=int(w.get('column_index') or 0), slot_number=int(w.get('slot_number') or 0), url=f"/warehouse?loc={loc_label}&open=1&customer={customer or ''}&q={product or customer or ''}&highlight_item={product or customer or ''}")
+        loc = _v91_find_warehouse_location(customer, product, material)
+        if loc.get('found'):
+            return jsonify(success=True, target='warehouse', **loc)
+        if table_name == 'inventory':
+            return jsonify(success=True, target='inventory', url=f"/inventory?highlight_id={item_id}&q={product or customer}", found=False)
+        if table_name == 'orders':
+            return jsonify(success=True, target='orders', url=f"/orders?highlight_id={item_id}&customer={customer}", found=False)
+        if table_name == 'master_orders':
+            return jsonify(success=True, target='master_order', url=f"/master-order?highlight_id={item_id}&customer={customer}", found=False)
+        if table_name == 'shipping_records':
+            return jsonify(success=True, target='shipping_query', url=f"/shipping-query?highlight_id={item_id}&customer={customer}", found=False)
+        return jsonify(success=True, target='warehouse', url=f"/warehouse?q={product or customer}", found=False)
+    except Exception as e:
+        log_error('api_today_changes_resolve_target_v91', str(e))
+        return error_response('無法判斷通知位置')
+
+
+
+
+# ============================================================
+# V92 MAINFILE OFFLINE SHIP VALIDATION + EDIT LOCK STATUS
+# ============================================================
+def _v92_preview_conflicts(customer_name, items):
+    preview = preview_ship_order(customer_name, items)
+    rows = preview.get('items') or preview.get('breakdown') or []
+    conflicts = []
+    for i, row in enumerate(rows):
+        try:
+            shortage = int(row.get('shortage_qty') or 0)
+        except Exception:
+            shortage = 0
+        strict_ok = row.get('strict_ok')
+        if shortage > 0 or strict_ok is False:
+            conflicts.append({
+                'index': i,
+                'product_text': row.get('product_text') or '',
+                'material': row.get('material') or row.get('product_code') or '',
+                'qty': row.get('qty') or 0,
+                'selected_available': row.get('selected_available'),
+                'master_available': row.get('master_available'),
+                'order_available': row.get('order_available'),
+                'inventory_available': row.get('inventory_available'),
+                'source_label': row.get('source_label') or '',
+                'message': (row.get('recommendation') or '目前數量不足，離線排隊出貨未執行')
+            })
+    if preview.get('master_exceeded'):
+        conflicts.append({'index': -1, 'message': preview.get('message') or '超過總單，禁止出貨'})
+    return preview, conflicts
+
+@app.route('/api/ship/offline-validate', methods=['POST'])
+@login_required_json
+def api_ship_offline_validate_v92():
+    """Before replaying a queued offline shipment, re-check current PostgreSQL quantities."""
+    try:
+        data = request.get_json(silent=True) or {}
+        items = _parse_items_from_request(data)
+        customer_name = (data.get('customer_name') or '').strip()
+        if not customer_name:
+            return error_response('請輸入客戶名稱')
+        if not items:
+            return error_response('沒有可驗證的出貨商品')
+        preview, conflicts = _v92_preview_conflicts(customer_name, items)
+        if conflicts:
+            return jsonify(success=False, conflict=True, error='離線出貨已停止：恢復網路後重新檢查發現數量不足', conflicts=conflicts, preview=preview, server_time=now()), 409
+        return jsonify(success=True, conflict=False, message='目前數量可出貨', preview=preview, server_time=now())
+    except Exception as e:
+        log_error('api_ship_offline_validate_v92', str(e))
+        return error_response('離線出貨驗證失敗')
+
+@app.route('/api/edit-locks/status', methods=['POST'])
+@login_required_json
+def api_edit_locks_status_v92():
+    try:
+        data = request.get_json(silent=True) or {}
+        entity_type, entity_id = _v91_lock_key(data)
+        if not entity_type or not entity_id:
+            return error_response('缺少編輯鎖目標')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM edit_locks WHERE entity_type=? AND entity_id=?"), (entity_type, entity_id))
+        row = fetchone_dict(cur) or {}
+        conn.close()
+        if row and (row.get('expires_at') or '') > now():
+            return jsonify(success=True, locked=True, username=row.get('username') or '', expires_at=row.get('expires_at') or '', mine=(row.get('username') or '') == (current_username() or 'user'))
+        return jsonify(success=True, locked=False)
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_edit_locks_status_v92', str(e))
+        return error_response('讀取編輯鎖失敗')
+
+
+
+
+# ============================================================
+# V93 MAINFILE EDIT LOCK RENEW + SEARCH SUGGESTIONS
+# ============================================================
+@app.route('/api/edit-locks/renew', methods=['POST'])
+@login_required_json
+def api_edit_locks_renew_v93():
+    """Extend a lock owned by current user. No schema rebuild; only updates edit_locks."""
+    conn = None
+    try:
+        data = request.get_json(silent=True) or {}
+        entity_type, entity_id = _v91_lock_key(data)
+        if not entity_type or not entity_id:
+            return error_response('缺少編輯鎖目標')
+        username = current_username() or 'user'
+        ttl = max(60, min(int(data.get('ttl_seconds') or 180), 900))
+        new_expires = (datetime.now() + timedelta(seconds=ttl)).strftime('%Y-%m-%d %H:%M:%S')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("SELECT * FROM edit_locks WHERE entity_type=? AND entity_id=?"), (entity_type, entity_id))
+        row = fetchone_dict(cur) or {}
+        now_s = now()
+        if row and (row.get('expires_at') or '') > now_s and (row.get('username') or '') != username:
+            conn.close()
+            return jsonify(success=False, locked=True, username=row.get('username') or '', expires_at=row.get('expires_at') or '', error='這筆資料正在被其他人編輯'), 409
+        cur.execute(sql("""
+            INSERT INTO edit_locks(entity_type, entity_id, username, expires_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET username=excluded.username, expires_at=excluded.expires_at, updated_at=excluded.updated_at
+        """), (entity_type, entity_id, username, new_expires, now_s))
+        conn.commit(); conn.close()
+        return jsonify(success=True, locked=False, username=username, expires_at=new_expires)
+    except Exception as e:
+        try:
+            if conn:
+                conn.rollback(); conn.close()
+        except Exception:
+            pass
+        log_error('api_edit_locks_renew_v93', str(e))
+        return error_response('續鎖失敗')
+
+@app.route('/api/search-assistant/suggest', methods=['GET'])
+@login_required_json
+def api_search_assistant_suggest_v93():
+    """Free keyword suggestions from existing DB rows; no AI API and read-only."""
+    q = (request.args.get('q') or '').strip().lower()
+    out = []
+    seen = set()
+    def add(v, kind):
+        v = str(v or '').strip()
+        if not v:
+            return
+        key = v.lower()
+        if q and q not in key:
+            return
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({'text': v, 'kind': kind})
+    conn = None
+    try:
+        conn = get_db(); cur = conn.cursor()
+        for table_name, label in (('inventory','庫存'),('orders','訂單'),('master_orders','總單'),('shipping_records','出貨')):
+            for row in _v90_fetch_rows(cur, table_name, limit=260):
+                add(row.get('customer_name'), '客戶')
+                add(row.get('material') or row.get('product_code'), '材質')
+                pt = row.get('product_text') or ''
+                if pt:
+                    add(product_display_size(pt) or pt.split('=')[0], label)
+                    add(pt, label)
+                if len(out) >= 20:
+                    break
+            if len(out) >= 20:
+                break
+        if len(out) < 20:
+            for cell in warehouse_get_cells():
+                add(f"{cell.get('zone')}-{cell.get('column_index')}-{cell.get('slot_number')}", '格位')
+                for it in safe_cell_items(cell):
+                    add(it.get('customer_name') or '庫存', '倉庫客戶')
+                    add(it.get('material') or it.get('product_code'), '倉庫材質')
+                    add(it.get('product_text'), '倉庫商品')
+                if len(out) >= 20:
+                    break
+        return jsonify(success=True, query=q, items=out[:20])
+    except Exception as e:
+        log_error('api_search_assistant_suggest_v93', str(e))
+        return error_response('搜尋預測失敗')
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception:
+            pass
+
 
 # V53_WAREHOUSE_CURRENT_EDIT_MAINFILE_MARKER
 # - 倉庫格位目前商品由前端主檔直接編輯尺寸/支數/件數後送回 /api/warehouse/cell。
@@ -4088,3 +4911,2973 @@ def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
         if already + proposed_qty > source_qty:
             return False, f"{key[0]} 的入倉數量超過來源總數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
     return True, ""
+
+
+
+# ============================================================
+# V101 MAINFILE WAREHOUSE SHORTAGE / SHIPPING LOCATION RESOLVERS
+# 目的：出貨不足時回傳目前哪些格有貨；出貨查詢可精準點回倉庫格。
+# ============================================================
+def _v99_safe_json_list(v):
+    try:
+        data = json.loads(v or '[]') if isinstance(v, str) else (v or [])
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+@app.route('/api/ship/warehouse-shortage-detail', methods=['POST'])
+@login_required_json
+def api_ship_warehouse_shortage_detail_v99():
+    """Preview warehouse-side shortage without deducting anything.
+    Used by the shipping page when the warehouse map is insufficient, so the UI can show
+    exactly which A/B cells currently have matching goods and how many pieces are available.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        customer_name = (data.get('customer_name') or '').strip()
+        items = _parse_items_from_request(data)
+        if not customer_name:
+            return error_response('請輸入客戶名稱')
+        if not items:
+            return error_response('沒有可檢查的商品')
+        preview = preview_ship_order(customer_name, items)
+        rows = preview.get('items') or preview.get('breakdown') or []
+        shortages = []
+        for idx, row in enumerate(rows):
+            plan = row.get('warehouse_deduct_plan') or row.get('warehouse_deduct') or []
+            short = row.get('warehouse_shortage') or {}
+            available_cells = []
+            if isinstance(short, dict):
+                available_cells = short.get('available_cells') or []
+            if not available_cells and row.get('warehouse_available_cells'):
+                available_cells = row.get('warehouse_available_cells') or []
+            wh_ok = row.get('warehouse_ok')
+            shortage_qty = int((short or {}).get('shortage_qty') or row.get('warehouse_shortage_qty') or 0)
+            if wh_ok is False or shortage_qty > 0 or (not plan and row.get('strict_ok') is not False):
+                shortages.append({
+                    'index': idx,
+                    'customer_name': customer_name,
+                    'product_text': row.get('product_text') or (items[idx].get('product_text') if idx < len(items) else ''),
+                    'material': row.get('material') or row.get('product_code') or (items[idx].get('material') if idx < len(items) else ''),
+                    'qty': row.get('qty') or (items[idx].get('qty') if idx < len(items) else 0),
+                    'message': row.get('recommendation') or (short or {}).get('error') or row.get('message') or '倉庫圖可能不足',
+                    'available_qty': (short or {}).get('available_qty') or row.get('warehouse_available_qty') or 0,
+                    'shortage_qty': shortage_qty,
+                    'available_cells': available_cells,
+                    'warehouse_deduct_plan': plan,
+                })
+        return jsonify(success=True, preview=preview, shortages=shortages, count=len(shortages))
+    except Exception as e:
+        log_error('api_ship_warehouse_shortage_detail_v99', str(e))
+        return error_response('查詢倉庫不足明細失敗')
+
+@app.route('/api/shipping_records/<int:record_id>/warehouse-target', methods=['GET'])
+@login_required_json
+def api_shipping_record_warehouse_target_v99(record_id):
+    """Resolve a shipping record to the exact warehouse deduction cells saved on shipment."""
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM shipping_records WHERE id=?'), (record_id,))
+        row = fetchone_dict(cur) or {}
+        conn.close()
+        if not row:
+            return error_response('找不到出貨紀錄', 404)
+        plan = _v99_safe_json_list(row.get('warehouse_deduct_json'))
+        targets = []
+        for w in plan:
+            if not isinstance(w, dict):
+                continue
+            z = str(w.get('zone') or '').upper()
+            c = int(w.get('column_index') or 0)
+            s = int(w.get('slot_number') or 0)
+            if z and c and s:
+                targets.append({
+                    'zone': z, 'column_index': c, 'slot_number': s,
+                    'location': f'{z}區{c}欄{s}格',
+                    'deduct_qty': int(w.get('deduct_qty') or 0),
+                    'before_qty': int(w.get('before_qty') or 0),
+                    'after_qty': int(w.get('after_qty') or 0),
+                    'empty_after': int(w.get('after_qty') or 0) <= 0,
+                    'url': f"/warehouse?loc={z}-{c}-{s}&open=1&highlight_item={row.get('product_text') or ''}&customer={row.get('customer_name') or ''}"
+                })
+        if targets:
+            return jsonify(success=True, targets=targets, target='warehouse', url=targets[0]['url'])
+        loc = _v91_find_warehouse_location(row.get('customer_name') or '', row.get('product_text') or '', row.get('material') or '')
+        return jsonify(success=True, targets=[], target='warehouse' if loc.get('found') else 'shipping_query', **loc)
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_shipping_record_warehouse_target_v99', str(e))
+        return error_response('出貨紀錄倉庫定位失敗')
+
+
+# ============================================================
+# V101 MAINFILE WAREHOUSE / OFFLINE / TARGETING REFINEMENTS
+# 目的：出貨倉庫不足時可直接看可扣數量並回填；倉庫異動紀錄可點回格位；
+#      未入倉統計可局部刷新，不重畫整倉。
+# ============================================================
+def _v101_json_list(v):
+    try:
+        data = json.loads(v or '[]') if isinstance(v, str) else (v or [])
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def _v101_cell_url(zone, column_index, slot_number, customer='', product_text=''):
+    z = str(zone or '').upper()
+    c = int(column_index or 0)
+    s = int(slot_number or 0)
+    return f"/warehouse?loc={z}-{c}-{s}&open=1&customer={customer or ''}&highlight_item={product_text or ''}"
+
+def _v101_scan_warehouse_matches(customer_name='', product_text='', material='', qty_needed=0, source_table=''):
+    """Dry scan matching warehouse cells using the same rule as V95 shipping deduction.
+    This does not mutate DB. It is intentionally duplicated in app.py so the UI can ask for
+    allocation choices without importing private db.py helpers.
+    """
+    target_customer = (customer_name or '').strip()
+    size_key = re.sub(r'\s+', '', (product_text or '').split('=')[0].lower())
+    mat_key = (material or '').strip().upper()
+    qty_needed = int(qty_needed or 0)
+    rows = warehouse_get_cells() or []
+    out = []
+    for cell in rows:
+        if int(cell.get('is_deleted') or 0):
+            continue
+        if (cell.get('slot_type') or 'direct') != 'direct':
+            continue
+        items = _v101_json_list(cell.get('items_json'))
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            prod = it.get('product_text') or it.get('product') or ''
+            item_size = re.sub(r'\s+', '', (prod or '').split('=')[0].lower())
+            if not size_key or item_size != size_key:
+                continue
+            item_mat = (it.get('material') or it.get('product_code') or '').strip().upper()
+            if (mat_key or item_mat) and item_mat != mat_key:
+                continue
+            cell_customer = (it.get('customer_name') or '').strip()
+            if source_table == 'inventory':
+                if cell_customer not in ('', '庫存', target_customer):
+                    continue
+            elif target_customer and cell_customer != target_customer:
+                continue
+            q = int(it.get('qty') or 0)
+            if q <= 0:
+                continue
+            out.append({
+                'zone': str(cell.get('zone') or '').upper(),
+                'column_index': int(cell.get('column_index') or 0),
+                'slot_type': cell.get('slot_type') or 'direct',
+                'slot_number': int(cell.get('slot_number') or 0),
+                'customer_name': cell_customer or target_customer or '庫存',
+                'product_text': prod,
+                'material': item_mat or mat_key,
+                'available_qty': q,
+                'location': f"{str(cell.get('zone') or '').upper()}區{int(cell.get('column_index') or 0)}欄{int(cell.get('slot_number') or 0)}格",
+                'url': _v101_cell_url(cell.get('zone'), cell.get('column_index'), cell.get('slot_number'), cell_customer or target_customer or '庫存', prod),
+            })
+    # same user rule: smallest quantity first; stable deterministic tie for preview UI
+    out.sort(key=lambda x: (int(x.get('available_qty') or 0), x.get('zone') or '', int(x.get('column_index') or 0), int(x.get('slot_number') or 0)))
+    remain = qty_needed
+    for r in out:
+        take = min(int(r.get('available_qty') or 0), max(0, remain)) if qty_needed else 0
+        r['suggested_deduct_qty'] = take
+        remain -= take
+    return {'cells': out, 'available_qty': sum(int(x.get('available_qty') or 0) for x in out), 'shortage_qty': max(0, qty_needed - sum(int(x.get('available_qty') or 0) for x in out))}
+
+@app.route('/api/ship/warehouse-reallocate-preview', methods=['POST'])
+@login_required_json
+def api_ship_warehouse_reallocate_preview_v101():
+    """Return exact matching warehouse cells and a safe partial allocation suggestion.
+    Used after warehouse shortage so the user can change shipping quantity to currently
+    available pieces instead of guessing.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        customer_name = (data.get('customer_name') or '').strip()
+        item = data.get('item') or {}
+        if not item and data.get('items'):
+            item = (data.get('items') or [{}])[0] or {}
+        product_text = (item.get('product_text') or data.get('product_text') or '').strip()
+        material = (item.get('material') or item.get('product_code') or data.get('material') or '').strip()
+        qty_needed = int(item.get('qty') or data.get('qty') or 0)
+        source_table = (item.get('source_preference') or item.get('source') or data.get('source_table') or '').strip()
+        if not customer_name:
+            return error_response('請輸入客戶名稱')
+        if not product_text:
+            return error_response('請輸入商品')
+        scan = _v101_scan_warehouse_matches(customer_name, product_text, material, qty_needed, source_table)
+        cells = scan['cells']
+        can_ship_qty = min(int(scan['available_qty'] or 0), qty_needed if qty_needed > 0 else int(scan['available_qty'] or 0))
+        return jsonify(success=True, customer_name=customer_name, product_text=product_text, material=material, requested_qty=qty_needed, can_ship_qty=can_ship_qty, available_qty=scan['available_qty'], shortage_qty=scan['shortage_qty'], cells=cells, allocation=[c for c in cells if int(c.get('suggested_deduct_qty') or 0) > 0])
+    except Exception as e:
+        log_error('api_ship_warehouse_reallocate_preview_v101', str(e))
+        return error_response('倉庫可扣數量重算失敗')
+
+@app.route('/api/warehouse/activity-target/<int:audit_id>', methods=['GET'])
+@login_required_json
+def api_warehouse_activity_target_v101(audit_id):
+    """Resolve a warehouse add/remove/ship audit row back to a warehouse URL."""
+    conn = None
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM audit_trails WHERE id=?'), (audit_id,))
+        row = fetchone_dict(cur) or {}
+        if not row:
+            return error_response('找不到倉庫操作紀錄', 404)
+        after = row.get('after_json') or '{}'
+        try:
+            after = json.loads(after) if isinstance(after, str) else (after or {})
+        except Exception:
+            after = {}
+        candidates = []
+        for key in ('warehouse_deduct','warehouse_deduct_json','deducted','cells','slots','target','after'):
+            val = after.get(key) if isinstance(after, dict) else None
+            if isinstance(val, str):
+                try: val = json.loads(val)
+                except Exception: val = None
+            if isinstance(val, dict):
+                candidates.append(val)
+            elif isinstance(val, list):
+                candidates.extend([x for x in val if isinstance(x, dict)])
+        if isinstance(after, dict):
+            candidates.append(after)
+        for c in candidates:
+            z = c.get('zone') or c.get('warehouse_zone')
+            col = c.get('column_index') or c.get('column')
+            slot = c.get('slot_number') or c.get('slot')
+            if z and col and slot:
+                url = _v101_cell_url(z, col, slot, c.get('customer_name') or '', c.get('product_text') or '')
+                return jsonify(success=True, url=url, zone=str(z).upper(), column_index=int(col), slot_number=int(slot))
+        return jsonify(success=True, url='/warehouse', message='這筆紀錄沒有精準格位，已回倉庫圖')
+    except Exception as e:
+        log_error('api_warehouse_activity_target_v101', str(e))
+        return error_response('倉庫操作定位失敗')
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception:
+            pass
+
+@app.route('/api/warehouse/unplaced-stats-fast', methods=['GET'])
+@login_required_json
+def api_warehouse_unplaced_stats_fast_v101():
+    """Small, safe stats endpoint for local refresh without repainting the whole warehouse.
+    It compares source totals against quantities already placed in warehouse items.
+    """
+    try:
+        conn = get_db(); cur = conn.cursor()
+        placed = {'A':0,'B':0,'未分區':0,'total':0}
+        cur.execute(sql("SELECT zone, items_json FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0"))
+        for row in rows_to_dict(cur):
+            zone = str(row.get('zone') or '').upper()
+            items = _v101_json_list(row.get('items_json'))
+            q = sum(int((x or {}).get('qty') or 0) for x in items if isinstance(x, dict))
+            if zone in ('A','B'):
+                placed[zone] += q
+            else:
+                placed['未分區'] += q
+            placed['total'] += q
+        source_total = 0
+        for table in ('inventory','orders','master_orders'):
+            try:
+                cur.execute(sql(f"SELECT COALESCE(SUM(qty),0) AS total FROM {table}"))
+                r = fetchone_dict(cur) or {}
+                source_total += int(r.get('total') or 0)
+            except Exception:
+                pass
+        conn.close()
+        unplaced_total = max(0, source_total - placed['total'])
+        return jsonify(success=True, source_total=source_total, placed=placed, unplaced={'total':unplaced_total}, updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_unplaced_stats_fast_v101', str(e))
+        return error_response('未入倉統計刷新失敗')
+
+
+# ============================================================
+# V103 MAINFILE CAPABILITY CHECK
+# ============================================================
+@app.route('/api/v103/capabilities', methods=['GET'])
+@login_required_json
+def api_v103_capabilities():
+    """Frontend health/capability probe for V103 source-filter reopen, shortage navigation, and lock indicators."""
+    return jsonify(
+        success=True,
+        version='V103',
+        features={
+            'source_reopen_filters': True,
+            'shipping_shortage_reallocate': True,
+            'warehouse_shortage_navigation': True,
+            'today_activity_source_target': True,
+            'row_lock_indicator': True,
+            'no_setInterval_or_mutation_observer': True,
+        },
+        updated_at=now()
+    )
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+
+# ============================================================
+# V95 MAINFILE OFFLINE CONFLICT TARGET RESOLVER
+# ============================================================
+@app.route('/api/offline-conflicts/resolve-target', methods=['POST'])
+@login_required_json
+def api_offline_conflict_resolve_target_v95():
+    """Resolve a stopped offline-ship conflict back to the safest source page without executing shipment."""
+    try:
+        data = request.get_json(silent=True) or {}
+        conflict = data.get('conflict') or {}
+        queued = data.get('queue') or {}
+        body = data.get('body') or {}
+        if not body and queued.get('body'):
+            try:
+                body = json.loads(queued.get('body') or '{}')
+            except Exception:
+                body = {}
+        customer = (body.get('customer_name') or conflict.get('customer_name') or data.get('customer_name') or '').strip()
+        product = (conflict.get('product_text') or data.get('product_text') or '').strip()
+        material = (conflict.get('material') or data.get('material') or '').strip()
+        loc = _v91_find_warehouse_location(customer, product, material)
+        if loc.get('found'):
+            return jsonify(success=True, target='warehouse', **loc)
+        source = (conflict.get('source_label') or conflict.get('source') or '').strip().lower()
+        q = product or customer
+        if '總' in source or 'master' in source:
+            return jsonify(success=True, target='master_order', url=f"/master-order?customer={customer}&q={q}&highlight_item={q}", found=False)
+        if '訂' in source or 'order' in source:
+            return jsonify(success=True, target='orders', url=f"/orders?customer={customer}&q={q}&highlight_item={q}", found=False)
+        if '庫' in source or 'inventory' in source:
+            return jsonify(success=True, target='inventory', url=f"/inventory?q={q}&highlight_item={q}", found=False)
+        return jsonify(success=True, target='ship', url=f"/ship?customer={customer}&q={q}&highlight_item={q}", found=False)
+    except Exception as e:
+        log_error('api_offline_conflict_resolve_target_v95', str(e))
+        return error_response('離線衝突來源定位失敗')
+
+# ============================================================
+# V105 MAINFILE warehouse/live-sync/query helpers
+# ============================================================
+def _v105_json_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    try:
+        data = json.loads(value or '[]')
+        return data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+    except Exception:
+        return []
+
+def _v105_cell_qty(items):
+    total = 0
+    for it in _v105_json_list(items):
+        if not isinstance(it, dict):
+            continue
+        try:
+            total += int(it.get('qty') or it.get('pieces') or 0)
+        except Exception:
+            pass
+    return total
+
+def _v105_cell_dict(row):
+    d = dict(row or {})
+    items = _v105_json_list(d.get('items_json') or d.get('items') or [])
+    d['items'] = items
+    d['qty_total'] = _v105_cell_qty(items)
+    z = str(d.get('zone') or '').upper()
+    c = int(d.get('column_index') or 0)
+    s = int(d.get('slot_number') or 0)
+    d['location_label'] = f'{z}-{c}-{s}' if z and c and s else ''
+    d['url'] = f'/warehouse?loc={d["location_label"]}&open=1' if d.get('location_label') else '/warehouse'
+    d['empty'] = d['qty_total'] <= 0
+    return d
+
+@app.route('/api/warehouse/refresh-cells', methods=['POST'])
+@login_required_json
+def api_warehouse_refresh_cells_v105():
+    """Return only requested warehouse cells after ship/add/remove, so the frontend can patch cells without repainting the whole map."""
+    try:
+        data = request.get_json(silent=True) or {}
+        wanted = data.get('cells') or data.get('targets') or []
+        normalized = []
+        if isinstance(wanted, dict):
+            wanted = [wanted]
+        for x in wanted:
+            if isinstance(x, str):
+                m = re.match(r'^\s*([AB])[-_ ]?(\d+)[-_ ]?(\d+)\s*$', x, re.I)
+                if m:
+                    normalized.append((m.group(1).upper(), int(m.group(2)), int(m.group(3))))
+            elif isinstance(x, dict):
+                z = (x.get('zone') or x.get('warehouse_zone') or '').upper()
+                c = int(x.get('column_index') or x.get('column') or 0)
+                s = int(x.get('slot_number') or x.get('slot') or 0)
+                if z and c and s:
+                    normalized.append((z, c, s))
+        if not normalized:
+            z = (data.get('zone') or '').upper(); c = int(data.get('column_index') or data.get('column') or 0); s = int(data.get('slot_number') or data.get('slot') or 0)
+            if z and c and s:
+                normalized.append((z, c, s))
+        conn = get_db(); cur = conn.cursor(); out = []
+        for z, c, s in normalized[:80]:
+            cur.execute(sql('SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?'), (z, c, s))
+            row = fetchone_dict(cur)
+            if row:
+                out.append(_v105_cell_dict(row))
+        conn.close()
+        return jsonify(success=True, cells=out, updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_refresh_cells_v105', str(e))
+        return error_response('局部刷新倉庫格失敗')
+
+@app.route('/api/warehouse/open-cell', methods=['GET', 'POST'])
+@login_required_json
+def api_warehouse_open_cell_v105():
+    """Resolve and return a single warehouse cell for precise open/highlight navigation."""
+    try:
+        data = request.get_json(silent=True) if request.method == 'POST' else request.args
+        data = data or {}
+        loc = (data.get('loc') or data.get('location') or '').strip()
+        z = (data.get('zone') or '').upper(); c = int(data.get('column_index') or data.get('column') or 0); s = int(data.get('slot_number') or data.get('slot') or 0)
+        if loc and (not z or not c or not s):
+            m = re.match(r'^\s*([AB])[-_ ]?(\d+)[-_ ]?(\d+)\s*$', loc, re.I)
+            if m:
+                z, c, s = m.group(1).upper(), int(m.group(2)), int(m.group(3))
+        if not (z and c and s):
+            return jsonify(success=False, error='缺少格位')
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?'), (z, c, s))
+        row = fetchone_dict(cur); conn.close()
+        if not row:
+            return jsonify(success=False, error='找不到格位')
+        cell = _v105_cell_dict(row)
+        return jsonify(success=True, cell=cell, url=cell['url'], zone=z, column_index=c, slot_number=s)
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_open_cell_v105', str(e))
+        return error_response('開啟倉庫格失敗')
+
+@app.route('/api/warehouse/zone-stats', methods=['GET'])
+@login_required_json
+def api_warehouse_zone_stats_v105():
+    try:
+        zone_filter = (request.args.get('zone') or '').upper()
+        stats = {}
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT zone, problem_flag, is_deleted, items_json FROM warehouse_cells'))
+        for row in rows_to_dict(cur):
+            z = str(row.get('zone') or '').upper() or '未分區'
+            if zone_filter and z != zone_filter:
+                continue
+            st = stats.setdefault(z, {'zone': z, 'slots': 0, 'visible_slots': 0, 'empty_slots': 0, 'filled_slots': 0, 'problem_slots': 0, 'qty_total': 0})
+            st['slots'] += 1
+            if int(row.get('is_deleted') or 0):
+                continue
+            st['visible_slots'] += 1
+            q = _v105_cell_qty(row.get('items_json'))
+            st['qty_total'] += q
+            if q > 0: st['filled_slots'] += 1
+            else: st['empty_slots'] += 1
+            if int(row.get('problem_flag') or 0): st['problem_slots'] += 1
+        conn.close()
+        return jsonify(success=True, items=list(stats.values()), updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_zone_stats_v105', str(e))
+        return error_response('讀取倉庫區統計失敗')
+
+@app.route('/api/warehouse/column-stats', methods=['GET'])
+@login_required_json
+def api_warehouse_column_stats_v105():
+    try:
+        zone_filter = (request.args.get('zone') or '').upper(); col_filter = int(request.args.get('column_index') or request.args.get('column') or 0)
+        stats = {}
+        conn = get_db(); cur = conn.cursor(); cur.execute(sql('SELECT zone,column_index,problem_flag,is_deleted,items_json FROM warehouse_cells'))
+        for row in rows_to_dict(cur):
+            z = str(row.get('zone') or '').upper(); c = int(row.get('column_index') or 0)
+            if zone_filter and z != zone_filter: continue
+            if col_filter and c != col_filter: continue
+            key = f'{z}-{c}'; st = stats.setdefault(key, {'zone': z, 'column_index': c, 'slots': 0, 'visible_slots': 0, 'empty_slots': 0, 'filled_slots': 0, 'problem_slots': 0, 'qty_total': 0})
+            st['slots'] += 1
+            if int(row.get('is_deleted') or 0): continue
+            st['visible_slots'] += 1
+            q = _v105_cell_qty(row.get('items_json')); st['qty_total'] += q
+            if q > 0: st['filled_slots'] += 1
+            else: st['empty_slots'] += 1
+            if int(row.get('problem_flag') or 0): st['problem_slots'] += 1
+        conn.close(); return jsonify(success=True, items=list(stats.values()), updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_column_stats_v105', str(e))
+        return error_response('讀取倉庫欄統計失敗')
+
+@app.route('/api/warehouse/cell-stock-detail', methods=['GET'])
+@login_required_json
+def api_warehouse_cell_stock_detail_v105():
+    try:
+        z = (request.args.get('zone') or '').upper(); c = int(request.args.get('column_index') or request.args.get('column') or 0); s = int(request.args.get('slot_number') or request.args.get('slot') or 0)
+        loc = request.args.get('loc') or ''
+        if loc and (not z or not c or not s):
+            m = re.match(r'^\s*([AB])[-_ ]?(\d+)[-_ ]?(\d+)\s*$', loc, re.I)
+            if m: z, c, s = m.group(1).upper(), int(m.group(2)), int(m.group(3))
+        conn = get_db(); cur = conn.cursor(); cur.execute(sql('SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=?'), (z,c,s)); row = fetchone_dict(cur); conn.close()
+        if not row: return jsonify(success=False, error='找不到格位')
+        cell = _v105_cell_dict(row)
+        return jsonify(success=True, cell=cell, items=cell.get('items') or [], qty_total=cell.get('qty_total') or 0, empty=cell.get('empty'))
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_warehouse_cell_stock_detail_v105', str(e))
+        return error_response('讀取格位庫存失敗')
+
+@app.route('/api/warehouse/replay-action/<int:audit_id>', methods=['GET'])
+@login_required_json
+def api_warehouse_replay_action_v105(audit_id):
+    """Return before/after payload for a warehouse audit row so the UI can review what changed and jump back to the cell."""
+    try:
+        rows = list_audit_trails(limit=800)
+        row = next((r for r in rows if int(r.get('id') or 0) == int(audit_id)), None)
+        if not row:
+            return jsonify(success=False, error='找不到紀錄')
+        before = row.get('before_json') or {}; after = row.get('after_json') or {}
+        target = None
+        for src in (after, before):
+            if isinstance(src, dict):
+                z = src.get('zone') or src.get('warehouse_zone'); c = src.get('column_index') or src.get('column'); s = src.get('slot_number') or src.get('slot')
+                if z and c and s:
+                    target = {'zone': str(z).upper(), 'column_index': int(c), 'slot_number': int(s), 'url': _v101_cell_url(z,c,s,src.get('customer_name') or '',src.get('product_text') or '')}
+                    break
+                for key in ('cells','slots','warehouse_deduct','warehouse_deduct_json'):
+                    vals = _v105_json_list(src.get(key))
+                    for x in vals:
+                        if isinstance(x, dict) and (x.get('zone') or x.get('warehouse_zone')) and (x.get('column_index') or x.get('column')) and (x.get('slot_number') or x.get('slot')):
+                            z=x.get('zone') or x.get('warehouse_zone'); c=x.get('column_index') or x.get('column'); s=x.get('slot_number') or x.get('slot')
+                            target={'zone':str(z).upper(),'column_index':int(c),'slot_number':int(s),'url':_v101_cell_url(z,c,s,x.get('customer_name') or '',x.get('product_text') or '')}; break
+                    if target: break
+        return jsonify(success=True, audit=row, before=before, after=after, target=target, url=(target or {}).get('url') or '/warehouse')
+    except Exception as e:
+        log_error('api_warehouse_replay_action_v105', str(e))
+        return error_response('讀取倉庫操作回放失敗')
+
+@app.route('/api/edit-locks/cleanup', methods=['POST','GET'])
+@login_required_json
+def api_edit_locks_cleanup_v105():
+    """Best-effort expired lock cleanup. Safe on SQLite/PostgreSQL."""
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('DELETE FROM edit_locks WHERE expires_at IS NOT NULL AND expires_at < ?'), (now(),))
+        affected = getattr(cur, 'rowcount', 0)
+        conn.commit(); conn.close()
+        return jsonify(success=True, removed=max(0, int(affected or 0)), updated_at=now())
+    except Exception as e:
+        try: conn.rollback(); conn.close()
+        except Exception: pass
+        log_error('api_edit_locks_cleanup_v105', str(e))
+        return jsonify(success=True, removed=0, warning='cleanup skipped')
+
+@app.route('/api/v105/capabilities', methods=['GET'])
+@login_required_json
+def api_v105_capabilities():
+    return jsonify(success=True, version='V105', features={
+        'warehouse_partial_refresh': True,
+        'warehouse_open_cell': True,
+        'warehouse_zone_column_stats': True,
+        'warehouse_cell_stock_detail': True,
+        'warehouse_action_replay': True,
+        'shipping_after_refresh_cells': True,
+        'edit_lock_cleanup': True,
+        'no_patch_overlay_hardlock': True,
+        'no_setInterval_or_mutation_observer': True,
+    }, updated_at=now())
+
+# V106 next package: warehouse replay timeline + shipping/warehouse sync helpers + lock cleanup report (mainfile only).
+def _v106_safe_json(value, default=None):
+    if default is None:
+        default = []
+    if value is None or value == '':
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+def _v106_loc_from_payload(payload):
+    if not isinstance(payload, dict):
+        return None
+    z = payload.get('zone') or payload.get('warehouse_zone')
+    c = payload.get('column_index') or payload.get('column')
+    s = payload.get('slot_number') or payload.get('slot')
+    if z and c and s:
+        try:
+            return {'zone': str(z).upper(), 'column_index': int(c), 'slot_number': int(s), 'loc': f"{str(z).upper()}-{int(c)}-{int(s)}", 'url': _v101_cell_url(z, c, s, payload.get('customer_name') or '', payload.get('product_text') or '')}
+        except Exception:
+            return None
+    return None
+
+def _v106_extract_locations(payload):
+    out = []
+    seen = set()
+    def add(x):
+        loc = _v106_loc_from_payload(x)
+        if loc and loc['loc'] not in seen:
+            seen.add(loc['loc']); out.append(loc)
+    def walk(x):
+        if isinstance(x, dict):
+            add(x)
+            for key in ('cells','slots','warehouse_deduct','warehouse_deduct_json','deductions','items'):
+                walk(x.get(key))
+        elif isinstance(x, list):
+            for y in x:
+                walk(y)
+    walk(payload)
+    return out
+
+@app.route('/api/v106/warehouse-action-timeline', methods=['GET'])
+@login_required_json
+def api_v106_warehouse_action_timeline():
+    """Visual-friendly warehouse audit timeline. It does not mutate warehouse_cells."""
+    try:
+        limit = min(500, max(1, int(request.args.get('limit') or 80)))
+        rows = list_audit_trails(limit=limit)
+        items = []
+        for row in rows:
+            entity = str(row.get('entity_type') or '')
+            action = str(row.get('action_type') or '')
+            before = row.get('before_json') or {}
+            after = row.get('after_json') or {}
+            locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+            if entity != 'warehouse_cells' and not locs and 'warehouse' not in action.lower() and '倉庫' not in action:
+                continue
+            summary = action or '倉庫操作'
+            if locs:
+                summary += '｜' + '、'.join(x['loc'] for x in locs[:4])
+            items.append({
+                'id': row.get('id'),
+                'created_at': row.get('created_at'),
+                'username': row.get('username'),
+                'action_type': action,
+                'entity_type': entity,
+                'entity_key': row.get('entity_key'),
+                'summary': summary,
+                'locations': locs,
+                'target': locs[0] if locs else None,
+                'before': before,
+                'after': after,
+                'replay_url': f"/api/warehouse/replay-action/{row.get('id')}",
+            })
+        return jsonify(success=True, items=items, count=len(items), updated_at=now())
+    except Exception as e:
+        log_error('api_v106_warehouse_action_timeline', str(e))
+        return error_response('讀取倉庫操作時間軸失敗')
+
+@app.route('/api/v106/shipping-warehouse-sync', methods=['GET'])
+@login_required_json
+def api_v106_shipping_warehouse_sync():
+    """Return shipping rows with warehouse deduction location links for query pages."""
+    try:
+        limit = min(300, max(1, int(request.args.get('limit') or 80)))
+        conn = get_db(); cur = conn.cursor()
+        try:
+            cur.execute(sql('SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?'), (limit,))
+        except Exception:
+            cur.execute(sql('SELECT * FROM shipping_records ORDER BY id DESC'))
+        rows = rows_to_dict(cur)[:limit]
+        conn.close()
+        items = []
+        for row in rows:
+            payload = _v106_safe_json(row.get('warehouse_deduct_json'), [])
+            locs = _v106_extract_locations(payload)
+            if not locs:
+                locs = _v106_extract_locations(row)
+            row['warehouse_locations'] = locs
+            row['warehouse_location_text'] = '、'.join(x['loc'] for x in locs) if locs else (row.get('warehouse_location') or '')
+            row['warehouse_url'] = (locs[0].get('url') if locs else '') or ''
+            items.append(row)
+        return jsonify(success=True, items=items, count=len(items), updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_v106_shipping_warehouse_sync', str(e))
+        return error_response('讀取出貨倉庫同步資訊失敗')
+
+@app.route('/api/v106/edit-locks/cleanup-report', methods=['POST','GET'])
+@login_required_json
+def api_v106_edit_locks_cleanup_report():
+    """Cleanup expired edit locks and return active locks for UI status."""
+    try:
+        conn = get_db(); cur = conn.cursor()
+        removed = 0
+        try:
+            cur.execute(sql('DELETE FROM edit_locks WHERE expires_at IS NOT NULL AND expires_at < ?'), (now(),))
+            removed = max(0, int(getattr(cur, 'rowcount', 0) or 0))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+        cur.execute(sql('SELECT * FROM edit_locks ORDER BY updated_at DESC'))
+        locks = rows_to_dict(cur)
+        conn.close()
+        return jsonify(success=True, removed=removed, locks=locks, active_count=len(locks), updated_at=now())
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        log_error('api_v106_edit_locks_cleanup_report', str(e))
+        return jsonify(success=True, removed=0, locks=[], active_count=0, warning='cleanup report skipped')
+
+@app.route('/api/v106/capabilities', methods=['GET'])
+@login_required_json
+def api_v106_capabilities():
+    return jsonify(success=True, version='V106', features={
+        'warehouse_action_timeline_visual': True,
+        'shipping_query_warehouse_sync_links': True,
+        'warehouse_replay_open_cell_more_visible': True,
+        'search_location_jump_stabilized': True,
+        'edit_lock_cleanup_report': True,
+        'no_patch_overlay_hardlock': True,
+        'no_setInterval_or_mutation_observer': True,
+    }, updated_at=now())
+
+
+# ===================== V107 精準跳轉 / 共用倉庫扣除資訊 / 搜尋開格穩定 =====================
+def _v107_loc_text(loc):
+    if not loc:
+        return ''
+    if not isinstance(loc, dict):
+        return str(loc)
+    z = (loc.get('zone') or '').upper()
+    b = loc.get('band') or loc.get('col') or loc.get('column') or ''
+    slot = loc.get('slot') or loc.get('cell') or ''
+    if z and b and slot:
+        return f"{z}-{b}-{slot}"
+    return loc.get('loc') or loc.get('location') or ''
+
+
+def _v107_warehouse_url_from_loc(loc, open_cell=True, highlight_item=''):
+    text = _v107_loc_text(loc)
+    if not text:
+        return ''
+    qs = f"loc={quote(str(text))}"
+    if open_cell:
+        qs += '&open=1'
+    if highlight_item:
+        qs += '&highlight_item=' + quote(str(highlight_item))
+    return '/warehouse?' + qs
+
+
+def _v107_shipping_record_warehouse_info(row):
+    payload = _v106_safe_json(row.get('warehouse_deduct_json'), [])
+    locs = _v106_extract_locations(payload)
+    if not locs:
+        locs = _v106_extract_locations(row)
+    item_text = row.get('item_text') or row.get('product_text') or row.get('size_text') or row.get('product_name') or ''
+    first = locs[0] if locs else {}
+    total_deduct = 0
+    normalized = []
+    for loc in locs:
+        deduct = loc.get('deduct_qty') or loc.get('qty') or loc.get('deduct') or 0
+        try:
+            total_deduct += int(float(deduct))
+        except Exception:
+            pass
+        normalized.append({
+            'loc': _v107_loc_text(loc),
+            'zone': (loc.get('zone') or '').upper(),
+            'band': loc.get('band') or loc.get('col') or loc.get('column'),
+            'slot': loc.get('slot') or loc.get('cell'),
+            'deduct_qty': deduct,
+            'before_qty': loc.get('before_qty') or loc.get('before'),
+            'after_qty': loc.get('after_qty') or loc.get('after'),
+            'is_empty_after': bool(loc.get('is_empty_after') or loc.get('empty_after')),
+            'url': _v107_warehouse_url_from_loc(loc, True, item_text),
+        })
+    return {
+        'record_id': row.get('id'),
+        'customer': row.get('customer') or row.get('customer_name') or '',
+        'material': row.get('material') or '',
+        'item_text': item_text,
+        'locations': normalized,
+        'warehouse_location_text': '、'.join([x.get('loc','') for x in normalized if x.get('loc')]),
+        'warehouse_url': _v107_warehouse_url_from_loc(first, True, item_text) if first else '',
+        'total_deduct_qty': total_deduct,
+    }
+
+
+@app.route('/api/v107/shipping-warehouse-map', methods=['GET'])
+def api_v107_shipping_warehouse_map():
+    """出貨紀錄與今日異動共用的倉庫扣除資訊。"""
+    try:
+        limit = max(1, min(int(request.args.get('limit', 200)), 500))
+        sid = request.args.get('id') or request.args.get('record_id')
+        with get_conn() as conn:
+            if sid:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [sid])
+            else:
+                rows = q_all(conn, 'SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?', [limit])
+        items = [_v107_shipping_record_warehouse_info(r) for r in rows]
+        return jsonify({'ok': True, 'version': 'V107', 'items': items})
+    except Exception as e:
+        log_error('api_v107_shipping_warehouse_map', str(e))
+        return jsonify({'ok': False, 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v107/warehouse-target/resolve', methods=['GET', 'POST'])
+def api_v107_warehouse_target_resolve():
+    """把今日異動、搜尋、出貨紀錄的目標統一解析成可開啟的倉庫 URL。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        args = request.args
+        loc_text = data.get('loc') or data.get('location') or args.get('loc') or args.get('location')
+        record_id = data.get('shipping_id') or data.get('record_id') or args.get('shipping_id') or args.get('record_id')
+        audit_id = data.get('audit_id') or args.get('audit_id')
+        highlight_item = data.get('highlight_item') or args.get('highlight_item') or data.get('item_text') or args.get('item_text') or ''
+        source = data.get('source') or args.get('source') or ''
+        loc = {}
+        if loc_text:
+            parts = str(loc_text).replace('區','').replace('欄','-').replace('格','').replace('_','-').split('-')
+            if len(parts) >= 3:
+                loc = {'zone': parts[0].upper(), 'band': parts[1], 'slot': parts[2]}
+            else:
+                loc = {'loc': str(loc_text)}
+        elif record_id:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [record_id])
+            if rows:
+                info = _v107_shipping_record_warehouse_info(rows[0])
+                first = (info.get('locations') or [{}])[0]
+                loc = first
+                highlight_item = highlight_item or info.get('item_text') or ''
+                source = source or 'shipping_records'
+        elif audit_id:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM audit_logs WHERE id=?', [audit_id])
+            if rows:
+                after = _v106_safe_json(rows[0].get('after_json'), {})
+                before = _v106_safe_json(rows[0].get('before_json'), {})
+                locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+                loc = locs[0] if locs else {}
+                source = source or 'audit_logs'
+        url = _v107_warehouse_url_from_loc(loc, True, highlight_item)
+        return jsonify({'ok': True, 'version': 'V107', 'source': source, 'loc': _v107_loc_text(loc), 'url': url, 'highlight_item': highlight_item, 'open': bool(url)})
+    except Exception as e:
+        log_error('api_v107_warehouse_target_resolve', str(e))
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v107/warehouse-action-timeline', methods=['GET'])
+def api_v107_warehouse_action_timeline():
+    """V106 時間軸加上統一 target_url，讓每筆操作都能點回格位。"""
+    try:
+        limit = max(1, min(int(request.args.get('limit', 160)), 500))
+        with get_conn() as conn:
+            rows = q_all(conn, """SELECT id, action, table_name, record_id, before_json, after_json, username, created_at
+                                  FROM audit_logs
+                                  WHERE table_name LIKE '%warehouse%' OR action LIKE '%warehouse%' OR action LIKE '%倉庫%'
+                                  ORDER BY id DESC LIMIT ?""", [limit])
+        items = []
+        for r in rows:
+            after = _v106_safe_json(r.get('after_json'), {})
+            before = _v106_safe_json(r.get('before_json'), {})
+            locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+            item_text = ''
+            if isinstance(after, dict):
+                item_text = after.get('item_text') or after.get('product_text') or ''
+            if not item_text and isinstance(before, dict):
+                item_text = before.get('item_text') or before.get('product_text') or ''
+            locations = []
+            for loc in locs:
+                locations.append({'loc': _v107_loc_text(loc), 'url': _v107_warehouse_url_from_loc(loc, True, item_text)})
+            items.append({
+                'id': r.get('id'), 'action': r.get('action'), 'table_name': r.get('table_name'), 'record_id': r.get('record_id'),
+                'username': r.get('username'), 'created_at': r.get('created_at'),
+                'summary': f"{r.get('action') or '倉庫操作'} #{r.get('record_id') or ''}",
+                'locations': locations,
+                'target_url': locations[0]['url'] if locations else '',
+                'target_loc': locations[0]['loc'] if locations else '',
+                'can_open': bool(locations),
+            })
+        return jsonify({'ok': True, 'version': 'V107', 'items': items})
+    except Exception as e:
+        log_error('api_v107_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'items': [], 'error': str(e)}), 500
+
+
+@app.route('/api/v107/shipping-warehouse-sync', methods=['GET'])
+def api_v107_shipping_warehouse_sync_alias():
+    """V107 前端相容：回傳出貨紀錄對應倉庫格位。"""
+    return api_v107_shipping_warehouse_map()
+
+
+@app.route('/api/v107/edit-locks/cleanup-report', methods=['POST','GET'])
+def api_v107_edit_locks_cleanup_report():
+    """V107 前端相容：沿用 V106 編輯鎖清理回報。"""
+    try:
+        return api_v106_edit_locks_cleanup_report()
+    except Exception as e:
+        log_error('api_v107_edit_locks_cleanup_report', str(e))
+        return jsonify({'ok': False, 'error': str(e), 'removed': 0, 'active_count': 0}), 500
+
+
+@app.route('/api/v107/capabilities', methods=['GET'])
+def api_v107_capabilities():
+    return jsonify({
+        'ok': True,
+        'version': 'V107',
+        'features': [
+            'warehouse_timeline_open_cell',
+            'shared_shipping_warehouse_map',
+            'warehouse_target_resolve',
+            'search_open_cell_stable',
+            'today_shipping_same_target_payload',
+            'cache_bust_v107',
+        ]
+    })
+# ===================== /V107 =====================
+
+# ===================== V109 next package: focusable warehouse deductions + timeline filters =====================
+def _v109_safe_json(value, fallback=None):
+    if fallback is None:
+        fallback = []
+    try:
+        if value is None or value == '':
+            return fallback
+        if isinstance(value, (list, dict)):
+            return value
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+def _v109_deduct_detail_from_row(row):
+    info = _v107_shipping_record_warehouse_info(row)
+    raw = _v109_safe_json(row.get('warehouse_deduct_json'), [])
+    details = []
+    for i, loc in enumerate(raw if isinstance(raw, list) else []):
+        if not isinstance(loc, dict):
+            continue
+        before_qty = loc.get('before_qty') or loc.get('before_count') or loc.get('cell_before_qty') or loc.get('before')
+        deduct_qty = loc.get('deduct_qty') or loc.get('qty') or loc.get('deduct') or 0
+        after_qty = loc.get('after_qty') or loc.get('after_count') or loc.get('cell_after_qty')
+        try:
+            if after_qty is None and before_qty is not None:
+                after_qty = int(float(before_qty)) - int(float(deduct_qty or 0))
+        except Exception:
+            pass
+        loc_text = _v107_loc_text(loc)
+        details.append({
+            'index': i,
+            'loc': loc_text,
+            'zone': loc.get('zone') or loc.get('area') or '',
+            'band': loc.get('band') or loc.get('col') or loc.get('column') or '',
+            'slot': loc.get('slot') or loc.get('cell') or loc.get('slot_no') or '',
+            'customer_name': loc.get('customer_name') or row.get('customer_name') or '',
+            'material': loc.get('material') or row.get('material') or '',
+            'product_text': loc.get('product_text') or row.get('product_text') or '',
+            'before_qty': before_qty,
+            'deduct_qty': deduct_qty,
+            'after_qty': after_qty,
+            'emptied': bool(loc.get('emptied') or loc.get('is_empty') or str(after_qty) == '0'),
+            'url': _v107_warehouse_url_from_loc(loc, True, loc.get('product_text') or row.get('product_text') or ''),
+        })
+    info['deduct_details'] = details
+    info['deduct_detail_count'] = len(details)
+    info['focus_url'] = details[0]['url'] if details else info.get('warehouse_url')
+    return info
+
+
+@app.route('/api/v109/shipping-deduct-detail', methods=['GET'])
+def api_v109_shipping_deduct_detail():
+    """回查單筆或多筆出貨的倉庫扣除明細：扣前/扣後/扣空/可開格位。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id')
+        limit = max(1, min(int(request.args.get('limit', 160)), 500))
+        with get_conn() as conn:
+            if rid:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [rid])
+            else:
+                rows = q_all(conn, 'SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?', [limit])
+        items = [_v109_deduct_detail_from_row(r) for r in rows]
+        return jsonify({'ok': True, 'version': 'V109', 'items': items, 'item': items[0] if rid and items else None})
+    except Exception as e:
+        log_error('api_v109_shipping_deduct_detail', str(e))
+        return jsonify({'ok': False, 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v109/open-and-focus-cell', methods=['GET', 'POST'])
+def api_v109_open_and_focus_cell():
+    """統一把出貨、今日異動、搜尋目標解析成倉庫 URL，並帶上商品列焦點參數。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        args = request.args
+        loc = data.get('loc') or args.get('loc') or data.get('location') or args.get('location')
+        record_id = data.get('record_id') or args.get('record_id') or data.get('shipping_id') or args.get('shipping_id')
+        item = data.get('highlight_item') or args.get('highlight_item') or data.get('product_text') or args.get('product_text') or ''
+        customer = data.get('customer_name') or args.get('customer_name') or data.get('customer') or args.get('customer') or ''
+        if record_id and not loc:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [record_id])
+            if rows:
+                info = _v109_deduct_detail_from_row(rows[0])
+                det = (info.get('deduct_details') or [{}])[0]
+                loc = det.get('loc')
+                item = item or det.get('product_text') or info.get('item_text') or ''
+                customer = customer or det.get('customer_name') or info.get('customer_name') or ''
+        parts = str(loc or '').replace('區','').replace('欄','-').replace('格','').replace('_','-').split('-')
+        parsed = {}
+        if len(parts) >= 3:
+            parsed = {'zone': parts[0].upper(), 'band': parts[1], 'slot': parts[2], 'product_text': item, 'customer_name': customer}
+        url = _v107_warehouse_url_from_loc(parsed or {'loc': loc}, True, item or customer)
+        if url:
+            joiner = '&' if '?' in url else '?'
+            url += joiner + 'focus_row=1&target_row=1'
+            if customer:
+                url += '&customer=' + str(customer)
+        return jsonify({'ok': True, 'version': 'V109', 'url': url, 'loc': _v107_loc_text(parsed) if parsed else str(loc or ''), 'highlight_item': item, 'customer_name': customer})
+    except Exception as e:
+        log_error('api_v109_open_and_focus_cell', str(e))
+        return jsonify({'ok': False, 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v109/warehouse-action-timeline', methods=['GET'])
+def api_v109_warehouse_action_timeline():
+    """時間軸加入分類篩選與扣除明細，給前端可視化篩選使用。"""
+    try:
+        limit = max(1, min(int(request.args.get('limit', 180)), 600))
+        category = (request.args.get('category') or request.args.get('type') or 'all').lower()
+        with get_conn() as conn:
+            rows = q_all(conn, """SELECT id, action, table_name, record_id, before_json, after_json, username, created_at
+                                  FROM audit_logs
+                                  WHERE table_name LIKE '%warehouse%' OR action LIKE '%warehouse%' OR action LIKE '%倉庫%' OR action LIKE '%出貨%'
+                                  ORDER BY id DESC LIMIT ?""", [limit])
+        items = []
+        for r in rows:
+            action_text = str(r.get('action') or '')
+            after = _v109_safe_json(r.get('after_json'), {})
+            before = _v109_safe_json(r.get('before_json'), {})
+            hay = ' '.join([action_text, str(r.get('table_name') or ''), json.dumps(after, ensure_ascii=False)[:500]])
+            typ = 'other'
+            if any(k in hay for k in ['扣空', 'emptied']): typ = 'emptied'
+            elif any(k in hay for k in ['出貨', 'ship', 'deduct']): typ = 'ship'
+            elif any(k in hay for k in ['新增格', 'add-slot', 'bulk-add']): typ = 'add_slot'
+            elif any(k in hay for k in ['減少格', 'remove-slot', 'bulk-remove', '刪除格']): typ = 'remove_slot'
+            elif any(k in hay for k in ['插入格', 'insert']): typ = 'insert_slot'
+            if category not in ('all', '', typ):
+                continue
+            locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+            item_text = ''
+            if isinstance(after, dict): item_text = after.get('item_text') or after.get('product_text') or ''
+            if not item_text and isinstance(before, dict): item_text = before.get('item_text') or before.get('product_text') or ''
+            locations = [{'loc': _v107_loc_text(loc), 'url': _v107_warehouse_url_from_loc(loc, True, item_text)} for loc in locs]
+            items.append({
+                'id': r.get('id'), 'type': typ, 'action': action_text, 'table_name': r.get('table_name'),
+                'record_id': r.get('record_id'), 'username': r.get('username'), 'created_at': r.get('created_at'),
+                'summary': f"{action_text or '倉庫操作'} #{r.get('record_id') or ''}",
+                'locations': locations, 'target_url': locations[0]['url'] if locations else '',
+                'target_loc': locations[0]['loc'] if locations else '', 'can_open': bool(locations),
+            })
+        return jsonify({'ok': True, 'version': 'V109', 'category': category, 'items': items})
+    except Exception as e:
+        log_error('api_v109_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'items': [], 'error': str(e)}), 500
+
+
+@app.route('/api/v109/capabilities', methods=['GET'])
+def api_v109_capabilities():
+    return jsonify({'ok': True, 'version': 'V109', 'features': [
+        'open_cell_focus_row_stable',
+        'shipping_deduct_detail_review',
+        'timeline_category_filter',
+        'shipping_today_search_same_deduct_payload',
+        'cache_bust_v109',
+    ]})
+# ===================== /V109 =====================
+
+@app.route('/api/v109/shipping-warehouse-sync', methods=['GET'])
+def api_v109_shipping_warehouse_sync():
+    """V109 相容：出貨紀錄對應倉庫扣除資訊，含扣前/扣後/扣空。"""
+    return api_v109_shipping_deduct_detail()
+
+@app.route('/api/v109/edit-locks/cleanup-report', methods=['POST','GET'])
+def api_v109_edit_locks_cleanup_report():
+    try:
+        return api_v107_edit_locks_cleanup_report()
+    except Exception as e:
+        log_error('api_v109_edit_locks_cleanup_report', str(e))
+        return jsonify({'ok': False, 'error': str(e), 'removed': 0, 'active_count': 0}), 500
+
+# ===================== V110 next package: unified warehouse deduction display + stronger focus =====================
+def _v110_shipping_deduct_item(row):
+    """V110 統一出貨/今日異動/搜尋使用的倉庫扣除資料格式。"""
+    base = _v109_deduct_detail_from_row(row)
+    details = base.get('deduct_details') or []
+    total_deduct = 0
+    emptied_count = 0
+    loc_labels = []
+    for d in details:
+        try:
+            total_deduct += int(float(d.get('deduct_qty') or 0))
+        except Exception:
+            pass
+        if d.get('emptied'):
+            emptied_count += 1
+        if d.get('loc'):
+            loc_labels.append(str(d.get('loc')))
+    base.update({
+        'version': 'V110',
+        'deduct_total_qty': total_deduct,
+        'deduct_emptied_count': emptied_count,
+        'deduct_location_summary': '、'.join(loc_labels),
+        'deduct_display_text': (('倉庫扣除：' + '、'.join(loc_labels)) if loc_labels else '尚無倉庫扣除資料'),
+        'open_first_url': (details[0].get('url') if details else base.get('warehouse_url') or ''),
+        'can_open_warehouse': bool(details or base.get('warehouse_url')),
+    })
+    return base
+
+
+@app.route('/api/v110/shipping-deduct-unified', methods=['GET'])
+def api_v110_shipping_deduct_unified():
+    """出貨查詢、今日異動、搜尋結果共用同一套扣倉庫明細，避免各頁顯示不一致。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id')
+        limit = max(1, min(int(request.args.get('limit', 220)), 800))
+        with get_conn() as conn:
+            if rid:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [rid])
+            else:
+                rows = q_all(conn, 'SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?', [limit])
+        items = [_v110_shipping_deduct_item(r) for r in rows]
+        return jsonify({'ok': True, 'version': 'V110', 'items': items, 'item': items[0] if rid and items else None})
+    except Exception as e:
+        log_error('api_v110_shipping_deduct_unified', str(e))
+        return jsonify({'ok': False, 'version': 'V110', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v110/open-and-focus-cell', methods=['GET', 'POST'])
+def api_v110_open_and_focus_cell():
+    """比 V109 更穩：統一解析 record_id/loc，並帶入 focus_text、customer、highlight_item。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        args = request.args
+        record_id = data.get('record_id') or args.get('record_id') or data.get('shipping_id') or args.get('shipping_id')
+        loc = data.get('loc') or args.get('loc') or data.get('location') or args.get('location')
+        item = data.get('highlight_item') or args.get('highlight_item') or data.get('product_text') or args.get('product_text') or ''
+        customer = data.get('customer_name') or args.get('customer_name') or data.get('customer') or args.get('customer') or ''
+        detail = {}
+        if record_id:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [record_id])
+            if rows:
+                info = _v110_shipping_deduct_item(rows[0])
+                detail = (info.get('deduct_details') or [{}])[0]
+                loc = loc or detail.get('loc') or info.get('warehouse_location_text')
+                item = item or detail.get('product_text') or info.get('item_text') or ''
+                customer = customer or detail.get('customer_name') or info.get('customer_name') or ''
+        parts = str(loc or '').replace('區','').replace('欄','-').replace('格','').replace('_','-').split('-')
+        parsed = {}
+        if len(parts) >= 3:
+            parsed = {'zone': parts[0].upper(), 'band': parts[1], 'slot': parts[2], 'product_text': item, 'customer_name': customer}
+        url = _v107_warehouse_url_from_loc(parsed or detail or {'loc': loc}, True, item or customer)
+        if url:
+            joiner = '&' if '?' in url else '?'
+            focus_text = item or customer or loc or ''
+            url += joiner + 'open=1&focus_row=1&target_row=1&focus_text=' + str(focus_text)
+            if customer:
+                url += '&customer=' + str(customer)
+        return jsonify({'ok': True, 'version': 'V110', 'url': url, 'loc': _v107_loc_text(parsed) if parsed else str(loc or ''), 'highlight_item': item, 'customer_name': customer, 'focus_text': item or customer or loc or ''})
+    except Exception as e:
+        log_error('api_v110_open_and_focus_cell', str(e))
+        return jsonify({'ok': False, 'version': 'V110', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v110/warehouse-action-timeline', methods=['GET'])
+def api_v110_warehouse_action_timeline():
+    """V110 時間軸：分類篩選 + 可點回格位 + 出貨扣除摘要統一。"""
+    try:
+        limit = max(1, min(int(request.args.get('limit', 220)), 800))
+        category = (request.args.get('category') or request.args.get('type') or 'all').lower()
+        with get_conn() as conn:
+            rows = q_all(conn, """SELECT id, action, table_name, record_id, before_json, after_json, username, created_at
+                                  FROM audit_logs
+                                  WHERE table_name LIKE '%warehouse%' OR action LIKE '%warehouse%' OR action LIKE '%倉庫%' OR action LIKE '%出貨%'
+                                  ORDER BY id DESC LIMIT ?""", [limit])
+        items = []
+        for r in rows:
+            action_text = str(r.get('action') or '')
+            after = _v109_safe_json(r.get('after_json'), {})
+            before = _v109_safe_json(r.get('before_json'), {})
+            hay = ' '.join([action_text, str(r.get('table_name') or ''), json.dumps(after, ensure_ascii=False)[:800], json.dumps(before, ensure_ascii=False)[:400]])
+            typ = 'other'
+            if any(k in hay for k in ['扣空', 'emptied']): typ = 'emptied'
+            elif any(k in hay for k in ['出貨', 'ship', 'deduct']): typ = 'ship'
+            elif any(k in hay for k in ['新增格', 'add-slot', 'bulk-add', '恢復隱藏格']): typ = 'add_slot'
+            elif any(k in hay for k in ['減少格', 'remove-slot', 'bulk-remove', '刪除格']): typ = 'remove_slot'
+            elif any(k in hay for k in ['插入格', 'insert']): typ = 'insert_slot'
+            if category not in ('all', '', typ):
+                continue
+            locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+            item_text = ''
+            if isinstance(after, dict): item_text = after.get('item_text') or after.get('product_text') or after.get('summary') or ''
+            if not item_text and isinstance(before, dict): item_text = before.get('item_text') or before.get('product_text') or ''
+            locations = []
+            for loc in locs:
+                loc_text = _v107_loc_text(loc)
+                locations.append({'loc': loc_text, 'url': _v107_warehouse_url_from_loc(loc, True, item_text), 'focus_text': item_text})
+            items.append({
+                'id': r.get('id'), 'type': typ, 'action': action_text, 'table_name': r.get('table_name'),
+                'record_id': r.get('record_id'), 'username': r.get('username'), 'created_at': r.get('created_at'),
+                'summary': f"{action_text or '倉庫操作'} #{r.get('record_id') or ''}",
+                'locations': locations, 'target_url': locations[0]['url'] if locations else '',
+                'target_loc': locations[0]['loc'] if locations else '', 'can_open': bool(locations),
+                'focus_text': item_text,
+            })
+        counts = {}
+        for it in items:
+            counts[it['type']] = counts.get(it['type'], 0) + 1
+        return jsonify({'ok': True, 'version': 'V110', 'category': category, 'counts': counts, 'items': items})
+    except Exception as e:
+        log_error('api_v110_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'version': 'V110', 'items': [], 'error': str(e)}), 500
+
+
+@app.route('/api/v110/shipping-warehouse-sync', methods=['GET'])
+def api_v110_shipping_warehouse_sync():
+    return api_v110_shipping_deduct_unified()
+
+
+@app.route('/api/v110/edit-locks/cleanup-report', methods=['POST','GET'])
+def api_v110_edit_locks_cleanup_report():
+    try:
+        return api_v107_edit_locks_cleanup_report()
+    except Exception as e:
+        log_error('api_v110_edit_locks_cleanup_report', str(e))
+        return jsonify({'ok': False, 'version': 'V110', 'error': str(e), 'removed': 0, 'active_count': 0}), 500
+
+
+@app.route('/api/v110/capabilities', methods=['GET'])
+def api_v110_capabilities():
+    return jsonify({'ok': True, 'version': 'V110', 'features': [
+        'unified_shipping_deduct_display_all_pages',
+        'stable_open_cell_focus_text',
+        'timeline_filter_counts_and_open_targets',
+        'shipping_today_search_same_payload_v110',
+        'edit_lock_cleanup_alias_v110',
+        'cache_bust_v110',
+    ]})
+# ===================== /V110 =====================
+
+# ===================== V111 下一包：扣倉庫明細追蹤 / 跳轉焦點穩定 / 時間軸格位回查 =====================
+# 直接寫入主檔，不新增補丁檔；補上舊 V 段共用查詢 helper，避免任何 runtime 遺漏。
+from contextlib import contextmanager as _yx_contextmanager_v111
+
+@_yx_contextmanager_v111
+def get_conn():
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def q_all(conn, query, params=None):
+    cur = conn.cursor()
+    cur.execute(sql(query), params or [])
+    return rows_to_dict(cur.fetchall())
+
+
+def _v111_safe_int(v, default=0):
+    try:
+        return int(float(v or 0))
+    except Exception:
+        return default
+
+
+def _v111_loc_to_parts(loc_text):
+    text = str(loc_text or '').strip().replace('區','').replace('欄','-').replace('格','').replace('_','-').replace(' ','')
+    parts = [p for p in text.split('-') if p]
+    if len(parts) >= 3:
+        return {'zone': parts[0].upper(), 'band': parts[1], 'slot': parts[2], 'loc': f"{parts[0].upper()}-{parts[1]}-{parts[2]}"}
+    return {'loc': text}
+
+
+def _v111_focus_payload_from_record(row):
+    item = _v110_shipping_deduct_item(row)
+    details = item.get('deduct_details') or []
+    targets = []
+    for d in details:
+        loc = d.get('loc') or d.get('location') or ''
+        parts = _v111_loc_to_parts(loc)
+        focus_text = d.get('product_text') or d.get('item_text') or item.get('item_text') or item.get('product_text') or ''
+        customer = d.get('customer_name') or item.get('customer_name') or ''
+        targets.append({
+            'loc': parts.get('loc') or loc,
+            'zone': parts.get('zone'),
+            'band': parts.get('band'),
+            'slot': parts.get('slot'),
+            'focus_text': focus_text or customer,
+            'customer_name': customer,
+            'deduct_qty': _v111_safe_int(d.get('deduct_qty')),
+            'before_qty': _v111_safe_int(d.get('before_qty')),
+            'after_qty': _v111_safe_int(d.get('after_qty')),
+            'emptied': bool(d.get('emptied') or _v111_safe_int(d.get('after_qty')) <= 0),
+            'url': _v107_warehouse_url_from_loc(parts, True, focus_text or customer),
+        })
+    item['targets'] = targets
+    item['target_count'] = len(targets)
+    item['first_target'] = targets[0] if targets else {}
+    item['focus_url'] = (targets[0].get('url') if targets else item.get('open_first_url') or '')
+    item['focus_text'] = (targets[0].get('focus_text') if targets else item.get('item_text') or '')
+    item['version'] = 'V111'
+    return item
+
+
+@app.route('/api/v111/shipping-deduct-trace', methods=['GET'])
+def api_v111_shipping_deduct_trace():
+    """出貨扣倉庫追蹤：所有頁面可用同一份扣前/扣後/扣空/跳轉資料。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id') or request.args.get('shipping_id')
+        limit = max(1, min(int(request.args.get('limit', 240)), 900))
+        with get_conn() as conn:
+            if rid:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [rid])
+            else:
+                rows = q_all(conn, 'SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?', [limit])
+        items = [_v111_focus_payload_from_record(r) for r in rows]
+        return jsonify({'ok': True, 'success': True, 'version': 'V111', 'items': items, 'item': items[0] if rid and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v111_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v111/open-focus-target', methods=['GET','POST'])
+def api_v111_open_focus_target():
+    """統一解析來源：record_id / audit_id / loc，回傳可直接跳倉庫並開格高亮商品列的 URL。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        args = request.args
+        record_id = data.get('record_id') or args.get('record_id') or data.get('shipping_id') or args.get('shipping_id')
+        audit_id = data.get('audit_id') or args.get('audit_id')
+        loc = data.get('loc') or args.get('loc') or data.get('location') or args.get('location')
+        focus_text = data.get('focus_text') or args.get('focus_text') or data.get('highlight_item') or args.get('highlight_item') or ''
+        customer = data.get('customer_name') or args.get('customer_name') or data.get('customer') or args.get('customer') or ''
+        source = 'manual'
+        detail = {}
+        if record_id:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [record_id])
+            if rows:
+                payload = _v111_focus_payload_from_record(rows[0])
+                detail = payload.get('first_target') or {}
+                loc = loc or detail.get('loc')
+                focus_text = focus_text or detail.get('focus_text') or payload.get('focus_text') or ''
+                customer = customer or detail.get('customer_name') or payload.get('customer_name') or ''
+                source = 'shipping_records'
+        elif audit_id:
+            with get_conn() as conn:
+                rows = q_all(conn, 'SELECT * FROM audit_logs WHERE id=?', [audit_id])
+            if rows:
+                after = _v109_safe_json(rows[0].get('after_json'), {})
+                before = _v109_safe_json(rows[0].get('before_json'), {})
+                locs = _v106_extract_locations(after) or _v106_extract_locations(before)
+                detail = locs[0] if locs else {}
+                loc = loc or _v107_loc_text(detail)
+                focus_text = focus_text or (after.get('item_text') if isinstance(after, dict) else '') or (after.get('product_text') if isinstance(after, dict) else '') or str(rows[0].get('action') or '')
+                source = 'audit_logs'
+        parts = _v111_loc_to_parts(loc)
+        url = _v107_warehouse_url_from_loc(parts, True, focus_text or customer)
+        if url:
+            joiner = '&' if '?' in url else '?'
+            url += joiner + 'open=1&focus_row=1&target_row=1&focus_text=' + quote(str(focus_text or customer or loc or ''))
+            if customer:
+                url += '&customer=' + quote(str(customer))
+        return jsonify({'ok': True, 'success': True, 'version': 'V111', 'source': source, 'url': url, 'loc': parts.get('loc') or str(loc or ''), 'focus_text': focus_text or customer or loc or '', 'customer_name': customer, 'target': detail})
+    except Exception as e:
+        log_error('api_v111_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v111/warehouse-action-timeline', methods=['GET'])
+def api_v111_warehouse_action_timeline():
+    """時間軸：分類統計、格位目標、出貨扣除明細統一。"""
+    try:
+        base_resp = api_v110_warehouse_action_timeline()
+        # Flask Response from jsonify: keep robust by rebuilding if possible.
+        data = base_resp.get_json() if hasattr(base_resp, 'get_json') else {}
+        items = data.get('items') or []
+        for it in items:
+            it['version'] = 'V111'
+            if it.get('record_id') and str(it.get('type')) == 'ship':
+                try:
+                    with get_conn() as conn:
+                        rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [it.get('record_id')])
+                    if rows:
+                        trace = _v111_focus_payload_from_record(rows[0])
+                        it['deduct_trace'] = trace
+                        it['target_url'] = trace.get('focus_url') or it.get('target_url')
+                        it['locations'] = trace.get('targets') or it.get('locations')
+                except Exception:
+                    pass
+            it['open_api'] = '/api/v111/open-focus-target'
+        counts = {}
+        for it in items:
+            t = it.get('type') or 'other'
+            counts[t] = counts.get(t, 0) + 1
+        return jsonify({'ok': True, 'success': True, 'version': 'V111', 'category': data.get('category'), 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v111_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111', 'items': [], 'error': str(e)}), 500
+
+
+@app.route('/api/v111/capabilities', methods=['GET'])
+def api_v111_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V111', 'features': [
+        'shipping_deduct_trace_unified_v111',
+        'open_focus_target_record_audit_loc_v111',
+        'timeline_locations_use_v111_focus_payload',
+        'warehouse_jump_open_focus_row_stabilized_v111',
+        'helper_get_conn_q_all_runtime_guard_v111',
+        'cache_bust_v111',
+    ], 'updated_at': now()})
+# ===================== /V111 =====================
+
+
+# ===================== V112 下一包：扣倉庫共用 API 補齊 / 跳轉別名修復 / 時間軸來源穩定 =====================
+# 直接寫入主檔，不新增補丁檔；補上前端已使用但舊 V 段可能不存在的 V111/V112 別名，避免 runtime 404。
+
+def _v112_json_response_from(value):
+    try:
+        return value.get_json() if hasattr(value, 'get_json') else (value if isinstance(value, dict) else {})
+    except Exception:
+        return {}
+
+
+def _v112_shipping_trace_items(limit=260, record_id=None):
+    with get_conn() as conn:
+        if record_id:
+            rows = q_all(conn, 'SELECT * FROM shipping_records WHERE id=?', [record_id])
+        else:
+            rows = q_all(conn, 'SELECT * FROM shipping_records ORDER BY id DESC LIMIT ?', [max(1, min(int(limit or 260), 900))])
+    return [_v111_focus_payload_from_record(r) for r in rows]
+
+
+def _v112_normalize_target_payload(data):
+    data = data or {}
+    loc = data.get('loc') or data.get('location') or data.get('warehouse_location') or ''
+    if not loc and isinstance(data.get('target'), dict):
+        loc = data['target'].get('loc') or data['target'].get('location') or ''
+    focus = data.get('focus_text') or data.get('highlight_item') or data.get('item_text') or data.get('product_text') or ''
+    customer = data.get('customer_name') or data.get('customer') or ''
+    record_id = data.get('record_id') or data.get('shipping_id') or data.get('id')
+    audit_id = data.get('audit_id') or data.get('log_id')
+    return {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': record_id, 'audit_id': audit_id}
+
+
+@app.route('/api/v111/shipping-deduct-unified', methods=['GET'])
+def api_v111_shipping_deduct_unified_alias():
+    """V111 前端兼容：把舊統一扣倉 API 轉到 V111 trace 格式。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id') or request.args.get('shipping_id')
+        limit = request.args.get('limit', 260)
+        items = _v112_shipping_trace_items(limit=limit, record_id=rid)
+        return jsonify({'ok': True, 'success': True, 'version': 'V111_ALIAS_V112', 'items': items, 'item': items[0] if rid and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v111_shipping_deduct_unified_alias', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111_ALIAS_V112', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v111/open-and-focus-cell', methods=['GET','POST'])
+def api_v111_open_and_focus_cell_alias():
+    """V111 前端兼容：open-and-focus-cell 改走 open-focus-target，避免點搜尋/今日異動 404。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        merged = {}
+        merged.update(request.args.to_dict(flat=True))
+        merged.update(data)
+        payload = _v112_normalize_target_payload(merged)
+        with app.test_request_context('/api/v111/open-focus-target', method='POST', json=payload):
+            resp = api_v111_open_focus_target()
+        out = _v112_json_response_from(resp)
+        out['version'] = 'V111_ALIAS_V112'
+        out['alias_for'] = '/api/v111/open-focus-target'
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v111_open_and_focus_cell_alias', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111_ALIAS_V112', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v111/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v111_edit_locks_cleanup_report_alias():
+    """V111 前端兼容：補 cleanup-report，清理過期鎖並回傳狀態。"""
+    try:
+        # Prefer v106/v110 implementation when it exists, otherwise do direct safe cleanup.
+        fn = globals().get('api_v106_edit_locks_cleanup_report') or globals().get('api_v110_edit_locks_cleanup_report')
+        if callable(fn):
+            resp = fn()
+            out = _v112_json_response_from(resp)
+            out['version'] = 'V111_ALIAS_V112'
+            return jsonify(out)
+        cutoff = datetime.utcnow().isoformat()
+        removed = 0
+        with get_conn() as conn:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql('DELETE FROM edit_locks WHERE expires_at IS NOT NULL AND expires_at < ?'), [cutoff])
+                removed = cur.rowcount or 0
+                conn.commit()
+            except Exception:
+                conn.rollback()
+        return jsonify({'ok': True, 'success': True, 'version': 'V111_ALIAS_V112', 'removed': removed, 'message': '已清理過期編輯鎖'})
+    except Exception as e:
+        log_error('api_v111_edit_locks_cleanup_report_alias', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V111_ALIAS_V112', 'error': str(e)}), 500
+
+
+@app.route('/api/v112/shipping-deduct-trace', methods=['GET'])
+def api_v112_shipping_deduct_trace():
+    """V112：出貨扣倉庫追蹤共用資料，供出貨紀錄、今日異動、搜尋、時間軸共用。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id') or request.args.get('shipping_id')
+        limit = request.args.get('limit', 300)
+        items = _v112_shipping_trace_items(limit=limit, record_id=rid)
+        for it in items:
+            it['version'] = 'V112'
+            it['trace_api'] = '/api/v112/shipping-deduct-trace'
+            it['open_api'] = '/api/v112/open-focus-target'
+            it['deduct_summary'] = '、'.join([f"{t.get('loc','')} 扣{t.get('deduct_qty',0)}件 {t.get('before_qty',0)}→{t.get('after_qty',0)}" + (' 已扣空' if t.get('emptied') else '') for t in (it.get('targets') or [])])
+        return jsonify({'ok': True, 'success': True, 'version': 'V112', 'items': items, 'item': items[0] if rid and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v112_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V112', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v112/shipping-deduct-unified', methods=['GET'])
+def api_v112_shipping_deduct_unified():
+    """V112：提供 V110/V111 命名相容的扣倉庫統一格式。"""
+    return api_v112_shipping_deduct_trace()
+
+
+@app.route('/api/v112/open-focus-target', methods=['GET','POST'])
+def api_v112_open_focus_target():
+    """V112：統一解析 shipping/audit/loc，回傳可直接開倉庫格並定位商品列的 URL。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        merged = {}
+        merged.update(request.args.to_dict(flat=True))
+        merged.update(data)
+        payload = _v112_normalize_target_payload(merged)
+        with app.test_request_context('/api/v111/open-focus-target', method='POST', json=payload):
+            resp = api_v111_open_focus_target()
+        out = _v112_json_response_from(resp)
+        out['version'] = 'V112'
+        out['open_api'] = '/api/v112/open-focus-target'
+        if out.get('url'):
+            sep = '&' if '?' in out['url'] else '?'
+            if 'v112=1' not in out['url']:
+                out['url'] += sep + 'v112=1'
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v112_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V112', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v112/open-and-focus-cell', methods=['GET','POST'])
+def api_v112_open_and_focus_cell():
+    return api_v112_open_focus_target()
+
+
+@app.route('/api/v112/warehouse-action-timeline', methods=['GET'])
+def api_v112_warehouse_action_timeline():
+    """V112：時間軸套用 V112 open API，出貨紀錄共用 V112 扣倉 trace。"""
+    try:
+        with app.test_request_context('/api/v111/warehouse-action-timeline?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v111_warehouse_action_timeline()
+        data = _v112_json_response_from(resp)
+        items = data.get('items') or []
+        for it in items:
+            it['version'] = 'V112'
+            it['open_api'] = '/api/v112/open-focus-target'
+            if it.get('record_id') and str(it.get('type')) == 'ship':
+                try:
+                    trace_items = _v112_shipping_trace_items(record_id=it.get('record_id'))
+                    if trace_items:
+                        trace = trace_items[0]
+                        trace['version'] = 'V112'
+                        it['deduct_trace'] = trace
+                        it['locations'] = trace.get('targets') or it.get('locations') or []
+                        it['target_url'] = trace.get('focus_url') or it.get('target_url')
+                except Exception:
+                    pass
+        counts = {}
+        for it in items:
+            t = it.get('type') or 'other'
+            counts[t] = counts.get(t, 0) + 1
+        return jsonify({'ok': True, 'success': True, 'version': 'V112', 'category': request.args.get('category', data.get('category') or 'all'), 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v112_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V112', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v112/target-resolve', methods=['GET','POST'])
+def api_v112_target_resolve():
+    """V112：給今日異動/離線衝突/搜尋結果共用的來源解析入口。"""
+    return api_v112_open_focus_target()
+
+
+@app.route('/api/v112/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v112_edit_locks_cleanup_report():
+    with app.test_request_context('/api/v111/edit-locks/cleanup-report', method=request.method, json=(request.get_json(silent=True) or {})):
+        resp = api_v111_edit_locks_cleanup_report_alias()
+    out = _v112_json_response_from(resp)
+    out['version'] = 'V112'
+    return jsonify(out)
+
+
+@app.route('/api/v112/capabilities', methods=['GET'])
+def api_v112_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V112', 'features': [
+        'v111_frontend_aliases_fixed_open_and_focus_cell',
+        'v111_shipping_deduct_unified_alias_fixed',
+        'v111_edit_lock_cleanup_report_alias_fixed',
+        'shipping_deduct_trace_shared_today_search_shipping_timeline_v112',
+        'open_focus_target_alias_for_shipping_audit_location_v112',
+        'warehouse_timeline_uses_v112_trace_and_open_api',
+        'runtime_404_guard_for_previous_v_endpoints',
+        'cache_bust_v112',
+    ], 'updated_at': now()})
+# ===================== /V112 =====================
+
+
+# ===================== V113 NEXT PACKAGE =====================
+def _v113_json_response_from(resp):
+    """把 Flask Response / tuple / dict 安全轉成 dict，避免新版 API 包舊 API 時 runtime 掛掉。"""
+    try:
+        if isinstance(resp, tuple):
+            resp = resp[0]
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        if isinstance(resp, dict):
+            return resp
+    except Exception:
+        pass
+    return {}
+
+
+def _v113_add_focus_params(url, focus_text='', customer_name='', loc=''):
+    """統一在跳轉 URL 補 open/focus_row 參數，讓今日異動/搜尋/出貨紀錄進倉庫後穩定開格與高亮。"""
+    try:
+        from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+        parts = urlsplit(url or '')
+        q = dict(parse_qsl(parts.query, keep_blank_values=True))
+        q.setdefault('open', '1')
+        q.setdefault('focus_row', '1')
+        q.setdefault('target_row', '1')
+        q.setdefault('v113', '1')
+        if focus_text:
+            q.setdefault('focus_text', str(focus_text))
+            q.setdefault('highlight_item', str(focus_text))
+        if customer_name:
+            q.setdefault('customer', str(customer_name))
+        if loc:
+            q.setdefault('loc', str(loc))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
+    except Exception:
+        sep = '&' if '?' in (url or '') else '?'
+        return (url or '/warehouse') + sep + 'open=1&focus_row=1&target_row=1&v113=1'
+
+
+@app.route('/api/v113/open-focus-target', methods=['GET','POST'])
+def api_v113_open_focus_target():
+    """V113：統一跳轉解析。支援 loc / record_id / shipping_id / audit_id，回傳可直接開格與高亮商品列的 URL。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        merged = {}
+        merged.update(request.args.to_dict(flat=True))
+        merged.update(data)
+        payload = _v112_normalize_target_payload(merged) if '_v112_normalize_target_payload' in globals() else merged
+        with app.test_request_context('/api/v112/open-focus-target', method='POST', json=payload):
+            resp = api_v112_open_focus_target()
+        out = _v113_json_response_from(resp)
+        focus = payload.get('focus_text') or payload.get('highlight_item') or payload.get('item_text') or out.get('focus_text') or ''
+        customer = payload.get('customer_name') or payload.get('customer') or out.get('customer_name') or ''
+        loc = payload.get('loc') or out.get('loc') or ''
+        if out.get('url'):
+            out['url'] = _v113_add_focus_params(out.get('url'), focus, customer, loc)
+        out.update({'ok': True, 'success': True, 'version': 'V113', 'open_api': '/api/v113/open-focus-target', 'focus_text': focus, 'customer_name': customer, 'loc': loc})
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v113_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V113', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v113/open-and-focus-cell', methods=['GET','POST'])
+def api_v113_open_and_focus_cell():
+    return api_v113_open_focus_target()
+
+
+@app.route('/api/v113/target-resolve', methods=['GET','POST'])
+def api_v113_target_resolve():
+    return api_v113_open_focus_target()
+
+
+@app.route('/api/v113/shipping-deduct-trace', methods=['GET'])
+def api_v113_shipping_deduct_trace():
+    """V113：出貨扣倉庫追蹤資料補 target_url / open_payload，讓各頁共用同一筆資料。"""
+    try:
+        rid = request.args.get('id') or request.args.get('record_id') or request.args.get('shipping_id')
+        limit = request.args.get('limit', 360)
+        items = _v112_shipping_trace_items(limit=limit, record_id=rid)
+        for it in items:
+            it['version'] = 'V113'
+            it['trace_api'] = '/api/v113/shipping-deduct-trace'
+            it['open_api'] = '/api/v113/open-focus-target'
+            total_qty = 0
+            emptied = 0
+            labels = []
+            for t in (it.get('targets') or []):
+                loc = t.get('loc') or ''
+                focus = t.get('focus_text') or t.get('product_text') or it.get('item_text') or ''
+                customer = t.get('customer_name') or it.get('customer_name') or ''
+                t['open_api'] = '/api/v113/open-focus-target'
+                t['open_payload'] = {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': it.get('id')}
+                t['target_url'] = _v113_add_focus_params('/warehouse', focus, customer, loc)
+                try:
+                    total_qty += int(t.get('deduct_qty') or 0)
+                except Exception:
+                    pass
+                if t.get('emptied'):
+                    emptied += 1
+                labels.append(f"{loc} 扣{t.get('deduct_qty',0)}件 {t.get('before_qty',0)}→{t.get('after_qty',0)}" + (' 已扣空' if t.get('emptied') else ''))
+            it['deduct_total_qty'] = total_qty or it.get('deduct_total_qty') or 0
+            it['deduct_emptied_count'] = emptied
+            it['deduct_summary'] = '、'.join(labels) or it.get('deduct_summary') or it.get('deduct_display_text') or ''
+            first = (it.get('targets') or [{}])[0]
+            it['focus_url'] = first.get('target_url') if first else it.get('focus_url')
+        return jsonify({'ok': True, 'success': True, 'version': 'V113', 'items': items, 'item': items[0] if rid and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v113_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V113', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v113/shipping-deduct-unified', methods=['GET'])
+def api_v113_shipping_deduct_unified():
+    return api_v113_shipping_deduct_trace()
+
+
+@app.route('/api/v113/warehouse-action-timeline', methods=['GET'])
+def api_v113_warehouse_action_timeline():
+    """V113：時間軸項目補可點回格位的 target_url/open_payload，並與出貨扣倉追蹤共用資料。"""
+    try:
+        with app.test_request_context('/api/v112/warehouse-action-timeline?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v112_warehouse_action_timeline()
+        data = _v113_json_response_from(resp)
+        items = data.get('items') or []
+        for it in items:
+            it['version'] = 'V113'
+            it['open_api'] = '/api/v113/open-focus-target'
+            if it.get('record_id') and str(it.get('type')) == 'ship':
+                trace = _v112_shipping_trace_items(record_id=it.get('record_id'))
+                if trace:
+                    tr = trace[0]
+                    it['deduct_trace'] = tr
+                    it['locations'] = tr.get('targets') or it.get('locations') or []
+            new_locs = []
+            for l in (it.get('locations') or []):
+                if not isinstance(l, dict):
+                    l = {'loc': str(l)}
+                loc = l.get('loc') or l.get('location') or ''
+                focus = l.get('focus_text') or l.get('product_text') or it.get('focus_text') or it.get('summary') or ''
+                customer = l.get('customer_name') or it.get('customer_name') or ''
+                l['open_payload'] = {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': it.get('record_id')}
+                l['target_url'] = _v113_add_focus_params('/warehouse', focus, customer, loc)
+                new_locs.append(l)
+            it['locations'] = new_locs
+        counts = {}
+        for it in items:
+            t = it.get('type') or 'other'
+            counts[t] = counts.get(t, 0) + 1
+        return jsonify({'ok': True, 'success': True, 'version': 'V113', 'category': request.args.get('category', data.get('category') or 'all'), 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v113_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V113', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v113/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v113_edit_locks_cleanup_report():
+    with app.test_request_context('/api/v112/edit-locks/cleanup-report', method=request.method, json=(request.get_json(silent=True) or {})):
+        resp = api_v112_edit_locks_cleanup_report()
+    out = _v113_json_response_from(resp)
+    out['version'] = 'V113'
+    return jsonify(out)
+
+
+@app.route('/api/v113/capabilities', methods=['GET'])
+def api_v113_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V113', 'features': [
+        'frontend_wired_to_v113_trace_and_open_target',
+        'shipping_deduct_trace_adds_target_url_and_open_payload',
+        'today_shipping_search_timeline_share_same_deduct_trace',
+        'warehouse_timeline_items_click_back_to_cell',
+        'open_focus_target_adds_stable_focus_params',
+        'v112_compat_aliases_kept',
+        'cache_bust_v113',
+    ], 'updated_at': now()})
+# ===================== /V113 NEXT PACKAGE =====================
+
+# ===================== V114 NEXT PACKAGE =====================
+def _v114_json_response_from(resp):
+    try:
+        if isinstance(resp, tuple):
+            resp = resp[0]
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        return resp if isinstance(resp, dict) else {}
+    except Exception:
+        return {}
+
+
+def _v114_payload_value(name, default=''):
+    data = request.get_json(silent=True) or {}
+    return data.get(name) or request.args.get(name) or default
+
+
+def _v114_normalize_loc(loc):
+    s = str(loc or '').strip().upper().replace('區', '').replace('倉', '').replace('欄', '-').replace('格', '')
+    s = s.replace('_', '-').replace(' ', '-')
+    parts = [p for p in s.split('-') if p != '']
+    if len(parts) >= 3 and parts[0] in ('A', 'B'):
+        return f"{parts[0]}-{parts[1]}-{parts[2]}"
+    return str(loc or '').strip()
+
+
+def _v114_add_focus_params(url, focus_text='', customer_name='', loc='', record_id='', source=''):
+    try:
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        loc = _v114_normalize_loc(loc)
+        parsed = urlparse(url or '/warehouse')
+        q = parse_qs(parsed.query)
+        q.setdefault('open', ['1'])
+        q.setdefault('focus_row', ['1'])
+        q.setdefault('target_row', ['1'])
+        q.setdefault('v114', ['1'])
+        q.setdefault('stable_focus', ['1'])
+        if loc:
+            q['loc'] = [loc]
+        if focus_text:
+            q['focus_text'] = [str(focus_text)]
+            q['highlight_item'] = [str(focus_text)]
+        if customer_name:
+            q['customer'] = [str(customer_name)]
+        if record_id:
+            q['record_id'] = [str(record_id)]
+        if source:
+            q['source'] = [str(source)]
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path or '/warehouse', parsed.params, urlencode(q, doseq=True), parsed.fragment))
+    except Exception:
+        sep = '&' if '?' in (url or '') else '?'
+        return (url or '/warehouse') + sep + 'open=1&focus_row=1&target_row=1&stable_focus=1&v114=1'
+
+
+@app.route('/api/v114/open-focus-target', methods=['GET','POST'])
+def api_v114_open_focus_target():
+    """V114：統一跳轉 payload，補穩定開格/高亮參數與 loc 正規化。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        loc = _v114_normalize_loc(data.get('loc') or request.args.get('loc') or data.get('location') or request.args.get('location') or '')
+        focus = data.get('focus_text') or request.args.get('focus_text') or data.get('highlight_item') or request.args.get('highlight_item') or data.get('product_text') or request.args.get('product_text') or ''
+        customer = data.get('customer_name') or request.args.get('customer_name') or data.get('customer') or request.args.get('customer') or ''
+        record_id = data.get('record_id') or request.args.get('record_id') or data.get('shipping_id') or request.args.get('shipping_id') or ''
+        source = data.get('source') or request.args.get('source') or 'v114'
+        # Reuse V113 resolver when possible, then strengthen target_url.
+        with app.test_request_context('/api/v113/open-focus-target', method='POST', json={**data, 'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': record_id}):
+            resp = api_v113_open_focus_target()
+        out = _v114_json_response_from(resp)
+        target_url = out.get('url') or out.get('target_url') or '/warehouse'
+        out.update({
+            'ok': True, 'success': True, 'version': 'V114',
+            'loc': loc, 'focus_text': focus, 'customer_name': customer,
+            'record_id': record_id, 'source': source,
+            'open_api': '/api/v114/open-focus-target',
+            'url': _v114_add_focus_params(target_url, focus, customer, loc, record_id, source),
+        })
+        out['target_url'] = out['url']
+        out['open_payload'] = {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': record_id, 'source': source}
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v114_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V114', 'error': str(e), 'url': ''}), 500
+
+
+@app.route('/api/v114/open-and-focus-cell', methods=['GET','POST'])
+def api_v114_open_and_focus_cell():
+    return api_v114_open_focus_target()
+
+
+@app.route('/api/v114/target-resolve', methods=['GET','POST'])
+def api_v114_target_resolve():
+    return api_v114_open_focus_target()
+
+
+@app.route('/api/v114/shipping-deduct-trace', methods=['GET'])
+def api_v114_shipping_deduct_trace():
+    """V114：出貨扣倉庫 trace 統一 target_url/open_payload，提供扣空/扣前後摘要。"""
+    try:
+        with app.test_request_context('/api/v113/shipping-deduct-trace?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v113_shipping_deduct_trace()
+        data = _v114_json_response_from(resp)
+        items = data.get('items') or ([] if not data.get('item') else [data.get('item')])
+        for it in items:
+            it['version'] = 'V114'
+            it['trace_api'] = '/api/v114/shipping-deduct-trace'
+            it['open_api'] = '/api/v114/open-focus-target'
+            summaries = []
+            for t in (it.get('targets') or []):
+                loc = _v114_normalize_loc(t.get('loc') or t.get('location') or '')
+                focus = t.get('focus_text') or t.get('product_text') or it.get('item_text') or it.get('product_text') or ''
+                customer = t.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('id') or it.get('record_id') or request.args.get('id') or ''
+                t['loc'] = loc
+                t['open_api'] = '/api/v114/open-focus-target'
+                t['open_payload'] = {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': rid, 'source': 'shipping_trace'}
+                t['target_url'] = _v114_add_focus_params('/warehouse', focus, customer, loc, rid, 'shipping_trace')
+                summaries.append(f"{loc} 扣{t.get('deduct_qty',0)}件｜{t.get('before_qty',0)}→{t.get('after_qty',0)}" + ('｜已扣空' if t.get('emptied') else ''))
+            it['deduct_summary'] = '、'.join([x for x in summaries if x.strip()]) or it.get('deduct_summary') or ''
+            it['target_url'] = ((it.get('targets') or [{}])[0]).get('target_url') or it.get('target_url') or ''
+        return jsonify({'ok': True, 'success': True, 'version': 'V114', 'items': items, 'item': items[0] if (request.args.get('id') or request.args.get('record_id')) and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v114_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V114', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v114/shipping-deduct-unified', methods=['GET'])
+def api_v114_shipping_deduct_unified():
+    return api_v114_shipping_deduct_trace()
+
+
+@app.route('/api/v114/warehouse-action-timeline', methods=['GET'])
+def api_v114_warehouse_action_timeline():
+    """V114：時間軸分類統計補 all/empty/other，並讓每筆 loc 都可點回格位。"""
+    try:
+        with app.test_request_context('/api/v113/warehouse-action-timeline?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v113_warehouse_action_timeline()
+        data = _v114_json_response_from(resp)
+        items = data.get('items') or []
+        counts = {'all': len(items)}
+        for it in items:
+            typ = it.get('type') or it.get('action') or 'other'
+            counts[typ] = counts.get(typ, 0) + 1
+            it['version'] = 'V114'
+            it['open_api'] = '/api/v114/open-focus-target'
+            locs = []
+            for l in (it.get('locations') or []):
+                if not isinstance(l, dict):
+                    l = {'loc': str(l)}
+                loc = _v114_normalize_loc(l.get('loc') or l.get('location') or '')
+                focus = l.get('focus_text') or l.get('product_text') or it.get('focus_text') or it.get('summary') or ''
+                customer = l.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('record_id') or ''
+                l['loc'] = loc
+                l['open_payload'] = {'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': rid, 'source': 'warehouse_timeline'}
+                l['target_url'] = _v114_add_focus_params('/warehouse', focus, customer, loc, rid, 'warehouse_timeline')
+                locs.append(l)
+            it['locations'] = locs
+        return jsonify({'ok': True, 'success': True, 'version': 'V114', 'category': request.args.get('category') or data.get('category') or 'all', 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v114_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V114', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v114/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v114_edit_locks_cleanup_report():
+    with app.test_request_context('/api/v113/edit-locks/cleanup-report', method=request.method, json=(request.get_json(silent=True) or {})):
+        resp = api_v113_edit_locks_cleanup_report()
+    out = _v114_json_response_from(resp)
+    out['version'] = 'V114'
+    out['cleanup_api'] = '/api/v114/edit-locks/cleanup-report'
+    return jsonify(out)
+
+
+@app.route('/api/v114/capabilities', methods=['GET'])
+def api_v114_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V114', 'features': [
+        'stable_open_focus_target_with_loc_normalize',
+        'shipping_deduct_trace_unified_target_payload',
+        'timeline_click_back_to_cell_with_counts_all',
+        'frontend_uses_v114_api_and_v113_aliases_kept',
+        'warehouse_focus_params_stable_focus_target_row_open',
+        'cache_bust_v114',
+    ], 'updated_at': now()})
+# ===================== /V114 NEXT PACKAGE =====================
+
+
+# ===================== V115 NEXT PACKAGE =====================
+def _v115_json_response_from(resp):
+    try:
+        if isinstance(resp, tuple):
+            resp = resp[0]
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        return resp if isinstance(resp, dict) else {}
+    except Exception:
+        return {}
+
+
+def _v115_normalize_loc(loc):
+    try:
+        return _v114_normalize_loc(loc)
+    except Exception:
+        s = str(loc or '').strip().upper().replace('區','').replace('倉','').replace('欄','-').replace('格','')
+        s = s.replace('_','-').replace(' ','-')
+        parts = [p for p in s.split('-') if p]
+        if len(parts) >= 3 and parts[0] in ('A','B'):
+            return f"{parts[0]}-{parts[1]}-{parts[2]}"
+        return str(loc or '').strip()
+
+
+def _v115_add_focus_params(url, focus_text='', customer_name='', loc='', record_id='', source=''):
+    try:
+        out = _v114_add_focus_params(url, focus_text, customer_name, loc, record_id, source)
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+        parsed = urlparse(out or '/warehouse')
+        q = parse_qs(parsed.query)
+        q['v115'] = ['1']
+        q['auto_open_cell'] = ['1']
+        q['scroll_item'] = ['1']
+        q['fallback_open'] = ['1']
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path or '/warehouse', parsed.params, urlencode(q, doseq=True), parsed.fragment))
+    except Exception:
+        loc = _v115_normalize_loc(loc)
+        sep = '&' if '?' in (url or '/warehouse') else '?'
+        return (url or '/warehouse') + sep + 'open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&v115=1' + (('&loc='+str(loc)) if loc else '')
+
+
+def _v115_target_payload(loc='', focus_text='', customer_name='', record_id='', source='v115', fallback_url='/warehouse'):
+    loc = _v115_normalize_loc(loc)
+    return {
+        'loc': loc,
+        'focus_text': focus_text or '',
+        'highlight_item': focus_text or '',
+        'customer_name': customer_name or '',
+        'record_id': record_id or '',
+        'source': source or 'v115',
+        'target_url': _v115_add_focus_params(fallback_url or '/warehouse', focus_text, customer_name, loc, record_id, source),
+        'open_api': '/api/v115/open-focus-target',
+    }
+
+
+@app.route('/api/v115/open-focus-target', methods=['GET','POST'])
+def api_v115_open_focus_target():
+    """V115：統一跳轉 payload，並加入失敗 fallback 參數，避免只開頁不開格。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        loc = _v115_normalize_loc(data.get('loc') or request.args.get('loc') or data.get('location') or request.args.get('location') or '')
+        focus = data.get('focus_text') or request.args.get('focus_text') or data.get('highlight_item') or request.args.get('highlight_item') or data.get('product_text') or request.args.get('product_text') or ''
+        customer = data.get('customer_name') or request.args.get('customer_name') or request.args.get('customer') or data.get('customer') or ''
+        rid = data.get('record_id') or request.args.get('record_id') or request.args.get('id') or data.get('id') or ''
+        source = data.get('source') or request.args.get('source') or 'v115'
+        # 先用 V114 的解析邏輯，保留舊功能；再補 V115 穩定參數。
+        with app.test_request_context('/api/v114/open-focus-target?' + request.query_string.decode('utf-8'), method=request.method, json=data):
+            resp = api_v114_open_focus_target()
+        out = _v115_json_response_from(resp)
+        url = out.get('url') or out.get('target_url') or '/warehouse'
+        out.update({
+            'ok': True,
+            'success': True,
+            'version': 'V115',
+            'open_api': '/api/v115/open-focus-target',
+            'loc': loc or out.get('loc') or '',
+            'focus_text': focus or out.get('focus_text') or '',
+            'customer_name': customer or out.get('customer_name') or '',
+            'record_id': rid or out.get('record_id') or '',
+            'source': source,
+            'url': _v115_add_focus_params(url, focus or out.get('focus_text') or '', customer or out.get('customer_name') or '', loc or out.get('loc') or '', rid, source),
+        })
+        out['open_payload'] = _v115_target_payload(out.get('loc'), out.get('focus_text'), out.get('customer_name'), out.get('record_id'), source, out.get('url'))
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v115_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V115', 'error': str(e), 'url': '/warehouse?open=1&fallback_open=1&v115=1'}), 500
+
+
+@app.route('/api/v115/open-and-focus-cell', methods=['GET','POST'])
+def api_v115_open_and_focus_cell():
+    return api_v115_open_focus_target()
+
+
+@app.route('/api/v115/open-focus-target/fallback', methods=['GET','POST'])
+def api_v115_open_focus_target_fallback():
+    return api_v115_open_focus_target()
+
+
+@app.route('/api/v115/target-resolve', methods=['GET','POST'])
+def api_v115_target_resolve():
+    return api_v115_open_focus_target()
+
+
+@app.route('/api/v115/shipping-deduct-trace', methods=['GET'])
+def api_v115_shipping_deduct_trace():
+    """V115：扣倉庫追蹤資料統一加 target_url/open_payload，供今日異動、搜尋、出貨紀錄共用。"""
+    try:
+        with app.test_request_context('/api/v114/shipping-deduct-trace?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v114_shipping_deduct_trace()
+        data = _v115_json_response_from(resp)
+        items = data.get('items') or ([] if not data.get('item') else [data.get('item')])
+        for it in items:
+            it['version'] = 'V115'
+            it['trace_api'] = '/api/v115/shipping-deduct-trace'
+            it['open_api'] = '/api/v115/open-focus-target'
+            targets = []
+            for t in (it.get('targets') or []):
+                loc = _v115_normalize_loc(t.get('loc') or t.get('location') or '')
+                focus = t.get('focus_text') or t.get('product_text') or it.get('item_text') or it.get('product_text') or ''
+                customer = t.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('id') or it.get('record_id') or request.args.get('id') or ''
+                payload = _v115_target_payload(loc, focus, customer, rid, 'shipping_trace')
+                t.update(payload)
+                targets.append(t)
+            it['targets'] = targets
+            it['target_url'] = (targets[0].get('target_url') if targets else it.get('target_url') or '')
+            it['open_payload'] = targets[0].get('open_payload') if targets else _v115_target_payload('', it.get('item_text') or '', it.get('customer_name') or '', it.get('id') or '', 'shipping_trace')
+            it['deduct_summary'] = it.get('deduct_summary') or '、'.join([f"{x.get('loc','')} 扣{x.get('deduct_qty',0)}件" for x in targets if x.get('loc')])
+        return jsonify({'ok': True, 'success': True, 'version': 'V115', 'items': items, 'item': items[0] if (request.args.get('id') or request.args.get('record_id')) and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v115_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V115', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v115/shipping-deduct-unified', methods=['GET'])
+def api_v115_shipping_deduct_unified():
+    return api_v115_shipping_deduct_trace()
+
+
+@app.route('/api/v115/warehouse-action-timeline', methods=['GET'])
+def api_v115_warehouse_action_timeline():
+    """V115：時間軸每筆都附 V115 open_payload，並保留分類統計。"""
+    try:
+        with app.test_request_context('/api/v114/warehouse-action-timeline?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v114_warehouse_action_timeline()
+        data = _v115_json_response_from(resp)
+        items = data.get('items') or []
+        counts = data.get('counts') or {'all': len(items)}
+        counts['all'] = len(items)
+        for it in items:
+            it['version'] = 'V115'
+            it['open_api'] = '/api/v115/open-focus-target'
+            locs = []
+            for l in (it.get('locations') or []):
+                if not isinstance(l, dict):
+                    l = {'loc': str(l)}
+                loc = _v115_normalize_loc(l.get('loc') or l.get('location') or '')
+                focus = l.get('focus_text') or l.get('product_text') or it.get('focus_text') or it.get('summary') or ''
+                customer = l.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('record_id') or it.get('id') or ''
+                payload = _v115_target_payload(loc, focus, customer, rid, 'warehouse_timeline')
+                l.update(payload)
+                locs.append(l)
+            it['locations'] = locs
+        return jsonify({'ok': True, 'success': True, 'version': 'V115', 'category': request.args.get('category') or data.get('category') or 'all', 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v115_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V115', 'error': str(e), 'items': []}), 500
+
+
+@app.route('/api/v115/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v115_edit_locks_cleanup_report():
+    with app.test_request_context('/api/v114/edit-locks/cleanup-report', method=request.method, json=(request.get_json(silent=True) or {})):
+        resp = api_v114_edit_locks_cleanup_report()
+    out = _v115_json_response_from(resp)
+    out['version'] = 'V115'
+    out['cleanup_api'] = '/api/v115/edit-locks/cleanup-report'
+    return jsonify(out)
+
+
+@app.route('/api/v115/compat-aliases', methods=['GET'])
+def api_v115_compat_aliases():
+    return jsonify({'ok': True, 'success': True, 'version': 'V115', 'aliases': {
+        'open-focus-target': ['/api/v115/open-focus-target','/api/v115/open-and-focus-cell','/api/v115/target-resolve'],
+        'shipping-deduct-trace': ['/api/v115/shipping-deduct-trace','/api/v115/shipping-deduct-unified'],
+        'timeline': ['/api/v115/warehouse-action-timeline'],
+        'locks': ['/api/v115/edit-locks/cleanup-report'],
+    }})
+
+
+@app.route('/api/v115/capabilities', methods=['GET'])
+def api_v115_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V115', 'features': [
+        'v115_frontend_api_wiring',
+        'open_focus_target_fallback_params_auto_open_cell_scroll_item',
+        'shipping_today_search_timeline_share_v115_target_payload',
+        'warehouse_action_timeline_clickback_uses_v115_payload',
+        'compat_aliases_for_v114_v113_frontend_calls',
+        'cache_bust_v115',
+    ], 'updated_at': now()})
+# ===================== /V115 NEXT PACKAGE =====================
+
+
+# ===================== V116 NEXT PACKAGE =====================
+def _v116_json_response_from(resp):
+    try:
+        if isinstance(resp, tuple):
+            resp = resp[0]
+        return resp.get_json(silent=True) or {}
+    except Exception:
+        return {}
+
+def _v116_safe_open_payload(loc='', focus_text='', customer_name='', record_id='', source='v116'):
+    try:
+        return _v115_target_payload(loc, focus_text, customer_name, record_id, source, '/warehouse')
+    except Exception:
+        loc = str(loc or '').strip().upper().replace('區','').replace('欄','-').replace('格','')
+        return {
+            'ok': True,
+            'success': True,
+            'version': 'V116',
+            'loc': loc,
+            'focus_text': focus_text or '',
+            'customer_name': customer_name or '',
+            'record_id': record_id or '',
+            'target_url': '/warehouse?open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&v116=1' + (('&loc=' + loc) if loc else ''),
+            'open_payload': {'loc': loc, 'focus_text': focus_text or '', 'customer_name': customer_name or '', 'record_id': record_id or '', 'source': source or 'v116'},
+            'open_api': '/api/v116/open-focus-target',
+        }
+
+@app.route('/api/v116/open-focus-target', methods=['GET','POST'])
+def api_v116_open_focus_target():
+    """V116：跳倉庫格失敗時提供多層 fallback，前端可用同一 payload 穩定開格/高亮。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        loc = data.get('loc') or request.args.get('loc') or data.get('location') or request.args.get('location') or ''
+        focus = data.get('focus_text') or request.args.get('focus_text') or data.get('highlight_item') or request.args.get('highlight_item') or ''
+        customer = data.get('customer_name') or request.args.get('customer_name') or data.get('customer') or request.args.get('customer') or ''
+        rid = data.get('record_id') or request.args.get('record_id') or data.get('id') or request.args.get('id') or ''
+        source = data.get('source') or request.args.get('source') or 'v116'
+        with app.test_request_context('/api/v115/open-focus-target', method='POST', json={'loc': loc, 'focus_text': focus, 'customer_name': customer, 'record_id': rid, 'source': source}):
+            resp = api_v115_open_focus_target()
+        out = _v116_json_response_from(resp)
+        fallback = _v116_safe_open_payload(loc or out.get('loc'), focus or out.get('focus_text'), customer or out.get('customer_name'), rid or out.get('record_id'), source)
+        out.update({
+            'ok': True,
+            'success': True,
+            'version': 'V116',
+            'open_api': '/api/v116/open-focus-target',
+            'fallback_api': '/api/v116/open-focus-target/fallback',
+            'fallback_payload': fallback,
+            'url': (out.get('url') or fallback.get('target_url') or '/warehouse')
+        })
+        # 確保網址一定帶 V116 參數，手機快取和前端焦點流程會走新版。
+        if 'v116=1' not in out['url']:
+            sep = '&' if '?' in out['url'] else '?'
+            out['url'] = out['url'] + sep + 'v116=1&retry_focus=1&fallback_open=1'
+        out['target_url'] = out.get('url')
+        out['open_payload'] = fallback.get('open_payload') or fallback
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v116_open_focus_target', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V116', 'error': str(e), 'url': '/warehouse?open=1&fallback_open=1&retry_focus=1&v116=1'}), 500
+
+@app.route('/api/v116/open-and-focus-cell', methods=['GET','POST'])
+def api_v116_open_and_focus_cell():
+    return api_v116_open_focus_target()
+
+@app.route('/api/v116/open-focus-target/fallback', methods=['GET','POST'])
+def api_v116_open_focus_target_fallback():
+    return api_v116_open_focus_target()
+
+@app.route('/api/v116/target-resolve', methods=['GET','POST'])
+def api_v116_target_resolve():
+    return api_v116_open_focus_target()
+
+@app.route('/api/v116/shipping-deduct-trace', methods=['GET'])
+def api_v116_shipping_deduct_trace():
+    """V116：扣倉庫追蹤資料再補 fallback_payload，避免今日異動/搜尋/出貨紀錄任一頁缺參數。"""
+    try:
+        with app.test_request_context('/api/v115/shipping-deduct-trace?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v115_shipping_deduct_trace()
+        data = _v116_json_response_from(resp)
+        items = data.get('items') or ([] if not data.get('item') else [data.get('item')])
+        for it in items:
+            it['version'] = 'V116'
+            it['trace_api'] = '/api/v116/shipping-deduct-trace'
+            it['open_api'] = '/api/v116/open-focus-target'
+            new_targets = []
+            for t in (it.get('targets') or []):
+                loc = t.get('loc') or t.get('location') or ''
+                focus = t.get('focus_text') or t.get('product_text') or it.get('item_text') or it.get('product_text') or ''
+                customer = t.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('id') or it.get('record_id') or request.args.get('id') or ''
+                fallback = _v116_safe_open_payload(loc, focus, customer, rid, 'shipping_trace')
+                t.update({'version': 'V116', 'open_api': '/api/v116/open-focus-target', 'fallback_payload': fallback, 'target_url': fallback.get('target_url'), 'open_payload': fallback.get('open_payload') or fallback})
+                new_targets.append(t)
+            it['targets'] = new_targets
+            it['target_url'] = new_targets[0].get('target_url') if new_targets else it.get('target_url','')
+            it['open_payload'] = new_targets[0].get('open_payload') if new_targets else _v116_safe_open_payload('', it.get('item_text') or '', it.get('customer_name') or '', it.get('id') or '', 'shipping_trace').get('open_payload')
+            it['deduct_summary'] = it.get('deduct_summary') or '、'.join([f"{x.get('loc','')} 扣{x.get('deduct_qty',0)}件" for x in new_targets if x.get('loc')])
+        return jsonify({'ok': True, 'success': True, 'version': 'V116', 'items': items, 'item': items[0] if (request.args.get('id') or request.args.get('record_id')) and items else None, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v116_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V116', 'error': str(e), 'items': []}), 500
+
+@app.route('/api/v116/shipping-deduct-unified', methods=['GET'])
+def api_v116_shipping_deduct_unified():
+    return api_v116_shipping_deduct_trace()
+
+@app.route('/api/v116/warehouse-action-timeline', methods=['GET'])
+def api_v116_warehouse_action_timeline():
+    """V116：時間軸每筆補 fallback target，並把分類統計格式固定。"""
+    try:
+        with app.test_request_context('/api/v115/warehouse-action-timeline?' + request.query_string.decode('utf-8'), method='GET'):
+            resp = api_v115_warehouse_action_timeline()
+        data = _v116_json_response_from(resp)
+        items = data.get('items') or []
+        counts = data.get('counts') or {}
+        counts['all'] = len(items)
+        for it in items:
+            it['version'] = 'V116'
+            it['open_api'] = '/api/v116/open-focus-target'
+            locs = []
+            for l in (it.get('locations') or []):
+                if not isinstance(l, dict):
+                    l = {'loc': str(l)}
+                loc = l.get('loc') or l.get('location') or ''
+                focus = l.get('focus_text') or l.get('product_text') or it.get('focus_text') or it.get('summary') or ''
+                customer = l.get('customer_name') or it.get('customer_name') or ''
+                rid = it.get('record_id') or it.get('id') or ''
+                fallback = _v116_safe_open_payload(loc, focus, customer, rid, 'warehouse_timeline')
+                l.update({'version': 'V116', 'open_api': '/api/v116/open-focus-target', 'fallback_payload': fallback, 'target_url': fallback.get('target_url'), 'open_payload': fallback.get('open_payload') or fallback})
+                locs.append(l)
+            it['locations'] = locs
+        return jsonify({'ok': True, 'success': True, 'version': 'V116', 'category': request.args.get('category') or data.get('category') or 'all', 'counts': counts, 'items': items, 'count': len(items)})
+    except Exception as e:
+        log_error('api_v116_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V116', 'error': str(e), 'items': []}), 500
+
+@app.route('/api/v116/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v116_edit_locks_cleanup_report():
+    with app.test_request_context('/api/v115/edit-locks/cleanup-report', method=request.method, json=(request.get_json(silent=True) or {})):
+        resp = api_v115_edit_locks_cleanup_report()
+    out = _v116_json_response_from(resp)
+    out['version'] = 'V116'
+    out['cleanup_api'] = '/api/v116/edit-locks/cleanup-report'
+    return jsonify(out)
+
+@app.route('/api/v116/compat-aliases', methods=['GET'])
+def api_v116_compat_aliases():
+    return jsonify({'ok': True, 'success': True, 'version': 'V116', 'aliases': {
+        'open-focus-target': ['/api/v116/open-focus-target','/api/v116/open-and-focus-cell','/api/v116/target-resolve','/api/v116/open-focus-target/fallback'],
+        'shipping-deduct-trace': ['/api/v116/shipping-deduct-trace','/api/v116/shipping-deduct-unified'],
+        'timeline': ['/api/v116/warehouse-action-timeline'],
+        'locks': ['/api/v116/edit-locks/cleanup-report'],
+    }})
+
+@app.route('/api/v116/capabilities', methods=['GET'])
+def api_v116_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V116', 'features': [
+        'v116_stable_open_focus_fallback_payload',
+        'v116_shipping_deduct_trace_fallback_target_url',
+        'v116_timeline_clickback_payload_consistency',
+        'v116_edit_lock_cleanup_alias',
+        'v116_cache_bust',
+    ], 'updated_at': now()})
+# ===================== /V116 NEXT PACKAGE =====================
+
+# ===================== V117 NEXT PACKAGE =====================
+def _v117_json_response_from(resp):
+    """V117: normalize Flask Response/dict/list into a safe dict for compatibility wrappers."""
+    try:
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        if isinstance(resp, tuple) and resp:
+            return _v117_json_response_from(resp[0])
+        if isinstance(resp, dict):
+            return resp
+    except Exception:
+        pass
+    return {}
+
+def _v117_norm_loc(loc):
+    try:
+        raw = str(loc or '').strip().upper().replace('區','').replace('倉','').replace('_','-').replace(' ','')
+        raw = raw.replace('欄','-').replace('格','')
+        raw = raw.replace('--','-')
+        return raw
+    except Exception:
+        return ''
+
+def _v117_open_payload(loc='', focus_text='', customer_name='', record_id='', source='v117', extra=None):
+    loc = _v117_norm_loc(loc)
+    payload = {
+        'loc': loc,
+        'focus_text': focus_text or '',
+        'customer_name': customer_name or '',
+        'record_id': record_id or '',
+        'source': source or 'v117',
+        'version': 'V117',
+        'retry_focus': 1,
+        'fallback_open': 1,
+        'auto_open_cell': 1,
+        'scroll_item': 1,
+    }
+    if isinstance(extra, dict):
+        payload.update({k: v for k, v in extra.items() if v is not None})
+    query = '&'.join([f'{k}={quote(str(v))}' for k, v in {
+        'open': 1, 'auto_open_cell': 1, 'scroll_item': 1, 'fallback_open': 1, 'retry_focus': 1, 'v117': 1,
+        'loc': loc, 'focus_text': payload.get('focus_text',''), 'customer': payload.get('customer_name',''), 'highlight_item': payload.get('focus_text','')
+    }.items() if str(v) != ''])
+    return {
+        'ok': True,
+        'success': True,
+        'version': 'V117',
+        'loc': loc,
+        'url': '/warehouse?' + query,
+        'target_url': '/warehouse?' + query,
+        'open_payload': payload,
+        'fallback_payload': payload,
+        'open_api': '/api/v117/open-focus-target',
+    }
+
+@app.route('/api/v117/open-focus-target', methods=['GET','POST'])
+def api_v117_open_focus_target():
+    """V117: one stable target opener used by today/search/shipping/timeline with fallback payload."""
+    try:
+        data = request.get_json(silent=True) or {}
+        loc = data.get('loc') or data.get('location') or data.get('warehouse_location') or request.args.get('loc') or request.args.get('location') or ''
+        focus = data.get('focus_text') or data.get('highlight_item') or data.get('item_text') or request.args.get('focus_text') or request.args.get('highlight_item') or ''
+        customer = data.get('customer_name') or data.get('customer') or request.args.get('customer_name') or request.args.get('customer') or ''
+        rid = data.get('record_id') or data.get('id') or request.args.get('record_id') or request.args.get('id') or ''
+        source = data.get('source') or request.args.get('source') or 'v117'
+        base = {}
+        try:
+            base = _v117_json_response_from(api_v116_open_focus_target())
+        except Exception:
+            base = {}
+        fallback = _v117_open_payload(loc or base.get('loc'), focus or base.get('focus_text'), customer or base.get('customer_name'), rid or base.get('record_id'), source)
+        out = dict(base or {})
+        out.update({
+            'ok': True,
+            'success': True,
+            'version': 'V117',
+            'loc': fallback.get('loc') or out.get('loc') or _v117_norm_loc(loc),
+            'url': fallback.get('url'),
+            'target_url': fallback.get('target_url'),
+            'open_payload': fallback.get('open_payload'),
+            'fallback_payload': fallback.get('fallback_payload'),
+            'open_api': '/api/v117/open-focus-target',
+            'compat_from': out.get('version') or 'V116',
+        })
+        return jsonify(out)
+    except Exception as e:
+        log_error('api_v117_open_focus_target', str(e))
+        return jsonify(_v117_open_payload('', '', '', '', 'error') | {'ok': False, 'success': False, 'error': str(e)}), 500
+
+@app.route('/api/v117/open-and-focus-cell', methods=['GET','POST'])
+def api_v117_open_and_focus_cell():
+    return api_v117_open_focus_target()
+
+@app.route('/api/v117/target-resolve', methods=['GET','POST'])
+def api_v117_target_resolve():
+    return api_v117_open_focus_target()
+
+@app.route('/api/v117/open-focus-target/fallback', methods=['GET','POST'])
+def api_v117_open_focus_target_fallback():
+    return api_v117_open_focus_target()
+
+@app.route('/api/v117/shipping-deduct-trace', methods=['GET'])
+def api_v117_shipping_deduct_trace():
+    """V117: trace records always include target_url/open_payload/fallback_payload and safe missing-field defaults."""
+    try:
+        data = {}
+        try:
+            data = _v117_json_response_from(api_v116_shipping_deduct_trace())
+        except Exception:
+            data = {}
+        items = data.get('items') or ([] if not data.get('item') else [data.get('item')])
+        normalized = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            item = dict(it)
+            item['version'] = 'V117'
+            item['trace_api'] = '/api/v117/shipping-deduct-trace'
+            item['open_api'] = '/api/v117/open-focus-target'
+            targets = item.get('targets') or item.get('locations') or []
+            if isinstance(targets, dict):
+                targets = [targets]
+            new_targets = []
+            for t in targets:
+                if not isinstance(t, dict):
+                    t = {'loc': str(t)}
+                loc = t.get('loc') or t.get('location') or item.get('warehouse_location') or ''
+                focus = t.get('focus_text') or item.get('focus_text') or item.get('item_text') or item.get('product_text') or item.get('summary') or ''
+                customer = t.get('customer_name') or item.get('customer_name') or item.get('customer') or ''
+                rid = t.get('record_id') or item.get('id') or item.get('record_id') or ''
+                payload = _v117_open_payload(loc, focus, customer, rid, 'shipping_deduct_trace')
+                nt = dict(t)
+                nt.update({
+                    'version': 'V117',
+                    'loc': payload.get('loc'),
+                    'target_url': payload.get('target_url'),
+                    'open_payload': payload.get('open_payload'),
+                    'fallback_payload': payload.get('fallback_payload'),
+                    'open_api': '/api/v117/open-focus-target',
+                })
+                new_targets.append(nt)
+            if not new_targets:
+                payload = _v117_open_payload(item.get('warehouse_location') or '', item.get('item_text') or item.get('summary') or '', item.get('customer_name') or '', item.get('id') or item.get('record_id') or '', 'shipping_deduct_trace_empty')
+                new_targets.append({'loc': payload.get('loc'), 'target_url': payload.get('target_url'), 'open_payload': payload.get('open_payload'), 'fallback_payload': payload.get('fallback_payload'), 'open_api': '/api/v117/open-focus-target', 'version': 'V117'})
+            item['targets'] = new_targets
+            item['locations'] = new_targets
+            item['target_url'] = new_targets[0].get('target_url')
+            item['open_payload'] = new_targets[0].get('open_payload')
+            item['fallback_payload'] = new_targets[0].get('fallback_payload')
+            item['deduct_summary'] = item.get('deduct_summary') or item.get('warehouse_deduct_summary') or item.get('summary') or '倉庫扣除追蹤'
+            normalized.append(item)
+        rid = request.args.get('id') or request.args.get('record_id')
+        return jsonify({'ok': True, 'success': True, 'version': 'V117', 'items': normalized, 'item': (normalized[0] if rid and normalized else None), 'count': len(normalized)})
+    except Exception as e:
+        log_error('api_v117_shipping_deduct_trace', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V117', 'error': str(e), 'items': []}), 500
+
+@app.route('/api/v117/shipping-deduct-unified', methods=['GET'])
+def api_v117_shipping_deduct_unified():
+    return api_v117_shipping_deduct_trace()
+
+@app.route('/api/v117/warehouse-action-timeline', methods=['GET'])
+def api_v117_warehouse_action_timeline():
+    """V117: timeline items use the same open payload as shipping trace and never fail when locations are missing."""
+    try:
+        data = {}
+        try:
+            data = _v117_json_response_from(api_v116_warehouse_action_timeline())
+        except Exception:
+            data = {}
+        items = data.get('items') or []
+        counts = data.get('counts') or {}
+        out_items = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            item = dict(it)
+            item['version'] = 'V117'
+            item['open_api'] = '/api/v117/open-focus-target'
+            locs = item.get('locations') or []
+            if isinstance(locs, dict):
+                locs = [locs]
+            if not locs and (item.get('loc') or item.get('warehouse_location')):
+                locs = [{'loc': item.get('loc') or item.get('warehouse_location')}]
+            new_locs = []
+            for l in locs:
+                if not isinstance(l, dict):
+                    l = {'loc': str(l)}
+                payload = _v117_open_payload(l.get('loc') or l.get('location') or '', l.get('focus_text') or item.get('focus_text') or item.get('summary') or '', l.get('customer_name') or item.get('customer_name') or '', item.get('id') or item.get('record_id') or '', 'warehouse_timeline')
+                nl = dict(l)
+                nl.update({'version': 'V117', 'loc': payload.get('loc'), 'target_url': payload.get('target_url'), 'open_payload': payload.get('open_payload'), 'fallback_payload': payload.get('fallback_payload'), 'open_api': '/api/v117/open-focus-target'})
+                new_locs.append(nl)
+            item['locations'] = new_locs
+            out_items.append(item)
+        return jsonify({'ok': True, 'success': True, 'version': 'V117', 'category': request.args.get('category') or data.get('category') or 'all', 'counts': counts, 'items': out_items, 'count': len(out_items)})
+    except Exception as e:
+        log_error('api_v117_warehouse_action_timeline', str(e))
+        return jsonify({'ok': False, 'success': False, 'version': 'V117', 'error': str(e), 'items': []}), 500
+
+@app.route('/api/v117/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v117_edit_locks_cleanup_report():
+    try:
+        resp = api_v116_edit_locks_cleanup_report()
+        out = _v117_json_response_from(resp)
+    except Exception:
+        out = {}
+    out['ok'] = out.get('ok', True)
+    out['success'] = out.get('success', True)
+    out['version'] = 'V117'
+    out['cleanup_api'] = '/api/v117/edit-locks/cleanup-report'
+    return jsonify(out)
+
+@app.route('/api/v117/compat-aliases', methods=['GET'])
+def api_v117_compat_aliases():
+    return jsonify({'ok': True, 'success': True, 'version': 'V117', 'aliases': {
+        'open-focus-target': ['/api/v117/open-focus-target','/api/v117/open-and-focus-cell','/api/v117/target-resolve','/api/v117/open-focus-target/fallback'],
+        'shipping-deduct-trace': ['/api/v117/shipping-deduct-trace','/api/v117/shipping-deduct-unified'],
+        'timeline': ['/api/v117/warehouse-action-timeline'],
+        'locks': ['/api/v117/edit-locks/cleanup-report'],
+    }})
+
+@app.route('/api/v117/capabilities', methods=['GET'])
+def api_v117_capabilities():
+    return jsonify({'ok': True, 'success': True, 'version': 'V117', 'features': [
+        'v117_frontend_single_open_target_wiring',
+        'v117_trace_missing_field_safe_payload',
+        'v117_timeline_today_search_shipping_same_open_function',
+        'v117_open_focus_multi_fallback',
+        'v117_cache_bust',
+    ]})
+# ===================== /V117 NEXT PACKAGE =====================
+
+
+# === V118 next package: stable shared open target + trace repair + timeline fallback ===
+def _v118_json_response_from(resp):
+    try:
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        if isinstance(resp, tuple):
+            return _v118_json_response_from(resp[0])
+        if isinstance(resp, dict):
+            return resp
+    except Exception:
+        return {}
+    return {}
+
+def _v118_norm_loc(loc):
+    import re
+    loc = str(loc or '').strip().upper().replace('區','').replace('倉','').replace('欄','-').replace('格','')
+    loc = loc.replace(' ', '').replace('_','-').replace('－','-').replace('—','-')
+    m = re.search(r'([AB])[-:]?(\d+)[-:]?(\d+)', loc)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2))}-{int(m.group(3))}"
+    return loc
+
+def _v118_pick_first(*vals):
+    for v in vals:
+        if v not in (None, '', [], {}):
+            return v
+    return ''
+
+def _v118_open_payload(loc='', focus_text='', customer_name='', record_id='', source='v118', extra=None):
+    loc = _v118_norm_loc(loc)
+    focus_text = str(focus_text or '')
+    customer_name = str(customer_name or '')
+    record_id = str(record_id or '')
+    q = {
+        'loc': loc,
+        'open': 1,
+        'auto_open_cell': 1,
+        'scroll_item': 1,
+        'focus_row': 1,
+        'target_row': 1,
+        'fallback_open': 1,
+        'retry_focus': 1,
+        'v118': 1,
+        'focus_text': focus_text,
+        'customer': customer_name,
+        'customer_name': customer_name,
+        'record_id': record_id,
+    }
+    if extra and isinstance(extra, dict):
+        q.update({k:v for k,v in extra.items() if v not in (None,'')})
+    from urllib.parse import urlencode
+    url = '/warehouse?' + urlencode(q)
+    return {
+        'ok': True,
+        'success': True,
+        'version': 'V118',
+        'loc': loc,
+        'focus_text': focus_text,
+        'customer_name': customer_name,
+        'record_id': record_id,
+        'source': source or 'v118',
+        'url': url,
+        'target_url': url,
+        'open_payload': q,
+        'fallback_payload': dict(q, fallback_open=1, retry_focus=1, safe_mode=1),
+        'open_api': '/api/v118/open-focus-target',
+        'fallback_apis': ['/api/v118/open-and-focus-cell','/api/v118/target-resolve','/api/v118/open-focus-target/fallback'],
+    }
+
+@app.route('/api/v118/open-focus-target', methods=['GET','POST'])
+def api_v118_open_focus_target():
+    try:
+        data = request.get_json(silent=True) or {}
+        loc = _v118_pick_first(data.get('loc'), data.get('location'), data.get('warehouse_location'), request.args.get('loc'), request.args.get('location'))
+        focus = _v118_pick_first(data.get('focus_text'), data.get('highlight_item'), data.get('item_text'), data.get('product_text'), request.args.get('focus_text'), request.args.get('item'))
+        customer = _v118_pick_first(data.get('customer_name'), data.get('customer'), request.args.get('customer_name'), request.args.get('customer'))
+        rid = _v118_pick_first(data.get('record_id'), data.get('id'), request.args.get('record_id'), request.args.get('id'))
+        source = _v118_pick_first(data.get('source'), request.args.get('source'), 'v118')
+        base = {}
+        if not loc:
+            try:
+                with app.test_request_context('/api/v117/open-focus-target', method='POST', json=data):
+                    base = _v118_json_response_from(api_v117_open_focus_target())
+                    loc = base.get('loc') or loc
+                    focus = focus or base.get('focus_text')
+                    customer = customer or base.get('customer_name')
+            except Exception:
+                base = {}
+        out = _v118_open_payload(loc, focus, customer, rid, source, {'previous_url': base.get('url') or base.get('target_url')})
+        if base:
+            out['previous_payload'] = base
+        return jsonify(out)
+    except Exception as e:
+        try: log_error('api_v118_open_focus_target', str(e))
+        except Exception: pass
+        return jsonify(_v118_open_payload('', '', '', '', 'error') | {'ok': False, 'success': False, 'error': str(e)}), 500
+
+@app.route('/api/v118/open-and-focus-cell', methods=['GET','POST'])
+def api_v118_open_and_focus_cell():
+    return api_v118_open_focus_target()
+
+@app.route('/api/v118/target-resolve', methods=['GET','POST'])
+def api_v118_target_resolve():
+    return api_v118_open_focus_target()
+
+@app.route('/api/v118/open-focus-target/fallback', methods=['GET','POST'])
+def api_v118_open_focus_target_fallback():
+    return api_v118_open_focus_target()
+
+@app.route('/api/v118/shipping-deduct-trace', methods=['GET'])
+def api_v118_shipping_deduct_trace():
+    try:
+        data = {}
+        try:
+            data = _v118_json_response_from(api_v117_shipping_deduct_trace())
+        except Exception:
+            data = {'ok': True, 'items': [], 'targets': []}
+        items = data.get('items') or data.get('records') or []
+        repaired = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item = dict(item)
+            item['version'] = 'V118'
+            item['trace_api'] = '/api/v118/shipping-deduct-trace'
+            item['open_api'] = '/api/v118/open-focus-target'
+            raw_targets = item.get('targets') or item.get('locations') or item.get('deduct_locations') or []
+            if not raw_targets:
+                raw_targets = [{'loc': item.get('warehouse_location') or item.get('loc') or '', 'focus_text': item.get('item_text') or item.get('product_text') or item.get('summary') or '', 'customer_name': item.get('customer_name') or item.get('customer') or ''}]
+            fixed_targets = []
+            for t in raw_targets:
+                if not isinstance(t, dict):
+                    t = {'loc': str(t)}
+                payload = _v118_open_payload(
+                    t.get('loc') or t.get('location') or t.get('warehouse_location') or item.get('warehouse_location') or '',
+                    t.get('focus_text') or t.get('item_text') or item.get('item_text') or item.get('product_text') or item.get('summary') or '',
+                    t.get('customer_name') or t.get('customer') or item.get('customer_name') or item.get('customer') or '',
+                    t.get('record_id') or item.get('id') or item.get('record_id') or '',
+                    'shipping_deduct_trace'
+                )
+                nt = dict(t)
+                nt.update({'version':'V118','loc':payload['loc'],'target_url':payload['target_url'],'open_payload':payload['open_payload'],'fallback_payload':payload['fallback_payload'],'open_api':'/api/v118/open-focus-target'})
+                fixed_targets.append(nt)
+            item['targets'] = fixed_targets
+            item['locations'] = fixed_targets
+            if not item.get('deduct_summary'):
+                item['deduct_summary'] = '；'.join([f"{x.get('loc','')} 扣 {x.get('deduct_qty') or x.get('qty') or x.get('deducted') or ''}件" for x in fixed_targets]).strip('；') or '扣倉庫明細'
+            repaired.append(item)
+        data['ok'] = True
+        data['success'] = True
+        data['version'] = 'V118'
+        data['items'] = repaired
+        data['records'] = repaired
+        data['trace_api'] = '/api/v118/shipping-deduct-trace'
+        data['open_api'] = '/api/v118/open-focus-target'
+        return jsonify(data)
+    except Exception as e:
+        try: log_error('api_v118_shipping_deduct_trace', str(e))
+        except Exception: pass
+        return jsonify({'ok': False, 'success': False, 'version': 'V118', 'items': [], 'error': str(e)}), 500
+
+@app.route('/api/v118/shipping-deduct-unified', methods=['GET'])
+def api_v118_shipping_deduct_unified():
+    return api_v118_shipping_deduct_trace()
+
+@app.route('/api/v118/warehouse-action-timeline', methods=['GET'])
+def api_v118_warehouse_action_timeline():
+    try:
+        data = {}
+        try:
+            data = _v118_json_response_from(api_v117_warehouse_action_timeline())
+        except Exception:
+            data = {'ok': True, 'items': []}
+        items = data.get('items') or []
+        cat = (request.args.get('category') or request.args.get('type') or 'all').strip()
+        out_items = []
+        counts = {'all': 0}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item = dict(item)
+            typ = str(item.get('type') or item.get('action') or item.get('category') or 'other')
+            counts['all'] += 1
+            counts[typ] = counts.get(typ, 0) + 1
+            if cat and cat != 'all' and typ != cat:
+                continue
+            raw_locs = item.get('locations') or item.get('targets') or []
+            if not raw_locs:
+                raw_locs = [{'loc': item.get('loc') or item.get('warehouse_location') or '', 'focus_text': item.get('summary') or '', 'customer_name': item.get('customer_name') or ''}]
+            locs=[]
+            for l in raw_locs:
+                if not isinstance(l, dict): l={'loc':str(l)}
+                payload=_v118_open_payload(l.get('loc') or l.get('location') or '', l.get('focus_text') or item.get('summary') or '', l.get('customer_name') or item.get('customer_name') or '', item.get('id') or item.get('record_id') or '', 'warehouse_timeline')
+                nl=dict(l); nl.update({'version':'V118','loc':payload['loc'],'target_url':payload['target_url'],'open_payload':payload['open_payload'],'fallback_payload':payload['fallback_payload'],'open_api':'/api/v118/open-focus-target'})
+                locs.append(nl)
+            item['locations']=locs
+            item['targets']=locs
+            item['version']='V118'
+            item['open_api']='/api/v118/open-focus-target'
+            out_items.append(item)
+        return jsonify({'ok': True, 'success': True, 'version': 'V118', 'items': out_items, 'counts': data.get('counts') or counts, 'open_api': '/api/v118/open-focus-target'})
+    except Exception as e:
+        try: log_error('api_v118_warehouse_action_timeline', str(e))
+        except Exception: pass
+        return jsonify({'ok': False, 'success': False, 'version': 'V118', 'items': [], 'counts': {}, 'error': str(e)}), 500
+
+@app.route('/api/v118/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v118_edit_locks_cleanup_report():
+    try:
+        resp = api_v117_edit_locks_cleanup_report()
+        out = _v118_json_response_from(resp)
+    except Exception:
+        out = {'ok': True, 'cleanup': 'fallback'}
+    out['version'] = 'V118'
+    out['cleanup_api'] = '/api/v118/edit-locks/cleanup-report'
+    return jsonify(out)
+
+@app.route('/api/v118/capabilities', methods=['GET'])
+def api_v118_capabilities():
+    return jsonify({
+        'ok': True,
+        'version': 'V118',
+        'features': [
+            'shared_open_target_for_today_search_shipping_timeline',
+            'multi_layer_open_cell_retry_frontend',
+            'shipping_trace_field_repair',
+            'timeline_target_payload_repair',
+            'warehouse_open_fallback_aliases',
+        ],
+        'apis': {
+            'open-focus-target': ['/api/v118/open-focus-target','/api/v118/open-and-focus-cell','/api/v118/target-resolve','/api/v118/open-focus-target/fallback'],
+            'shipping-deduct-trace': '/api/v118/shipping-deduct-trace',
+            'warehouse-action-timeline': '/api/v118/warehouse-action-timeline',
+            'edit-lock-cleanup': '/api/v118/edit-locks/cleanup-report',
+        }
+    })
+# === END V118 next package ===
+
+
+# === V119 next package ===
+# 目標：把剩餘清單做成可查進度，並讓新舊頁面跳轉 API 共用 V119 入口。
+# 不清空、不重建 warehouse_cells；只補 API 相容層與進度檢查資料。
+
+def _v119_json_response_from(resp):
+    try:
+        return resp.get_json(silent=True) or {}
+    except Exception:
+        pass
+    try:
+        if isinstance(resp, tuple):
+            return _v119_json_response_from(resp[0])
+    except Exception:
+        pass
+    return {}
+
+def _v119_delegate_json(fn, version='V119'):
+    try:
+        out = _v119_json_response_from(fn())
+        if not isinstance(out, dict):
+            out = {}
+    except Exception as e:
+        try: log_error('v119_delegate', str(e))
+        except Exception: pass
+        out = {'ok': False, 'success': False, 'error': str(e)}
+    out['version'] = version
+    return out
+
+@app.route('/api/v119/open-focus-target', methods=['GET','POST'])
+def api_v119_open_focus_target():
+    out = _v119_delegate_json(api_v118_open_focus_target)
+    out['open_api'] = '/api/v119/open-focus-target'
+    out['fallback_apis'] = ['/api/v119/open-and-focus-cell','/api/v119/target-resolve','/api/v118/open-focus-target']
+    return jsonify(out)
+
+@app.route('/api/v119/open-and-focus-cell', methods=['GET','POST'])
+def api_v119_open_and_focus_cell():
+    return api_v119_open_focus_target()
+
+@app.route('/api/v119/target-resolve', methods=['GET','POST'])
+def api_v119_target_resolve():
+    return api_v119_open_focus_target()
+
+@app.route('/api/v119/shipping-deduct-trace', methods=['GET'])
+def api_v119_shipping_deduct_trace():
+    out = _v119_delegate_json(api_v118_shipping_deduct_trace)
+    out['trace_api'] = '/api/v119/shipping-deduct-trace'
+    out['open_api'] = '/api/v119/open-focus-target'
+    for item in out.get('items') or out.get('records') or []:
+        if isinstance(item, dict):
+            item['version'] = 'V119'
+            item['trace_api'] = '/api/v119/shipping-deduct-trace'
+            item['open_api'] = '/api/v119/open-focus-target'
+            for t in (item.get('targets') or item.get('locations') or []):
+                if isinstance(t, dict):
+                    t['version'] = 'V119'
+                    t['open_api'] = '/api/v119/open-focus-target'
+    return jsonify(out)
+
+@app.route('/api/v119/shipping-deduct-unified', methods=['GET'])
+def api_v119_shipping_deduct_unified():
+    return api_v119_shipping_deduct_trace()
+
+@app.route('/api/v119/warehouse-action-timeline', methods=['GET'])
+def api_v119_warehouse_action_timeline():
+    out = _v119_delegate_json(api_v118_warehouse_action_timeline)
+    out['timeline_api'] = '/api/v119/warehouse-action-timeline'
+    out['open_api'] = '/api/v119/open-focus-target'
+    for item in out.get('items') or []:
+        if isinstance(item, dict):
+            item['version'] = 'V119'
+            item['open_api'] = '/api/v119/open-focus-target'
+            for l in (item.get('locations') or item.get('targets') or []):
+                if isinstance(l, dict):
+                    l['version'] = 'V119'
+                    l['open_api'] = '/api/v119/open-focus-target'
+    return jsonify(out)
+
+@app.route('/api/v119/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v119_edit_locks_cleanup_report():
+    out = _v119_delegate_json(api_v118_edit_locks_cleanup_report)
+    out['cleanup_api'] = '/api/v119/edit-locks/cleanup-report'
+    return jsonify(out)
+
+@app.route('/api/v119/remaining-progress', methods=['GET'])
+def api_v119_remaining_progress():
+    # 讓手機/Render 上可以直接確認後續還剩哪幾包，不需要打開 md 檔。
+    packages = [
+        {'package':'V120','title':'離線衝突收尾','items':['衝突清單可直接改可扣數量','重新整理來源資料後回寫佇列','取消/重送單筆排隊']},
+        {'package':'V121','title':'IndexedDB 單列增量更新','items':['庫存單列更新','訂單單列更新','總單單列更新','不整區重畫']},
+        {'package':'V122','title':'手機/PWA 收尾','items':['離線模式提示','下拉刷新細節','底部導航狀態','安裝體驗檢查']},
+        {'package':'V123','title':'搜尋助手收尾','items':['最近搜尋管理','分類篩選保存','搜尋格位高亮','搜尋結果直接開格']},
+        {'package':'V124','title':'資料安全收尾','items':['Undo/Redo 草稿','操作失敗回復','編輯鎖列內提示完成']},
+        {'package':'V125','title':'總檢查與清理','items':['移除重複別名風險','全清單對照','Render 啟動檢查','smoke test 最終化']},
+    ]
+    return jsonify({'ok': True, 'success': True, 'version': 'V119', 'estimated_remaining_packages': '5-7', 'next_recommended_package': 'V120', 'packages': packages})
+
+@app.route('/api/v119/capabilities', methods=['GET'])
+def api_v119_capabilities():
+    return jsonify({
+        'ok': True,
+        'version': 'V119',
+        'estimated_remaining_packages': '5-7',
+        'features': [
+            'remaining_progress_api',
+            'v119_shared_open_target_aliases',
+            'v119_shipping_deduct_trace_alias',
+            'v119_warehouse_timeline_alias',
+            'v119_edit_lock_cleanup_alias',
+        ],
+        'apis': {
+            'remaining-progress': '/api/v119/remaining-progress',
+            'open-focus-target': ['/api/v119/open-focus-target','/api/v119/open-and-focus-cell','/api/v119/target-resolve'],
+            'shipping-deduct-trace': '/api/v119/shipping-deduct-trace',
+            'warehouse-action-timeline': '/api/v119/warehouse-action-timeline',
+            'edit-lock-cleanup': '/api/v119/edit-locks/cleanup-report',
+        }
+    })
+# === END V119 next package ===

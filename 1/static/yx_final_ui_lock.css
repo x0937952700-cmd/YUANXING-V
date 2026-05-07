@@ -1107,3 +1107,14 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 }
 #yx-final-warehouse-menu{z-index:2147483600!important;pointer-events:auto!important;position:fixed!important;}
 #yx-final-warehouse-menu button{pointer-events:auto!important;}
+
+/* ===== V96 FINAL UI LOCK warehouse plus/minus tools ===== */
+#warehouse-root .yx96-warehouse-col-tools{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6px!important;margin:8px 0 10px!important;}
+#warehouse-root .yx96-warehouse-col-tools .ghost-btn{min-height:34px!important;padding:6px 8px!important;border-radius:12px!important;font-size:12px!important;font-weight:900!important;}
+#warehouse-root .yx96-warehouse-col-tools .danger-lite{color:#b91c1c!important;background:rgba(254,242,242,.86)!important;border-color:rgba(185,28,28,.18)!important;}
+@media(max-width:720px){#warehouse-root .yx96-warehouse-col-tools{grid-template-columns:repeat(2,minmax(0,1fr))!important;}#warehouse-root .yx96-warehouse-col-tools .ghost-btn{min-height:38px!important;}}
+/* ===== END V96 FINAL UI LOCK warehouse plus/minus tools ===== */
+
+/* V97 next step visual lock */
+.yx97-col-stats span{background:rgba(248,250,252,.82)!important}
+.yx97-warehouse-deduct-chip{box-shadow:0 2px 8px rgba(37,99,235,.08)}

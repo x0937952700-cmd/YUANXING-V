@@ -976,6 +976,19 @@
     if (!source) return [];
     state.loading = source;
     try {
+      if(!opts.force && window.YXCache && typeof window.YXCache.get==='function'){
+        try{
+          const cacheKey=window.YXCache.key(endpoint(source) + '?yx129_master=1&ts=0');
+          const cached=await window.YXCache.get(cacheKey);
+          const cd=cached && cached.data;
+          const cachedRows=cd && (Array.isArray(cd.items)?cd.items:(Array.isArray(cd.rows)?cd.rows:[]));
+          if(cachedRows && cachedRows.length){
+            rowsStore(source, cachedRows); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source);
+            if(!shouldAvoidRerender(source)){ renderSummary(source); renderCards(source); } else updateSummaryHeaderOnly(source);
+            try{ window.YXCache.setStatus && window.YXCache.setStatus('先顯示快取｜背景同步中','offline'); }catch(_e){}
+          }
+        }catch(_e){}
+      }
       const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET'});
       const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
       rowsStore(source, rows);

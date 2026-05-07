@@ -455,3 +455,129 @@
 })();
 /* ===== END V30 final product sort override ===== */
 
+
+/* ===== V93 home dashboard chart + search predictions (mainfile, no overlay/timer/observer) ===== */
+(function(){
+  'use strict';
+  if (window.__YX_V91_HOME_DASHBOARD__) return;
+  window.__YX_V91_HOME_DASHBOARD__ = true;
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  async function api(url, opt){
+    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...(opt||{}), headers:{'Content-Type':'application/json', ...((opt&&opt.headers)||{})}});
+    const txt = await res.text(); let data={};
+    try{ data = txt ? JSON.parse(txt) : {}; }catch(_){ data={success:false,error:txt||'伺服器回應格式錯誤'}; }
+    if(!res.ok || data.success === false) throw new Error(data.error || data.message || '請求失敗');
+    return data;
+  }
+  function card(title, value, note, cls){
+    return `<div class="yx-v90-stat-card ${cls||''}"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(note||'')}</small></div>`;
+  }
+  function renderTrend(rows){
+    const box = $('yx-v90-trend'); if(!box) return;
+    rows = Array.isArray(rows) ? rows : [];
+    if(!rows.length){ box.innerHTML = '<div class="empty-state-card compact-empty">目前沒有趨勢資料</div>'; return; }
+    const max = Math.max(1, ...rows.map(r => Math.max(Number(r.ship_qty||0), Number(r.new_qty||0))));
+    const w=360,h=150,pad=28,step=(w-pad*2)/Math.max(1,rows.length-1);
+    const ptsShip=rows.map((r,i)=>[pad+i*step, h-pad-(Number(r.ship_qty||0)/max)*(h-pad*2)]);
+    const ptsNew=rows.map((r,i)=>[pad+i*step, h-pad-(Number(r.new_qty||0)/max)*(h-pad*2)]);
+    const poly=pts=>pts.map(p=>p.map(n=>Math.round(n)).join(',')).join(' ');
+    const labels=rows.map((r,i)=>`<text x="${Math.round(pad+i*step)}" y="145" text-anchor="middle">${esc(String(r.date||'').slice(5))}</text>`).join('');
+    box.innerHTML = `<div class="yx-v93-chart-card"><svg class="yx-v93-trend-svg" viewBox="0 0 ${w} ${h}" role="img" aria-label="7天出貨新增趨勢"><line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" class="axis"/><polyline points="${poly(ptsShip)}" class="ship-line"/><polyline points="${poly(ptsNew)}" class="new-line"/>${ptsShip.map(p=>`<circle cx="${Math.round(p[0])}" cy="${Math.round(p[1])}" r="3" class="ship-dot"/>`).join('')}${ptsNew.map(p=>`<circle cx="${Math.round(p[0])}" cy="${Math.round(p[1])}" r="3" class="new-dot"/>`).join('')}${labels}</svg><div class="yx-v93-chart-legend"><span>出貨</span><span>新增</span><b>最高 ${max} 件</b></div></div>`;
+  }
+  function renderDashboard(data){
+    const cards = data.cards || {};
+    const box = $('yx-v90-dashboard-cards');
+    if(box){
+      box.innerHTML = [
+        card('今日出貨', `${Number(cards.today_shipping_qty||0)} 件`, `${Number(cards.today_shipping_rows||0)} 筆`, 'ship'),
+        card('今日新增', `${Number(cards.today_new_qty||0)} 件`, `${Number(cards.today_new_rows||0)} 筆`, 'add'),
+        card('問題格', `${Number(cards.problem_cells||0)} 格`, '已標記 problem_flag', 'problem'),
+        card('未入倉', `${Number(cards.unplaced_total||0)} 件`, `A ${Number(cards.unplaced_a||0)} / B ${Number(cards.unplaced_b||0)} / 未 ${Number(cards.unplaced_unassigned||0)}`, 'warn'),
+        card('A 區已入倉', `${Number(cards.placed_a||0)} 件`, '目前格內商品', 'zone'),
+        card('B 區已入倉', `${Number(cards.placed_b||0)} 件`, '目前格內商品', 'zone')
+      ].join('');
+    }
+    const top = $('yx-v90-top-products');
+    if(top){
+      const rows = Array.isArray(data.top_products) ? data.top_products : [];
+      top.innerHTML = rows.length ? rows.map(x => `<div class="deduct-card yx-v90-top-item"><strong>${esc(x.material||'未填材質')}｜${esc(x.product_text||'')}</strong><div class="small-note">${Number(x.qty||0)} 件｜${esc(x.sources||'')}</div></div>`).join('') : '<div class="empty-state-card compact-empty">目前沒有熱門商品資料</div>';
+    }
+    renderTrend(data.trends || []);
+  }
+  async function loadDashboard(){
+    const box = $('yx-v90-dashboard-cards');
+    try{
+      if(box && !box.dataset.loaded) box.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
+      const data = await api('/api/dashboard-summary?ts=' + Date.now());
+      box && (box.dataset.loaded='1');
+      renderDashboard(data);
+    }catch(e){
+      if(box) box.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message || 'Dashboard 讀取失敗')}</div>`;
+    }
+  }
+  function resultCard(x){
+    const loc = x.location ? `｜${x.location}` : '';
+    const target = x.url || '#';
+    return `<a class="deduct-card yx-v90-search-card" href="${esc(target)}"><strong>${esc(x.type||'資料')}｜${esc(x.customer_name||'')}</strong><div>${esc(x.material?x.material+'｜':'')}${esc(x.product_text||'')}</div><div class="small-note">${Number(x.qty||0)} 件${esc(loc)}</div></a>`;
+  }
+  async function getRecentSearches(){
+    try{ const r=await window.YXCache?.get?.('search:recent'); return (r&&r.data&&Array.isArray(r.data.items))?r.data.items:[]; }catch(_){ return []; }
+  }
+  async function saveRecentSearch(q){
+    q=String(q||'').trim(); if(!q) return;
+    try{ const rows=await getRecentSearches(); const next=[q,...rows.filter(x=>x!==q)].slice(0,8); await window.YXCache?.set?.('search:recent',{items:next,updated_at:new Date().toISOString()}); renderSuggestions(); }catch(_){}
+  }
+  function suggestionChip(text,kind){return `<button type="button" class="yx-v93-suggestion-chip" data-yx93-search-chip="${esc(text)}"><span>${esc(kind||'最近')}</span>${esc(text)}</button>`;}
+  async function renderSuggestions(){
+    const box=$('yx-v93-search-suggestions'), input=$('yx-v90-global-search'); if(!box||!input) return;
+    const q=input.value.trim(); let chips=[];
+    try{ const recent=await getRecentSearches(); chips=chips.concat(recent.filter(x=>!q||String(x).toLowerCase().includes(q.toLowerCase())).slice(0,6).map(x=>({text:x,kind:'最近'}))); }catch(_){}
+    if(q){
+      try{ const d=await api('/api/search-assistant/suggest?q='+encodeURIComponent(q)+'&ts='+Date.now()); const items=Array.isArray(d.items)?d.items:[]; const seen=new Set(chips.map(x=>String(x.text).toLowerCase())); items.forEach(x=>{const t=String(x.text||'').trim(); if(t&&!seen.has(t.toLowerCase())){seen.add(t.toLowerCase()); chips.push({text:t,kind:x.kind||'預測'});}}); }catch(_){}
+    }
+    box.innerHTML=chips.length?chips.slice(0,12).map(x=>suggestionChip(x.text,x.kind)).join(''):'';
+    box.classList.toggle('hidden',!chips.length);
+  }
+  async function runSearch(){
+    const q = $('yx-v90-global-search')?.value?.trim() || '';
+    const box = $('yx-v90-search-results'); if(!box) return;
+    if(!q){ box.classList.add('hidden'); box.innerHTML=''; renderSuggestions(); return; }
+    await saveRecentSearch(q);
+    box.classList.remove('hidden'); box.innerHTML = '<div class="empty-state-card compact-empty">搜尋中…</div>';
+    try{
+      const data = await api('/api/search-assistant?q=' + encodeURIComponent(q) + '&ts=' + Date.now());
+      const rows = Array.isArray(data.items) ? data.items : [];
+      box.innerHTML = rows.length ? rows.map(resultCard).join('') : '<div class="empty-state-card compact-empty">找不到符合資料</div>';
+    }catch(e){ box.innerHTML = `<div class="empty-state-card compact-empty">${esc(e.message || '搜尋失敗')}</div>`; }
+  }
+  function install(){
+    if ((document.body?.dataset?.module || '') !== 'home') return;
+    $('yx-v90-dashboard-refresh')?.addEventListener('click', loadDashboard);
+    $('yx-v90-global-search-btn')?.addEventListener('click', runSearch);
+    $('yx-v90-global-search')?.addEventListener('keydown', ev => { if(ev.key === 'Enter') runSearch(); });
+    $('yx-v90-global-search')?.addEventListener('input', () => renderSuggestions());
+    $('yx-v90-global-search')?.addEventListener('focus', () => renderSuggestions());
+    document.addEventListener('click', ev => { const chip=ev.target?.closest?.('[data-yx93-search-chip]'); if(!chip) return; const input=$('yx-v90-global-search'); if(input){input.value=chip.dataset.yx93SearchChip||''; runSearch();} });
+    renderSuggestions();
+    loadDashboard();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+})();
+/* ===== END V93 home dashboard + search assistant ===== */
+
+
+/* ===== V95 classified search panel: 庫存 / 訂單 / 總單 / 倉庫 / 出貨 filters (mainfile) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V95_CLASSIFIED_SEARCH__) return; window.__YX_V95_CLASSIFIED_SEARCH__=true;
+  const $=id=>document.getElementById(id); const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  let category='all';
+  async function api(url){const res=await fetch(url,{credentials:'same-origin',cache:'no-store'});const txt=await res.text();let d={};try{d=txt?JSON.parse(txt):{};}catch(_){d={success:false,error:txt||'伺服器回應格式錯誤'};}if(!res.ok||d.success===false)throw new Error(d.error||d.message||'搜尋失敗');return d;}
+  function ensureFilters(){const sugg=$('yx-v93-search-suggestions'); if(!sugg||$('yx-v95-search-filters'))return; const bar=document.createElement('div');bar.id='yx-v95-search-filters';bar.className='yx-v95-search-filters'; const items=[['all','全部'],['inventory','庫存'],['orders','訂單'],['master_order','總單'],['warehouse','倉庫圖'],['shipping','出貨']]; bar.innerHTML=items.map(([v,t])=>'<button type="button" class="yx-v95-search-filter '+(v==='all'?'active':'')+'" data-yx94-search-category="'+v+'">'+t+'</button>').join(''); sugg.insertAdjacentElement('afterend',bar);}
+  function resultCard(x){const loc=x.location?'｜'+x.location:'';const url=x.url||'#';return '<a class="deduct-card yx-v90-search-card yx-v95-search-card" data-search-type="'+esc(x.table||x.type||'')+'" href="'+esc(url)+'"><strong><span class="yx-v95-result-type">'+esc(x.type||'資料')+'</span> '+esc(x.customer_name||'')+'</strong><div>'+esc(x.material?x.material+'｜':'')+esc(x.product_text||'')+'</div><div class="small-note">'+Number(x.qty||0)+' 件'+esc(loc)+'</div></a>';}
+  async function run(){const q=$('yx-v90-global-search')?.value?.trim()||'';const box=$('yx-v90-search-results');if(!box)return;if(!q){box.classList.add('hidden');box.innerHTML='';return;}box.classList.remove('hidden');box.innerHTML='<div class="empty-state-card compact-empty">搜尋中…</div>';try{try{const old=await window.YXCache?.get?.('search:recent');const arr=(old&&old.data&&Array.isArray(old.data.items))?old.data.items:[];await window.YXCache?.set?.('search:recent',{items:[q,...arr.filter(x=>x!==q)].slice(0,8),updated_at:new Date().toISOString()});}catch(_){}const d=await api('/api/search-assistant?q='+encodeURIComponent(q)+'&category='+encodeURIComponent(category)+'&ts='+Date.now());const rows=Array.isArray(d.items)?d.items:[];const counts=rows.reduce((m,x)=>{m[x.type||'資料']=(m[x.type||'資料']||0)+1;return m;},{});const summary=Object.keys(counts).length?'<div class="yx-v95-search-summary">'+Object.entries(counts).map(([k,v])=>'<span>'+esc(k)+' '+v+'</span>').join('')+'</div>':'';box.innerHTML=rows.length?summary+rows.map(resultCard).join(''):'<div class="empty-state-card compact-empty">找不到符合資料</div>';}catch(e){box.innerHTML='<div class="empty-state-card compact-empty">'+esc(e.message||'搜尋失敗')+'</div>';}}
+  function install(){if((document.body?.dataset?.module||'')!=='home')return;ensureFilters();document.addEventListener('click',ev=>{const f=ev.target?.closest?.('[data-yx94-search-category]');if(f){ev.preventDefault();category=f.dataset.yx94SearchCategory||'all';document.querySelectorAll('[data-yx94-search-category]').forEach(b=>b.classList.toggle('active',b===f));if($('yx-v90-global-search')?.value?.trim())run();return;}},true);window.addEventListener('click',ev=>{const b=ev.target?.closest?.('#yx-v90-global-search-btn');if(!b)return;ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.();run();},true);window.addEventListener('keydown',ev=>{if(ev.key==='Enter'&&ev.target&&ev.target.id==='yx-v90-global-search'){ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.();run();}},true);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+})();
+/* ===== END V95 classified search panel ===== */

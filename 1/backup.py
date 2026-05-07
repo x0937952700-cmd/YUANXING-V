@@ -82,3 +82,8 @@ def list_backups():
     except Exception as e:
         log_error("list_backups", str(e))
         return {"success": False, "files": []}
+
+
+if __name__ == "__main__":
+    result = run_daily_backup()
+    print(json.dumps(result, ensure_ascii=False, indent=2))

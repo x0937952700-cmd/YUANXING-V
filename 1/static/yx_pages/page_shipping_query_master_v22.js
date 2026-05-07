@@ -376,7 +376,7 @@
   function timeOf(r){return String(r.shipped_at||r.created_at||'').slice(0,19)}
   function qty(r){const n=Number(r.qty||r.effective_qty||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0}
   function groupRows(rows){const map=new Map();(rows||[]).forEach(r=>{const k=[r.customer_name||'未填客戶',dateOf(r)].join('::');if(!map.has(k))map.set(k,{customer:r.customer_name||'未填客戶',date:dateOf(r),items:[],qty:0});const g=map.get(k);g.items.push(r);g.qty+=qty(r);});return Array.from(map.values()).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(a.customer).localeCompare(String(b.customer),'zh-Hant'));}
-  function detailTable(g){return `<div class="yx-ship-query-detail hidden yx-v63-ship-detail-list">${g.items.map(r=>`<div class="yx-v63-ship-detail-row" data-ship-record-id="${Number(r.id||0)}"><span>${esc(r.product_text||'')}</span><b>${qty(r)}件</b><small>${esc(timeOf(r))}</small>${Number(r.id||0)?`<button type="button" class="ghost-btn tiny-btn danger-btn" data-delete-ship-record="${Number(r.id||0)}">刪除</button>`:''}</div>`).join('')}</div>`}
+  function detailTable(g){return `<div class="yx-ship-query-detail hidden yx-v63-ship-detail-list">${g.items.map(r=>`<div class="yx-v63-ship-detail-row" data-ship-record-id="${Number(r.id||0)}"><span>${esc(r.product_text||'')}</span><b>${qty(r)}件</b><small>${esc(timeOf(r))}</small>${Number(r.id||0)?`<button type="button" class="ghost-btn tiny-btn" data-yx99-open-ship-warehouse="${Number(r.id||0)}">開倉庫</button><button type="button" class="ghost-btn tiny-btn danger-btn" data-delete-ship-record="${Number(r.id||0)}">刪除</button>`:''}</div>`).join('')}</div>`}
   function card(g,i){return `<div class="deduct-card yx-ship-query-card yx-v63-ship-query-card" data-ship-group="${i}"><button type="button" class="yx-ship-query-head yx-v63-ship-query-head" data-toggle-ship-group="${i}"><span class="yx-v63-ship-date">${esc(g.date)}</span><strong>${esc(g.customer)}</strong><span>${g.items.length}筆 / ${g.qty}件</span></button>${detailTable(g)}</div>`}
   window.loadShippingRecords=async function(){const box=document.getElementById('shipping-results');if(!box)return;box.innerHTML='載入中…';try{const q=new URLSearchParams({q:document.getElementById('ship-keyword')?.value||'',range:document.getElementById('ship-range')?.value||'7',start_date:document.getElementById('ship-start')?.value||'',end_date:document.getElementById('ship-end')?.value||''});const d=await api('/api/shipping_records?'+q.toString());const rows=d.items||d.records||[];const groups=groupRows(rows);box.innerHTML=groups.length?groups.map(card).join(''):'沒有資料';}catch(e){box.textContent=e.message;}};
   document.addEventListener('click',async ev=>{const t=ev.target.closest?.('[data-toggle-ship-group]');if(t){ev.preventDefault();t.closest('.yx-ship-query-card')?.querySelector('.yx-ship-query-detail')?.classList.toggle('hidden');return;}const del=ev.target.closest?.('[data-delete-ship-record]');if(del){ev.preventDefault();const id=del.dataset.deleteShipRecord;if(!confirm('確定刪除此筆出貨紀錄？刪除後其他人查不到。'))return;try{await api('/api/shipping_records/'+encodeURIComponent(id),{method:'DELETE'});del.closest('tr')?.remove();}catch(e){alert(e.message||'刪除失敗');}}});
@@ -470,3 +470,47 @@
 })();
 /* ===== END V30 final product sort override ===== */
 
+
+/* ===== V98 shipping query warehouse deduction location cards (mainfile) ===== */
+(function(){'use strict';
+  if(window.__YX_V98_SHIPPING_QUERY_WAREHOUSE__) return; window.__YX_V98_SHIPPING_QUERY_WAREHOUSE__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}
+  function qty(r){const n=Number(r.qty||r.effective_qty||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0}
+  function dateOf(r){return String(r.shipped_at||r.created_at||'').slice(0,10)||'未填日期'}
+  function timeOf(r){return String(r.shipped_at||r.created_at||'').slice(0,19)}
+  function parsePlan(r){try{return JSON.parse(r.warehouse_deduct_json||'[]')}catch{return []}}
+  function warehouseHtml(r){
+    const plan=parsePlan(r);
+    if(plan.length){return `<div class="yx98-ship-warehouse-lines">${plan.map(w=>`<a class="yx98-ship-warehouse-chip" href="/warehouse?loc=${esc(String(w.zone||'').toUpperCase())}-${Number(w.column_index||0)}-${Number(w.slot_number||0)}&open=1&highlight_item=${encodeURIComponent(r.product_text||'')}">${esc(String(w.zone||'').toUpperCase())}區${Number(w.column_index||0)}欄${Number(w.slot_number||0)}格：${Number(w.before_qty||0)}→${Number(w.after_qty||0)}，扣${Number(w.deduct_qty||0)}件${Number(w.after_qty||0)<=0?'（已扣空）':''}</a>`).join('')}</div>`;}
+    return r.warehouse_location?`<div class="yx98-ship-warehouse-lines"><span class="yx98-ship-warehouse-chip">${esc(r.warehouse_location)}</span></div>`:'';
+  }
+  function groupRows(rows){const map=new Map();(rows||[]).forEach(r=>{const k=[r.customer_name||'未填客戶',dateOf(r)].join('::');if(!map.has(k))map.set(k,{customer:r.customer_name||'未填客戶',date:dateOf(r),items:[],qty:0});const g=map.get(k);g.items.push(r);g.qty+=qty(r);});return Array.from(map.values()).sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(a.customer).localeCompare(String(b.customer),'zh-Hant'));}
+  function detail(g){return `<div class="yx-ship-query-detail hidden yx-v63-ship-detail-list">${g.items.map(r=>`<div class="yx-v63-ship-detail-row yx98-ship-record-row" data-ship-record-id="${Number(r.id||0)}"><div class="yx98-ship-record-main"><span>${esc(r.product_text||'')}</span><b>${qty(r)}件</b><small>${esc(timeOf(r))}</small>${Number(r.id||0)?`<button type="button" class="ghost-btn tiny-btn" data-yx99-open-ship-warehouse="${Number(r.id||0)}">開倉庫</button><button type="button" class="ghost-btn tiny-btn danger-btn" data-delete-ship-record="${Number(r.id||0)}">刪除</button>`:''}</div>${warehouseHtml(r)}</div>`).join('')}</div>`}
+  function card(g,i){return `<div class="deduct-card yx-ship-query-card yx-v63-ship-query-card" data-ship-group="${i}"><button type="button" class="yx-ship-query-head yx-v63-ship-query-head" data-toggle-ship-group="${i}"><span class="yx-v63-ship-date">${esc(g.date)}</span><strong>${esc(g.customer)}</strong><span>${g.items.length}筆 / ${g.qty}件</span></button>${detail(g)}</div>`}
+  window.loadShippingRecords=async function(){const box=document.getElementById('shipping-results');if(!box)return;box.innerHTML='載入中…';try{const q=new URLSearchParams({q:document.getElementById('ship-keyword')?.value||'',range:document.getElementById('ship-range')?.value||'7',start_date:document.getElementById('ship-start')?.value||'',end_date:document.getElementById('ship-end')?.value||''});const d=await api('/api/shipping_records?'+q.toString());const rows=d.items||d.records||[];const groups=groupRows(rows);box.innerHTML=groups.length?groups.map(card).join(''):'沒有資料';}catch(e){box.textContent=e.message||'查詢失敗';}};
+})();
+/* ===== END V98 shipping query warehouse deduction location cards ===== */
+
+/* ===== V99 MAINFILE shipping record exact warehouse opener ===== */
+(function(){'use strict';
+  if(window.__YX_V99_SHIPPING_RECORD_TARGET__) return; window.__YX_V99_SHIPPING_RECORD_TARGET__=true;
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'定位失敗');return d;}
+  function toast(m,k){try{(window.toast||window.YXHardLock?.toast||console.log)(m,k||'warn')}catch(_){}}
+  document.addEventListener('click',async ev=>{
+    const row=ev.target.closest?.('.yx98-ship-record-row[data-ship-record-id]');
+    const btn=ev.target.closest?.('[data-yx99-open-ship-warehouse]');
+    if(!btn && (!row || ev.target.closest('a,button'))) return;
+    const id=(btn?.dataset.yx99OpenShipWarehouse)||row?.dataset.shipRecordId;
+    if(!id||Number(id)<=0) return;
+    if(!btn && !ev.altKey) return; // normal row click remains unchanged; Alt-click row opens exact warehouse target
+    ev.preventDefault();
+    try{const d=await api(`/api/shipping_records/${encodeURIComponent(id)}/warehouse-target`); if(d.url) location.href=d.url; else toast('這筆出貨沒有倉庫扣除位置','warn');}
+    catch(e){toast(e.message||'定位倉庫失敗','error');}
+  },true);
+  document.addEventListener('DOMContentLoaded',()=>{
+    const box=document.getElementById('shipping-results'); if(!box) return;
+    box.addEventListener('click',e=>{const chip=e.target.closest?.('.yx98-ship-warehouse-chip'); if(chip) return;},true);
+  },{once:true});
+})();
+/* ===== END V99 shipping record exact warehouse opener ===== */

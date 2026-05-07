@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import hashlib
+import random
 from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -812,7 +813,12 @@ def init_db():
             qty INTEGER DEFAULT 0,
             operator {text},
             shipped_at {text},
-            note {text}
+            note {text},
+            source_table {text},
+            before_qty INTEGER DEFAULT 0,
+            after_qty INTEGER DEFAULT 0,
+            warehouse_location {text},
+            warehouse_deduct_json {text}
         )""",
         f"""CREATE TABLE IF NOT EXISTS corrections (
             id {pk},
@@ -887,6 +893,15 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     after_json {text},
     created_at {text}
 )""",
+
+f"""CREATE TABLE IF NOT EXISTS edit_locks (
+    id {pk},
+    entity_type {text},
+    entity_id {text},
+    username {text},
+    expires_at {text},
+    updated_at {text}
+)""",
         f"""CREATE TABLE IF NOT EXISTS todo_items (
             id {pk},
             note {text},
@@ -922,13 +937,14 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('status',"TEXT DEFAULT 'pending'"),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('source_table','TEXT'),('before_qty','INTEGER DEFAULT 0'),('after_qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
+        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('source_table','TEXT'),('before_qty','INTEGER DEFAULT 0'),('after_qty','INTEGER DEFAULT 0'),('warehouse_location','TEXT'),('warehouse_deduct_json','TEXT'),('operator','TEXT'),('created_at','TEXT'),('shipped_at','TEXT'),('note','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT'),('is_deleted','INTEGER DEFAULT 0'),('problem_flag','TEXT DEFAULT ''')],
         'today_changes': [('action','TEXT'),('table_name','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('detail_json','TEXT'),('operator','TEXT'),('created_at','TEXT'),('unread','INTEGER DEFAULT 1')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
         'customer_aliases': [('alias','TEXT'),('target_name','TEXT'),('updated_at','TEXT')],
         'warehouse_recent_slots': [('username','TEXT'),('customer_name','TEXT'),('zone','TEXT'),('column_index','INTEGER'),('slot_number','INTEGER'),('used_at','TEXT')],
         'audit_trails': [('username','TEXT'),('action_type','TEXT'),('entity_type','TEXT'),('entity_key','TEXT'),('before_json','TEXT'),('after_json','TEXT'),('created_at','TEXT')],
+        'edit_locks': [('entity_type','TEXT'),('entity_id','TEXT'),('username','TEXT'),('expires_at','TEXT'),('updated_at','TEXT')],
         'todo_items': [('note','TEXT'),('due_date','TEXT'),('image_filename','TEXT'),('created_by','TEXT'),('created_at','TEXT'),('updated_at','TEXT'),('completed_at','TEXT'),('is_done','INTEGER DEFAULT 0'),('sort_order','INTEGER DEFAULT 0')],
     }
     for _table, _columns in _schema_columns.items():
@@ -1038,7 +1054,9 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             "CREATE INDEX IF NOT EXISTS ix_shipping_records_shipped_at ON shipping_records(shipped_at)",
             "CREATE INDEX IF NOT EXISTS ix_warehouse_cells_zone_col_slot ON warehouse_cells(zone, column_index, slot_number)",
             "CREATE INDEX IF NOT EXISTS ix_audit_trails_entity_created ON audit_trails(entity_type, created_at)",
-            "CREATE INDEX IF NOT EXISTS ix_audit_trails_username_created ON audit_trails(username, created_at)"
+            "CREATE INDEX IF NOT EXISTS ix_audit_trails_username_created ON audit_trails(username, created_at)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_edit_locks_entity ON edit_locks(entity_type, entity_id)",
+            "CREATE INDEX IF NOT EXISTS ix_edit_locks_expires ON edit_locks(expires_at)"
         ):
             cur.execute(_idx)
     except Exception as e:
@@ -2616,6 +2634,10 @@ def preview_ship_order(customer_name, items):
                     after['order'] = max(0, order_available - min(qty_needed, order_available))
                 elif source_pref == 'inventory':
                     after['inventory'] = max(0, inventory_available - min(qty_needed, inventory_available))
+                warehouse_plan = _warehouse_deduct_for_shipping_cur(cur, product_text, material, qty_needed, source_customer if source_pref != 'inventory' else customer_name, source_pref, dry_run=True)
+                if not warehouse_plan.get('success'):
+                    shortage_reasons.append(warehouse_plan.get('error') or '倉庫圖數量不足')
+                    shortage = max(shortage, int(warehouse_plan.get('shortage_qty') or 0))
                 preview.append({
                     'product_text': product_text,
                     'product_code': material,
@@ -2631,7 +2653,7 @@ def preview_ship_order(customer_name, items):
                     'deduct_after': after,
                     'shortage_qty': shortage,
                     'master_exceeded': False,
-                    'strict_ok': shortage == 0,
+                    'strict_ok': shortage == 0 and bool(warehouse_plan.get('success')),
                     'inventory_only_ok': source_pref == 'inventory' and shortage == 0,
                     'needs_inventory_fallback': False,
                     'shortage_reasons': shortage_reasons,
@@ -2646,6 +2668,10 @@ def preview_ship_order(customer_name, items):
                         {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
                     ],
                     'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None),
+                    'warehouse_deduct_plan': warehouse_plan.get('plan', []),
+                    'warehouse_available': int(warehouse_plan.get('available_qty') or qty_needed if warehouse_plan.get('success') else warehouse_plan.get('available_qty') or 0),
+                    'warehouse_shortage_qty': int(warehouse_plan.get('shortage_qty') or 0),
+                    'warehouse_strict_ok': bool(warehouse_plan.get('success')),
                 })
                 continue
 
@@ -2665,6 +2691,9 @@ def preview_ship_order(customer_name, items):
             rec = (f"將扣除{auto_label}" if auto_source else '不可出貨，總單 / 訂單 / 庫存都不足')
             if is_borrowed:
                 rec = f"向{source_customer}借貨：" + rec
+            warehouse_plan = _warehouse_deduct_for_shipping_cur(cur, product_text, material, qty_needed, source_customer if auto_source != 'inventory' else customer_name, auto_source, dry_run=True) if auto_source else {'success': False, 'plan': [], 'error': '沒有可扣來源'}
+            if auto_source and not warehouse_plan.get('success'):
+                shortage_reasons.append(warehouse_plan.get('error') or '倉庫圖數量不足')
             preview.append({
                 'product_text': product_text,
                 'product_code': material,
@@ -2680,7 +2709,7 @@ def preview_ship_order(customer_name, items):
                 'deduct_after': after,
                 'shortage_qty': max(0, qty_needed - int(selected_available or 0)),
                 'master_exceeded': False,
-                'strict_ok': bool(auto_source),
+                'strict_ok': bool(auto_source) and bool(warehouse_plan.get('success')),
                 'inventory_only_ok': auto_source == 'inventory',
                 'needs_inventory_fallback': False,
                 'shortage_reasons': shortage_reasons,
@@ -2695,6 +2724,10 @@ def preview_ship_order(customer_name, items):
                     {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
                 'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None),
+                'warehouse_deduct_plan': warehouse_plan.get('plan', []),
+                'warehouse_available': int(warehouse_plan.get('available_qty') or qty_needed if warehouse_plan.get('success') else warehouse_plan.get('available_qty') or 0),
+                'warehouse_shortage_qty': int(warehouse_plan.get('shortage_qty') or 0),
+                'warehouse_strict_ok': bool(warehouse_plan.get('success')),
             })
         return {
             'success': True,
@@ -2706,6 +2739,168 @@ def preview_ship_order(customer_name, items):
         }
     finally:
         conn.close()
+
+
+def _warehouse_customer_match_for_ship(cell_customer, target_customer, source_table):
+    """V95: shipping must deduct warehouse map using the same customer/material/size rule.
+
+    For order/master shipments, only the same customer (or legacy blank rows when there is no
+    customer saved) can be deducted. For inventory fallback, warehouse rows usually use 庫存,
+    but older data may be blank or saved under the shipping customer, so allow those safe labels.
+    """
+    c = str(cell_customer or '').strip()
+    t = str(target_customer or '').strip()
+    if source_table == 'inventory':
+        return c in ('', '庫存', t)
+    return (not t and not c) or c == t
+
+
+def _warehouse_pick_candidates_min_qty_random_tie(candidates):
+    """V95: choose warehouse cells by smallest item qty first; randomize equal-qty ties."""
+    buckets = {}
+    for cand in candidates:
+        q = int(cand.get('qty') or 0)
+        buckets.setdefault(q, []).append(cand)
+    ordered = []
+    for q in sorted(buckets):
+        group = buckets[q]
+        random.shuffle(group)
+        ordered.extend(group)
+    return ordered
+
+
+def _warehouse_deduct_for_shipping_cur(cur, product_text, material, qty_needed, customer_name, source_table, dry_run=False):
+    """V95 main flow: deduct shipped goods from warehouse_cells in the same DB transaction.
+
+    Rule requested by user:
+    - warehouse map links inventory/orders/master_orders;
+    - shipping must remove quantity from warehouse map too;
+    - match by same customer + same material + same size;
+    - when many cells match, deduct from the cell with the smallest quantity first;
+    - if equal quantity, randomly pick one of those equal cells.
+    """
+    qty_needed = int(qty_needed or 0)
+    if qty_needed <= 0:
+        return {'success': True, 'deducted_qty': 0, 'plan': [], 'shortage_qty': 0}
+    size_key = _warehouse_size_key(product_text)
+    mat_key = clean_material_value(material or '', product_text)
+    source_table = str(source_table or '').strip()
+    target_customer = str(customer_name or '').strip()
+    cur.execute(sql("""
+        SELECT * FROM warehouse_cells
+        WHERE COALESCE(NULLIF(TRIM(slot_type),''), 'direct') = ?
+          AND COALESCE(is_deleted, 0) = 0
+    """), ('direct',))
+    rows = rows_to_dict(cur)
+    candidates = []
+    for cell in rows:
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+        except Exception:
+            items = []
+        if not isinstance(items, list):
+            items = []
+        for idx, it in enumerate(items):
+            if not isinstance(it, dict):
+                continue
+            cell_product = it.get('product_text') or it.get('product') or ''
+            cell_size = _warehouse_size_key(cell_product)
+            if not size_key or cell_size != size_key:
+                continue
+            cell_material = clean_material_value(it.get('material') or it.get('product_code') or '', cell_product)
+            if (mat_key or cell_material) and cell_material != mat_key:
+                continue
+            cell_customer = str(it.get('customer_name') or '').strip()
+            if not _warehouse_customer_match_for_ship(cell_customer, target_customer, source_table):
+                continue
+            try:
+                q = int(it.get('qty') or 0)
+            except Exception:
+                q = 0
+            if q <= 0:
+                continue
+            candidates.append({
+                'cell': cell,
+                'items': items,
+                'index': idx,
+                'qty': q,
+                'product_text': cell_product,
+                'material': cell_material,
+                'customer_name': cell_customer,
+                'zone': cell.get('zone'),
+                'column_index': int(cell.get('column_index') or 0),
+                'slot_number': int(cell.get('slot_number') or 0),
+            })
+    ordered = _warehouse_pick_candidates_min_qty_random_tie(candidates)
+    total_available = sum(int(c.get('qty') or 0) for c in ordered)
+    if total_available < qty_needed:
+        available_cells = [{
+            'zone': c.get('zone'),
+            'column_index': c.get('column_index'),
+            'slot_number': c.get('slot_number'),
+            'customer_name': c.get('customer_name') or target_customer or '庫存',
+            'product_text': c.get('product_text') or product_text,
+            'material': c.get('material') or mat_key,
+            'available_qty': int(c.get('qty') or 0),
+            'location': f"{str(c.get('zone') or '').upper()}區{int(c.get('column_index') or 0)}欄{int(c.get('slot_number') or 0)}格",
+        } for c in ordered]
+        return {
+            'success': False,
+            'error': f'倉庫圖數量不足：{size_key} {mat_key or ""} {target_customer or "庫存"} 只有 {total_available}/{qty_needed}',
+            'available_qty': total_available,
+            'shortage_qty': qty_needed - total_available,
+            'available_cells': available_cells,
+            'plan': [],
+        }
+    remain = qty_needed
+    by_cell = {}
+    plan = []
+    for cand in ordered:
+        if remain <= 0:
+            break
+        take = min(int(cand.get('qty') or 0), remain)
+        if take <= 0:
+            continue
+        cell_id = cand['cell'].get('id')
+        if cell_id not in by_cell:
+            # copy so multiple deductions in the same cell update the same pending list
+            by_cell[cell_id] = {'cell': cand['cell'], 'items': [dict(x) if isinstance(x, dict) else x for x in cand['items']]}
+        pending_items = by_cell[cell_id]['items']
+        idx = cand['index']
+        row = dict(pending_items[idx])
+        before_qty = int(row.get('qty') or 0)
+        after_qty = before_qty - take
+        if after_qty > 0:
+            row['qty'] = after_qty
+            pending_items[idx] = row
+        else:
+            pending_items[idx] = None
+        plan.append({
+            'zone': cand.get('zone'),
+            'column_index': cand.get('column_index'),
+            'slot_type': 'direct',
+            'slot_number': cand.get('slot_number'),
+            'customer_name': cand.get('customer_name') or target_customer or '庫存',
+            'product_text': cand.get('product_text') or product_text,
+            'material': cand.get('material') or mat_key,
+            'before_qty': before_qty,
+            'deduct_qty': take,
+            'after_qty': max(0, after_qty),
+            'emptied': after_qty <= 0,
+        })
+        remain -= take
+    if dry_run:
+        return {'success': True, 'deducted_qty': qty_needed, 'plan': plan, 'shortage_qty': 0, 'dry_run': True}
+    for cell_id, payload in by_cell.items():
+        cell = payload['cell']
+        cleaned = [x for x in payload['items'] if isinstance(x, dict) and int(x.get('qty') or 0) > 0]
+        cleaned = _normalize_warehouse_items(cleaned)
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET items_json = ?, updated_at = ?
+            WHERE id = ?
+        """), (json.dumps(cleaned, ensure_ascii=False), now(), cell_id))
+    return {'success': True, 'deducted_qty': qty_needed, 'plan': plan, 'shortage_qty': 0}
 
 def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     conn = get_db()
@@ -2744,6 +2939,19 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                     conn.rollback()
                     return {"success": False, "error": f"{product_text} 無可扣來源：總單 {master_available}/{qty_needed}、訂單 {order_available}/{qty_needed}、庫存 {inventory_available}/{qty_needed}"}
 
+            warehouse_deduct = _warehouse_deduct_for_shipping_cur(
+                cur,
+                product_text,
+                material,
+                qty_needed,
+                source_customer if auto_source != 'inventory' else customer_name,
+                auto_source,
+                dry_run=False,
+            )
+            if not warehouse_deduct.get('success'):
+                conn.rollback()
+                return {"success": False, "error": warehouse_deduct.get('error') or f"{product_text} 倉庫圖數量不足", "warehouse_shortage": warehouse_deduct}
+
             used_master, used_order, used_inv = [], [], []
             if auto_source == 'master_orders':
                 used_master = _deduct_from_table_partial_size_material(cur, "master_orders", source_customer, product_text, material, qty_needed)
@@ -2761,10 +2969,17 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 conn.rollback()
                 return {"success": False, "error": f"{product_text} 出貨來源錯誤"}
 
+            warehouse_plan = warehouse_deduct.get('plan', []) if isinstance(warehouse_deduct, dict) else []
+            warehouse_location = ' / '.join([
+                f"{str(w.get('zone') or '').upper()}區{int(w.get('column_index') or 0)}欄{int(w.get('slot_number') or 0)}格 扣{int(w.get('deduct_qty') or 0)}件" + ('（已扣空）' if int(w.get('after_qty') or 0) <= 0 else '')
+                for w in warehouse_plan if isinstance(w, dict)
+            ])
+            selected_before_qty = int(available_map.get(auto_source, 0) or 0)
+            selected_after_qty = max(0, selected_before_qty - qty_needed)
             cur.execute(sql("""
-                INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, ship_customer_uid, product_text, material, material, qty_needed, operator, now(), note))
+                INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note, source_table, before_qty, after_qty, warehouse_location, warehouse_deduct_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, ship_customer_uid, product_text, material, material, qty_needed, operator, now(), note, auto_source, selected_before_qty, selected_after_qty, warehouse_location, json.dumps(warehouse_plan, ensure_ascii=False)))
 
             breakdown.append({
                 "product_text": product_text,
@@ -2783,6 +2998,9 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "master_details": used_master,
                 "order_details": used_order,
                 "inventory_details": used_inv,
+                "warehouse_deduct": warehouse_plan,
+                "warehouse_deduct_qty": warehouse_deduct.get('deducted_qty', qty_needed),
+                "warehouse_location": warehouse_location,
                 "note": note,
                 "borrow_from_customer_name": borrow_from,
                 "source_customer_name": source_customer,

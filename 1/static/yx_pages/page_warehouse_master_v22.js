@@ -125,7 +125,7 @@
 })();
 /* ===== END V30 quantity/month/support display lock ===== */
 
-/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V68 warehouse drag slot qty final lock */
+/* 沅興木業 FULL MASTER V22 REAL LOADED COMPLETE - page_warehouse_master_v22 - V96 warehouse plus-minus slots final lock */
 (function(){ window.__YX_FULL_MASTER_V22_PAGE__='page_warehouse_master_v22'; })();
 
 /* ===== V2 MERGED FROM static/yx_modules/core_hardlock.js ===== */
@@ -596,13 +596,51 @@
     sum && (sum.textContent=qtys.join('+') || String(totalQty));
     total && (total.textContent=`${totalQty}件`);
   }
+  function columnStats(z,c){
+    z=clean(z).toUpperCase(); c=Number(c);
+    const slots=visibleSlotNumbers(z,c);
+    let filled=0, empty=0, qty=0, problem=0;
+    slots.forEach(n=>{
+      const items=cellItems(z,c,n).filter(it=>itemQty(it)>0);
+      if(items.length){ filled++; qty += items.reduce((a,it)=>a+itemQty(it),0); } else empty++;
+      const cell=cellFromData(z,c,n);
+      if(['problem','marked','1','true',true,1].includes(cell?.problem_flag)) problem++;
+    });
+    return {total:slots.length, filled, empty, qty, problem};
+  }
+  function ensureColumnStatsBadge(z,c){
+    const card=document.querySelector(`.vertical-column-card[data-zone="${z}"][data-column="${Number(c)}"]`);
+    if(!card) return null;
+    let badge=card.querySelector('.yx97-col-stats');
+    if(!badge){
+      badge=document.createElement('div');
+      badge.className='yx97-col-stats small-note';
+      const title=card.querySelector('.yx106-warehouse-column-title,.yx116-warehouse-column-title');
+      if(title) title.insertAdjacentElement('afterend', badge); else card.insertBefore(badge, card.firstChild);
+    }
+    return badge;
+  }
+  function updateColumnStats(z,c){
+    const st=columnStats(z,c);
+    const badge=ensureColumnStatsBadge(z,c);
+    if(badge){
+      badge.innerHTML=`<span>目前 ${st.total} 格</span><span>空 ${st.empty}</span><span>有貨 ${st.filled}</span><span>${st.qty}件</span>${st.problem?`<span class="danger-text">問題 ${st.problem}</span>`:''}`;
+    }
+    return st;
+  }
+  function updateAllColumnStats(){
+    zones.forEach(z=>{ for(let c=1;c<=6;c++) updateColumnStats(z,c); });
+    const sum={A:{total:0,empty:0,filled:0,qty:0,problem:0},B:{total:0,empty:0,filled:0,qty:0,problem:0}};
+    zones.forEach(z=>{ for(let c=1;c<=6;c++){ const st=columnStats(z,c); Object.keys(sum[z]).forEach(k=>sum[z][k]+=Number(st[k]||0)); } });
+    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n){ const st=sum[z]; n.textContent=`6 欄｜${st.total} 格｜空 ${st.empty}｜有貨 ${st.filled}｜${st.qty}件`; } }
+  }
   function updateAllSlots(){
     ensureSlotRange();
     zones.forEach(z=>{ for(let c=1;c<=6;c++){ visibleSlotNumbers(z,c).forEach(s=>updateSlotUI(z,c,s)); removeExtraDom(z,c); } });
-    updateNotes(); bindSlots(); setWarehouseZone(state.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
+    updateNotes(); updateAllColumnStats(); bindSlots(); setWarehouseZone(state.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
   }
   function updateNotes(){
-    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 25 格'; }
+    for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n && !n.textContent) n.textContent='6 欄｜每欄預設 25 格'; }
   }
   async function loadAvailable(){
     try{
@@ -953,7 +991,12 @@
   }
   async function openWarehouseModal(z,c,s){
     z=clean(z).toUpperCase();
-    state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)};
+    const lockId=`${z}-${Number(c)}-${Number(s)}`;
+    if(window.YXEditLock && typeof window.YXEditLock.ensure==='function'){
+      const ok=await window.YXEditLock.ensure('warehouse_cells', lockId, {label:`${z}區第 ${Number(c)} 欄第 ${Number(s)} 格`, ttl_seconds:240});
+      if(!ok) return;
+    }
+    state.current={zone:z,col:Number(c),slot:Number(s),lockId,items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)};
     state.batchCount=3;
     const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`;
     const note=$('warehouse-note'); if(note) note.value=state.current.note||'';
@@ -964,7 +1007,13 @@
     // 先立刻開啟格位批量加入畫面，再背景抓 A/B 區未錄入商品；保留使用者已選下拉與件數。
     try { await loadAvailable(); renderCellItems(true); } catch(e){ toast(e.message||'未錄入商品載入失敗','error'); }
   }
-  function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); }
+  function closeWarehouseModal(){
+    const cur=state.current;
+    $('warehouse-modal')?.classList.add('hidden');
+    if(cur?.lockId && window.YXEditLock && typeof window.YXEditLock.release==='function'){
+      window.YXEditLock.release('warehouse_cells', cur.lockId).catch(()=>{});
+    }
+  }
   function selectedBatchUsage(){
     const used = new Map();
     document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
@@ -1131,10 +1180,10 @@
     for(let i=0;i<count;i++) localInsertSlot(z,c,s+i);
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先批量新增 ${count} 格，背景儲存`,'ok');
     (async()=>{
-      let last=null;
-      for(let i=0;i<count;i++) last=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s+i,slot_type:'direct'})});
+      const last=await api('/api/warehouse/bulk-add-slots',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:s,count:count,slot_type:'direct'})});
       if(last && Array.isArray(last.cells)) state.data.cells=last.cells;
-      updateAllSlots(); highlightWarehouseCell(z,c,Number(last?.slot_number||s+1)); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
+      const firstSlot = Number((last?.created_slots||[])[0] || last?.slot_number || s+1);
+      updateAllSlots(); highlightWarehouseCell(z,c,firstSlot); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
     })().catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'批量新增格子失敗，已還原','error'); });
   }
   async function batchDeleteWarehouseCells(z,c,s){
@@ -1150,10 +1199,9 @@
     visible.forEach(n=>localDeleteSlot(z,c,n));
     updateAllSlots(); toast(`已先批量刪除 ${visible.length} 格，背景儲存`,'ok');
     (async()=>{
-      let last=null;
-      for(const n of visible) last=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:z,column_index:c,slot_number:n,slot_type:'direct'})});
+      const last=await api('/api/warehouse/bulk-remove-slots',{method:'POST',body:JSON.stringify({zone:z,column_index:c,start_slot:s,count:visible.length,slot_type:'direct'})});
       if(last && Array.isArray(last.cells)) state.data.cells=last.cells;
-      updateAllSlots(); toast(`批量刪除 ${count} 格已永久存入資料庫`,'ok');
+      updateAllSlots(); toast(`批量刪除 ${visible.length} 格已永久存入資料庫`,'ok');
     })().catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'批量刪除格子失敗，已還原','error'); });
   }
 
@@ -1175,6 +1223,73 @@
       if(Array.isArray(d.cells)) state.data.cells=d.cells; updateAllSlots(); toast('刪除格子已永久存入資料庫','ok');
     }).catch(e=>{ state.data.cells=old; updateAllSlots(); toast(e.message||'刪除格子失敗，已還原','error'); });
   }
+  function emptySlotsDesc(z,c){
+    z=clean(z).toUpperCase(); c=Number(c);
+    return visibleSlotNumbers(z,c).slice().sort((a,b)=>b-a).filter(n=>!cellItems(z,c,n).length);
+  }
+  function visibleSlotCount(z,c){ return visibleSlotNumbers(z,c).length; }
+  function normalizeColumnArgs(z,c){ return {z:clean(z||'A').toUpperCase(), c:Number(c||1)}; }
+  async function addWarehouseColumnSlots(z,c,count=1){
+    const args=normalizeColumnArgs(z,c); z=args.z; c=args.c;
+    count=Math.max(1, Math.min(80, Math.floor(Number(count||1))));
+    const old=JSON.parse(JSON.stringify(state.data.cells||[]));
+    const start=maxSlot(z,c);
+    let firstLocal=0;
+    for(let i=0;i<count;i++){ const ns=localInsertSlot(z,c,start+i); if(!firstLocal) firstLocal=ns; }
+    updateAllSlots(); highlightWarehouseCell(z,c,firstLocal || (start+1)); toast(`已先增加 ${count} 格，背景寫入資料庫`,'ok');
+    try{
+      const d=await api('/api/warehouse/bulk-add-slots',{method:'POST',body:JSON.stringify({zone:z,column_index:c,insert_after:start,count:count,slot_type:'direct'})});
+      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      const first=Number((d.created_slots||[])[0] || d.slot_number || firstLocal || (start+1));
+      updateAllSlots(); highlightWarehouseCell(z,c,first); toast(`已永久增加 ${count} 格`,'ok');
+    }catch(e){ state.data.cells=old; updateAllSlots(); toast(e.message||'增加格子失敗，已還原','error'); }
+  }
+  async function removeWarehouseColumnEmptySlots(z,c,count=1,preferredSlots=null){
+    const args=normalizeColumnArgs(z,c); z=args.z; c=args.c;
+    count=Math.max(1, Math.min(80, Math.floor(Number(count||1))));
+    const empty=emptySlotsDesc(z,c);
+    if(!empty.length) return toast('這欄沒有可減少的空格；有商品格不可刪','warn');
+    const maxRemove=Math.max(0, visibleSlotCount(z,c)-1);
+    const candidateSlots=(Array.isArray(preferredSlots)&&preferredSlots.length?preferredSlots:empty).filter(n=>empty.includes(Number(n)));
+    const slots=candidateSlots.slice(0, Math.min(count, maxRemove));
+    if(!slots.length) return toast('每欄至少要保留 1 格','warn');
+    if(count>slots.length) toast(`只找到 ${slots.length} 個可減少空格，有商品格已跳過`,'warn');
+    if(!confirm(`確定減少 ${z} 區第 ${c} 欄 ${slots.length} 個空格？\n將隱藏空格：${slots.slice().sort((a,b)=>a-b).join('、')}\n有商品格不會被刪除。`)) return;
+    const old=JSON.parse(JSON.stringify(state.data.cells||[]));
+    slots.forEach(n=>localDeleteSlot(z,c,n));
+    updateAllSlots(); toast(`已先減少 ${slots.length} 格，背景寫入資料庫`,'ok');
+    try{
+      const d=await api('/api/warehouse/remove-empty-slots',{method:'POST',body:JSON.stringify({zone:z,column_index:c,count:slots.length,slots:slots,slot_type:'direct'})});
+      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+      updateAllSlots(); toast(`已永久減少 ${Number(d.count||slots.length)} 格`,'ok');
+    }catch(e){ state.data.cells=old; updateAllSlots(); toast(e.message||'減少格子失敗，已還原','error'); }
+  }
+  async function handleWarehouseColumnTool(act,z,c){
+    const args=normalizeColumnArgs(z,c); z=args.z; c=args.c;
+    if(act==='add-one') return addWarehouseColumnSlots(z,c,1);
+    if(act==='remove-one') return removeWarehouseColumnEmptySlots(z,c,1);
+    if(act==='add-many'){
+      const count=Math.max(1, Math.min(80, Number.parseInt(prompt(`要在 ${z} 區第 ${c} 欄增加幾格？`, '5') || '0',10)||0));
+      if(count) return addWarehouseColumnSlots(z,c,count);
+      return;
+    }
+    if(act==='remove-many'){
+      const mode=prompt(`批量減少模式：\n1 = 從最後空格減\n2 = 指定格號範圍減`, '1');
+      if(String(mode||'1').trim()==='2'){
+        const a=Number.parseInt(prompt(`起始格號？`, '1')||'0',10)||0;
+        const b=Number.parseInt(prompt(`結束格號？`, String(Math.max(a, maxSlot(z,c))) )||'0',10)||0;
+        if(!a||!b)return;
+        const start=Math.min(a,b), end=Math.max(a,b);
+        const slots=visibleSlotNumbers(z,c).filter(n=>n>=start&&n<=end&&!cellItems(z,c,n).length).sort((x,y)=>y-x);
+        if(!slots.length) return toast('指定範圍內沒有可減少的空格；有商品格已略過','warn');
+        return removeWarehouseColumnEmptySlots(z,c,slots.length,slots);
+      }
+      const count=Math.max(1, Math.min(80, Number.parseInt(prompt(`要在 ${z} 區第 ${c} 欄從最後空格減少幾格？`, '5') || '0',10)||0));
+      if(count) return removeWarehouseColumnEmptySlots(z,c,count);
+      return;
+    }
+  }
+
   async function returnWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
     const items=cellItems(z,c,s);
@@ -1243,6 +1358,7 @@
       ['pointerup','pointercancel','pointerleave'].forEach(t=>unplacedPill.addEventListener(t,clear));
     }
     document.addEventListener('click',async ev=>{
+      const colAct=ev.target?.closest?.('[data-wh-col-act]'); if(colAct){ ev.preventDefault(); ev.stopPropagation(); try{ await handleWarehouseColumnTool(colAct.dataset.whColAct, colAct.dataset.zone, colAct.dataset.column); }catch(e){ toast(e.message||'欄位格數調整失敗','error'); } return; }
       const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='mark') await toggleProblemMark(z,c,s); if(act.dataset.whAct==='return') await returnWarehouseCell(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-insert') await batchInsertWarehouseCells(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); if(act.dataset.whAct==='batch-delete') await batchDeleteWarehouseCells(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) menu().classList.add('hidden');
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); return; }
@@ -1295,6 +1411,8 @@
   window.saveWarehouseCell=saveWarehouseCell;
   window.insertWarehouseCell=insertWarehouseCell;
   window.deleteWarehouseCell=deleteWarehouseCell;
+  window.addWarehouseColumnSlots=addWarehouseColumnSlots;
+  window.removeWarehouseColumnEmptySlots=removeWarehouseColumnEmptySlots;
   window.returnWarehouseCell=returnWarehouseCell;
   window.jumpProductToWarehouse=jumpProductToWarehouse;
   window.highlightWarehouseCell=highlightWarehouseCell;
@@ -1425,3 +1543,138 @@
 })();
 /* ===== END V55 COMMON CLEAN TOAST/UNDO REPAIR ===== */
 
+
+/* ===== V92 warehouse URL location highlighter (mainfile, no overlay/no observer) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V92_WAREHOUSE_URL_TARGET__) return; window.__YX_V92_WAREHOUSE_URL_TARGET__=true;
+  function isWarehouse(){return (document.body?.dataset?.module||'')==='warehouse' || location.pathname.includes('/warehouse');}
+  function parseLoc(v){ const m=String(v||'').trim().match(/^([AB])[-_\s]?(\d+)[-_\s]?(\d+)$/i); return m?{zone:m[1].toUpperCase(), col:Number(m[2]), slot:Number(m[3])}:null; }
+  async function jumpFromUrl(){
+    if(!isWarehouse()) return;
+    const sp=new URLSearchParams(location.search);
+    const loc=parseLoc(sp.get('loc')||'');
+    const q=(sp.get('q')||sp.get('customer')||'').trim();
+    try{
+      if(typeof window.renderWarehouse==='function') await window.renderWarehouse(true);
+      if(loc && typeof window.highlightWarehouseCell==='function'){
+        window.highlightWarehouseCell(loc.zone,loc.col,loc.slot);
+        const el=document.querySelector(`[data-zone="${loc.zone}"][data-column="${loc.col}"][data-slot="${loc.slot}"]`);
+        if(el) el.classList.add('yx-v91-target-flash');
+        if((sp.get('open')==='1'||sp.get('auto_open')==='1') && typeof window.YXFinalWarehouse?.openWarehouseModal==='function'){
+          setTimeout(()=>window.YXFinalWarehouse.openWarehouseModal(loc.zone,loc.col,loc.slot), 260);
+        }
+        return;
+      }
+      if(q && document.getElementById('warehouse-search') && typeof window.searchWarehouse==='function'){
+        document.getElementById('warehouse-search').value=q;
+        await window.searchWarehouse();
+      }
+    }catch(e){ try{(window.toast||console.warn)(e.message||'定位失敗','error');}catch(_e){} }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',jumpFromUrl,{once:true}); else jumpFromUrl();
+  window.YXWarehouseJumpFromUrl=jumpFromUrl;
+})();
+/* ===== END V92 warehouse URL location highlighter ===== */
+
+/* ===== V93 warehouse opened-cell product row target (mainfile, no observer/no interval) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V93_WAREHOUSE_ITEM_TARGET__) return; window.__YX_V93_WAREHOUSE_ITEM_TARGET__=true;
+  function norm(v){return String(v||'').replace(/\s+/g,'').toLowerCase();}
+  function flashItem(){
+    const sp=new URLSearchParams(location.search);
+    const q=norm(sp.get('highlight_item')||sp.get('q')||sp.get('customer')||'');
+    if(!q) return false;
+    const scopes=Array.from(document.querySelectorAll('.modal:not(.hidden),.bottom-sheet:not(.hidden),#warehouse-cell-modal,.yx106-cell-modal,.yx-final-cell-modal')).filter(Boolean);
+    const root=scopes.length?scopes[scopes.length-1]:document;
+    const hit=Array.from(root.querySelectorAll('.deduct-card,.warehouse-item-row,.yx106-batch-row,.yx-cell-item-row,li,tr')).find(el=>norm(el.textContent).includes(q));
+    if(hit){ hit.classList.add('yx-v93-cell-item-target'); try{hit.scrollIntoView({behavior:'smooth',block:'center'});}catch(_){} try{document.dispatchEvent(new CustomEvent('yx:today-target-opened'));}catch(_){} return true; }
+    return false;
+  }
+  function schedule(){let n=0; const step=()=>{ if(flashItem()||n++>10)return; setTimeout(step,240);}; step();}
+  const old=window.YXWarehouseJumpFromUrl;
+  if(typeof old==='function'){
+    window.YXWarehouseJumpFromUrl=async function(){ const r=await old.apply(this,arguments); schedule(); return r; };
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',schedule,{once:true}); else schedule();
+})();
+/* ===== END V93 warehouse opened-cell product row target ===== */
+
+
+/* ===== V95 warehouse product-row highlighter: token match after modal opens (mainfile) ===== */
+(function(){
+  'use strict';
+  if(window.__YX_V95_WAREHOUSE_ROW_HIGHLIGHT__) return; window.__YX_V95_WAREHOUSE_ROW_HIGHLIGHT__=true;
+  function norm(v){return String(v||'').replace(/[Ｘ×✕＊*X]/g,'x').replace(/\s+/g,'').toLowerCase();}
+  function tokens(){const sp=new URLSearchParams(location.search);const raw=[sp.get('highlight_item'),sp.get('q'),sp.get('customer')].filter(Boolean).join(' ');return norm(raw).split(/[+｜|,，\s]+/).map(x=>x.trim()).filter(x=>x&&x.length>=2).slice(0,8);}
+  function score(el,ts){const text=norm(el.textContent||'');let sc=0;ts.forEach(t=>{if(text.includes(t))sc+=t.length>=4?3:1;});return sc;}
+  function run(){const ts=tokens(); if(!ts.length)return false;const scopes=Array.from(document.querySelectorAll('.modal:not(.hidden),.bottom-sheet:not(.hidden),#warehouse-modal:not(.hidden),#warehouse-cell-modal:not(.hidden)'));const root=scopes.length?scopes[scopes.length-1]:document;const rows=Array.from(root.querySelectorAll('.deduct-card,.yx-current-item-row,.warehouse-current-item,.warehouse-item-row,.yx121-batch-row,.yx-cell-item-row,li,tr,[data-item-key]')).filter(el=>el.offsetParent!==null||root!==document);let best=null,bestScore=0;for(const el of rows){const s=score(el,ts);if(s>bestScore){bestScore=s;best=el;}}if(best&&bestScore>0){best.classList.add('yx-v95-warehouse-item-flash','yx-v93-cell-item-target');try{best.scrollIntoView({behavior:'smooth',block:'center'});}catch(_){}return true;}return false;}
+  function schedule(){let n=0;const step=()=>{if(run()||n++>18)return;setTimeout(step,260);};step();}
+  document.addEventListener('yx:today-target-opened',schedule);window.addEventListener('load',schedule,{once:true});setTimeout(schedule,900);
+})();
+/* ===== END V95 warehouse product-row highlighter ===== */
+
+/* ===== V98 warehouse bulk remove preview before commit (mainfile) ===== */
+(function(){'use strict';
+  if(window.__YX_V98_WAREHOUSE_REMOVE_PREVIEW__) return; window.__YX_V98_WAREHOUSE_REMOVE_PREVIEW__=true;
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d}
+  function toast(m,k){try{(window.toast||window.YXHardLock?.toast||console.log)(m,k||'ok')}catch(_){}}
+  window.YX98PreviewRemoveEmptySlots=async function(zone,column_index,count,slots){
+    const preview=await api('/api/warehouse/preview-remove-empty-slots',{method:'POST',body:JSON.stringify({zone,column_index,count,slots:Array.isArray(slots)?slots:[]})});
+    const ok=preview.removable_slots||[]; const blocked=preview.blocked_slots||[];
+    const msg=`${zone}區${column_index}欄預計減少 ${ok.length} 格：${ok.join('、')||'無'}${blocked.length?`\n跳過：${blocked.map(x=>`${x.slot_number}格(${x.reason})`).join('、')}`:''}\n確定送出？`;
+    if(!ok.length){toast('沒有可減少的空格；有商品格不可刪','warn');return null;}
+    if(!confirm(msg)) return null;
+    return await api('/api/warehouse/remove-empty-slots',{method:'POST',body:JSON.stringify({zone,column_index,count:ok.length,slots:ok})});
+  };
+  document.addEventListener('click',async ev=>{
+    const btn=ev.target?.closest?.('[data-yx96-bulk-minus],[data-yx96-minus-slot]');
+    if(!btn) return;
+    const zone=btn.dataset.zone||btn.closest('[data-zone]')?.dataset.zone||'';
+    const col=Number(btn.dataset.columnIndex||btn.dataset.column||btn.closest('[data-column]')?.dataset.column||btn.closest('[data-column-index]')?.dataset.columnIndex||0);
+    if(!zone||!col) return;
+    if(btn.dataset.yx98PreviewHandled==='1') return;
+    btn.dataset.yx98PreviewHandled='1';
+    setTimeout(()=>{try{delete btn.dataset.yx98PreviewHandled}catch(_e){}},800);
+    ev.preventDefault();ev.stopPropagation();ev.stopImmediatePropagation?.();
+    const count=Number(prompt('要減少幾格？只會刪空格，有商品格會跳過。','1')||0);
+    if(!count) return;
+    try{const d=await window.YX98PreviewRemoveEmptySlots(zone,col,count,[]); if(d){toast(`已減少 ${d.count||0} 格`,'ok'); if(typeof window.renderWarehouse==='function') await window.renderWarehouse(true);}}
+    catch(e){toast(e.message||'減少格子失敗','error');}
+  },true);
+})();
+/* ===== END V98 warehouse bulk remove preview ===== */
+
+/* ===== V99 MAINFILE warehouse reduce preview refinement ===== */
+(function(){'use strict';
+  if(window.__YX_V99_WAREHOUSE_REDUCE_PREVIEW__) return; window.__YX_V99_WAREHOUSE_REDUCE_PREVIEW__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d;}
+  function modal(html){let m=document.getElementById('yx99-reduce-preview-modal');if(!m){m=document.createElement('div');m.id='yx99-reduce-preview-modal';m.className='yx99-modal';document.body.appendChild(m);}m.innerHTML=html;m.classList.add('show');return m;}
+  function close(){document.getElementById('yx99-reduce-preview-modal')?.classList.remove('show');}
+  window.YX99PreviewAndRemoveSlots=async function(zone,column_index,count,slots){
+    const p=await api('/api/warehouse/preview-remove-empty-slots',{method:'POST',body:JSON.stringify({zone,column_index,count,slots:Array.isArray(slots)?slots:[]})});
+    const ok=p.removable_slots||[], blocked=p.blocked_slots||[];
+    return new Promise(resolve=>{
+      const m=modal(`<div class="yx99-modal-card"><h3>${esc(zone)}區 ${Number(column_index)}欄 批量減格預覽</h3><div class="yx99-preview-summary"><b>可減少 ${ok.length} 格</b><span>${ok.join('、')||'無'}</span></div><div class="yx99-preview-blocked"><b>自動跳過</b>${blocked.length?blocked.map(x=>`<span>${Number(x.slot_number)}格：${esc(x.reason||'不可刪')}</span>`).join(''):'<span>無</span>'}</div><div class="btn-row"><button class="primary-btn" data-yx99-confirm ${ok.length?'':'disabled'}>確認減少</button><button class="ghost-btn" data-yx99-cancel>取消</button></div></div>`);
+      m.querySelector('[data-yx99-cancel]')?.addEventListener('click',()=>{close();resolve(null)},{once:true});
+      m.querySelector('[data-yx99-confirm]')?.addEventListener('click',async()=>{try{const d=await api('/api/warehouse/remove-empty-slots',{method:'POST',body:JSON.stringify({zone,column_index,count:ok.length,slots:ok})});close();resolve(d);}catch(e){alert(e.message||'減少格子失敗');resolve(null);}},{once:true});
+    });
+  };
+})();
+/* ===== END V99 warehouse reduce preview refinement ===== */
+
+/* ===== V101 MAINFILE warehouse fast stats + activity target helpers ===== */
+(function(){'use strict';
+  if(window.__YX_V101_WAREHOUSE_FAST_STATS__) return; window.__YX_V101_WAREHOUSE_FAST_STATS__=true;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'操作失敗');return d;}
+  function ensureBar(){let el=document.getElementById('yx101-warehouse-fast-stats'); if(el)return el; el=document.createElement('div'); el.id='yx101-warehouse-fast-stats'; el.className='yx101-fast-stats glass-card'; el.innerHTML='<b>倉庫統計</b><span data-yx101-fast-text>尚未刷新</span><button type="button" class="ghost-btn small-btn" data-yx101-refresh-unplaced>刷新未入倉</button>'; const host=document.querySelector('.warehouse-page,.module-body,main,.container')||document.body; host.prepend(el); return el;}
+  async function refresh(){const el=ensureBar(); const text=el.querySelector('[data-yx101-fast-text]'); text.textContent='刷新中…'; const d=await api('/api/warehouse/unplaced-stats-fast'); const p=d.placed||{}; const u=d.unplaced||{}; text.innerHTML=`來源 ${Number(d.source_total||0)} 件｜已入倉 ${Number(p.total||0)} 件｜A ${Number(p.A||0)}｜B ${Number(p.B||0)}｜未分區 ${Number(p['未分區']||0)}｜未入倉約 ${Number(u.total||0)} 件`; window.dispatchEvent(new CustomEvent('yx:warehouse-fast-stats',{detail:d})); return d;}
+  document.addEventListener('click',e=>{if(e.target.closest?.('[data-yx101-refresh-unplaced]')){e.preventDefault();refresh().catch(err=>(window.toast||alert)(err.message||'統計刷新失敗','error'));}},true);
+  window.YX101RefreshWarehouseFastStats=refresh;
+  const boot=()=>{ensureBar(); setTimeout(()=>refresh().catch(()=>{}),350);};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+/* ===== END V101 warehouse fast stats ===== */
