@@ -5915,3 +5915,17 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 /* V119 next package: remaining checklist progress */
 .yx-v119-progress-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.72);border:1px solid rgba(148,163,184,.22);box-shadow:0 12px 32px rgba(15,23,42,.08);backdrop-filter:blur(12px)}
 .yx-v119-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}.yx-v119-head b{font-size:16px}.yx-v119-head span{font-size:13px;color:#64748b}.yx-v119-list{display:grid;gap:8px}.yx-v119-list article{padding:10px 12px;border-radius:14px;background:rgba(248,250,252,.88);border:1px solid rgba(203,213,225,.45)}.yx-v119-list small{display:block;margin-top:4px;color:#475569;line-height:1.45}
+
+
+/* V120-V126 merged closing package UI */
+.yx-v126-final-panel,.yx-v126-conflict-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.72);box-shadow:0 10px 28px rgba(15,23,42,.08);border:1px solid rgba(148,163,184,.22)}
+.yx-v126-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-weight:800}.yx-v126-head span{font-size:12px;color:#64748b}.yx-v126-grid{display:flex;flex-wrap:wrap;gap:8px}.yx-v126-grid span{padding:7px 10px;border-radius:999px;background:#f1f5f9;font-size:12px}.yx-v126-grid .ok{color:#166534;background:#dcfce7}.yx-v126-grid .warn{color:#9a3412;background:#ffedd5}.yx-v126-conflict-list article{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid rgba(148,163,184,.22)}.yx-v126-conflict-list button,.yx-v126-head button{border:0;border-radius:12px;padding:8px 10px;background:#f1f5f9;color:#111827;font-weight:700}.yx-v126-focus-row{outline:3px solid rgba(59,130,246,.65)!important;box-shadow:0 0 0 7px rgba(59,130,246,.14)!important;animation:yx126Pulse 1.2s ease-in-out infinite}@keyframes yx126Pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.012)}}.yx-v126-toast{position:fixed;right:14px;bottom:82px;z-index:99999;background:#111827;color:white;border-radius:14px;padding:10px 14px;box-shadow:0 12px 30px rgba(0,0,0,.25);opacity:0;transform:translateY(12px);transition:.2s}.yx-v126-toast.show{opacity:1;transform:translateY(0)}
+
+/* V126 stable warehouse trace */
+.yx-v126-progress-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.72);box-shadow:0 10px 28px rgba(15,23,42,.08)}
+
+
+/* V127 real-device/render stability panel */
+.yx-v127-ready-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.72);box-shadow:0 12px 28px rgba(15,23,42,.08);border:1px solid rgba(148,163,184,.22)}
+.yx-v127-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-v127-head button{border:0;border-radius:999px;padding:8px 14px;background:#111827;color:#fff;font-weight:800}.yx-v127-body{font-size:13px;line-height:1.7}.yx-v127-body span{display:inline-block;margin:2px 4px;padding:2px 8px;border-radius:999px;background:#eef2ff}.yx-v127-body span.ok{background:#ecfdf5;color:#047857}.yx-v127-body span.warn{background:#fff7ed;color:#c2410c}
+/* END V127 */
