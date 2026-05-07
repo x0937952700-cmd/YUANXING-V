@@ -1,0 +1,47 @@
+# Render deployment config - mainfile only, robust when repository files are at root or inside one subfolder.
+services:
+  - type: web
+    name: yuanxing
+    env: python
+    plan: free
+    buildCommand: |
+      APP_DIR="."
+      if [ ! -f requirements.txt ]; then
+        FOUND_REQ=$(find . -maxdepth 2 -name requirements.txt -not -path './.venv/*' | head -n 1)
+        if [ -n "$FOUND_REQ" ]; then APP_DIR=$(dirname "$FOUND_REQ"); fi
+      fi
+      if [ ! -f "$APP_DIR/requirements.txt" ]; then echo "requirements.txt not found"; exit 1; fi
+      cd "$APP_DIR"
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python tools/smoke_test.py
+    startCommand: |
+      APP_DIR="."
+      if [ ! -f wsgi.py ]; then
+        FOUND_WSGI=$(find . -maxdepth 2 -name wsgi.py -not -path './.venv/*' | head -n 1)
+        if [ -n "$FOUND_WSGI" ]; then APP_DIR=$(dirname "$FOUND_WSGI"); fi
+      fi
+      if [ ! -f "$APP_DIR/wsgi.py" ]; then echo "wsgi.py not found"; exit 1; fi
+      cd "$APP_DIR"
+      gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    releaseCommand: |
+      APP_DIR="."
+      if [ ! -f db.py ]; then
+        FOUND_DB=$(find . -maxdepth 2 -name db.py -not -path './.venv/*' | head -n 1)
+        if [ -n "$FOUND_DB" ]; then APP_DIR=$(dirname "$FOUND_DB"); fi
+      fi
+      cd "$APP_DIR"
+      python -c "from db import init_db; init_db()"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false

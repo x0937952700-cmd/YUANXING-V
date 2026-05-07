@@ -1,0 +1,1 @@
+web: sh -c 'APP_DIR="."; if [ ! -f wsgi.py ]; then FOUND_WSGI=$(find . -maxdepth 2 -name wsgi.py -not -path "./.venv/*" | head -n 1); if [ -n "$FOUND_WSGI" ]; then APP_DIR=$(dirname "$FOUND_WSGI"); fi; fi; cd "$APP_DIR" && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120'

@@ -1,0 +1,12 @@
+# V65 verified dependency set
+# V44 mainfile real repaired lock: dependency set kept stable; no new runtime packages.
+Flask==3.0.3
+gunicorn==22.0.0
+Werkzeug==3.0.6
+Pillow==10.4.0
+openpyxl==3.1.5
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+# V58: no new dependencies; PostgreSQL migration runs via render releaseCommand and app startup.
+
+# V59: dependencies unchanged; no new package required for UI/DB fixes.
