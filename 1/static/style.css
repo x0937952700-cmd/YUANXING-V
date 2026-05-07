@@ -5950,11 +5950,16 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 /* V131 Render DB schema diagnostics panel */
 .yx-v131-render-schema-panel .error-card{margin-top:10px;padding:10px;border-radius:12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
 
-/* V133 Render DB deep diagnostics */
+/* V134 Render DB deep diagnostics */
 .yx-v132-render-diag-panel .error-card{margin-top:10px;padding:10px;border-radius:12px;background:#fff1f2;color:#9f1239;border:1px solid #fecdd3;font-size:13px;word-break:break-word}
 .yx-v132-render-diag-panel .yx-v131-grid span{min-height:36px}
 
 
-/* V133 full bug repair diagnostics panel */
+/* V134 full bug repair diagnostics panel */
 .yx-v133-bug-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.74);box-shadow:0 12px 30px rgba(40,30,20,.08)}
 .yx-v133-body{display:grid;gap:8px;margin:10px 0}.yx-v133-check{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.72);border:1px solid rgba(120,100,80,.10)}.yx-v133-check small{grid-column:1/-1;color:#6b625a}.yx-v133-check.ok span{color:#247a44;font-weight:800}.yx-v133-check.bad{border-color:rgba(180,50,40,.25);background:rgba(255,235,232,.76)}.yx-v133-check.bad span{color:#b3261e;font-weight:900}
+
+
+/* V134 cleanup: permanently hide removed debug/dashboard/search panels */
+#yx-v127-progress-panel,#yx-v127-final-panel,#yx-v127-ready-panel,#yx-v128-ready-panel,#yx-v131-render-db-panel,#yx-v131-render-schema-panel,#yx-v132-render-diag-panel,#yx-v133-bug-panel,#yx-v134-bug-panel,.yx-v130-render-db-panel,.yx-v131-render-db-panel,.yx-v132-render-diag-panel,.yx-v133-bug-panel,.yx-v90-dashboard,.yx-v90-search-panel{display:none!important;visibility:hidden!important;pointer-events:none!important;height:0!important;margin:0!important;padding:0!important;overflow:hidden!important}
+.home-screen{overflow-x:visible!important}

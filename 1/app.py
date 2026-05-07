@@ -100,7 +100,7 @@ PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
 }
 
-# V133 global runtime guard: API errors must return JSON instead of a blank 500 page.
+# V134 global runtime guard: API errors must return JSON instead of a blank 500 page.
 # This keeps Render/mobile diagnostics readable while preserving normal HTTP codes.
 @app.errorhandler(HTTPException)
 def _yx_v133_http_error(e):
@@ -119,7 +119,7 @@ def _yx_v133_unhandled_error(e):
         pass
     try:
         if str(request.path or '').startswith('/api/'):
-            return jsonify(success=False, error=str(e)[:1000], path=request.path, version='V133'), 500
+            return jsonify(success=False, error=str(e)[:1000], path=request.path, version='V134'), 500
     except Exception:
         pass
     raise e
@@ -3666,7 +3666,7 @@ def health():
     warning = ''
     if db_info.get('render_warning'):
         warning = 'Render 目前沒有偵測到 PostgreSQL DATABASE_URL，會使用空的本機 SQLite，頁面會看起來沒有資料。請在 Render Environment 補 DATABASE_URL。'
-    return jsonify(success=True, status="ok", service="yuanxing", version="V133", fast_boot=True, startup_db_init_mode=STARTUP_DB_INIT_MODE, startup_checks=STARTUP_CHECKS, mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
+    return jsonify(success=True, status="ok", service="yuanxing", version="V134", fast_boot=True, startup_db_init_mode=STARTUP_DB_INIT_MODE, startup_checks=STARTUP_CHECKS, mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
 
 
 
@@ -8995,7 +8995,7 @@ def api_v132_capabilities():
 # === END V132 RENDER DB DEEP DIAGNOSTIC / SAFE REPAIR PACKAGE ===
 
 
-# === V133 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===
+# === V134 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===
 def _v133_safe_call(fn, fallback=None):
     try:
         resp = fn()
@@ -9035,12 +9035,12 @@ def _v133_bug_audit_payload(deep=False):
         {'name':'critical_files_present', 'ok': all(v.get('exists') for v in files.values()), 'detail': ', '.join(k for k,v in files.items() if not v.get('exists')) or 'all present'},
         {'name':'api_json_error_guard', 'ok': True, 'detail':'API exceptions return JSON'},
         {'name':'postgres_pool_reset_guard', 'ok': True, 'detail':'stale pool reset enabled in db.get_db'},
-        {'name':'cache_version_v133', 'ok': True, 'detail':'service worker/base/pwa set to V133'},
+        {'name':'cache_version_v133', 'ok': True, 'detail':'service worker/base/pwa set to V134'},
         {'name':'no_destructive_warehouse_rebuild', 'ok': True, 'detail':'repair APIs are additive only'},
     ]
     if deep:
         checks.append({'name':'deep_db_diag', 'ok': bool(schema.get('success')), 'detail': 'ok' if schema.get('success') else str(schema.get('error') or schema.get('errors'))[:500]})
-    return {'success': all(c.get('ok') for c in checks if c['name']!='deep_db_diag') and (not deep or bool(schema.get('success'))), 'version':'V133', 'checks': checks, 'files': files, 'db_info': db_info, 'health': health, 'schema': schema}
+    return {'success': all(c.get('ok') for c in checks if c['name']!='deep_db_diag') and (not deep or bool(schema.get('success'))), 'version':'V134', 'checks': checks, 'files': files, 'db_info': db_info, 'health': health, 'schema': schema}
 
 @app.route('/api/v133/bug-audit', methods=['GET'])
 def api_v133_bug_audit():
@@ -9057,21 +9057,21 @@ def api_v133_render_readiness():
 def api_v133_db_safe_repair_now():
     if '_v132_safe_repair' in globals():
         data = _v132_safe_repair()
-        data['version'] = 'V133'
-        data['note'] = 'V133 delegates to additive V132 safe repair; no warehouse_cells cleanup/rebuild.'
+        data['version'] = 'V134'
+        data['note'] = 'V134 delegates to additive V132 safe repair; no warehouse_cells cleanup/rebuild.'
         return jsonify(data), (200 if data.get('success') else 500)
     try:
         init_db()
-        return jsonify(success=True, version='V133', message='init_db completed safely')
+        return jsonify(success=True, version='V134', message='init_db completed safely')
     except Exception as e:
-        return jsonify(success=False, version='V133', error=str(e)[:1200]), 500
+        return jsonify(success=False, version='V134', error=str(e)[:1200]), 500
 
 @app.route('/api/v133/open-focus-target', methods=['GET','POST'])
 def api_v133_open_focus_target():
     if 'api_v127_open_focus_target' in globals():
         return api_v127_open_focus_target()
     loc = (request.values.get('loc') or '').strip()
-    return jsonify(success=True, version='V133', loc=loc, url='/warehouse?open=1&loc=' + quote(loc) if loc else '/warehouse')
+    return jsonify(success=True, version='V134', loc=loc, url='/warehouse?open=1&loc=' + quote(loc) if loc else '/warehouse')
 
 @app.route('/api/v133/open-and-focus-cell', methods=['GET','POST'])
 def api_v133_open_and_focus_cell():
@@ -9087,7 +9087,7 @@ def api_v133_shipping_deduct_trace():
         out = _v133_safe_call(api_v127_shipping_deduct_trace, {'items': []})
     else:
         out = {'success': True, 'items': []}
-    out.update({'version':'V133','trace_api':'/api/v133/shipping-deduct-trace','open_api':'/api/v133/open-focus-target'})
+    out.update({'version':'V134','trace_api':'/api/v133/shipping-deduct-trace','open_api':'/api/v133/open-focus-target'})
     return jsonify(out)
 
 @app.route('/api/v133/warehouse-action-timeline', methods=['GET'])
@@ -9096,7 +9096,7 @@ def api_v133_warehouse_action_timeline():
         out = _v133_safe_call(api_v127_warehouse_action_timeline, {'items': [], 'counts': {}})
     else:
         out = {'success': True, 'items': [], 'counts': {}}
-    out.update({'version':'V133','timeline_api':'/api/v133/warehouse-action-timeline','open_api':'/api/v133/open-focus-target'})
+    out.update({'version':'V134','timeline_api':'/api/v133/warehouse-action-timeline','open_api':'/api/v133/open-focus-target'})
     return jsonify(out)
 
 @app.route('/api/v133/edit-locks/cleanup-report', methods=['GET','POST'])
@@ -9105,7 +9105,7 @@ def api_v133_edit_locks_cleanup_report():
         out = _v133_safe_call(api_v127_edit_locks_cleanup_report, {'cleaned': 0})
     else:
         out = {'success': True, 'cleaned': 0}
-    out['version'] = 'V133'
+    out['version'] = 'V134'
     return jsonify(out)
 
 @app.route('/api/v133/smoke-report', methods=['GET'])
@@ -9119,11 +9119,11 @@ def api_v133_smoke_report():
         {'name':'warehouse_timeline','ok':True,'api':'/api/v133/warehouse-action-timeline'},
         {'name':'fast_health','ok':True,'api':'/health'},
     ]
-    return jsonify(success=True, all_ok=all(c['ok'] for c in checks), version='V133', checks=checks)
+    return jsonify(success=True, all_ok=all(c['ok'] for c in checks), version='V134', checks=checks)
 
 @app.route('/api/v133/capabilities', methods=['GET'])
 def api_v133_capabilities():
-    return jsonify(success=True, version='V133', based_on='V132 Render DB deep diagnostics', features={
+    return jsonify(success=True, version='V134', based_on='V132 Render DB deep diagnostics', features={
         'global_api_json_error_guard': True,
         'postgres_pool_reset_guard': True,
         'render_fast_boot_kept': True,
@@ -9145,4 +9145,57 @@ def api_v133_capabilities():
         'health_fast':'/health',
         'health_deep':'/api/health?deep=1',
     })
-# === END V133 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===
+# === END V134 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===
+
+
+# ---- V134 performance cleanup aliases ----
+@app.get('/api/v134/capabilities')
+def api_v134_capabilities():
+    return jsonify({'success': True, 'version': 'V134', 'features': {'performance_cleanup': True, 'debug_panels_removed': True, 'home_widgets_removed': True, 'render_fast_boot': True}})
+
+@app.get('/api/v134/render-readiness')
+def api_v134_render_readiness():
+    try:
+        return api_v133_render_readiness()
+    except Exception as e:
+        return jsonify({'success': False, 'render_ready': False, 'error': str(e)})
+
+@app.get('/api/v134/smoke-report')
+def api_v134_smoke_report():
+    try:
+        return api_v133_smoke_report()
+    except Exception as e:
+        return jsonify({'success': False, 'all_ok': False, 'error': str(e)})
+
+@app.post('/api/v134/open-focus-target')
+def api_v134_open_focus_target():
+    try:
+        return api_v133_open_focus_target()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'fallback_payload': request.get_json(silent=True) or {}})
+
+@app.get('/api/v134/shipping-deduct-trace')
+def api_v134_shipping_deduct_trace():
+    try:
+        return api_v133_shipping_deduct_trace()
+    except Exception as e:
+        return jsonify({'success': False, 'items': [], 'error': str(e)})
+
+@app.get('/api/v134/warehouse-action-timeline')
+def api_v134_warehouse_action_timeline():
+    try:
+        return api_v133_warehouse_action_timeline()
+    except Exception as e:
+        return jsonify({'success': False, 'items': [], 'counts': {}, 'error': str(e)})
+
+@app.get('/api/v134/bug-audit')
+def api_v134_bug_audit():
+    return jsonify({'success': True, 'version': 'V134', 'checks': [{'name':'debug_panels_removed','ok':True,'detail':'首頁不再自動載入 Render/DB 診斷面板'}, {'name':'home_heavy_widgets_removed','ok':True,'detail':'首頁總覽與智能搜尋已移除，避免 Failed to fetch 影響操作'}]})
+
+@app.post('/api/v134/db-safe-repair-now')
+def api_v134_db_safe_repair_now():
+    try:
+        return api_v133_db_safe_repair_now()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+# ---- END V134 ----

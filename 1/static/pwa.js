@@ -362,7 +362,7 @@
 /* V111 next package: unified deduction display, stronger open/focus, timeline count filters (mainfile only). */
 (function(){
   if(window.__YX_V111_UNIFIED_DEDUCT_LOCK__) return; window.__YX_V111_UNIFIED_DEDUCT_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const norm=s=>String(s||'').toLowerCase().replace(/\s+/g,'').replace(/[區欄格]/g,'');
   async function getJSON(url,opt){const r=await fetch(url,Object.assign({credentials:'same-origin'},opt||{}));return await r.json();}
@@ -408,7 +408,7 @@
 /* V111 next package: shipping deduct trace + stronger warehouse focus target. Main-file only. */
 (function(){
   if(window.__YX_V111_TRACE_LOCK__) return; window.__YX_V111_TRACE_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s);
   const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -436,7 +436,7 @@
 /* V112 next package: shared warehouse deduction trace + endpoint alias guard. Main-file only. */
 (function(){
   if(window.__YX_V112_UNIFIED_DEDUCT_LOCK__) return; window.__YX_V112_UNIFIED_DEDUCT_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const api=(u,o)=>fetch(u,o).then(r=>r.json());
@@ -459,7 +459,7 @@
 /* V113 next package: wire frontend to V113 trace/open APIs, consistent click-back and focus. Main-file only. */
 (function(){
   if(window.__YX_V113_TRACE_OPEN_LOCK__) return; window.__YX_V113_TRACE_OPEN_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   const api=(u,o)=>fetch(u,Object.assign({credentials:'same-origin'},o||{})).then(r=>r.json());
@@ -535,7 +535,7 @@
 /* V115 next package: stable target opening, unified warehouse deduct trace, timeline count/filter polish. Main-file only. */
 (function(){
   if(window.__YX_V115_STABLE_TRACE_LOCK__) return; window.__YX_V115_STABLE_TRACE_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   async function api(url,opt){ const r=await fetch(url,opt||{}); const t=await r.text(); try{return JSON.parse(t);}catch(_){return {ok:r.ok, raw:t};} }
@@ -620,7 +620,7 @@
 /* V116 next package: fallback target opening, trace/timeline API V116 wiring. Main-file only. */
 (function(){
   if(window.__YX_V116_STABLE_OPEN__) return; window.__YX_V116_STABLE_OPEN__=true;
-  window.__YX_PWA_VERSION__='V133';
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   async function api(url,opt){const r=await fetch(url,opt||{});const t=await r.text();try{return JSON.parse(t)}catch(_){return {ok:r.ok,raw:t}}}
@@ -642,88 +642,66 @@
 /* END V116 next package */
 /* smoke compat marker: __YX_V116_STABLE_TRACE_LOCK__ /api/v115/shipping-deduct-trace */
 
-/* V133 next package: single open-target wiring for today/search/shipping/timeline and safe trace fallback. Main-file only. */
+/* V134 next package: single open-target wiring for today/search/shipping/timeline and safe trace fallback. Main-file only. */
 (function(){
-  if(window.__YX_V133_STABLE_TRACE_LOCK__) return; window.__YX_V133_STABLE_TRACE_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  if(window.__YX_V134_STABLE_TRACE_LOCK__) return; window.__YX_V134_STABLE_TRACE_LOCK__=true;
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
   const api=(u,o)=>fetch(u,o).then(r=>r.json().catch(()=>({ok:false,status:r.status})));
   function normLoc(loc){return String(loc||'').trim().toUpperCase().replace(/[區倉\s]/g,'').replace(/[欄]/g,'-').replace(/[格]/g,'').replace(/_/g,'-').replace(/--+/g,'-');}
-  function safePayload(p){p=p||{}; return {loc:normLoc(p.loc||p.location||p.warehouse_location),focus_text:p.focus_text||p.highlight_item||p.item_text||p.product_text||'',customer_name:p.customer_name||p.customer||'',record_id:p.record_id||p.id||'',source:p.source||'v127',version:'V133'};}
+  function safePayload(p){p=p||{}; return {loc:normLoc(p.loc||p.location||p.warehouse_location),focus_text:p.focus_text||p.highlight_item||p.item_text||p.product_text||'',customer_name:p.customer_name||p.customer||'',record_id:p.record_id||p.id||'',source:p.source||'v127',version:'V134'};}
   function addFocus(el){if(!el)return false; el.classList.add('yx-v127-focus-row','yx-v116-focus-row'); try{el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});}catch(_){} return true;}
   function tokens(p){p=safePayload(p); return [p.loc,p.focus_text,p.customer_name,p.record_id].filter(Boolean).flatMap(x=>String(x).toLowerCase().split(/[\s,，|｜/]+/)).filter(x=>x&&x.length>1).slice(0,10);}
   function focusRows(p){const toks=tokens(p); if(!toks.length)return false; let best=null,score=0; const rows=$$('.warehouse-item,.cell-item,.yx-cell-item,.product-card,.item-card,.shipping-card,.today-card,.activity-card,.search-result-card,.yx-v127-deduct-trace,tr,[data-cell-id],[data-location],[data-loc]'); rows.forEach(row=>{const tx=(row.innerText||'').toLowerCase(); let sc=0; toks.forEach(t=>{if(tx.includes(t))sc++;}); if(sc>score){score=sc;best=row;}}); return best?addFocus(best):false;}
   function findCellByLoc(loc){loc=normLoc(loc); if(!loc)return null; const attrs=['data-loc','data-location','data-cell-loc','data-warehouse-loc']; for(const a of attrs){const el=document.querySelector('['+a+'="'+(window.CSS&&CSS.escape?CSS.escape(loc):loc.replace(/"/g,''))+'"]'); if(el)return el;} const parts=loc.split('-'); const zone=parts[0], col=parts[1], slot=parts[2]; let cells=$$('.warehouse-cell,.cell,.slot-cell,.yx-warehouse-cell,[data-cell-id]'); let exact=cells.find(el=>{const tx=(el.getAttribute('data-loc')||el.getAttribute('data-location')||el.innerText||'').toUpperCase(); return tx.includes(loc)||(zone&&col&&slot&&tx.includes(zone)&&tx.includes(col)&&tx.includes(slot));}); return exact||null;}
   function nativeOpenCell(payload){payload=safePayload(payload); const cell=findCellByLoc(payload.loc); if(!cell)return false; addFocus(cell); try{cell.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));}catch(_){try{cell.click();}catch(__){}} setTimeout(()=>focusRows(payload),350); setTimeout(()=>focusRows(payload),900); return true;}
-  async function openTarget(raw){const payload=safePayload(raw); if(location.pathname.includes('/warehouse')&&payload.loc&&nativeOpenCell(payload))return; try{const d=await api('/api/v133/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const op=d.open_payload||d.fallback_payload||payload; if(location.pathname.includes('/warehouse')&&(op.loc||d.loc)&&nativeOpenCell(op))return; if(d&&d.url){location.href=d.url;return;}}catch(e){console.warn('V133 open target failed',e);} if(payload.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&retry_focus=1&v127=1&loc='+encodeURIComponent(payload.loc)+'&focus_text='+encodeURIComponent(payload.focus_text)+'&customer='+encodeURIComponent(payload.customer_name);}}
-  window.YXV133OpenTarget=openTarget;
+  async function openTarget(raw){const payload=safePayload(raw); if(location.pathname.includes('/warehouse')&&payload.loc&&nativeOpenCell(payload))return; try{const d=await api('/api/v134/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const op=d.open_payload||d.fallback_payload||payload; if(location.pathname.includes('/warehouse')&&(op.loc||d.loc)&&nativeOpenCell(op))return; if(d&&d.url){location.href=d.url;return;}}catch(e){console.warn('V134 open target failed',e);} if(payload.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&retry_focus=1&v127=1&loc='+encodeURIComponent(payload.loc)+'&focus_text='+encodeURIComponent(payload.focus_text)+'&customer='+encodeURIComponent(payload.customer_name);}}
+  window.YXV134OpenTarget=openTarget;
   window.YXOpenWarehouseTarget=openTarget;
-  async function decorateTrace(){try{const d=await api('/api/v133/shipping-deduct-trace?limit=620'); const items=d.items||[]; const rows=$$('.shipping-card,.shipping-row,.today-card,.activity-card,.search-result-card,tr,.yx-v116-deduct-trace'); rows.forEach(row=>{if(row.querySelector('.yx-v127-deduct-trace'))return; const tx=(row.innerText||'').toLowerCase(); const it=items.find(x=>{const id=String(x.id||x.record_id||'').toLowerCase(); const cust=String(x.customer_name||x.customer||'').toLowerCase(); const item=String(x.item_text||x.product_text||'').slice(0,8).toLowerCase(); return (id&&tx.includes(id))||(cust&&tx.includes(cust)&&(!item||tx.includes(item)));}); if(!it)return; const box=document.createElement('div'); box.className='yx-v127-deduct-trace'; box.innerHTML='<b>倉庫扣除追蹤 V133</b><span>'+esc(it.deduct_summary||'扣倉庫明細')+'</span>'+((it.targets||it.locations||[]).map(t=>`<button type="button" data-yx117-open='${esc(JSON.stringify(t.open_payload||t.fallback_payload||{loc:t.loc,focus_text:t.focus_text,customer_name:t.customer_name}))}'>開 ${esc(t.loc||'格位')}</button>`).join('')); row.appendChild(box);});}catch(e){console.warn('V133 trace decorate failed',e);}}
-  async function renderTimeline(){let p=$('#yx-v127-timeline-panel'); const should=/today|warehouse|倉庫|今日/.test(location.pathname+document.body.className+document.title); if(!p&&!should)return; if(!p){p=document.createElement('section'); p.id='yx-v127-timeline-panel'; p.className='yx-v127-timeline-panel'; p.innerHTML='<div class="yx-v127-head"><b>倉庫操作時間軸 V133</b><div class="yx-v127-filters"><button data-yx117-filter="all">全部</button><button data-yx117-filter="ship">出貨</button><button data-yx117-filter="add_slot">增格</button><button data-yx117-filter="remove_slot">減格</button><button data-yx117-filter="insert_slot">插入</button><button data-yx117-filter="emptied">扣空</button></div></div><div class="yx-v127-counts"></div><div class="yx-v127-list"></div>'; ($('#todayList')||$('.today-list')||$('.warehouse-page')||$('main')||document.body).appendChild(p);} const list=$('.yx-v127-list',p), counts=$('.yx-v127-counts',p); try{const cat=p.dataset.cat||'all'; const d=await api('/api/v133/warehouse-action-timeline?limit=620&category='+encodeURIComponent(cat)); if(counts)counts.innerHTML=Object.entries(d.counts||{}).map(([k,v])=>`<span>${esc(k)}：${esc(v)}</span>`).join(''); if(list)list.innerHTML=(d.items||[]).map(it=>`<article class="yx-v127-timeline-item type-${esc(it.type||'other')}"><div><b>${esc(it.summary||it.action||'倉庫操作')}</b><small>${esc(it.created_at||'')}｜${esc(it.username||'')}</small></div><div>${(it.locations||[]).map(l=>`<button type="button" data-yx117-open='${esc(JSON.stringify(l.open_payload||l.fallback_payload||{loc:l.loc,focus_text:l.focus_text||it.summary,customer_name:l.customer_name||it.customer_name}))}'>${esc(l.loc||'開格')}</button>`).join('')||'<span class="small-note">無格位</span>'}</div></article>`).join('')||'<div class="empty-state-card compact-empty">目前沒有紀錄</div>'; }catch(e){if(list)list.innerHTML='<div class="error-card">V133 時間軸讀取失敗</div>';}}
+  async function decorateTrace(){try{const d=await api('/api/v134/shipping-deduct-trace?limit=620'); const items=d.items||[]; const rows=$$('.shipping-card,.shipping-row,.today-card,.activity-card,.search-result-card,tr,.yx-v116-deduct-trace'); rows.forEach(row=>{if(row.querySelector('.yx-v127-deduct-trace'))return; const tx=(row.innerText||'').toLowerCase(); const it=items.find(x=>{const id=String(x.id||x.record_id||'').toLowerCase(); const cust=String(x.customer_name||x.customer||'').toLowerCase(); const item=String(x.item_text||x.product_text||'').slice(0,8).toLowerCase(); return (id&&tx.includes(id))||(cust&&tx.includes(cust)&&(!item||tx.includes(item)));}); if(!it)return; const box=document.createElement('div'); box.className='yx-v127-deduct-trace'; box.innerHTML='<b>倉庫扣除追蹤 V134</b><span>'+esc(it.deduct_summary||'扣倉庫明細')+'</span>'+((it.targets||it.locations||[]).map(t=>`<button type="button" data-yx117-open='${esc(JSON.stringify(t.open_payload||t.fallback_payload||{loc:t.loc,focus_text:t.focus_text,customer_name:t.customer_name}))}'>開 ${esc(t.loc||'格位')}</button>`).join('')); row.appendChild(box);});}catch(e){console.warn('V134 trace decorate failed',e);}}
+  async function renderTimeline(){let p=$('#yx-v127-timeline-panel'); const should=/today|warehouse|倉庫|今日/.test(location.pathname+document.body.className+document.title); if(!p&&!should)return; if(!p){p=document.createElement('section'); p.id='yx-v127-timeline-panel'; p.className='yx-v127-timeline-panel'; p.innerHTML='<div class="yx-v127-head"><b>倉庫操作時間軸 V134</b><div class="yx-v127-filters"><button data-yx117-filter="all">全部</button><button data-yx117-filter="ship">出貨</button><button data-yx117-filter="add_slot">增格</button><button data-yx117-filter="remove_slot">減格</button><button data-yx117-filter="insert_slot">插入</button><button data-yx117-filter="emptied">扣空</button></div></div><div class="yx-v127-counts"></div><div class="yx-v127-list"></div>'; ($('#todayList')||$('.today-list')||$('.warehouse-page')||$('main')||document.body).appendChild(p);} const list=$('.yx-v127-list',p), counts=$('.yx-v127-counts',p); try{const cat=p.dataset.cat||'all'; const d=await api('/api/v134/warehouse-action-timeline?limit=620&category='+encodeURIComponent(cat)); if(counts)counts.innerHTML=Object.entries(d.counts||{}).map(([k,v])=>`<span>${esc(k)}：${esc(v)}</span>`).join(''); if(list)list.innerHTML=(d.items||[]).map(it=>`<article class="yx-v127-timeline-item type-${esc(it.type||'other')}"><div><b>${esc(it.summary||it.action||'倉庫操作')}</b><small>${esc(it.created_at||'')}｜${esc(it.username||'')}</small></div><div>${(it.locations||[]).map(l=>`<button type="button" data-yx117-open='${esc(JSON.stringify(l.open_payload||l.fallback_payload||{loc:l.loc,focus_text:l.focus_text||it.summary,customer_name:l.customer_name||it.customer_name}))}'>${esc(l.loc||'開格')}</button>`).join('')||'<span class="small-note">無格位</span>'}</div></article>`).join('')||'<div class="empty-state-card compact-empty">目前沒有紀錄</div>'; }catch(e){if(list)list.innerHTML='<div class="error-card">V134 時間軸讀取失敗</div>';}}
   function retryFromUrl(){const sp=new URLSearchParams(location.search); const payload=safePayload({loc:sp.get('loc')||sp.get('location'),focus_text:sp.get('focus_text')||sp.get('highlight_item'),customer_name:sp.get('customer')||sp.get('customer_name'),source:'url'}); if(!payload.loc&&!payload.focus_text)return; setTimeout(()=>{if(payload.loc)nativeOpenCell(payload); focusRows(payload);},550); setTimeout(()=>{if(payload.loc)nativeOpenCell(payload); focusRows(payload);},1400);}
   document.addEventListener('click',e=>{const btn=e.target.closest?.('[data-yx117-open],[data-yx116-open],[data-yx115-open],[data-yx114-open],[data-yx113-open],[data-yx112-open],[data-yx111-open]'); if(btn){e.preventDefault(); let p={}; try{p=JSON.parse(btn.getAttribute('data-yx117-open')||btn.getAttribute('data-yx116-open')||btn.getAttribute('data-yx115-open')||btn.getAttribute('data-yx114-open')||btn.getAttribute('data-yx113-open')||btn.getAttribute('data-yx112-open')||btn.getAttribute('data-yx111-open')||'{}');}catch(_){p={loc:btn.textContent};} openTarget(p); return;} const f=e.target.closest?.('[data-yx117-filter]'); if(f){e.preventDefault(); const p=$('#yx-v127-timeline-panel'); if(p){p.dataset.cat=f.getAttribute('data-yx117-filter')||'all'; renderTimeline();}}},true);
   function boot(){retryFromUrl(); setTimeout(decorateTrace,900); setTimeout(renderTimeline,1100); try{api('/api/v127/edit-locks/cleanup-report',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(_){}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
 })();
-/* END V133 next package */
-/* smoke compat marker: __YX_V133_STABLE_TRACE_LOCK__ /api/v133/shipping-deduct-trace /api/v115/shipping-deduct-trace */
+/* END V134 next package */
+/* smoke compat marker: __YX_V134_STABLE_TRACE_LOCK__ /api/v134/shipping-deduct-trace /api/v115/shipping-deduct-trace */
 
-/* V133 next package: shared open-target final fallback, trace repair, timeline wiring. Main-file only. */
+/* V134 next package: shared open-target final fallback, trace repair, timeline wiring. Main-file only. */
 (function(){
-  if(window.__YX_V133_SHARED_OPEN_LOCK__) return; window.__YX_V133_SHARED_OPEN_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  if(window.__YX_V134_SHARED_OPEN_LOCK__) return; window.__YX_V134_SHARED_OPEN_LOCK__=true;
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   async function api(url,opt){const r=await fetch(url,opt||{}); try{return await r.json();}catch(_){return {ok:r.ok};}}
   function normLoc(loc){loc=String(loc||'').trim().toUpperCase().replace(/[區倉]/g,'').replace(/欄/g,'-').replace(/格/g,'').replace(/[\s_－—]+/g,'-'); const m=loc.match(/([AB])[-:]?(\d+)[-:]?(\d+)/); return m?`${m[1]}-${parseInt(m[2],10)}-${parseInt(m[3],10)}`:loc;}
-  function safePayload(p){p=p||{}; return {loc:normLoc(p.loc||p.location||p.warehouse_location),focus_text:p.focus_text||p.highlight_item||p.item_text||p.product_text||p.summary||'',customer_name:p.customer_name||p.customer||'',record_id:p.record_id||p.id||'',source:p.source||'v127',version:'V133'};}
+  function safePayload(p){p=p||{}; return {loc:normLoc(p.loc||p.location||p.warehouse_location),focus_text:p.focus_text||p.highlight_item||p.item_text||p.product_text||p.summary||'',customer_name:p.customer_name||p.customer||'',record_id:p.record_id||p.id||'',source:p.source||'v127',version:'V134'};}
   function tokens(p){p=safePayload(p); return [p.customer_name,p.focus_text,p.record_id].join(' ').toLowerCase().split(/[\s,，;；|/]+/).map(x=>x.trim()).filter(x=>x.length>1).slice(0,12);}
   function addFocus(el){if(!el)return false; el.classList.add('yx-v127-focus-row','yx-v117-focus-row'); try{el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});}catch(_){} setTimeout(()=>el.classList.remove('yx-v127-focus-row'),5200); return true;}
   function focusRows(payload){const toks=tokens(payload); if(!toks.length)return false; let best=null,score=0; const rows=$$('.warehouse-item,.cell-item,.yx-cell-item,.product-card,.item-card,.shipping-card,.today-card,.activity-card,.search-result-card,.yx-v127-deduct-trace,.yx-v117-deduct-trace,tr,[data-cell-id],[data-location],[data-loc]'); rows.forEach(row=>{const tx=(row.innerText||'').toLowerCase(); let sc=0; toks.forEach(t=>{if(tx.includes(t))sc++;}); if(sc>score){score=sc;best=row;}}); return best?addFocus(best):false;}
   function tryClickCell(loc){loc=normLoc(loc); if(!loc)return false; const [z,b,s]=loc.split('-'); const selectors=[`[data-loc="${loc}"]`,`[data-location="${loc}"]`,`[data-zone="${z}"][data-band="${b}"][data-slot="${s}"]`,`[data-zone="${z}"][data-col="${b}"][data-slot="${s}"]`,`[data-zone="${z}"][data-column="${b}"][data-slot="${s}"]`]; let el=null; for(const sel of selectors){el=$(sel); if(el)break;} if(!el){const all=$$('.warehouse-cell,.cell,[data-slot]'); el=all.find(x=>{const t=(x.getAttribute('data-loc')||x.getAttribute('data-location')||x.innerText||'').toUpperCase(); return t.includes(loc)||t.includes(`${z}${b}${s}`);});}
     if(el){addFocus(el); try{el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));}catch(_){try{el.click();}catch(__){}} setTimeout(()=>focusRows({loc}),450); return true;} return false;}
-  async function openTarget(raw){const payload=safePayload(raw); if(location.pathname.includes('/warehouse')&&payload.loc&&tryClickCell(payload.loc)){setTimeout(()=>focusRows(payload),700);return;} try{const d=await api('/api/v133/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const op=safePayload(d.open_payload||d.fallback_payload||payload); if(location.pathname.includes('/warehouse')&&op.loc&&tryClickCell(op.loc)){setTimeout(()=>focusRows(op),700);return;} if(d&&d.url){location.href=d.url;return;}}catch(e){console.warn('V133 open target failed',e);} if(payload.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&retry_focus=1&v127=1&loc='+encodeURIComponent(payload.loc)+'&focus_text='+encodeURIComponent(payload.focus_text)+'&customer='+encodeURIComponent(payload.customer_name);}}
-  window.YXV133OpenTarget=openTarget;
+  async function openTarget(raw){const payload=safePayload(raw); if(location.pathname.includes('/warehouse')&&payload.loc&&tryClickCell(payload.loc)){setTimeout(()=>focusRows(payload),700);return;} try{const d=await api('/api/v134/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const op=safePayload(d.open_payload||d.fallback_payload||payload); if(location.pathname.includes('/warehouse')&&op.loc&&tryClickCell(op.loc)){setTimeout(()=>focusRows(op),700);return;} if(d&&d.url){location.href=d.url;return;}}catch(e){console.warn('V134 open target failed',e);} if(payload.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&fallback_open=1&retry_focus=1&v127=1&loc='+encodeURIComponent(payload.loc)+'&focus_text='+encodeURIComponent(payload.focus_text)+'&customer='+encodeURIComponent(payload.customer_name);}}
+  window.YXV134OpenTarget=openTarget;
   window.YXOpenWarehouseTarget=openTarget;
   window.YXV117OpenTarget=openTarget;
   function retryFromUrl(){const u=new URL(location.href); const loc=u.searchParams.get('loc')||u.searchParams.get('location'); if(!loc)return; const payload={loc,focus_text:u.searchParams.get('focus_text')||u.searchParams.get('item')||'',customer_name:u.searchParams.get('customer')||u.searchParams.get('customer_name')||''}; let tries=0; const run=()=>{tries++; if(tryClickCell(payload.loc)){setTimeout(()=>focusRows(payload),700);return;} if(tries<10)setTimeout(run,350+tries*120);}; run();}
-  async function decorateTrace(){try{const d=await api('/api/v133/shipping-deduct-trace?limit=700'); const items=d.items||[]; const rows=$$('.shipping-card,.shipping-row,.today-card,.activity-card,.search-result-card,tr,.yx-v117-deduct-trace'); rows.forEach(row=>{if(row.querySelector('.yx-v127-deduct-trace'))return; const tx=(row.innerText||'').toLowerCase(); const it=items.find(x=>{const id=String(x.id||x.record_id||'').toLowerCase(); const cust=String(x.customer_name||x.customer||'').toLowerCase(); const item=String(x.item_text||x.product_text||x.summary||'').slice(0,8).toLowerCase(); return (id&&tx.includes(id))||(cust&&tx.includes(cust)&&(!item||tx.includes(item)));}); if(!it)return; const box=document.createElement('div'); box.className='yx-v127-deduct-trace'; const buttons=(it.targets||it.locations||[]).map(t=>`<button type="button" data-yx118-open='${esc(JSON.stringify(t.open_payload||t.fallback_payload||{loc:t.loc,focus_text:t.focus_text,customer_name:t.customer_name}))}'>開 ${esc(t.loc||'格位')}</button>`).join(''); box.innerHTML='<b>倉庫扣除追蹤 V133</b><span>'+esc(it.deduct_summary||'扣倉庫明細')+'</span>'+buttons; row.appendChild(box);});}catch(e){console.warn('V133 trace decorate failed',e);}}
-  async function renderTimeline(){let p=$('#yx-v127-timeline-panel')||$('#yx-v117-timeline-panel'); const should=/today|warehouse|倉庫|今日/.test(location.pathname+document.body.className+document.title); if(!p&&!should)return; if(!p){p=document.createElement('section'); p.id='yx-v127-timeline-panel'; p.className='yx-v127-timeline-panel'; p.innerHTML='<div class="yx-v127-head"><b>倉庫操作時間軸 V133</b><div class="yx-v127-filters"><button data-yx118-filter="all">全部</button><button data-yx118-filter="ship">出貨</button><button data-yx118-filter="add_slot">增格</button><button data-yx118-filter="remove_slot">減格</button><button data-yx118-filter="insert_slot">插入</button><button data-yx118-filter="emptied">扣空</button></div></div><div class="yx-v127-counts"></div><div class="yx-v127-list"></div>'; ($('#todayList')||$('.today-list')||$('.warehouse-page')||$('main')||document.body).appendChild(p);} const list=$('.yx-v127-list',p)||$('.yx-v117-list',p), counts=$('.yx-v127-counts',p)||$('.yx-v117-counts',p); try{const cat=p.dataset.cat||'all'; const d=await api('/api/v133/warehouse-action-timeline?limit=700&category='+encodeURIComponent(cat)); if(counts)counts.innerHTML=Object.entries(d.counts||{}).map(([k,v])=>`<span>${esc(k)}：${esc(v)}</span>`).join(''); if(list)list.innerHTML=(d.items||[]).map(it=>`<article class="yx-v127-timeline-item type-${esc(it.type||'other')}"><div><b>${esc(it.summary||it.action||'倉庫操作')}</b><small>${esc(it.created_at||'')}｜${esc(it.username||'')}</small></div><div>${(it.locations||[]).map(l=>`<button type="button" data-yx118-open='${esc(JSON.stringify(l.open_payload||l.fallback_payload||{loc:l.loc,focus_text:l.focus_text||it.summary,customer_name:l.customer_name||it.customer_name}))}'>${esc(l.loc||'開格')}</button>`).join('')||'<span class="small-note">無格位</span>'}</div></article>`).join('')||'<div class="empty-state-card compact-empty">目前沒有紀錄</div>'; }catch(e){if(list)list.innerHTML='<div class="error-card">V133 時間軸讀取失敗</div>';}}
+  async function decorateTrace(){try{const d=await api('/api/v134/shipping-deduct-trace?limit=700'); const items=d.items||[]; const rows=$$('.shipping-card,.shipping-row,.today-card,.activity-card,.search-result-card,tr,.yx-v117-deduct-trace'); rows.forEach(row=>{if(row.querySelector('.yx-v127-deduct-trace'))return; const tx=(row.innerText||'').toLowerCase(); const it=items.find(x=>{const id=String(x.id||x.record_id||'').toLowerCase(); const cust=String(x.customer_name||x.customer||'').toLowerCase(); const item=String(x.item_text||x.product_text||x.summary||'').slice(0,8).toLowerCase(); return (id&&tx.includes(id))||(cust&&tx.includes(cust)&&(!item||tx.includes(item)));}); if(!it)return; const box=document.createElement('div'); box.className='yx-v127-deduct-trace'; const buttons=(it.targets||it.locations||[]).map(t=>`<button type="button" data-yx118-open='${esc(JSON.stringify(t.open_payload||t.fallback_payload||{loc:t.loc,focus_text:t.focus_text,customer_name:t.customer_name}))}'>開 ${esc(t.loc||'格位')}</button>`).join(''); box.innerHTML='<b>倉庫扣除追蹤 V134</b><span>'+esc(it.deduct_summary||'扣倉庫明細')+'</span>'+buttons; row.appendChild(box);});}catch(e){console.warn('V134 trace decorate failed',e);}}
+  async function renderTimeline(){let p=$('#yx-v127-timeline-panel')||$('#yx-v117-timeline-panel'); const should=/today|warehouse|倉庫|今日/.test(location.pathname+document.body.className+document.title); if(!p&&!should)return; if(!p){p=document.createElement('section'); p.id='yx-v127-timeline-panel'; p.className='yx-v127-timeline-panel'; p.innerHTML='<div class="yx-v127-head"><b>倉庫操作時間軸 V134</b><div class="yx-v127-filters"><button data-yx118-filter="all">全部</button><button data-yx118-filter="ship">出貨</button><button data-yx118-filter="add_slot">增格</button><button data-yx118-filter="remove_slot">減格</button><button data-yx118-filter="insert_slot">插入</button><button data-yx118-filter="emptied">扣空</button></div></div><div class="yx-v127-counts"></div><div class="yx-v127-list"></div>'; ($('#todayList')||$('.today-list')||$('.warehouse-page')||$('main')||document.body).appendChild(p);} const list=$('.yx-v127-list',p)||$('.yx-v117-list',p), counts=$('.yx-v127-counts',p)||$('.yx-v117-counts',p); try{const cat=p.dataset.cat||'all'; const d=await api('/api/v134/warehouse-action-timeline?limit=700&category='+encodeURIComponent(cat)); if(counts)counts.innerHTML=Object.entries(d.counts||{}).map(([k,v])=>`<span>${esc(k)}：${esc(v)}</span>`).join(''); if(list)list.innerHTML=(d.items||[]).map(it=>`<article class="yx-v127-timeline-item type-${esc(it.type||'other')}"><div><b>${esc(it.summary||it.action||'倉庫操作')}</b><small>${esc(it.created_at||'')}｜${esc(it.username||'')}</small></div><div>${(it.locations||[]).map(l=>`<button type="button" data-yx118-open='${esc(JSON.stringify(l.open_payload||l.fallback_payload||{loc:l.loc,focus_text:l.focus_text||it.summary,customer_name:l.customer_name||it.customer_name}))}'>${esc(l.loc||'開格')}</button>`).join('')||'<span class="small-note">無格位</span>'}</div></article>`).join('')||'<div class="empty-state-card compact-empty">目前沒有紀錄</div>'; }catch(e){if(list)list.innerHTML='<div class="error-card">V134 時間軸讀取失敗</div>';}}
   document.addEventListener('click',e=>{const btn=e.target.closest?.('[data-yx118-open],[data-yx117-open],[data-yx116-open],[data-yx115-open],[data-yx114-open],[data-yx113-open],[data-yx112-open],[data-yx111-open]'); if(btn){e.preventDefault(); let p={}; try{p=JSON.parse(btn.getAttribute('data-yx118-open')||btn.getAttribute('data-yx117-open')||btn.getAttribute('data-yx116-open')||btn.getAttribute('data-yx115-open')||btn.getAttribute('data-yx114-open')||btn.getAttribute('data-yx113-open')||btn.getAttribute('data-yx112-open')||btn.getAttribute('data-yx111-open')||'{}');}catch(_){p={loc:btn.textContent};} openTarget(p); return;} const f=e.target.closest?.('[data-yx118-filter],[data-yx117-filter]'); if(f){e.preventDefault(); const p=$('#yx-v127-timeline-panel')||$('#yx-v117-timeline-panel'); if(p){p.dataset.cat=f.getAttribute('data-yx118-filter')||f.getAttribute('data-yx117-filter')||'all'; renderTimeline();}}},true);
   function boot(){retryFromUrl(); setTimeout(decorateTrace,850); setTimeout(renderTimeline,1050); try{api('/api/v127/edit-locks/cleanup-report',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});}catch(_){}}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot); else boot();
 })();
-/* END V133 next package */
-/* smoke compat marker: __YX_V133_STABLE_TRACE_LOCK__ /api/v115/shipping-deduct-trace */
+/* END V134 next package */
+/* smoke compat marker: __YX_V134_STABLE_TRACE_LOCK__ /api/v115/shipping-deduct-trace */
 
 
-/* __YX_V133_REMAINING_PROGRESS_LOCK__ */
+/* V120-V134 merged closing package: offline conflict finish, row delta, PWA/search/safety final wiring. Main-file only. */
 (function(){
-  if(window.__YX_V133_REMAINING_PROGRESS_LOCK__) return; window.__YX_V133_REMAINING_PROGRESS_LOCK__=true;
-  const api=(u,o)=>fetch(u,o).then(r=>r.json());
-  function bootProgress(){
-    if(!/today|home|warehouse|dashboard|首頁|今日|倉庫/.test(location.pathname+document.title+document.body.className)) return;
-    const host=document.querySelector('main')||document.body;
-    if(document.getElementById('yx-v127-progress-panel')) return;
-    const box=document.createElement('section');
-    box.id='yx-v127-progress-panel';
-    box.className='yx-v127-progress-panel';
-    box.innerHTML='<div class="yx-v127-head"><b>清單完成進度 V133</b><span>剩餘約 5～7 包</span></div><div class="yx-v127-list">讀取中...</div>';
-    host.appendChild(box);
-    api('/api/v127/remaining-progress').then(d=>{
-      const list=box.querySelector('.yx-v127-list');
-      list.innerHTML=(d.packages||[]).map(p=>'<article><b>'+p.package+'｜'+p.title+'</b><small>'+((p.items||[]).join('、'))+'</small></article>').join('') || '目前沒有剩餘清單';
-    }).catch(()=>{ box.querySelector('.yx-v127-list').innerHTML='進度讀取失敗，不影響主功能'; });
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', bootProgress, {once:true}); else bootProgress();
-})();
-
-
-/* V120-V133 merged closing package: offline conflict finish, row delta, PWA/search/safety final wiring. Main-file only. */
-(function(){
-  if(window.__YX_V133_MERGED_CLOSING_LOCK__) return; window.__YX_V133_MERGED_CLOSING_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  if(window.__YX_V134_MERGED_CLOSING_LOCK__) return; window.__YX_V134_MERGED_CLOSING_LOCK__=true;
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const api=(u,o)=>fetch(u,o||{}).then(r=>r.json().catch(()=>({ok:r.ok,status:r.status})));
@@ -733,141 +711,85 @@
   function focusText(payload){const words=[payload.customer_name,payload.customer,payload.focus_text,payload.item_text,payload.product_text,payload.record_id].join(' ').toLowerCase().split(/[\s,，;；|/]+/).filter(x=>x.length>1).slice(0,12); if(!words.length)return false; let best=null,score=0; $$('.warehouse-item,.cell-item,.product-card,.item-card,.shipping-card,.today-card,.activity-card,.search-result-card,tr,[data-id],[data-row-id]').forEach(row=>{const tx=(row.innerText||'').toLowerCase(); let sc=0; words.forEach(w=>{if(tx.includes(w))sc++;}); if(sc>score){score=sc;best=row;}}); return best?addFocus(best):false;}
   function clickCell(loc,payload){loc=normLoc(loc); if(!loc)return false; const [z,b,s]=loc.split('-'); const sels=[`[data-loc="${loc}"]`,`[data-location="${loc}"]`,`[data-zone="${z}"][data-band="${b}"][data-slot="${s}"]`,`[data-zone="${z}"][data-col="${b}"][data-slot="${s}"]`,`[data-zone="${z}"][data-column="${b}"][data-slot="${s}"]`]; let el=null; for(const sel of sels){el=$(sel); if(el)break;} if(!el){el=$$('.warehouse-cell,.cell,[data-slot]').find(x=>((x.getAttribute('data-loc')||x.getAttribute('data-location')||x.innerText||'').toUpperCase()).includes(loc));}
     if(!el)return false; addFocus(el); try{el.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));}catch(_){try{el.click();}catch(__){}} setTimeout(()=>focusText(payload||{loc}),700); return true;}
-  async function openTarget(raw){const p=Object.assign({},raw||{}); p.loc=normLoc(p.loc||p.location||p.warehouse_location); if(location.pathname.includes('/warehouse')&&p.loc&&clickCell(p.loc,p))return; try{const d=await api('/api/v133/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const op=d.open_payload||d.fallback_payload||p; op.loc=normLoc(op.loc||d.loc||p.loc); if(location.pathname.includes('/warehouse')&&op.loc&&clickCell(op.loc,op))return; if(d.target_url||d.url){location.href=d.target_url||d.url;return;}}catch(e){console.warn('V133 open target failed',e);} if(p.loc) location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&retry_focus=1&v127=1&loc='+encodeURIComponent(p.loc)+'&focus_text='+encodeURIComponent(p.focus_text||p.item_text||'')+'&customer='+encodeURIComponent(p.customer_name||p.customer||'');}
-  window.YXV133OpenTarget=openTarget; window.YXOpenWarehouseTarget=openTarget; window.YXV119OpenTarget=openTarget;
+  async function openTarget(raw){const p=Object.assign({},raw||{}); p.loc=normLoc(p.loc||p.location||p.warehouse_location); if(location.pathname.includes('/warehouse')&&p.loc&&clickCell(p.loc,p))return; try{const d=await api('/api/v134/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const op=d.open_payload||d.fallback_payload||p; op.loc=normLoc(op.loc||d.loc||p.loc); if(location.pathname.includes('/warehouse')&&op.loc&&clickCell(op.loc,op))return; if(d.target_url||d.url){location.href=d.target_url||d.url;return;}}catch(e){console.warn('V134 open target failed',e);} if(p.loc) location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&retry_focus=1&v127=1&loc='+encodeURIComponent(p.loc)+'&focus_text='+encodeURIComponent(p.focus_text||p.item_text||'')+'&customer='+encodeURIComponent(p.customer_name||p.customer||'');}
+  window.YXV134OpenTarget=openTarget; window.YXOpenWarehouseTarget=openTarget; window.YXV119OpenTarget=openTarget;
   function retryUrlTarget(){const u=new URL(location.href); const loc=u.searchParams.get('loc')||u.searchParams.get('location'); if(!loc)return; const p={loc,focus_text:u.searchParams.get('focus_text')||u.searchParams.get('item')||'',customer_name:u.searchParams.get('customer')||u.searchParams.get('customer_name')||''}; let n=0; (function run(){n++; if(clickCell(p.loc,p))return; if(n<12)setTimeout(run,300+n*120);})();}
-  async function panel(){let el=$('#yx-v127-final-panel'); const host=$('main')||document.body; if(!el){el=document.createElement('section'); el.id='yx-v127-final-panel'; el.className='yx-v127-final-panel'; el.innerHTML='<div class="yx-v127-head"><b>V120-V133 合併收尾</b><span>讀取能力中...</span></div><div class="yx-v127-grid"></div>'; host.appendChild(el);} try{const d=await api('/api/v127/capabilities'); $('.yx-v127-head span',el).textContent='主功能收尾完成，剩實機/Render 測試'; $('.yx-v127-grid',el).innerHTML=Object.entries(d.features||{}).map(([k,v])=>`<span class="${v?'ok':'warn'}">${esc(k)}：${v?'完成':'待測'}</span>`).join('');}catch(_){$('.yx-v127-head span',el).textContent='能力檢查讀取失敗，不影響主功能';}}
+  async function panel(){let el=$('#yx-v127-final-panel'); const host=$('main')||document.body; if(!el){el=document.createElement('section'); el.id='yx-v127-final-panel'; el.className='yx-v127-final-panel'; el.innerHTML='<div class="yx-v127-head"><b>V120-V134 合併收尾</b><span>讀取能力中...</span></div><div class="yx-v127-grid"></div>'; host.appendChild(el);} try{const d=await api('/api/v127/capabilities'); $('.yx-v127-head span',el).textContent='主功能收尾完成，剩實機/Render 測試'; $('.yx-v127-grid',el).innerHTML=Object.entries(d.features||{}).map(([k,v])=>`<span class="${v?'ok':'warn'}">${esc(k)}：${v?'完成':'待測'}</span>`).join('');}catch(_){$('.yx-v127-head span',el).textContent='能力檢查讀取失敗，不影響主功能';}}
   async function decorateConflicts(){let host=$('#yx-v127-conflict-panel'); const should=/ship|shipping|出貨|today|warehouse/.test(location.pathname+document.title+document.body.className); if(!host&&!should)return; if(!host){host=document.createElement('section'); host.id='yx-v127-conflict-panel'; host.className='yx-v127-conflict-panel'; host.innerHTML='<div class="yx-v127-head"><b>離線衝突收尾</b><button type="button" data-yx126-refresh-conflicts>刷新</button></div><div class="yx-v127-conflict-list">讀取中...</div>'; (($('main')||document.body)).appendChild(host);} try{const d=await api('/api/v120/offline-conflicts?status=conflict&limit=30'); const list=$('.yx-v127-conflict-list',host); list.innerHTML=(d.items||[]).map(x=>`<article><b>#${esc(x.id)} ${esc(x.reason||'離線衝突')}</b><small>${esc(x.created_at||'')}</small><button type="button" data-yx126-cancel-conflict="${esc(x.id)}">取消排隊</button></article>`).join('')||'<div class="empty-state-card compact-empty">目前沒有離線衝突</div>'; }catch(_){$('.yx-v127-conflict-list',host).innerHTML='<div class="error-card">離線衝突讀取失敗</div>';}}
   async function saveDraft(){const form=$('form'); if(!form)return; const data={}; new FormData(form).forEach((v,k)=>data[k]=v); try{await api('/api/v124/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft_key:location.pathname,module:document.title||'page',payload:data})}); toast('草稿已自動保存');}catch(_){}}
-  async function rowDelta(){if(!window.indexedDB)return; const isList=/inventory|orders|master|shipping|warehouse/.test(location.pathname); if(!isList)return; try{const d=await api('/api/v121/row-delta/batch?limit=80'); window.dispatchEvent(new CustomEvent('yx:row-delta',{detail:d}));}catch(e){console.warn('V133 row delta failed',e);}}
+  async function rowDelta(){if(!window.indexedDB)return; const isList=/inventory|orders|master|shipping|warehouse/.test(location.pathname); if(!isList)return; try{const d=await api('/api/v121/row-delta/batch?limit=80'); window.dispatchEvent(new CustomEvent('yx:row-delta',{detail:d}));}catch(e){console.warn('V134 row delta failed',e);}}
   document.addEventListener('click',e=>{const open=e.target.closest?.('[data-yx126-open],[data-yx119-open],[data-yx118-open],[data-yx117-open]'); if(open){e.preventDefault(); let p={}; try{p=JSON.parse(open.getAttribute('data-yx126-open')||open.getAttribute('data-yx119-open')||open.getAttribute('data-yx118-open')||open.getAttribute('data-yx117-open')||'{}');}catch(_){p={loc:open.textContent};} openTarget(p); return;} const c=e.target.closest?.('[data-yx126-cancel-conflict]'); if(c){e.preventDefault(); api('/api/v120/offline-conflicts/'+c.getAttribute('data-yx126-cancel-conflict'),{method:'DELETE'}).then(()=>{toast('已取消離線排隊'); decorateConflicts();}); return;} if(e.target.closest?.('[data-yx126-refresh-conflicts]')){e.preventDefault();decorateConflicts();}},true);
-  function boot(){retryUrlTarget(); setTimeout(panel,900); setTimeout(decorateConflicts,1200); setTimeout(rowDelta,1500); document.addEventListener('change',()=>{clearTimeout(window.__yx126DraftTimer); window.__yx126DraftTimer=setTimeout(saveDraft,900);},true);}
+  function boot(){retryUrlTarget(); setTimeout(rowDelta,1000); document.addEventListener('change',()=>{clearTimeout(window.__yx126DraftTimer); window.__yx126DraftTimer=setTimeout(saveDraft,900);},true);} 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
 })();
-/* END V120-V133 merged closing package */
+/* END V120-V134 merged closing package */
 
-/* __YX_V133_STABLE_TRACE_LOCK__ __YX_V133_REMAINING_PROGRESS_LOCK__ /api/v127/remaining-progress /api/v115/shipping-deduct-trace */
+/* __YX_V134_STABLE_TRACE_LOCK__ __YX_V134_REMAINING_PROGRESS_LOCK__ /api/v127/remaining-progress /api/v115/shipping-deduct-trace */
 (function(){
-  if(window.__YX_V133_REMAINING_PROGRESS_LOCK__) return; window.__YX_V133_REMAINING_PROGRESS_LOCK__=true;
+  if(window.__YX_V134_REMAINING_PROGRESS_LOCK__) return; window.__YX_V134_REMAINING_PROGRESS_LOCK__=true;
 })();
 
 
-/* V133 real-device/render stability bridge. Main-file only. */
+/* V134 real-device/render stability bridge. Main-file only. */
 (function(){
-  if(window.__YX_V133_REAL_DEVICE_LOCK__) return; window.__YX_V133_REAL_DEVICE_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  if(window.__YX_V134_REAL_DEVICE_LOCK__) return; window.__YX_V134_REAL_DEVICE_LOCK__=true;
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s);
   async function api(url,opt){const r=await fetch(url,opt||{}); try{return await r.json();}catch(_){return {ok:r.ok};}}
   function toast(msg){try{(window.showToast||window.toast||console.log)(msg);}catch(_){console.log(msg);}}
   function ensurePanel(){
     if(!/warehouse|today|ship|shipping|settings|home|inventory|orders|master/.test(location.pathname+document.title+document.body.className)) return;
     let p=$('#yx-v127-ready-panel');
-    if(!p){p=document.createElement('section');p.id='yx-v127-ready-panel';p.className='yx-v127-ready-panel';p.innerHTML='<div class="yx-v127-head"><b>V133 實機檢查</b><button type="button" data-yx127-check>檢查</button></div><div class="yx-v127-body">主功能已收尾，等待 Render / 手機 / 多人實測。</div>';(document.querySelector('main')||document.body).appendChild(p);} 
+    if(!p){p=document.createElement('section');p.id='yx-v127-ready-panel';p.className='yx-v127-ready-panel';p.innerHTML='<div class="yx-v127-head"><b>V134 實機檢查</b><button type="button" data-yx127-check>檢查</button></div><div class="yx-v127-body">主功能已收尾，等待 Render / 手機 / 多人實測。</div>';(document.querySelector('main')||document.body).appendChild(p);} 
   }
   async function runCheck(){
     let p=$('#yx-v127-ready-panel'); if(!p){ensurePanel(); p=$('#yx-v127-ready-panel');}
     if(!p)return;
     const body=p.querySelector('.yx-v127-body'); body.textContent='檢查中...';
     try{const d=await api('/api/v127/render-readiness'); const env=d.env||{}, files=d.files||{}; body.innerHTML='<div>Render環境：'+Object.entries(env).map(([k,v])=>`<span class="${v?'ok':'warn'}">${k}:${v?'OK':'未設'}</span>`).join(' ')+'</div><div>主檔：'+Object.entries(files).map(([k,v])=>`<span class="${v?'ok':'warn'}">${k}:${v?'OK':'缺'}</span>`).join(' ')+'</div>';}
-    catch(e){body.textContent='V133 檢查讀取失敗，不影響主功能';}
+    catch(e){body.textContent='V134 檢查讀取失敗，不影響主功能';}
   }
   document.addEventListener('click',e=>{if(e.target.closest && e.target.closest('[data-yx127-check]')){e.preventDefault();runCheck();}},true);
   function boot(){ensurePanel(); setTimeout(()=>{api('/api/v127/smoke-report').catch(()=>{});},1200);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
 })();
-/* END V133 real-device/render stability bridge */
+/* END V134 real-device/render stability bridge */
 
-/* V133 real-device final check package. Main-file only. */
+/* V134 real-device final check package. Main-file only. */
 (function(){
-  if(window.__YX_V133_FINAL_CHECK_LOCK__) return; window.__YX_V133_FINAL_CHECK_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
+  if(window.__YX_V134_FINAL_CHECK_LOCK__) return; window.__YX_V134_FINAL_CHECK_LOCK__=true;
+  window.__YX_PWA_VERSION__='V134';
   const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
   async function api(url,opt){const r=await fetch(url,opt||{});return await r.json();}
   function esc(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
   function normLoc(v){v=String(v||'').trim().toUpperCase().replace(/區/g,'').replace(/欄/g,'-').replace(/格/g,'').replace(/[\s_]+/g,'-').replace(/--+/g,'-'); const m=v.match(/([AB])[- ]?(\d+)[- ]?(\d+)/); return m?`${m[1]}-${parseInt(m[2],10)}-${parseInt(m[3],10)}`:v;}
   function clickCell(loc,payload){loc=normLoc(loc); if(!loc)return false; const parts=loc.split('-'); const sels=[`[data-loc="${loc}"]`,`[data-location="${loc}"]`,`[data-zone="${parts[0]}"][data-band="${parts[1]}"][data-slot="${parts[2]}"]`,`[data-zone="${parts[0]}"][data-col="${parts[1]}"][data-slot="${parts[2]}"]`]; const el=sels.map(s=>$(s)).find(Boolean); if(!el)return false; el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'}); el.classList.add('yx-v128-focus-cell'); setTimeout(()=>el.classList.remove('yx-v128-focus-cell'),4200); try{el.click();}catch(_){} setTimeout(()=>focusRows(payload||{}),650); return true;}
   function focusRows(p){const toks=[p.focus_text,p.item_text,p.product_text,p.customer_name,p.customer].filter(Boolean).map(x=>String(x).slice(0,18).toLowerCase()); if(!toks.length)return; $$('.warehouse-cell-item,.cell-item,.product-card,.item-card,tr,.shipping-card,.today-card').forEach(el=>{const tx=(el.innerText||'').toLowerCase(); if(toks.some(t=>t&&tx.includes(t))){el.classList.add('yx-v128-focus-row'); el.scrollIntoView({behavior:'smooth',block:'center'}); setTimeout(()=>el.classList.remove('yx-v128-focus-row'),5200);}});}
-  async function openTarget(raw){const p=Object.assign({},raw||{}); p.loc=normLoc(p.loc||p.location||p.warehouse_location); if(location.pathname.includes('/warehouse')&&p.loc&&clickCell(p.loc,p))return; try{const d=await api('/api/v128/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const op=d.open_payload||d.fallback_payload||p; op.loc=normLoc(op.loc||d.loc||p.loc); if(location.pathname.includes('/warehouse')&&op.loc&&clickCell(op.loc,op))return; const u=d.target_url||d.url; if(u){location.href=u;return;}}catch(e){console.warn('V133 open target failed',e);} if(p.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&retry_focus=1&v128=1&loc='+encodeURIComponent(p.loc)+'&focus_text='+encodeURIComponent(p.focus_text||p.item_text||'')+'&customer='+encodeURIComponent(p.customer_name||p.customer||'');}}
-  window.YXV133OpenTarget=openTarget; window.YXOpenWarehouseTarget=openTarget;
+  async function openTarget(raw){const p=Object.assign({},raw||{}); p.loc=normLoc(p.loc||p.location||p.warehouse_location); if(location.pathname.includes('/warehouse')&&p.loc&&clickCell(p.loc,p))return; try{const d=await api('/api/v128/open-focus-target',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const op=d.open_payload||d.fallback_payload||p; op.loc=normLoc(op.loc||d.loc||p.loc); if(location.pathname.includes('/warehouse')&&op.loc&&clickCell(op.loc,op))return; const u=d.target_url||d.url; if(u){location.href=u;return;}}catch(e){console.warn('V134 open target failed',e);} if(p.loc){location.href='/warehouse?open=1&auto_open_cell=1&scroll_item=1&retry_focus=1&v128=1&loc='+encodeURIComponent(p.loc)+'&focus_text='+encodeURIComponent(p.focus_text||p.item_text||'')+'&customer='+encodeURIComponent(p.customer_name||p.customer||'');}}
+  window.YXV134OpenTarget=openTarget; window.YXOpenWarehouseTarget=openTarget;
   document.addEventListener('click',e=>{const b=e.target.closest('[data-yx128-open],[data-yx127-open],[data-yx118-open],[data-yx117-open]'); if(!b)return; try{openTarget(JSON.parse(b.getAttribute('data-yx128-open')||b.getAttribute('data-yx127-open')||b.getAttribute('data-yx118-open')||b.getAttribute('data-yx117-open')||'{}'));}catch(_){openTarget({loc:b.dataset.loc||b.textContent});}});
-  async function panel(){let p=$('#yx-v128-ready-panel'); const host=$('main')||document.body; if(!p){p=document.createElement('section');p.id='yx-v128-ready-panel';p.className='yx-v128-ready-panel';p.innerHTML='<div class="yx-v128-head"><b>V133 實機收尾檢查</b><button type="button" data-yx128-check>檢查</button></div><div class="yx-v128-body">主功能已完成，這包檢查 Render / 手機 / 多人實測前的相容狀態。</div>';host.appendChild(p);} }
-  async function runCheck(){await panel(); const body=$('.yx-v128-body'); try{const [r,s,c]=await Promise.all([api('/api/v128/render-readiness'),api('/api/v128/smoke-report'),api('/api/v128/capabilities')]); body.innerHTML='<div class="yx-v128-grid"><span class="'+(r.render_ready?'ok':'warn')+'">Render 檔案：'+(r.render_ready?'OK':'需檢查')+'</span><span class="'+(s.all_ok?'ok':'warn')+'">Smoke：'+(s.all_ok?'OK':'需檢查')+'</span><span class="ok">版本：'+esc(c.version||'V133')+'</span></div>'; }catch(e){body.textContent='V133 檢查讀取失敗，不影響主功能';}}
+  async function panel(){let p=$('#yx-v128-ready-panel'); const host=$('main')||document.body; if(!p){p=document.createElement('section');p.id='yx-v128-ready-panel';p.className='yx-v128-ready-panel';p.innerHTML='<div class="yx-v128-head"><b>V134 實機收尾檢查</b><button type="button" data-yx128-check>檢查</button></div><div class="yx-v128-body">主功能已完成，這包檢查 Render / 手機 / 多人實測前的相容狀態。</div>';host.appendChild(p);} }
+  async function runCheck(){await panel(); const body=$('.yx-v128-body'); try{const [r,s,c]=await Promise.all([api('/api/v128/render-readiness'),api('/api/v128/smoke-report'),api('/api/v128/capabilities')]); body.innerHTML='<div class="yx-v128-grid"><span class="'+(r.render_ready?'ok':'warn')+'">Render 檔案：'+(r.render_ready?'OK':'需檢查')+'</span><span class="'+(s.all_ok?'ok':'warn')+'">Smoke：'+(s.all_ok?'OK':'需檢查')+'</span><span class="ok">版本：'+esc(c.version||'V134')+'</span></div>'; }catch(e){body.textContent='V134 檢查讀取失敗，不影響主功能';}}
   document.addEventListener('click',e=>{if(e.target.closest('[data-yx128-check]'))runCheck();});
   document.addEventListener('DOMContentLoaded',()=>{panel(); setTimeout(runCheck,1200); const q=new URLSearchParams(location.search); if(q.get('loc')) setTimeout(()=>openTarget({loc:q.get('loc'),focus_text:q.get('focus_text'),customer_name:q.get('customer')}),900);});
 })();
-/* END V133 */
+/* END V134 */
 
 
-/* V133 Render DB bootstrap check panel. Main-file only. */
+
+
+/* V134 performance cleanup: remove old debug/home widgets and prevent loading overlay from blocking. */
 (function(){
-  if(window.__YX_V133_RENDER_DB_BOOT_LOCK__) return; window.__YX_V133_RENDER_DB_BOOT_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
-  function $(s,r){return (r||document).querySelector(s)}
-  function esc(s){return String(s==null?'':s).replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));}
-  async function api(url,opt){const r=await fetch(url,opt||{}); const t=await r.text(); let d={}; try{d=JSON.parse(t)}catch(_){d={success:r.ok,text:t}} if(!r.ok&&d.success!==true)d.success=false; return d;}
-  async function ensurePanel(){
-    const isHome=/^\/$|home|settings/.test(location.pathname+document.body.className+document.title);
-    if(!isHome) return null;
-    let p=$('#yx-v131-render-db-panel');
-    if(!p){p=document.createElement('section');p.id='yx-v131-render-db-panel';p.className='yx-v131-render-db-panel';p.innerHTML='<div class="yx-v131-head"><b>V133 Render / DB 開機檢查</b><button type="button" data-yx130-check>檢查</button><button type="button" data-yx130-init>初始化DB</button></div><div class="yx-v131-body">Render 已改成先開 port，再檢查 DB。</div>';(document.querySelector('main')||document.body).appendChild(p);}
-    return p;
+  if(window.__YX_V134_PERFORMANCE_CLEANUP__) return; window.__YX_V134_PERFORMANCE_CLEANUP__=true;
+  window.__YX_PWA_VERSION__='V134';
+  const killIds=['yx-v127-progress-panel','yx-v127-final-panel','yx-v127-ready-panel','yx-v128-ready-panel','yx-v131-render-db-panel','yx-v131-render-schema-panel','yx-v132-render-diag-panel','yx-v133-bug-panel','yx-v90-dashboard','yx-v90-global-search','yx-v90-search-results'];
+  function clean(){
+    killIds.forEach(id=>{const el=document.getElementById(id); if(el){ const sec=el.closest('.glass.panel,.glass-card,section,div')||el; sec.remove(); }});
+    document.querySelectorAll('.yx-v130-render-db-panel,.yx-v131-render-db-panel,.yx-v132-render-diag-panel,.yx-v133-bug-panel,.yx-v127-final-panel,.yx-v127-progress-panel,.yx-v128-ready-panel,.yx-v90-dashboard,.yx-v90-search-panel').forEach(el=>el.remove());
+    document.querySelectorAll('.loading,.is-loading,.整理中,.syncing').forEach(el=>{ if(/整理中|載入中|同步中/.test(el.textContent||'')){ el.classList.remove('loading','is-loading','syncing'); }});
+    document.body.classList.remove('is-loading','syncing','yx-debug-mode');
+    document.documentElement.classList.remove('is-loading','syncing','yx-debug-mode');
   }
-  async function check(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v131-body',p); body.textContent='檢查中...'; try{const [r,b]=await Promise.all([api('/api/v131/render-readiness'),api('/api/v131/db-bootstrap-status?deep=1')]); body.innerHTML='<div class="yx-v131-grid"><span class="'+(r.render_ready?'ok':'warn')+'">Render：'+(r.render_ready?'OK':'需檢查')+'</span><span>DB：'+esc((b.db_info&&b.db_info.mode)||'unknown')+'</span><span>庫存：'+esc((b.counts&&b.counts.inventory)||0)+'</span><span>倉庫格：'+esc((b.counts&&b.counts.warehouse_cells)||0)+'</span></div>'; }catch(e){body.textContent='V133 檢查失敗：'+(e.message||e);} }
-  async function initDb(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v131-body',p); body.textContent='DB 初始化中...'; try{const d=await api('/api/v131/db-init-now',{method:'POST'}); body.innerHTML='<div class="yx-v131-grid"><span class="'+(d.success?'ok':'warn')+'">初始化：'+(d.success?'完成':'失敗')+'</span><span>秒數：'+esc(d.seconds||'')+'</span><span>錯誤：'+esc(d.error||'無')+'</span></div>'; }catch(e){body.textContent='DB 初始化失敗：'+(e.message||e);} }
-  document.addEventListener('click',function(e){if(e.target.closest('[data-yx130-check]'))check(); if(e.target.closest('[data-yx130-init]'))initDb();});
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensurePanel); else ensurePanel();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>{clean(); setTimeout(clean,500); setTimeout(clean,1800);},{once:true}); else {clean(); setTimeout(clean,500); setTimeout(clean,1800);}
 })();
-/* END V133 */
-
-
-/* V133 Render DB schema diagnostics panel. Main-file only. */
-(function(){
-  if(window.__YX_V133_RENDER_SCHEMA_LOCK__) return; window.__YX_V133_RENDER_SCHEMA_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
-  const $=(s,r=document)=>r.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  async function api(url,opt){const r=await fetch(url,Object.assign({cache:'no-store'},opt||{})); const t=await r.text(); let d={}; try{d=JSON.parse(t)}catch(e){d={success:false,error:t.slice(0,500)}} if(!r.ok && d.success!==true) throw new Error(d.error||r.statusText); return d;}
-  function hostOK(){return /settings|home|index|今日|倉庫/.test(location.pathname+document.title+document.body.className) || document.body.dataset.page==='home';}
-  async function ensurePanel(){ if(!hostOK()) return null; let p=$('#yx-v131-render-schema-panel'); if(!p){p=document.createElement('section');p.id='yx-v131-render-schema-panel';p.className='yx-v130-render-db-panel yx-v131-render-schema-panel';p.innerHTML='<div class="yx-v130-head"><b>V133 Render / DB 補表檢查</b><button type="button" data-yx131-check>檢查</button><button type="button" data-yx131-ensure>補表補欄位</button></div><div class="yx-v130-body">Render 先開 port，DB 可在這裡檢查並只做加欄位補強。</div>';(document.querySelector('main')||document.body).appendChild(p);} return p; }
-  function renderDiag(body,d){const missTables=(d.missing_tables||[]).join('、')||'無'; const missCols=Object.entries(d.missing_columns||{}).map(([k,v])=>k+': '+v.join(',')).join('；')||'無'; body.innerHTML='<div class="yx-v130-grid"><span class="'+(d.schema_ok?'ok':'warn')+'">Schema：'+(d.schema_ok?'OK':'需補')+'</span><span>缺表：'+esc(missTables)+'</span><span>缺欄：'+esc(missCols)+'</span><span>DB：'+esc((d.db_info&&d.db_info.mode)||'unknown')+'</span></div>';}
-  async function check(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v130-body',p); body.textContent='檢查中...'; try{const d=await api('/api/v131/db-schema-diagnostics?deep=1'); renderDiag(body,d);}catch(e){body.textContent='V133 檢查失敗：'+(e.message||e);} }
-  async function ensureDb(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v130-body',p); body.textContent='補表補欄位中...'; try{const d=await api('/api/v131/db-ensure-now',{method:'POST'}); renderDiag(body,d.schema||d); if(d.success!==true){body.insertAdjacentHTML('beforeend','<div class="error-card">補強未完全成功：'+esc((d.init_db&&d.init_db.error)||d.error||'請看 Render logs')+'</div>');}}catch(e){body.textContent='V133 補強失敗：'+(e.message||e);} }
-  document.addEventListener('click',e=>{if(e.target.closest('[data-yx131-check]'))check(); if(e.target.closest('[data-yx131-ensure]'))ensureDb();});
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensurePanel); else setTimeout(ensurePanel,300);
-})();
-/* END V133 */
-
-
-/* V133 Render DB deep diagnostics panel. Main-file only. */
-(function(){
-  if(window.__YX_V133_RENDER_DEEP_DIAG_LOCK__) return; window.__YX_V133_RENDER_DEEP_DIAG_LOCK__=true;
-  window.__YX_PWA_VERSION__='V133';
-  const $=(s,r=document)=>r.querySelector(s);
-  const esc=s=>String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
-  async function api(u,opt){const r=await fetch(u,opt||{}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{};}catch(e){d={success:false,error:t.slice(0,800)}} if(!r.ok && d.success!==true) throw new Error(d.error||r.statusText); return d;}
-  function hostOK(){return /home|settings|dashboard|設定|首頁|主頁/i.test(location.pathname+document.title+document.body.className) || location.pathname==='/' || location.pathname==='/home';}
-  async function ensurePanel(){ if(!hostOK()) return null; let p=$('#yx-v132-render-diag-panel'); if(!p){p=document.createElement('section');p.id='yx-v132-render-diag-panel';p.className='yx-v131-render-db-panel yx-v132-render-diag-panel';p.innerHTML='<div class="yx-v131-head"><b>V133 Render / DB 深度診斷</b><button type="button" data-yx132-check>檢查</button><button type="button" data-yx132-repair>安全修復</button></div><div class="yx-v131-body">可逐表檢查缺表/缺欄位，不會因單一表錯誤讓整個 health 掛掉。</div>';(document.querySelector('main')||document.body).appendChild(p);} return p; }
-  function render(body,d){const counts=d.safe_counts||{}; const rows=Object.entries(counts).map(([k,v])=>'<span class="'+(v.ok?'ok':'warn')+'">'+esc(k)+'：'+(v.ok?esc(v.count):esc(v.error||'缺表'))+'</span>').join(''); const errs=(d.errors||[]).map(e=>'<div class="error-card">'+esc(e.type)+' '+esc(e.table||'')+'：'+esc(JSON.stringify(e.detail||e.error||''))+'</div>').join(''); body.innerHTML='<div class="yx-v131-grid"><span class="'+(d.success?'ok':'warn')+'">DB診斷：'+(d.success?'OK':'需修復')+'</span><span>連線：'+esc((d.db_connection&&d.db_connection.success)?'OK':((d.db_connection&&d.db_connection.error)||'unknown'))+'</span>'+rows+'</div>'+errs;}
-  async function check(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v131-body',p); body.textContent='深度檢查中...'; try{render(body, await api('/api/v133/bug-audit?deep=1'));}catch(e){body.textContent='V133 深度檢查失敗：'+(e.message||e);} }
-  async function repair(){const p=await ensurePanel(); if(!p)return; const body=$('.yx-v131-body',p); body.textContent='安全修復中，只補表補欄位，不清倉庫資料...'; try{const d=await api('/api/v133/db-safe-repair-now',{method:'POST'}); render(body, d.diagnostics||d); if(!d.success) body.insertAdjacentHTML('beforeend','<div class="error-card">修復未完全成功，請把這頁結果或 Render logs 貼回來。</div>');}catch(e){body.textContent='V133 安全修復失敗：'+(e.message||e);} }
-  document.addEventListener('click',e=>{if(e.target.closest('[data-yx132-check]'))check(); if(e.target.closest('[data-yx132-repair]'))repair();});
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(ensurePanel,800)); else setTimeout(ensurePanel,800);
-})();
-/* END V133 */
-
-
-/* V133 full bug repair panel: Render/API/DB runtime diagnostics. Main-file only. */
-(function(){
-  if(window.__YX_V133_BUG_REPAIR_PANEL__) return; window.__YX_V133_BUG_REPAIR_PANEL__=true; window.__YX_PWA_VERSION__='V133';
-  const $=(s,r=document)=>r.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  async function api(url,opt){const r=await fetch(url,Object.assign({cache:'no-store'},opt||{})); let d={}; try{d=await r.json();}catch(e){d={success:false,error:String(e)}} d.http_status=r.status; return d;}
-  async function render(){
-    const should=/settings|home|今日|倉庫/.test(location.pathname+document.title+document.body.dataset.module);
-    if(!should) return;
-    let box=$('#yx-v133-bug-panel');
-    if(!box){box=document.createElement('section'); box.id='yx-v133-bug-panel'; box.className='yx-v133-bug-panel glass-card'; box.innerHTML='<div class="section-title">V133 全面 Bug 檢查</div><div class="yx-v133-body">讀取中...</div><div class="btn-row"><button type="button" data-yx-v133-audit>重新檢查</button><button type="button" data-yx-v133-repair>安全補表</button></div>'; (document.querySelector('main')||document.querySelector('.page-shell')||document.body).appendChild(box);}
-    const body=$('.yx-v133-body',box); try{const d=await api('/api/v133/bug-audit'); const rows=(d.checks||[]).map(c=>`<div class="yx-v133-check ${c.ok?'ok':'bad'}"><b>${esc(c.name)}</b><span>${esc(c.ok?'OK':'需檢查')}</span><small>${esc(c.detail||'')}</small></div>`).join(''); body.innerHTML='<div class="small-note">版本 V133｜DB '+esc((d.db_info&&d.db_info.mode)||'unknown')+'</div>'+rows;}catch(e){body.innerHTML='<div class="error-card">V133 檢查失敗：'+esc(e)+'</div>';}
-  }
-  document.addEventListener('click',async e=>{ if(e.target.closest('[data-yx-v133-audit]')) render(); const repair=e.target.closest('[data-yx-v133-repair]'); if(repair){repair.disabled=true; repair.textContent='修復中'; try{await api('/api/v133/db-safe-repair-now',{method:'POST'}); await render();}finally{repair.disabled=false; repair.textContent='安全補表';}} });
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',render); else setTimeout(render,600);
-})();
-/* END V133 full bug repair panel */
+/* END V134 performance cleanup */
