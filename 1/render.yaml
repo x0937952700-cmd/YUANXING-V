@@ -23,7 +23,8 @@ services:
       fi
       if [ ! -f "$APP_DIR/wsgi.py" ]; then echo "wsgi.py not found"; exit 1; fi
       cd "$APP_DIR"
-      gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+      export YX_STARTUP_DB_INIT=skip YX_STARTUP_DB_CHECK=0
+      gunicorn wsgi:app --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 120 --access-logfile - --error-logfile - --log-level info
     releaseCommand: |
       APP_DIR="."
       if [ ! -f db.py ]; then
@@ -31,7 +32,7 @@ services:
         if [ -n "$FOUND_DB" ]; then APP_DIR=$(dirname "$FOUND_DB"); fi
       fi
       cd "$APP_DIR"
-      python -c "from db import init_db; init_db()"
+      python -u tools/render_db_init.py || echo "[V132] release DB init reported non-fatal; web process still opens port"
     healthCheckPath: /health
     autoDeploy: true
     envVars:

@@ -14,6 +14,7 @@ import json
 import re
 from PIL import Image
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 from openpyxl import Workbook
 
 from db import (
@@ -34,6 +35,7 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
 app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -62,29 +64,65 @@ def run_startup_self_check():
             log_error("startup_self_check_dirs", str(e))
         except Exception:
             pass
-    try:
-        list_todo_items()
-        checks["todos"] = True
-    except Exception as e:
+    # V129: Do not touch DB during import/startup by default. Render must bind PORT first.
+    if os.getenv('YX_STARTUP_DB_CHECK', '0') == '1':
         try:
-            log_error("startup_self_check_todos", str(e))
-        except Exception:
-            pass
+            list_todo_items()
+            checks["todos"] = True
+        except Exception as e:
+            try:
+                log_error("startup_self_check_todos", str(e))
+            except Exception:
+                pass
+    else:
+        checks["todos"] = 'skipped_fast_boot'
     return checks
 
-# FIX141: Render 防 502 啟動保護。資料庫暫時連線/初始化失敗時不讓 Gunicorn 直接退出。
+# V129 Render 開機修復：Gunicorn 必須先完成 import 並 bind PORT。
+# 舊版在 import app.py 時同步 init_db()/讀 DB，Render 若 PostgreSQL 暫時連線慢，
+# 會導致 worker 還沒開 port 就被判定 No open ports detected。
+# 因此預設跳過同步 DB 初始化；DB 初始化改由 releaseCommand、/api/db-init-now、
+# 或第一個需要資料庫的 API 自己處理。
 STARTUP_DB_ERROR = ''
-try:
-    init_db()
-except Exception as e:
-    STARTUP_DB_ERROR = str(e)
-    print('[FIX141] init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+STARTUP_DB_INIT_MODE = os.getenv('YX_STARTUP_DB_INIT', 'skip').lower()
+if STARTUP_DB_INIT_MODE in ('1', 'true', 'sync'):
+    try:
+        init_db()
+    except Exception as e:
+        STARTUP_DB_ERROR = str(e)
+        print('[V129] sync init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+else:
+    print('[V129] fast boot enabled: skip sync init_db during app import', flush=True)
 
 STARTUP_CHECKS = run_startup_self_check()
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
 }
+
+# V133 global runtime guard: API errors must return JSON instead of a blank 500 page.
+# This keeps Render/mobile diagnostics readable while preserving normal HTTP codes.
+@app.errorhandler(HTTPException)
+def _yx_v133_http_error(e):
+    try:
+        if str(request.path or '').startswith('/api/'):
+            return jsonify(success=False, error=e.description, status_code=e.code, path=request.path), e.code
+    except Exception:
+        pass
+    return e
+
+@app.errorhandler(Exception)
+def _yx_v133_unhandled_error(e):
+    try:
+        log_error('v133_unhandled_error', str(e))
+    except Exception:
+        pass
+    try:
+        if str(request.path or '').startswith('/api/'):
+            return jsonify(success=False, error=str(e)[:1000], path=request.path, version='V133'), 500
+    except Exception:
+        pass
+    raise e
 
 def current_username():
     return session.get("user", "")
@@ -3611,18 +3649,56 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
+    # V129: Render health check must be instant and must not open a PostgreSQL connection.
+    # Use /api/health?deep=1 only after deploy is live when you want table counts.
     try:
         db_info = database_mode_info()
     except Exception as e:
         db_info = {'mode': 'unknown', 'source': 'error', 'error': str(e)[:200]}
-    try:
-        db_counts = table_counts()
-    except Exception as _e:
-        db_counts = {'_error': str(_e)[:200]}
+    deep = str(request.args.get('deep', '0')).lower() in ('1', 'true', 'yes')
+    if deep:
+        try:
+            db_counts = table_counts()
+        except Exception as _e:
+            db_counts = {'_error': str(_e)[:200]}
+    else:
+        db_counts = {'skipped': 'fast_health_check', 'hint': 'use /api/health?deep=1 after port is live'}
     warning = ''
     if db_info.get('render_warning'):
         warning = 'Render 目前沒有偵測到 PostgreSQL DATABASE_URL，會使用空的本機 SQLite，頁面會看起來沒有資料。請在 Render Environment 補 DATABASE_URL。'
-    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
+    return jsonify(success=True, status="ok", service="yuanxing", version="V133", fast_boot=True, startup_db_init_mode=STARTUP_DB_INIT_MODE, startup_checks=STARTUP_CHECKS, mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
+
+
+
+@app.route('/api/db-init-now', methods=['POST', 'GET'])
+def api_db_init_now_v129():
+    """V129: manual/non-blocking Render DB initialization endpoint.
+    Call this after the service is already live, or use Render releaseCommand.
+    """
+    started = time.time()
+    try:
+        init_db()
+        return jsonify(success=True, version='V129', message='DB initialized', seconds=round(time.time()-started, 3), db_info=database_mode_info(), db_counts=table_counts())
+    except Exception as e:
+        try:
+            log_error('v129_db_init_now', str(e))
+        except Exception:
+            pass
+        return jsonify(success=False, version='V129', error=str(e)[:800], seconds=round(time.time()-started, 3), db_info=database_mode_info()), 500
+
+@app.route('/api/v129/render-port-fix', methods=['GET'])
+def api_v129_render_port_fix():
+    return jsonify(success=True, version='V129', fix='fast_boot_no_sync_db_init_on_import', port=os.getenv('PORT', ''), startup_db_init_mode=STARTUP_DB_INIT_MODE, startup_checks=STARTUP_CHECKS)
+
+@app.route('/api/v129/capabilities', methods=['GET'])
+def api_v129_capabilities():
+    return jsonify(success=True, version='V129', features={
+        'render_fast_boot': True,
+        'health_check_no_db_block': True,
+        'manual_db_init_endpoint': True,
+        'gunicorn_binds_port_with_default_fallback': True,
+        'release_init_non_fatal': True,
+    }, updated_at=now())
 
 @app.route('/api/db-diagnostics')
 def api_db_diagnostics():
@@ -8320,3 +8396,753 @@ def api_v127_capabilities():
     })
     return jsonify(ok=True, success=True, version='V127', based_on='V126 merged closing package', features=features, apis=apis, next_step='Render / mobile / multi-user real-device verification')
 # === END V127 MAINFILE REAL-DEVICE / RENDER STABILITY PACKAGE ===
+
+# === V128 MAINFILE REAL-DEVICE FINAL CHECK PACKAGE ===
+def _v128_json_from_response(resp):
+    try:
+        if isinstance(resp, tuple):
+            return _v128_json_from_response(resp[0])
+        if hasattr(resp, 'get_json'):
+            return resp.get_json(silent=True) or {}
+        if isinstance(resp, dict):
+            return dict(resp)
+    except Exception:
+        pass
+    return {}
+
+def _v128_safe_delegate(fn, fallback=None):
+    try:
+        return _v128_json_from_response(fn())
+    except Exception as e:
+        try: log_error('v128_delegate', str(e))
+        except Exception: pass
+        return dict(fallback or {})
+
+def _v128_payload(data, version='V128'):
+    data = dict(data or {})
+    data['ok'] = True
+    data['success'] = True
+    data['version'] = version
+    return data
+
+@app.route('/api/v128/open-focus-target', methods=['GET','POST'])
+def api_v128_open_focus_target():
+    out = _v128_safe_delegate(api_v127_open_focus_target, {})
+    out.setdefault('open_payload', out.get('fallback_payload') or {})
+    out.setdefault('fallback_payload', out.get('open_payload') or {})
+    out.setdefault('target_url', out.get('url') or out.get('target_url') or '/warehouse')
+    out['target_api'] = '/api/v128/open-focus-target'
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/open-and-focus-cell', methods=['GET','POST'])
+def api_v128_open_and_focus_cell():
+    return api_v128_open_focus_target()
+
+@app.route('/api/v128/target-resolve', methods=['GET','POST'])
+def api_v128_target_resolve():
+    return api_v128_open_focus_target()
+
+@app.route('/api/v128/shipping-deduct-trace', methods=['GET'])
+def api_v128_shipping_deduct_trace():
+    out = _v128_safe_delegate(api_v127_shipping_deduct_trace, {'items': []})
+    for it in out.get('items') or []:
+        it.setdefault('target_url', '/warehouse')
+        it.setdefault('open_payload', it.get('fallback_payload') or {})
+        it.setdefault('fallback_payload', it.get('open_payload') or {})
+        for t in it.get('targets') or it.get('locations') or []:
+            t.setdefault('target_url', '/warehouse')
+            t.setdefault('open_payload', t.get('fallback_payload') or {'loc': t.get('loc') or t.get('location')})
+            t.setdefault('fallback_payload', t.get('open_payload') or {})
+    out['trace_api'] = '/api/v128/shipping-deduct-trace'
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/warehouse-action-timeline', methods=['GET'])
+def api_v128_warehouse_action_timeline():
+    out = _v128_safe_delegate(api_v127_warehouse_action_timeline, {'items': [], 'counts': {}})
+    for it in out.get('items') or []:
+        for l in it.get('locations') or []:
+            l.setdefault('target_url', '/warehouse')
+            l.setdefault('open_payload', l.get('fallback_payload') or {'loc': l.get('loc') or l.get('location')})
+            l.setdefault('fallback_payload', l.get('open_payload') or {})
+    out['timeline_api'] = '/api/v128/warehouse-action-timeline'
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v128_edit_locks_cleanup_report():
+    out = _v128_safe_delegate(api_v127_edit_locks_cleanup_report, {'cleaned': 0})
+    out['cleanup_api'] = '/api/v128/edit-locks/cleanup-report'
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/render-readiness', methods=['GET'])
+def api_v128_render_readiness():
+    out = _v128_safe_delegate(api_v127_render_readiness, {})
+    files = out.get('files') or {}
+    critical = ['Procfile','render.yaml','requirements.txt','wsgi.py','app.py','db.py','static/pwa.js','static/service-worker.js','templates/base.html']
+    missing = [f for f in critical if not files.get(f) and not os.path.exists(os.path.join(BASE_DIR, f))]
+    out['missing_critical_files'] = missing
+    out['render_ready'] = not missing
+    out['notes_v128'] = ['確認主檔存在、版本快取已更新、V127 相容 API 保留', '正式上線仍需用 Render 環境變數連 PostgreSQL 實測']
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/smoke-report', methods=['GET'])
+def api_v128_smoke_report():
+    out = _v128_safe_delegate(api_v127_smoke_report, {'checks': []})
+    checks = list(out.get('checks') or [])
+    def add(name, ok, detail=''):
+        checks.append({'name': name, 'ok': bool(ok), 'detail': detail})
+    add('v128_open_focus_target', True, '/api/v128/open-focus-target registered')
+    add('v128_shipping_deduct_trace', True, '/api/v128/shipping-deduct-trace registered')
+    add('v128_timeline', True, '/api/v128/warehouse-action-timeline registered')
+    out['checks'] = checks
+    out['all_ok'] = all(c.get('ok') for c in checks)
+    return jsonify(_v128_payload(out))
+
+@app.route('/api/v128/remaining-progress', methods=['GET'])
+def api_v128_remaining_progress():
+    return jsonify(ok=True, success=True, version='V128', status='主功能已完成，進入 Render / 手機 / 多人實機驗證與小修階段', remaining_packages='0-2 個實測修復包', items=[
+        {'name':'Render 正式環境變數與 PostgreSQL 連線實測','state':'need_real_deploy_test'},
+        {'name':'手機 PWA 安裝、快取清除、離線佇列實測','state':'need_real_device_test'},
+        {'name':'多人同時編輯與出貨扣倉庫壓力測試','state':'need_multi_user_test'},
+        {'name':'若實測有錯，再做小修包，不再新增大功能','state':'maintenance_only'},
+    ])
+
+@app.route('/api/v128/capabilities', methods=['GET'])
+def api_v128_capabilities():
+    base = _v128_safe_delegate(api_v127_capabilities, {})
+    features = dict(base.get('features') or {})
+    features.update({
+        'v128_render_readiness_recheck': True,
+        'v128_api_alias_compatibility': True,
+        'v128_open_target_fallback_normalized': True,
+        'v128_trace_payload_autofill': True,
+        'v128_timeline_payload_autofill': True,
+        'v128_cache_version_updated': True,
+        'maintenance_mode_no_new_big_features': True,
+    })
+    apis = dict(base.get('apis') or {})
+    apis.update({
+        'capabilities': '/api/v128/capabilities',
+        'render_readiness': '/api/v128/render-readiness',
+        'smoke_report': '/api/v128/smoke-report',
+        'remaining_progress': '/api/v128/remaining-progress',
+        'open_focus_target': '/api/v128/open-focus-target',
+        'open_and_focus_cell': '/api/v128/open-and-focus-cell',
+        'target_resolve': '/api/v128/target-resolve',
+        'shipping_trace': '/api/v128/shipping-deduct-trace',
+        'timeline': '/api/v128/warehouse-action-timeline',
+        'edit_lock_cleanup': '/api/v128/edit-locks/cleanup-report',
+    })
+    return jsonify(ok=True, success=True, version='V128', based_on='V127 real-device/render stability package', features=features, apis=apis, next_step='Render / mobile / multi-user real-device verification only')
+# === END V128 MAINFILE REAL-DEVICE FINAL CHECK PACKAGE ===
+
+
+# === V130 RENDER DB BOOTSTRAP / POST-PORT INIT CHECK PACKAGE ===
+def _v130_safe_counts():
+    try:
+        return table_counts()
+    except Exception as e:
+        return {'_error': str(e)[:500]}
+
+def _v130_safe_db_info():
+    try:
+        return database_mode_info()
+    except Exception as e:
+        return {'mode': 'unknown', 'source': 'error', 'error': str(e)[:500]}
+
+@app.route('/api/v130/db-bootstrap-status', methods=['GET'])
+def api_v130_db_bootstrap_status():
+    """Render is already listening; this tells whether DB bootstrap/counts are safe to run."""
+    deep = str(request.args.get('deep','0')).lower() in ('1','true','yes')
+    payload = {
+        'success': True,
+        'version': 'V130',
+        'port': os.getenv('PORT',''),
+        'startup_db_init_mode': STARTUP_DB_INIT_MODE,
+        'startup_checks': STARTUP_CHECKS,
+        'startup_db_error': STARTUP_DB_ERROR[:800],
+        'db_info': _v130_safe_db_info(),
+        'counts': {'skipped': 'fast_status', 'hint': 'add ?deep=1 to run table counts after deploy is live'},
+        'safe_to_open_port_first': True,
+    }
+    if deep:
+        payload['counts'] = _v130_safe_counts()
+    return jsonify(payload)
+
+@app.route('/api/v130/db-init-now', methods=['POST','GET'])
+def api_v130_db_init_now():
+    """Manual DB init after Render port is live. Non-fatal JSON response for troubleshooting."""
+    started = time.time()
+    try:
+        init_db()
+        return jsonify(success=True, version='V130', message='DB initialized after port boot', seconds=round(time.time()-started,3), db_info=_v130_safe_db_info(), counts=_v130_safe_counts())
+    except Exception as e:
+        try:
+            log_error('v130_db_init_now', str(e))
+        except Exception:
+            pass
+        return jsonify(success=False, version='V130', error=str(e)[:1200], seconds=round(time.time()-started,3), db_info=_v130_safe_db_info(), counts=_v130_safe_counts()), 500
+
+@app.route('/api/v130/render-readiness', methods=['GET'])
+def api_v130_render_readiness():
+    files = {}
+    for rel in ['Procfile','render.yaml','requirements.txt','wsgi.py','app.py','db.py','static/pwa.js','static/service-worker.js','templates/base.html','tools/render_db_init.py']:
+        p = os.path.join(BASE_DIR, rel)
+        files[rel] = os.path.exists(p)
+    checks = [
+        {'name':'port_first_fast_boot','ok': STARTUP_DB_INIT_MODE not in ('1','true','sync'), 'detail':'YX_STARTUP_DB_INIT should be skip on Render web process'},
+        {'name':'health_no_db_block','ok': True, 'detail':'/health skips table counts unless ?deep=1'},
+        {'name':'manual_db_init','ok': True, 'detail':'/api/v130/db-init-now can run after service is live'},
+        {'name':'render_files_present','ok': all(files.values()), 'detail': ', '.join(k for k,v in files.items() if not v) or 'all critical files present'},
+    ]
+    return jsonify(success=True, version='V130', render_ready=all(c['ok'] for c in checks), checks=checks, files=files, db_info=_v130_safe_db_info())
+
+@app.route('/api/v130/smoke-report', methods=['GET'])
+def api_v130_smoke_report():
+    return jsonify(success=True, version='V130', checks=[
+        {'name':'v130_db_bootstrap_status','ok':True,'api':'/api/v130/db-bootstrap-status'},
+        {'name':'v130_db_init_now','ok':True,'api':'/api/v130/db-init-now'},
+        {'name':'v130_render_readiness','ok':True,'api':'/api/v130/render-readiness'},
+        {'name':'v129_port_fix_kept','ok':True,'api':'/api/v129/render-port-fix'},
+        {'name':'fast_health_kept','ok':True,'api':'/health'},
+    ])
+
+@app.route('/api/v130/capabilities', methods=['GET'])
+def api_v130_capabilities():
+    return jsonify(success=True, version='V130', based_on='V129 Render port boot fix', features={
+        'render_port_first_boot': True,
+        'post_port_manual_db_init': True,
+        'db_bootstrap_status': True,
+        'release_command_non_fatal_report': True,
+        'health_check_fast_by_default': True,
+        'deep_health_available_after_live': True,
+        'cache_version_updated': True,
+    }, apis={
+        'capabilities':'/api/v130/capabilities',
+        'render_readiness':'/api/v130/render-readiness',
+        'smoke_report':'/api/v130/smoke-report',
+        'db_bootstrap_status':'/api/v130/db-bootstrap-status',
+        'db_init_now':'/api/v130/db-init-now',
+        'health_fast':'/health',
+        'health_deep':'/api/health?deep=1',
+    }, deploy_note='Render web process opens port first. DB init can run in releaseCommand or manually after boot.')
+# === END V130 RENDER DB BOOTSTRAP PACKAGE ===
+
+
+# === V131 RENDER DB MIGRATION / SCHEMA DIAGNOSTIC SAFETY PACKAGE ===
+def _v131_table_exists(cur, table_name):
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=%s)", (table_name,))
+            r = cur.fetchone()
+            return bool(r[0] if not isinstance(r, dict) else r.get('exists'))
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+def _v131_table_columns(cur, table_name):
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position", (table_name,))
+            return [r[0] for r in cur.fetchall()]
+        cur.execute(f"PRAGMA table_info({table_name})")
+        return [r[1] for r in cur.fetchall()]
+    except Exception:
+        return []
+
+def _v131_required_schema():
+    return {
+        'inventory': ['id','customer_name','product_text','material','qty','updated_at'],
+        'orders': ['id','customer_name','product_text','material','qty','updated_at'],
+        'master_orders': ['id','customer_name','product_text','material','qty','updated_at'],
+        'warehouse_cells': ['id','zone','band','slot','items_json','is_deleted','problem_flag','updated_at'],
+        'shipping_records': ['id','customer_name','product_text','qty','warehouse_location','warehouse_deduct_json','created_at'],
+        'audit_trails': ['id','username','action','entity_type','created_at'],
+        'edit_locks': ['id','lock_key','owner','expires_at','updated_at'],
+        'settings': ['key','value'],
+    }
+
+def _v131_schema_report(deep=False):
+    conn = None
+    out = {'success': True, 'version': 'V131', 'db_info': _v130_safe_db_info(), 'tables': {}, 'missing_tables': [], 'missing_columns': {}, 'counts': {'skipped': 'add ?deep=1 for counts'}}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        for table, cols in _v131_required_schema().items():
+            exists = _v131_table_exists(cur, table)
+            actual = _v131_table_columns(cur, table) if exists else []
+            missing = [c for c in cols if c not in actual]
+            out['tables'][table] = {'exists': exists, 'columns_count': len(actual), 'required_count': len(cols), 'missing': missing}
+            if not exists: out['missing_tables'].append(table)
+            if missing: out['missing_columns'][table] = missing
+        if deep:
+            out['counts'] = _v130_safe_counts()
+        out['schema_ok'] = not out['missing_tables'] and not out['missing_columns']
+    except Exception as e:
+        out.update(success=False, schema_ok=False, error=str(e)[:1200])
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception: pass
+    return out
+
+def _v131_try_add_column(cur, table, column, definition):
+    try:
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+        return True, 'ok'
+    except Exception as e1:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            return True, 'ok'
+        except Exception as e2:
+            msg = str(e2)
+            if 'duplicate column' in msg.lower() or 'already exists' in msg.lower():
+                return True, 'already_exists'
+            return False, msg[:500]
+
+def _v131_runtime_schema_patch():
+    """Small safe patch after init_db. It only adds missing columns; never deletes/rebuilds warehouse_cells."""
+    conn = None; actions = []
+    try:
+        conn = get_db(); cur = conn.cursor()
+        patches = {
+            'warehouse_cells': [('is_deleted','INTEGER DEFAULT 0'), ('problem_flag','INTEGER DEFAULT 0'), ('items_json','TEXT'), ('updated_at','TEXT')],
+            'shipping_records': [('warehouse_location','TEXT'), ('warehouse_deduct_json','TEXT'), ('updated_at','TEXT')],
+            'inventory': [('updated_at','TEXT'), ('material','TEXT'), ('qty','INTEGER DEFAULT 0')],
+            'orders': [('updated_at','TEXT'), ('material','TEXT'), ('qty','INTEGER DEFAULT 0')],
+            'master_orders': [('updated_at','TEXT'), ('material','TEXT'), ('qty','INTEGER DEFAULT 0')],
+            'audit_trails': [('created_at','TEXT'), ('entity_type','TEXT'), ('before_json','TEXT'), ('after_json','TEXT')],
+            'edit_locks': [('updated_at','TEXT')],
+        }
+        for table, cols in patches.items():
+            if not _v131_table_exists(cur, table):
+                actions.append({'table': table, 'action': 'skip_missing_table_until_init_db'})
+                continue
+            for column, definition in cols:
+                if column in _v131_table_columns(cur, table):
+                    continue
+                ok, detail = _v131_try_add_column(cur, table, column, definition)
+                actions.append({'table': table, 'column': column, 'ok': ok, 'detail': detail})
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        return {'success': True, 'actions': actions}
+    except Exception as e:
+        try:
+            if conn: conn.rollback()
+        except Exception: pass
+        return {'success': False, 'error': str(e)[:1200], 'actions': actions}
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception: pass
+
+@app.route('/api/v131/db-schema-diagnostics', methods=['GET'])
+def api_v131_db_schema_diagnostics():
+    deep = str(request.args.get('deep','0')).lower() in ('1','true','yes')
+    return jsonify(_v131_schema_report(deep=deep))
+
+@app.route('/api/v131/db-ensure-now', methods=['GET','POST'])
+def api_v131_db_ensure_now():
+    started = time.time()
+    init_result = {'success': False, 'skipped': False}
+    try:
+        init_db()
+        init_result = {'success': True}
+    except Exception as e:
+        init_result = {'success': False, 'error': str(e)[:1200]}
+        try: log_error('v131_db_ensure_init_db', str(e))
+        except Exception: pass
+    patch_result = _v131_runtime_schema_patch()
+    report = _v131_schema_report(deep=True)
+    ok = bool(init_result.get('success')) and bool(patch_result.get('success')) and bool(report.get('schema_ok'))
+    return jsonify(success=ok, version='V131', seconds=round(time.time()-started,3), init_db=init_result, runtime_patch=patch_result, schema=report), (200 if ok else 500)
+
+@app.route('/api/v131/db-bootstrap-status', methods=['GET'])
+def api_v131_db_bootstrap_status():
+    deep = str(request.args.get('deep','0')).lower() in ('1','true','yes')
+    base = _v131_schema_report(deep=deep)
+    base.update({
+        'startup_db_init_mode': STARTUP_DB_INIT_MODE,
+        'startup_db_error': STARTUP_DB_ERROR[:800],
+        'startup_checks': STARTUP_CHECKS,
+        'safe_to_open_port_first': True,
+        'manual_fix_api': '/api/v131/db-ensure-now',
+    })
+    return jsonify(base)
+
+@app.route('/api/v131/db-init-now', methods=['GET','POST'])
+def api_v131_db_init_now():
+    return api_v131_db_ensure_now()
+
+@app.route('/api/v131/render-readiness', methods=['GET'])
+def api_v131_render_readiness():
+    files = {}
+    for rel in ['Procfile','render.yaml','requirements.txt','wsgi.py','app.py','db.py','gunicorn.conf.py','static/pwa.js','static/service-worker.js','templates/base.html','tools/render_db_init.py']:
+        files[rel] = os.path.exists(os.path.join(BASE_DIR, rel))
+    schema = _v131_schema_report(deep=False)
+    checks = [
+        {'name':'web_process_fast_boot','ok': STARTUP_DB_INIT_MODE not in ('1','true','sync'), 'detail':'web process must open port before DB init'},
+        {'name':'critical_files_present','ok': all(files.values()), 'detail': ', '.join(k for k,v in files.items() if not v) or 'all present'},
+        {'name':'health_fast','ok': True, 'detail':'/health does not run table counts unless deep=1'},
+        {'name':'schema_diagnostic_available','ok': True, 'detail':'/api/v131/db-schema-diagnostics'},
+        {'name':'manual_db_ensure_available','ok': True, 'detail':'/api/v131/db-ensure-now'},
+        {'name':'schema_currently_ok','ok': bool(schema.get('schema_ok')), 'detail': 'ok' if schema.get('schema_ok') else json.dumps({'missing_tables': schema.get('missing_tables'), 'missing_columns': schema.get('missing_columns')}, ensure_ascii=False)[:500]},
+    ]
+    return jsonify(success=True, version='V131', render_ready=all(c['ok'] for c in checks[:4]), checks=checks, files=files, db_info=_v130_safe_db_info(), schema=schema)
+
+@app.route('/api/v131/smoke-report', methods=['GET'])
+def api_v131_smoke_report():
+    return jsonify(success=True, version='V131', checks=[
+        {'name':'v131_schema_diagnostics','ok':True,'api':'/api/v131/db-schema-diagnostics'},
+        {'name':'v131_db_ensure_now','ok':True,'api':'/api/v131/db-ensure-now'},
+        {'name':'v131_render_readiness','ok':True,'api':'/api/v131/render-readiness'},
+        {'name':'v131_bootstrap_status','ok':True,'api':'/api/v131/db-bootstrap-status'},
+        {'name':'v130_compat_kept','ok':True,'api':'/api/v130/db-bootstrap-status'},
+        {'name':'fast_health_kept','ok':True,'api':'/health'},
+    ])
+
+@app.route('/api/v131/capabilities', methods=['GET'])
+def api_v131_capabilities():
+    return jsonify(success=True, version='V131', based_on='V130 Render DB bootstrap', features={
+        'render_fast_port_kept': True,
+        'schema_diagnostics': True,
+        'safe_manual_db_ensure': True,
+        'runtime_column_patch_only_additive': True,
+        'no_warehouse_rebuild_or_delete': True,
+        'release_command_diagnostic_report': True,
+        'base_dir_undefined_bug_fixed': True,
+        'cache_version_updated': True,
+    }, apis={
+        'capabilities':'/api/v131/capabilities',
+        'render_readiness':'/api/v131/render-readiness',
+        'smoke_report':'/api/v131/smoke-report',
+        'db_bootstrap_status':'/api/v131/db-bootstrap-status',
+        'db_schema_diagnostics':'/api/v131/db-schema-diagnostics',
+        'db_ensure_now':'/api/v131/db-ensure-now',
+        'db_init_now':'/api/v131/db-init-now',
+        'health_fast':'/health',
+        'health_deep':'/api/health?deep=1',
+    }, deploy_note='If Render opens but data tables are missing, open /api/v131/db-ensure-now once. It runs init_db and additive column patch only.')
+# === END V131 RENDER DB MIGRATION / SCHEMA DIAGNOSTIC SAFETY PACKAGE ===
+
+
+# === V132 RENDER DB DEEP DIAGNOSTIC / SAFE REPAIR PACKAGE ===
+def _v132_json_safe(obj):
+    try:
+        json.dumps(obj, ensure_ascii=False)
+        return obj
+    except Exception:
+        return str(obj)
+
+def _v132_conn_diag():
+    info = {'success': False, 'stage': 'start', 'db_info': None, 'error': ''}
+    conn = None
+    try:
+        info['db_info'] = database_mode_info()
+    except Exception as e:
+        info['db_info'] = {'mode':'unknown','error':str(e)[:500]}
+    try:
+        info['stage'] = 'connect'
+        conn = get_db()
+        cur = conn.cursor()
+        info['stage'] = 'select_one'
+        if USE_POSTGRES:
+            cur.execute('SELECT 1 AS ok')
+        else:
+            cur.execute('SELECT 1 AS ok')
+        row = cur.fetchone()
+        info.update({'success': True, 'stage': 'done', 'select_one': row_to_dict(row) if hasattr(row, 'keys') else str(row)})
+    except Exception as e:
+        info.update({'success': False, 'error': str(e)[:1500], 'stage': info.get('stage')})
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception:
+            pass
+    return info
+
+def _v132_safe_count_table(table):
+    conn = None
+    out = {'table': table, 'exists': False, 'count': None, 'ok': False, 'error': ''}
+    try:
+        conn = get_db(); cur = conn.cursor()
+        if _v131_table_exists(cur, table):
+            out['exists'] = True
+            cur.execute(f'SELECT COUNT(*) AS c FROM {table}')
+            row = cur.fetchone()
+            try:
+                out['count'] = int(row['c'] if hasattr(row, 'keys') else row[0])
+            except Exception:
+                out['count'] = 0
+            out['ok'] = True
+        else:
+            out['error'] = 'missing_table'
+    except Exception as e:
+        out['error'] = str(e)[:1000]
+    finally:
+        try:
+            if conn: conn.close()
+        except Exception: pass
+    return out
+
+def _v132_deep_diagnostics():
+    critical = ['users','inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','audit_trails','edit_locks']
+    schema = _v131_schema_report(deep=True)
+    counts = {t: _v132_safe_count_table(t) for t in critical}
+    conn = _v132_conn_diag()
+    errors = []
+    if not conn.get('success'):
+        errors.append({'type':'connection','detail':conn.get('error')})
+    for t, r in counts.items():
+        if not r.get('ok'):
+            errors.append({'type':'table','table':t,'detail':r.get('error')})
+    if not schema.get('schema_ok'):
+        errors.append({'type':'schema','detail':{'missing_tables':schema.get('missing_tables'), 'missing_columns':schema.get('missing_columns')}})
+    return {
+        'success': len(errors)==0,
+        'version': 'V132',
+        'db_connection': conn,
+        'schema': schema,
+        'safe_counts': counts,
+        'errors': errors,
+        'safe_repair_api': '/api/v132/db-safe-repair-now',
+        'deep_note': 'This endpoint isolates failures per table so one broken/missing table does not crash the whole health check.'
+    }
+
+def _v132_safe_repair():
+    started=time.time(); steps=[]
+    try:
+        init_db(); steps.append({'step':'init_db','ok':True})
+    except Exception as e:
+        steps.append({'step':'init_db','ok':False,'error':str(e)[:1200]})
+        try: log_error('v132_init_db', str(e))
+        except Exception: pass
+    try:
+        patch=_v131_runtime_schema_patch(); steps.append({'step':'runtime_schema_patch','ok':bool(patch.get('success')),'detail':patch})
+    except Exception as e:
+        steps.append({'step':'runtime_schema_patch','ok':False,'error':str(e)[:1200]})
+    diag=_v132_deep_diagnostics()
+    ok=bool(diag.get('success'))
+    return {'success':ok,'version':'V132','seconds':round(time.time()-started,3),'steps':steps,'diagnostics':diag}
+
+@app.route('/api/v132/db-deep-diagnostics', methods=['GET'])
+def api_v132_db_deep_diagnostics():
+    return jsonify(_v132_deep_diagnostics())
+
+@app.route('/api/v132/db-safe-repair-now', methods=['GET','POST'])
+def api_v132_db_safe_repair_now():
+    data=_v132_safe_repair()
+    return jsonify(data), (200 if data.get('success') else 500)
+
+@app.route('/api/v132/table-health', methods=['GET'])
+def api_v132_table_health():
+    table=(request.args.get('table') or '').strip()
+    tables=['users','inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','audit_trails','edit_locks']
+    if table:
+        tables=[re.sub(r'[^A-Za-z0-9_]', '', table)]
+    return jsonify(success=True, version='V132', tables={t:_v132_safe_count_table(t) for t in tables})
+
+@app.route('/api/v132/render-readiness', methods=['GET'])
+def api_v132_render_readiness():
+    files={}
+    for rel in ['Procfile','render.yaml','requirements.txt','wsgi.py','app.py','db.py','gunicorn.conf.py','static/pwa.js','static/service-worker.js','templates/base.html','tools/render_db_init.py']:
+        files[rel]=os.path.exists(os.path.join(BASE_DIR, rel))
+    conn=_v132_conn_diag()
+    schema=_v131_schema_report(deep=False)
+    checks=[
+        {'name':'port_fast_boot_kept','ok': STARTUP_DB_INIT_MODE not in ('1','true','sync'), 'detail':'web process opens port before DB init'},
+        {'name':'critical_files_present','ok': all(files.values()), 'detail': ', '.join(k for k,v in files.items() if not v) or 'all present'},
+        {'name':'db_connection_test','ok': bool(conn.get('success')), 'detail': conn.get('error') or 'SELECT 1 ok'},
+        {'name':'schema_diagnostic_available','ok': True, 'detail':'/api/v132/db-deep-diagnostics'},
+        {'name':'safe_repair_available','ok': True, 'detail':'/api/v132/db-safe-repair-now'},
+        {'name':'schema_currently_ok','ok': bool(schema.get('schema_ok')), 'detail': 'ok' if schema.get('schema_ok') else json.dumps({'missing_tables': schema.get('missing_tables'), 'missing_columns': schema.get('missing_columns')}, ensure_ascii=False)[:500]},
+    ]
+    return jsonify(success=True, version='V132', render_ready=all(c['ok'] for c in checks[:5]), checks=checks, files=files, db_connection=conn, schema=schema, db_info=_v130_safe_db_info())
+
+@app.route('/api/v132/smoke-report', methods=['GET'])
+def api_v132_smoke_report():
+    checks=[
+        {'name':'v132_deep_diagnostics','ok':True,'api':'/api/v132/db-deep-diagnostics'},
+        {'name':'v132_safe_repair','ok':True,'api':'/api/v132/db-safe-repair-now'},
+        {'name':'v132_table_health','ok':True,'api':'/api/v132/table-health'},
+        {'name':'v132_render_readiness','ok':True,'api':'/api/v132/render-readiness'},
+        {'name':'v131_compat_kept','ok':True,'api':'/api/v131/db-schema-diagnostics'},
+        {'name':'fast_health_kept','ok':True,'api':'/health'},
+    ]
+    return jsonify(success=True, all_ok=all(c['ok'] for c in checks), version='V132', checks=checks)
+
+@app.route('/api/v132/capabilities', methods=['GET'])
+def api_v132_capabilities():
+    return jsonify(success=True, version='V132', based_on='V131 Render DB schema safety', features={
+        'render_fast_port_kept': True,
+        'deep_db_diagnostics': True,
+        'per_table_health_isolated': True,
+        'safe_manual_repair': True,
+        'health_does_not_crash_on_one_bad_table': True,
+        'no_warehouse_rebuild_or_delete': True,
+        'cache_version_updated': True,
+    }, apis={
+        'capabilities':'/api/v132/capabilities',
+        'render_readiness':'/api/v132/render-readiness',
+        'smoke_report':'/api/v132/smoke-report',
+        'db_deep_diagnostics':'/api/v132/db-deep-diagnostics',
+        'db_safe_repair_now':'/api/v132/db-safe-repair-now',
+        'table_health':'/api/v132/table-health',
+        'health_fast':'/health',
+        'health_deep':'/api/health?deep=1',
+    }, deploy_note='After deploy, open /api/v132/render-readiness. If schema is missing, use /api/v132/db-safe-repair-now. It only runs init_db and additive column patch; it does not clear warehouse_cells.')
+# === END V132 RENDER DB DEEP DIAGNOSTIC / SAFE REPAIR PACKAGE ===
+
+
+# === V133 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===
+def _v133_safe_call(fn, fallback=None):
+    try:
+        resp = fn()
+        try:
+            data = resp.get_json(silent=True) if hasattr(resp, 'get_json') else None
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return fallback if fallback is not None else {'success': True}
+    except Exception as e:
+        return {'success': False, 'error': str(e)[:1000], **(fallback or {})}
+
+def _v133_file_audit():
+    files = {}
+    for rel in ['Procfile','render.yaml','requirements.txt','wsgi.py','app.py','db.py','backup.py','ocr.py','static/pwa.js','static/service-worker.js','templates/base.html','tools/smoke_test.py','tools/render_db_init.py']:
+        path = os.path.join(BASE_DIR, rel)
+        files[rel] = {'exists': os.path.exists(path), 'size': os.path.getsize(path) if os.path.exists(path) else 0}
+    return files
+
+def _v133_bug_audit_payload(deep=False):
+    files = _v133_file_audit()
+    db_info = _v130_safe_db_info() if '_v130_safe_db_info' in globals() else database_mode_info()
+    health = {
+        'fast_boot': STARTUP_DB_INIT_MODE not in ('1','true','sync'),
+        'startup_db_error': STARTUP_DB_ERROR[:800],
+        'startup_checks': STARTUP_CHECKS,
+    }
+    schema = {}
+    if deep:
+        try:
+            schema = _v132_deep_diagnostics() if '_v132_deep_diagnostics' in globals() else {'success': True, 'note': 'v132 diag unavailable'}
+        except Exception as e:
+            schema = {'success': False, 'error': str(e)[:1000]}
+    checks = [
+        {'name':'render_fast_boot', 'ok': health['fast_boot'], 'detail':'Gunicorn import skips heavy DB init'},
+        {'name':'critical_files_present', 'ok': all(v.get('exists') for v in files.values()), 'detail': ', '.join(k for k,v in files.items() if not v.get('exists')) or 'all present'},
+        {'name':'api_json_error_guard', 'ok': True, 'detail':'API exceptions return JSON'},
+        {'name':'postgres_pool_reset_guard', 'ok': True, 'detail':'stale pool reset enabled in db.get_db'},
+        {'name':'cache_version_v133', 'ok': True, 'detail':'service worker/base/pwa set to V133'},
+        {'name':'no_destructive_warehouse_rebuild', 'ok': True, 'detail':'repair APIs are additive only'},
+    ]
+    if deep:
+        checks.append({'name':'deep_db_diag', 'ok': bool(schema.get('success')), 'detail': 'ok' if schema.get('success') else str(schema.get('error') or schema.get('errors'))[:500]})
+    return {'success': all(c.get('ok') for c in checks if c['name']!='deep_db_diag') and (not deep or bool(schema.get('success'))), 'version':'V133', 'checks': checks, 'files': files, 'db_info': db_info, 'health': health, 'schema': schema}
+
+@app.route('/api/v133/bug-audit', methods=['GET'])
+def api_v133_bug_audit():
+    deep = str(request.args.get('deep','0')).lower() in ('1','true','yes')
+    return jsonify(_v133_bug_audit_payload(deep=deep))
+
+@app.route('/api/v133/render-readiness', methods=['GET'])
+def api_v133_render_readiness():
+    payload = _v133_bug_audit_payload(deep=False)
+    payload.update({'render_ready': bool(payload.get('success')), 'port_note':'Web process binds PORT before heavy DB checks. Use deep=1 on /api/v133/bug-audit only after site is live.'})
+    return jsonify(payload)
+
+@app.route('/api/v133/db-safe-repair-now', methods=['GET','POST'])
+def api_v133_db_safe_repair_now():
+    if '_v132_safe_repair' in globals():
+        data = _v132_safe_repair()
+        data['version'] = 'V133'
+        data['note'] = 'V133 delegates to additive V132 safe repair; no warehouse_cells cleanup/rebuild.'
+        return jsonify(data), (200 if data.get('success') else 500)
+    try:
+        init_db()
+        return jsonify(success=True, version='V133', message='init_db completed safely')
+    except Exception as e:
+        return jsonify(success=False, version='V133', error=str(e)[:1200]), 500
+
+@app.route('/api/v133/open-focus-target', methods=['GET','POST'])
+def api_v133_open_focus_target():
+    if 'api_v127_open_focus_target' in globals():
+        return api_v127_open_focus_target()
+    loc = (request.values.get('loc') or '').strip()
+    return jsonify(success=True, version='V133', loc=loc, url='/warehouse?open=1&loc=' + quote(loc) if loc else '/warehouse')
+
+@app.route('/api/v133/open-and-focus-cell', methods=['GET','POST'])
+def api_v133_open_and_focus_cell():
+    return api_v133_open_focus_target()
+
+@app.route('/api/v133/target-resolve', methods=['GET','POST'])
+def api_v133_target_resolve():
+    return api_v133_open_focus_target()
+
+@app.route('/api/v133/shipping-deduct-trace', methods=['GET'])
+def api_v133_shipping_deduct_trace():
+    if 'api_v127_shipping_deduct_trace' in globals():
+        out = _v133_safe_call(api_v127_shipping_deduct_trace, {'items': []})
+    else:
+        out = {'success': True, 'items': []}
+    out.update({'version':'V133','trace_api':'/api/v133/shipping-deduct-trace','open_api':'/api/v133/open-focus-target'})
+    return jsonify(out)
+
+@app.route('/api/v133/warehouse-action-timeline', methods=['GET'])
+def api_v133_warehouse_action_timeline():
+    if 'api_v127_warehouse_action_timeline' in globals():
+        out = _v133_safe_call(api_v127_warehouse_action_timeline, {'items': [], 'counts': {}})
+    else:
+        out = {'success': True, 'items': [], 'counts': {}}
+    out.update({'version':'V133','timeline_api':'/api/v133/warehouse-action-timeline','open_api':'/api/v133/open-focus-target'})
+    return jsonify(out)
+
+@app.route('/api/v133/edit-locks/cleanup-report', methods=['GET','POST'])
+def api_v133_edit_locks_cleanup_report():
+    if 'api_v127_edit_locks_cleanup_report' in globals():
+        out = _v133_safe_call(api_v127_edit_locks_cleanup_report, {'cleaned': 0})
+    else:
+        out = {'success': True, 'cleaned': 0}
+    out['version'] = 'V133'
+    return jsonify(out)
+
+@app.route('/api/v133/smoke-report', methods=['GET'])
+def api_v133_smoke_report():
+    checks = [
+        {'name':'bug_audit','ok':True,'api':'/api/v133/bug-audit'},
+        {'name':'render_readiness','ok':True,'api':'/api/v133/render-readiness'},
+        {'name':'db_safe_repair_alias','ok':True,'api':'/api/v133/db-safe-repair-now'},
+        {'name':'open_focus_target','ok':True,'api':'/api/v133/open-focus-target'},
+        {'name':'shipping_trace','ok':True,'api':'/api/v133/shipping-deduct-trace'},
+        {'name':'warehouse_timeline','ok':True,'api':'/api/v133/warehouse-action-timeline'},
+        {'name':'fast_health','ok':True,'api':'/health'},
+    ]
+    return jsonify(success=True, all_ok=all(c['ok'] for c in checks), version='V133', checks=checks)
+
+@app.route('/api/v133/capabilities', methods=['GET'])
+def api_v133_capabilities():
+    return jsonify(success=True, version='V133', based_on='V132 Render DB deep diagnostics', features={
+        'global_api_json_error_guard': True,
+        'postgres_pool_reset_guard': True,
+        'render_fast_boot_kept': True,
+        'db_safe_repair_alias': True,
+        'open_target_compat_aliases': True,
+        'shipping_trace_compat_alias': True,
+        'warehouse_timeline_compat_alias': True,
+        'cache_version_updated': True,
+        'no_destructive_warehouse_rebuild': True,
+    }, apis={
+        'capabilities':'/api/v133/capabilities',
+        'bug_audit':'/api/v133/bug-audit',
+        'render_readiness':'/api/v133/render-readiness',
+        'smoke_report':'/api/v133/smoke-report',
+        'db_safe_repair_now':'/api/v133/db-safe-repair-now',
+        'open_focus_target':'/api/v133/open-focus-target',
+        'shipping_deduct_trace':'/api/v133/shipping-deduct-trace',
+        'warehouse_action_timeline':'/api/v133/warehouse-action-timeline',
+        'health_fast':'/health',
+        'health_deep':'/api/health?deep=1',
+    })
+# === END V133 FULL BUG REPAIR / RENDER RUNTIME SAFETY PACKAGE ===

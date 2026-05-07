@@ -5929,3 +5929,32 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 .yx-v127-ready-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.72);box-shadow:0 12px 28px rgba(15,23,42,.08);border:1px solid rgba(148,163,184,.22)}
 .yx-v127-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-v127-head button{border:0;border-radius:999px;padding:8px 14px;background:#111827;color:#fff;font-weight:800}.yx-v127-body{font-size:13px;line-height:1.7}.yx-v127-body span{display:inline-block;margin:2px 4px;padding:2px 8px;border-radius:999px;background:#eef2ff}.yx-v127-body span.ok{background:#ecfdf5;color:#047857}.yx-v127-body span.warn{background:#fff7ed;color:#c2410c}
 /* END V127 */
+
+/* V128 real-device final check panel */
+.yx-v128-ready-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.82);box-shadow:0 10px 28px rgba(40,70,110,.10);border:1px solid rgba(120,150,190,.20)}
+.yx-v128-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:800;color:#243041}
+.yx-v128-head button{border:0;border-radius:12px;padding:8px 12px;background:#eef3f9;color:#253245;font-weight:800}
+.yx-v128-body{margin-top:10px;color:#52606f;font-weight:700}
+.yx-v128-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.yx-v128-grid span{border-radius:12px;padding:8px 10px;background:#f4f7fb;color:#334155}
+.yx-v128-grid .ok{background:#eaf8ef;color:#166534}.yx-v128-grid .warn{background:#fff7ed;color:#9a3412}
+.yx-v128-focus-cell{outline:4px solid rgba(37,99,235,.35)!important;box-shadow:0 0 0 8px rgba(37,99,235,.12)!important;animation:yxV128Pulse 1s ease-in-out 4}
+.yx-v128-focus-row{outline:3px solid rgba(245,158,11,.45)!important;background:rgba(255,247,237,.9)!important;animation:yxV128Pulse 1s ease-in-out 4}
+@keyframes yxV128Pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.015)}}
+/* END V128 */
+
+/* V131 Render DB bootstrap panel */
+.yx-v131-render-db-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.82);box-shadow:0 10px 28px rgba(15,23,42,.08);border:1px solid rgba(148,163,184,.28)}
+.yx-v131-head{display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}.yx-v131-head b{font-size:15px}.yx-v131-head button{border:0;border-radius:12px;padding:8px 12px;background:#eef2ff;color:#1f2937;font-weight:800}.yx-v131-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}.yx-v131-grid span{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:8px 10px}.yx-v131-grid .ok{color:#047857;background:#ecfdf5}.yx-v131-grid .warn{color:#b45309;background:#fffbeb}
+
+/* V131 Render DB schema diagnostics panel */
+.yx-v131-render-schema-panel .error-card{margin-top:10px;padding:10px;border-radius:12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+
+/* V133 Render DB deep diagnostics */
+.yx-v132-render-diag-panel .error-card{margin-top:10px;padding:10px;border-radius:12px;background:#fff1f2;color:#9f1239;border:1px solid #fecdd3;font-size:13px;word-break:break-word}
+.yx-v132-render-diag-panel .yx-v131-grid span{min-height:36px}
+
+
+/* V133 full bug repair diagnostics panel */
+.yx-v133-bug-panel{margin:14px 0;padding:14px;border-radius:18px;background:rgba(255,255,255,.74);box-shadow:0 12px 30px rgba(40,30,20,.08)}
+.yx-v133-body{display:grid;gap:8px;margin:10px 0}.yx-v133-check{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:9px 11px;border-radius:14px;background:rgba(255,255,255,.72);border:1px solid rgba(120,100,80,.10)}.yx-v133-check small{grid-column:1/-1;color:#6b625a}.yx-v133-check.ok span{color:#247a44;font-weight:800}.yx-v133-check.bad{border-color:rgba(180,50,40,.25);background:rgba(255,235,232,.76)}.yx-v133-check.bad span{color:#b3261e;font-weight:900}

@@ -199,7 +199,7 @@ def _get_pg_pool():
     global _PG_POOL
     if _PG_POOL is None:
         minconn = int(os.getenv('PG_POOL_MIN', '1') or '1')
-        maxconn = int(os.getenv('PG_POOL_MAX', '4') or '4')
+        maxconn = int(os.getenv('PG_POOL_MAX', '8') or '8')
         _PG_POOL = _pg_pool.SimpleConnectionPool(minconn, maxconn, dsn=DATABASE_URL, connect_timeout=10)
     return _PG_POOL
 
@@ -234,6 +234,23 @@ def get_db():
                     time.sleep(0.35)
                 except Exception:
                     pass
+        # V133: if a pooled connection became stale/exhausted, reset pool once before
+        # falling back to a direct psycopg2 connection. This prevents intermittent
+        # Render runtime failures after deploy/restart without rebuilding data.
+        try:
+            global _PG_POOL
+            if _PG_POOL is not None:
+                try:
+                    _PG_POOL.closeall()
+                except Exception:
+                    pass
+                _PG_POOL = None
+            pg_pool = _get_pg_pool()
+            conn = pg_pool.getconn()
+            conn.autocommit = False
+            return _PooledPGConnection(pg_pool, conn)
+        except Exception as e2:
+            last_error = e2 or last_error
         try:
             conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
             conn.autocommit = False

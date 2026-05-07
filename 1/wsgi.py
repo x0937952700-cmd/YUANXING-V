@@ -1,13 +1,15 @@
-# V65 startup entry verified.
-# V59 Render entrypoint retained; DB init is still handled by app startup/releaseCommand.
-# V58 full warehouse/ship/product repair: keep existing app entrypoint, no page/event logic changes.
+"""V131 Render/Gunicorn entrypoint.
+Fast boot rule: never run heavy DB initialization while Gunicorn is importing the app,
+otherwise Render cannot detect an open port and deploy fails with "No open ports detected".
 """
-Render / Gunicorn entrypoint. V58 full warehouse/ship/product repair build.
-This file exists so both of these start commands work:
-  gunicorn wsgi:app --bind 0.0.0.0:$PORT
-  gunicorn app:app --config gunicorn.conf.py
-"""
-from app import app
+import os
+
+# Default fast boot. Set YX_STARTUP_DB_INIT=sync only when debugging locally.
+os.environ.setdefault("YX_STARTUP_DB_INIT", "skip")
+os.environ.setdefault("YX_STARTUP_DB_CHECK", "0")
+
+from app import app  # noqa: E402
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(__import__('os').environ.get('PORT', 5000)))
+    port = int(os.environ.get("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port)
