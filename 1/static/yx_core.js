@@ -28,7 +28,7 @@
   root.undo = root.undo || {};
   root.audit = root.audit || {};
   root.sync = root.sync || {};
-  root.version = '119-batch2';
+  root.version = '119-longpress-cache-v124';
   window.YX = root;
 })();
 
@@ -37,7 +37,7 @@
   'use strict';
   if (window.__YX_CACHE_GUARD_RUNNING__) return;
   window.__YX_CACHE_GUARD_RUNNING__ = true;
-  const VERSION='119';
+  const VERSION='124';
   const FLAG='yx_cache_guard_'+VERSION;
   const DB_FLAG='yx_indexeddb_clear_'+VERSION;
   function idle(fn){
@@ -74,7 +74,8 @@
   async function run(){
     try{
       if(localStorage.getItem(FLAG)==='1') return;
-      const sw=await unregisterServiceWorkers();
+      // V124: keep the current safe Service Worker registered; only clear old cache buckets once.
+      const sw={count:0};
       const cache=await clearBrowserCachesOnce();
       const idb=await clearOldIndexedDBOnce();
       localStorage.setItem(FLAG,'1');

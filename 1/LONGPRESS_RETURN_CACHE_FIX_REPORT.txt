@@ -1,0 +1,57 @@
+V124 倉庫圖長按 / 退回 / 快取修復報告
+
+基準包：YUANXING_V119_longpress_save_fixed(2).zip
+輸出包：YUANXING_V119_longpress_return_cache_fixed.zip
+
+本次只修主檔，不新增補丁檔，不新增第二套 renderer，不用 setInterval / MutationObserver 補按鈕。
+
+已修復：
+1. 格位編輯「刪除該筆商品」
+   - 前端立即從目前此格商品移除。
+   - 該筆商品件數立即退回下拉商品選單。
+   - 本機倉庫圖格子立即更新。
+   - 背景送 /api/warehouse/cell 永久保存。
+   - 可以連續刪多筆，不必等背景儲存完成。
+
+2. 格位編輯「減少數量 / 修改尺寸支數」
+   - data-current-qty / data-current-product / material / placement change 後立即套用。
+   - 減少的件數立即退回下拉選單。
+   - 同步本機格子與本機 available cache。
+   - 背景保存成功後讀回 saved_cell。
+
+3. 長按操作表穩定化
+   - 選單按鈕新增直接 pointerup/click 執行器。
+   - 內建 700ms 操作鎖，避免手機 pointerup + click 雙觸發。
+   - 保留：開啟/編輯、標記/取消問題格、新增一格、批量新增、刪除此空格、批量刪除空格、返回該格。
+   - 仍維持單一 listener 與單一 renderer。
+
+4. 倉庫圖快取顯示
+   - 開倉庫頁先讀 localStorage 的 warehouse cache 立即畫面顯示。
+   - 背景再抓最新 /api/warehouse。
+   - available-items 也有本機快取，開 modal 下拉不再空等。
+   - 不快取 API 回應，不攔截 fetch，避免舊資料覆蓋新版。
+
+5. PWA 靜態快取恢復
+   - pwa.js 重新啟用 service worker。
+   - service worker 只快取 CSS / icons / favicon。
+   - /api/ 不快取。
+   - 新版本號 v124，會清舊 cache bucket。
+
+有修改的主檔：
+- static/yx_pages/warehouse_page.js
+- static/css/warehouse.css
+- static/yx_core.js
+- static/yx_cache.js
+- static/pwa.js
+- static/service-worker.js
+- static/manifest.webmanifest
+- templates/base.html
+- app.py
+- db.py
+- migrations/postgres_v124_warehouse_longpress_cache_return.sql
+
+檢查：
+- warehouse_page.js 通過 node -c
+- app.py / db.py 通過 py_compile
+- 沒有新增 setInterval
+- 沒有新增 MutationObserver

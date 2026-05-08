@@ -7489,3 +7489,8 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 def warehouse_customer_key(name):
     text = str(name or '').strip()
     return text or '庫存'
+
+# V124 warehouse long-press/cache marker: DB mainfile participates in this release.
+def warehouse_longpress_cache_version():
+    """Return the warehouse long-press/cache schema marker used by /api/health and migrations."""
+    return 'v124-warehouse-longpress-cache-return'

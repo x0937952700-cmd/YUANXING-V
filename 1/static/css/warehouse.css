@@ -1,1 +1,23 @@
 /* warehouse.css: formal split stylesheet. Base rules preserved in base.css; new scoped rules for warehouse attach here. */
+
+/* V124 warehouse long-press and instant-return stability: scoped to warehouse page only. */
+body[data-module="warehouse"] #yx-final-warehouse-menu{
+  touch-action: manipulation;
+  user-select: none;
+  pointer-events: auto;
+  max-width: min(210px, calc(100vw - 24px));
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu button{
+  touch-action: manipulation;
+  pointer-events: auto;
+  cursor: pointer;
+}
+body[data-module="warehouse"] .yx-direct-current-item[data-yx-saving="1"]{
+  opacity: .86;
+}
+body[data-module="warehouse"] .yx-current-qty-input,
+body[data-module="warehouse"] .yx-current-product-input,
+body[data-module="warehouse"] .yx-current-material-input,
+body[data-module="warehouse"] .yx-current-placement-input{
+  touch-action: manipulation;
+}

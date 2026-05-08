@@ -2013,7 +2013,7 @@ def api_warehouse():
             c = int(cell.get('column_index') or 1)
             n = int(cell.get('slot_number') or 1)
             zones.setdefault(z, {}).setdefault(c, {})[n] = cell
-        return jsonify(success=True, zones=zones, cells=cells)
+        return jsonify(success=True, zones=zones, cells=cells, cache_version='v124-warehouse-longpress-cache', cache_policy='client-local-first')
     except Exception as e:
         log_error("api_warehouse", str(e))
         return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], error=str(e))
@@ -2316,7 +2316,7 @@ def api_warehouse_available_items():
                 'needs_red': True,
             })
         items.sort(key=lambda r: (r.get('zone') or '', r.get('customer_name') or '庫存', r.get('material') or '', product_sort_tuple(r.get('product_text') or '')))
-        return jsonify(success=True, items=items, zone=zone_filter, zone_summary=zone_summary)
+        return jsonify(success=True, items=items, zone=zone_filter, zone_summary=zone_summary, cache_version='v124-warehouse-longpress-cache')
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
         return jsonify(success=True, items=[], zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0})
