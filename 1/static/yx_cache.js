@@ -1,9 +1,9 @@
-/* 沅興木業 V111 cache guard: silent one-shot cleanup; no UI layer, no fetch interception, no page refresh. */
+/* 沅興木業 V116 cache guard: silent one-shot cleanup; no UI layer, no fetch interception, no page refresh. */
 (function(){
   'use strict';
   if (window.__YX_CACHE_GUARD_RUNNING__) return;
   window.__YX_CACHE_GUARD_RUNNING__ = true;
-  const VERSION='V111';
+  const VERSION='V116';
   const FLAG='yx_cache_guard_'+VERSION;
   const DB_FLAG='yx_indexeddb_clear_'+VERSION;
   function idle(fn){
@@ -49,4 +49,70 @@
   }
   window.YXCache={version:VERSION, run, unregisterServiceWorkers, clearBrowserCachesOnce, clearOldIndexedDBOnce};
   idle(run);
+})();
+
+/* V116 background save queue: operations continue after page switch; no polling, no UI layer. */
+(function(){
+  'use strict';
+  if (window.__YX_BG_SAVE_V116__) return;
+  window.__YX_BG_SAVE_V116__ = true;
+  const KEY = 'yx_bg_save_queue_v114';
+  let running = false;
+  function nowId(){ return 'bg-' + Date.now() + '-' + Math.random().toString(36).slice(2); }
+  function read(){
+    try { const q = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(q) ? q : []; }
+    catch(_e){ return []; }
+  }
+  function write(q){
+    try { localStorage.setItem(KEY, JSON.stringify((q || []).slice(-120))); }
+    catch(_e){}
+  }
+  function remove(id){ write(read().filter(x => x && x.id !== id)); }
+  async function send(item){
+    const body = item.body || '';
+    const keep = body.length < 60000;
+    const res = await fetch(item.url, {
+      method: item.method || 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      keepalive: keep,
+      headers: Object.assign({'Content-Type':'application/json','Accept':'application/json'}, item.headers || {}),
+      body
+    });
+    let data = null;
+    try { data = await res.json(); } catch(_e) { data = {}; }
+    if (!res.ok || (data && data.success === false)) throw new Error((data && (data.error || data.message)) || ('HTTP ' + res.status));
+    return data;
+  }
+  async function drain(){
+    if (running) return;
+    running = true;
+    try {
+      let q = read();
+      for (const item of q.slice()) {
+        try { await send(item); remove(item.id); }
+        catch(_e) { break; }
+      }
+    } finally { running = false; }
+  }
+  function enqueue(url, payload, opt){
+    const item = {
+      id: nowId(), url,
+      method: (opt && opt.method) || 'POST',
+      headers: (opt && opt.headers) || {},
+      body: typeof payload === 'string' ? payload : JSON.stringify(payload || {}),
+      created_at: Date.now()
+    };
+    const q = read(); q.push(item); write(q);
+    return item;
+  }
+  function request(url, payload, opt){
+    const item = enqueue(url, payload, opt || {});
+    return send(item).then(data => { remove(item.id); return data; }).catch(err => { drain(); throw err; });
+  }
+  window.YXBackgroundSave = {enqueue, request, drain, pending:()=>read().length};
+  window.addEventListener('online', drain, {passive:true});
+  window.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') drain(); }, {passive:true});
+  window.addEventListener('pagehide', drain, {passive:true});
+  try { (window.requestIdleCallback || function(fn){ return setTimeout(fn, 0); })(drain); } catch(_e) {}
 })();

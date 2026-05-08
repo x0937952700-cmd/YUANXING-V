@@ -2364,10 +2364,10 @@ html[data-yx-fix70] .yx63-summary-table td{word-break:break-word;white-space:nor
 
 
 /* ==== FIX71: requested UI cleanup ==== */
-html[data-yx-fix71] .yx63-summary-table .yx63-material-col,
-html[data-yx-fix71] .yx63-summary-table .yx63-material-cell,
-html[data-yx-fix71] .yx66-customer-table .yx66-material-cell,
-html[data-yx-fix71] .yx66-customer-table th:first-child{
+body[data-module] .yx63-summary-table .yx63-material-col,
+body[data-module] .yx63-summary-table .yx63-material-cell,
+body[data-module] .yx66-customer-table .yx66-material-cell,
+body[data-module] .yx66-customer-table th:first-child{
   width:72px!important;
   max-width:72px!important;
   min-width:58px!important;
@@ -2375,31 +2375,31 @@ html[data-yx-fix71] .yx66-customer-table th:first-child{
   font-weight:900!important;
   text-align:left!important;
 }
-html[data-yx-fix71] .yx63-summary-table .yx63-material-cell,
-html[data-yx-fix71] .yx66-customer-table .yx66-material-cell{
+body[data-module] .yx63-summary-table .yx63-material-cell,
+body[data-module] .yx66-customer-table .yx66-material-cell{
   font-size:13px!important;
   letter-spacing:.02em!important;
   overflow-wrap:anywhere!important;
   word-break:break-word!important;
 }
-html[data-yx-fix71] .yx63-summary-table .yx63-size-col,
-html[data-yx-fix71] .yx63-summary-table .yx63-size-cell{width:230px!important;}
-html[data-yx-fix71] .yx63-summary-table .yx63-support-col,
-html[data-yx-fix71] .yx63-summary-table .yx63-support-cell{width:auto!important;}
-html[data-yx-fix71] .yx63-item-grid > div:first-child b{color:#059669!important;font-weight:900!important;}
-html[data-yx-fix71] .yx67-slot-actions,
-html[data-yx-fix71] .yx67-insert-btn,
-html[data-yx-fix71] .yx67-delete-btn,
-html[data-yx-fix71] .yx67-detail-actions button[onclick*="insertWarehouseCell"],
-html[data-yx-fix71] .yx67-detail-actions button[onclick*="deleteWarehouseCell"]{
+body[data-module] .yx63-summary-table .yx63-size-col,
+body[data-module] .yx63-summary-table .yx63-size-cell{width:230px!important;}
+body[data-module] .yx63-summary-table .yx63-support-col,
+body[data-module] .yx63-summary-table .yx63-support-cell{width:auto!important;}
+body[data-module] .yx63-item-grid > div:first-child b{color:#059669!important;font-weight:900!important;}
+body[data-module] .yx67-slot-actions,
+body[data-module] .yx67-insert-btn,
+body[data-module] .yx67-delete-btn,
+body[data-module] .yx67-detail-actions button[onclick*="insertWarehouseCell"],
+body[data-module] .yx67-detail-actions button[onclick*="deleteWarehouseCell"]{
   display:none!important;
   visibility:hidden!important;
   pointer-events:none!important;
 }
-html[data-yx-fix71] .yx67-warehouse-slot,
-html[data-yx-fix71] .vertical-slot{cursor:context-menu;user-select:none;-webkit-user-select:none;}
-html[data-yx-fix71] .yx67-warehouse-slot::after,
-html[data-yx-fix71] .vertical-slot::after{
+body[data-module] .yx67-warehouse-slot,
+body[data-module] .vertical-slot{cursor:context-menu;user-select:none;-webkit-user-select:none;}
+body[data-module] .yx67-warehouse-slot::after,
+body[data-module] .vertical-slot::after{
   content:'長按操作';
   display:inline-flex;
   margin-top:6px;
@@ -2410,13 +2410,13 @@ html[data-yx-fix71] .vertical-slot::after{
   font-size:11px;
   font-weight:900;
 }
-html[data-yx-fix71] #yx71-warehouse-cell-menu .yx71-menu-card{max-width:360px;}
-html[data-yx-fix71] #selected-customer-items.yx66-active,
-html[data-yx-fix71] #selected-customer-items.yx66-active.hidden{display:block!important;}
-html[data-yx-fix71] .module-screen[data-module="master_order"] #selected-customer-items,
-html[data-yx-fix71] .module-screen[data-module="master_order"] #selected-customer-items.yx66-active,
-html[data-yx-fix71] .module-screen[data-module="master_order"] #selected-customer-items.yx66-active.hidden,
-html[data-yx-fix71] .module-screen[data-module="master_order"] #selected-customer-items.yx71-master-duplicate-hidden{
+body[data-module] #yx71-warehouse-cell-menu .yx71-menu-card{max-width:360px;}
+body[data-module] #selected-customer-items.yx66-active,
+body[data-module] #selected-customer-items.yx66-active.hidden{display:block!important;}
+body[data-module] .module-screen[data-module="master_order"] #selected-customer-items,
+body[data-module] .module-screen[data-module="master_order"] #selected-customer-items.yx66-active,
+body[data-module] .module-screen[data-module="master_order"] #selected-customer-items.yx66-active.hidden,
+body[data-module] .module-screen[data-module="master_order"] #selected-customer-items.yx71-master-duplicate-hidden{
   display:none!important;
   visibility:hidden!important;
   pointer-events:none!important;
@@ -2425,21 +2425,21 @@ html[data-yx-fix71] .module-screen[data-module="master_order"] #selected-custome
   padding:0!important;
   overflow:hidden!important;
 }
-html[data-yx-fix71] #customers-section .customer-region-card.yx71-customer-selected{
+body[data-module] #customers-section .customer-region-card.yx71-customer-selected{
   box-shadow:0 0 0 3px rgba(5,150,105,.22), 0 14px 28px rgba(15,23,42,.10)!important;
   border-color:rgba(5,150,105,.40)!important;
   background:linear-gradient(180deg,#ecfdf5,#ffffff)!important;
 }
-html[data-yx-fix71] #customers-section .customer-detail.yx71-filled{
+body[data-module] #customers-section .customer-detail.yx71-filled{
   box-shadow:0 0 0 3px rgba(5,150,105,.12), var(--shadow-soft)!important;
 }
 @media(max-width:760px){
-  html[data-yx-fix71] .yx63-summary-table .yx63-material-col,
-  html[data-yx-fix71] .yx63-summary-table .yx63-material-cell{display:table-cell!important;width:18%!important;max-width:none!important;min-width:0!important;font-size:12px!important;}
-  html[data-yx-fix71] .yx63-summary-table .yx63-size-col,
-  html[data-yx-fix71] .yx63-summary-table .yx63-size-cell{display:table-cell!important;width:34%!important;}
-  html[data-yx-fix71] .yx63-summary-table .yx63-support-col,
-  html[data-yx-fix71] .yx63-summary-table .yx63-support-cell{display:table-cell!important;width:48%!important;}
+  body[data-module] .yx63-summary-table .yx63-material-col,
+  body[data-module] .yx63-summary-table .yx63-material-cell{display:table-cell!important;width:18%!important;max-width:none!important;min-width:0!important;font-size:12px!important;}
+  body[data-module] .yx63-summary-table .yx63-size-col,
+  body[data-module] .yx63-summary-table .yx63-size-cell{display:table-cell!important;width:34%!important;}
+  body[data-module] .yx63-summary-table .yx63-support-col,
+  body[data-module] .yx63-summary-table .yx63-support-cell{display:table-cell!important;width:48%!important;}
 }
 /* ==== FIX71 end ==== */
 
@@ -6791,7 +6791,7 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 /* V104 mainfile stability marker: direct CSS, no injected button layer. */
 .yx-v104-stability-marker{display:contents;}
 
-/* V111 performance containment: keeps large lists/cards from repainting the whole page; visual style unchanged. */
+/* V114 performance containment: keeps large lists/cards from repainting the whole page; visual style unchanged. */
 .module-screen, .glass-card, .deduct-card, .yx-warehouse-slot, .yx22-card, .yx-today-card {
   contain: layout paint;
 }
@@ -6803,11 +6803,207 @@ body[data-module="master_order"] .yx128-summary-head .yx128-summary-controls [da
 }
 
 
-/* V111 mainfile performance: direct CSS only, no injected buttons or floating UI. */
+/* V114 mainfile performance: direct CSS only, no injected buttons or floating UI. */
 .yx-v108-stability-marker{display:contents;}
 @supports (content-visibility: auto) {
   .table-scroll, .yx22-list, .yx-direct-list, .yx-customer-list {
     content-visibility:auto;
     contain-intrinsic-size:120px;
   }
+}
+
+/* V114 typography, action placement, customer full-name display, warehouse slot stability. */
+:root{
+  --yx-font-main: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --yx-text-strong: #0f172a;
+  --yx-text-soft: #334155;
+}
+html, body, button, input, select, textarea, table{
+  font-family: var(--yx-font-main) !important;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: .01em;
+}
+body{ color:var(--yx-text-strong); }
+button, .primary-btn, .ghost-btn, .small-btn, .tiny-btn{
+  font-weight: 760;
+  letter-spacing: .015em;
+}
+.module-title, .page-title, .section-title, .yx132-summary-title strong,
+.customer-region-card, .yx113-table th, .vertical-column-title{
+  font-weight: 850;
+}
+.yx113-summary-head.yx128-summary-head{ align-items:center; gap:10px; }
+.yx132-summary-title{
+  display:flex!important;
+  align-items:center!important;
+  flex-wrap:wrap!important;
+  gap:8px 10px!important;
+  min-width:0;
+}
+.yx132-summary-title > strong{
+  font-size: clamp(16px, 1.7vw, 22px);
+  white-space:nowrap;
+  color:#111827;
+}
+.yx114-summary-inline-actions{
+  display:inline-flex!important;
+  align-items:center!important;
+  flex-wrap:wrap!important;
+  gap:6px!important;
+  margin-left:4px!important;
+}
+.yx114-summary-inline-actions .ghost-btn,
+.yx114-summary-inline-actions .small-btn{
+  min-height:32px;
+  padding:6px 12px;
+  border-radius:999px;
+  line-height:1.1;
+}
+.yx114-summary-note{ color:#64748b; font-size:13px; }
+.customer-region-card{
+  min-height:44px;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:4px 8px;
+}
+.yx116-customer-name,
+.yx-v43-big-customer-name{
+  white-space:normal!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+  line-height:1.02;
+  font-size:clamp(17px, 2.05vw, 28px)!important;
+  letter-spacing:-.02em;
+  max-width:100%;
+}
+.customer-region-card.yx114-name-long .yx116-customer-name{ font-size:clamp(15px, 1.75vw, 24px)!important; }
+.customer-region-card.yx114-name-xlong .yx116-customer-name{ font-size:clamp(13px, 1.45vw, 20px)!important; }
+.yx116-customer-count{ white-space:nowrap; font-weight:760; }
+.yx116-customer-tag{ flex-shrink:0; }
+.yx-final-slot, .vertical-slot{
+  font-weight:720;
+  letter-spacing:.005em;
+}
+.yx-final-slot .slot-name, .vertical-slot .slot-name{ font-weight:860; }
+@media (max-width: 720px){
+  .yx114-summary-inline-actions{ width:100%; margin-left:0!important; }
+  .yx114-summary-inline-actions .ghost-btn{ flex:1 1 auto; }
+  .yx116-customer-name{ font-size:clamp(15px, 5vw, 24px)!important; }
+  .customer-region-card.yx114-name-xlong .yx116-customer-name{ font-size:clamp(12px, 4vw, 18px)!important; }
+}
+
+/* V116 customer + warehouse typography and stable action menu: direct main CSS, no injected UI. */
+:root{
+  --yx-ui-font: "LXGW WenKai TC", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+html, body, button, input, select, textarea{
+  font-family: var(--yx-ui-font) !important;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+body[data-module="orders"] .customer-region-card .yx116-customer-name,
+body[data-module="master_order"] .customer-region-card .yx116-customer-name,
+body[data-module="ship"] .customer-region-card .yx116-customer-name,
+body[data-module="orders"] .customer-region-card .yx113-customer-left,
+body[data-module="master_order"] .customer-region-card .yx113-customer-left,
+body[data-module="ship"] .customer-region-card .yx113-customer-left,
+body[data-module="customers"] .customer-region-card .yx116-customer-name,
+body[data-module="customers"] .customer-region-card .yx113-customer-left{
+  font-family: var(--yx-ui-font) !important;
+  font-weight: 500 !important;
+  letter-spacing: .01em !important;
+  line-height: 1.18 !important;
+  color: #172033 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  word-break: keep-all !important;
+  overflow-wrap: anywhere !important;
+  font-size: clamp(18px, 2.5vw, 31px) !important;
+}
+body[data-module="orders"] .customer-region-card .yx116-customer-count,
+body[data-module="master_order"] .customer-region-card .yx116-customer-count,
+body[data-module="ship"] .customer-region-card .yx116-customer-count,
+body[data-module="customers"] .customer-region-card .yx116-customer-count{
+  font-family: var(--yx-ui-font) !important;
+  font-weight: 500 !important;
+  font-size: clamp(14px, 1.5vw, 20px) !important;
+  color:#2f3a4f !important;
+}
+body[data-module="warehouse"] .yx108-slot{
+  font-family: var(--yx-ui-font) !important;
+  font-weight: 500 !important;
+  letter-spacing: .01em !important;
+}
+body[data-module="warehouse"] .yx108-slot *{
+  font-family: inherit !important;
+  font-weight: 500 !important;
+}
+body[data-module="warehouse"] .yx108-slot-no,
+body[data-module="warehouse"] .yx108-slot-sum,
+body[data-module="warehouse"] .yx108-slot-total{
+  font-weight: 520 !important;
+}
+body[data-module="warehouse"] .yx108-slot-customers{
+  font-weight: 500 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  word-break: keep-all !important;
+  overflow-wrap: anywhere !important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu{
+  position: fixed !important;
+  min-width: 190px !important;
+  max-width: min(260px, calc(100vw - 24px)) !important;
+  transform: translate(-50%, 8px) !important;
+  z-index: 99999 !important;
+  pointer-events: auto !important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu button{
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  font-family: var(--yx-ui-font) !important;
+  font-weight: 500 !important;
+}
+
+/* V116 customer/warehouse readability: softer non-bold customer names, stable long names */
+.customer-region-card,
+.yx113-customer-card,
+.yx114-customer-card,
+.yx116-customer-card,
+.yx117-customer-card,
+.yx-v15-force-customer-card,
+.customer-list button {
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, -apple-system, sans-serif;
+  font-weight: 500 !important;
+  letter-spacing: .01em;
+}
+.yx113-customer-left,
+.yx116-customer-name,
+.yx-v43-big-customer-name,
+.customer-region-card .customer-name,
+.customer-list .customer-name {
+  font-weight: 500 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.08;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  font-size: clamp(18px, 2.2vw, 28px);
+}
+.customer-region-card .yx113-customer-count,
+.customer-region-card .yx116-customer-count {
+  font-weight: 500 !important;
+}
+.yx-final-slot,
+.yx108-slot,
+.vertical-slot {
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
 }
