@@ -1,4 +1,4 @@
-# V111 mainfile stability: cache-safe, fast startup, stable system mainfile.
+# V114 mainfile stability: cache-safe, fast startup, stable system mainfile.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
@@ -32,8 +32,8 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
 app = Flask(__name__)
-APP_VERSION = "V111"
-STATIC_VERSION = "V111"
+APP_VERSION = "V114"
+STATIC_VERSION = "V114"
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -104,7 +104,7 @@ def ensure_runtime_initialized():
             return True
         except Exception as e:
             STARTUP_DB_ERROR = str(e)
-            print('[V111] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
+            print('[V114] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
             return False
 
 
@@ -130,7 +130,7 @@ def kick_runtime_init_background():
         threading.Thread(target=_runner, name='yx-runtime-init', daemon=True).start()
     except Exception as e:
         try:
-            print('[V111] background init start failed:', e, flush=True)
+            print('[V114] background init start failed:', e, flush=True)
         except Exception:
             pass
 
@@ -335,19 +335,19 @@ def login_required_json(f):
 
 @app.after_request
 def add_cache_headers(response):
-    # V111：HTML / API 永遠 no-store；靜態檔使用版本 query string 長快取。
-    # 頁面資料直接向 DB/API 抓最新狀態，JS/CSS 依 ?v=V111 控制更新，避免舊快取干擾。
+    # V114：HTML / API 永遠 no-store；靜態檔使用版本 query string 長快取。
+    # 頁面資料直接向 DB/API 抓最新狀態，JS/CSS 依 ?v=V114 控制更新，避免舊快取干擾。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
     response.headers['X-Yuanxing-Version'] = APP_VERSION
-    response.headers['X-Yuanxing-Mainfile'] = 'V111-mainfile-stable'
+    response.headers['X-Yuanxing-Mainfile'] = 'V114-mainfile-stable'
     if path == '/sw.js' or path.endswith('service-worker.js') or path.endswith('manifest.webmanifest'):
         response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
     if path.startswith('/static/'):
-        # V111: only files requested with ?v=V111 are immutable.
+        # V114: only files requested with ?v=V114 are immutable.
         # If a browser asks an old/unversioned static URL, force revalidation so stale JS/CSS cannot keep old event bindings.
         if request.args.get('v') == STATIC_VERSION:
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
@@ -373,7 +373,7 @@ def protect_pages():
     if path.startswith("/static/") or path in ("/health",) or path in public:
         return None
 
-    # V111: 頁面 GET 與一般查詢 API 不同步跑重 migration，避免一開頁/切頁變慢。
+    # V114: 頁面 GET 與一般查詢 API 不同步跑重 migration，避免一開頁/切頁變慢。
     # Render preDeployCommand 會先跑 init_db；真正會寫入資料的 POST/PUT/PATCH/DELETE 才在請求前保護 schema。
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') or request.args.get('force') in ('1', 'true', 'yes'):
         ensure_runtime_initialized()
@@ -1919,10 +1919,11 @@ def api_warehouse_cell():
     yx_v35_safe_side_effect('warehouse_audit', add_audit_trail, current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
     yx_v35_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
     try:
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells(), saved_cell=saved_cell_payload)
+        # V114：格位儲存只回傳該格，避免整張倉庫圖慢查詢蓋回舊畫面；前端會就地更新該格。
+        return jsonify(success=True, partial=True, saved_cell=saved_cell_payload)
     except Exception as e:
         log_error('warehouse_cell_response_v40', str(e))
-        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
+        return jsonify(success=True, partial=True, saved_cell=saved_cell_payload)
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
@@ -2063,7 +2064,7 @@ def api_warehouse_available_items():
                 # 未分區只留在總統計，不混入 A/B 格子的下拉。
                 details_for_item = [d for d in details_for_item_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
                 total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
-                # V111: A/B 格位下拉只能扣同一區已放入的數量。
+                # V114: A/B 格位下拉只能扣同一區已放入的數量。
                 # 舊版用全倉 placed_detail / placed_all，會造成 A 區商品被 B 區已入倉數量吃掉，
                 # 下拉選單看起來亂跳或商品消失。這裡改成同區精準扣除，不跨區扣數。
                 placed_qty = int(placed_detail_by_zone.get((exact, customer, source_label, str(source_id), zone_filter), 0) or 0)
@@ -3943,8 +3944,8 @@ def api_v17_items_batch_transfer():
         return error_response('批量轉入失敗')
 
 
-# V111_WAREHOUSE_DROPDOWN_SAFE: the old V12 no-store static after_request is intentionally disabled.
-# Static files are versioned with ?v=V111 and controlled only by add_cache_headers().
+# V114_WAREHOUSE_DROPDOWN_SAFE: the old V12 no-store static after_request is intentionally disabled.
+# Static files are versioned with ?v=V114 and controlled only by add_cache_headers().
 def yx_v12_no_store_static_disabled(resp):
     return resp
 
