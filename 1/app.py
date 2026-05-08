@@ -2884,9 +2884,10 @@ def api_warehouse_batch_remove_slots():
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
         count = max(1, min(80, int(data.get("count") or 1)))
+        requested_slots = data.get("slots") or []
         if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
-        # V127：批量刪除從指定格往下找「空格」刪除，遇到有商品的格子保留。
+        # V128：前端如果已算好要刪的空格，後端優先照同一組 slot 執行，避免前端與 DB 目標不一致。
         # 先算出原始空格 slot，再由大到小刪，避免格號補位後刪到商品格。
         all_cells = warehouse_get_cells()
         def _cell_has_items_for_batch(cell):
@@ -2894,7 +2895,14 @@ def api_warehouse_batch_remove_slots():
                 return len(safe_cell_items(cell)) > 0
             except Exception:
                 return False
-        empty_slots = sorted([
+        if isinstance(requested_slots, list) and requested_slots:
+            try:
+                wanted = [int(x) for x in requested_slots if int(x) >= slot_number]
+            except Exception:
+                wanted = []
+        else:
+            wanted = []
+        empty_slots = wanted[:count] if wanted else sorted([
             int(c.get('slot_number') or 0) for c in all_cells
             if str(c.get('zone') or '').strip().upper() == zone
             and int(c.get('column_index') or 0) == column_index

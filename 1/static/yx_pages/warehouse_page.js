@@ -1309,7 +1309,7 @@
     toast(`已先批量刪除 ${emptySlots.length} 個空格，背景儲存`,'ok');
     bgPost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
-      zone:z,column_index:c,slot_number:s,count:emptySlots.length,slot_type:'direct',
+      zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, d=>{
       if(d && Array.isArray(d.cells)) state.data.cells=d.cells;
