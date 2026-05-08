@@ -7228,3 +7228,264 @@ def ensure_commercial_final_schema_v122():
             if conn: conn.close()
         except Exception: pass
         return False
+
+# ============================================================
+# V119 long-press warehouse action persistence repair
+# Purpose: save insert/delete/mark/return from the long-press menu without
+# hitting old PostgreSQL unique indexes.  This is a mainfile override, not an
+# overlay renderer.  Existing public function names are kept so app.py and JS
+# continue to call the single warehouse service line.
+# ============================================================
+
+def _yx_123_relax_old_warehouse_unique_indexes(cur):
+    """Drop obsolete unique indexes that made compact slot rewrites fail.
+    Older packages created uniqueness on physical slot coordinates.  The new
+    compact warehouse map uses soft-hidden rows and rewrites the visible column,
+    so uniqueness must not block temporary slot moves.
+    """
+    for idx in (
+        'ux_warehouse_cells_zone_band_row_name_slot',
+        'ux_warehouse_cells_zone_col_slot',
+        'ux_warehouse_cells_zone_column_slot',
+        'ux_warehouse_cells_zone_column_direct_slot',
+    ):
+        try:
+            cur.execute(f"DROP INDEX IF EXISTS {idx}")
+        except Exception:
+            # Some PostgreSQL installations may have a constraint instead of a
+            # plain index.  Ignore here; the negative-slot rewrite below still
+            # avoids most duplicate conflicts.
+            pass
+
+
+def _yx_123_tmp_slot_for_row(row, fallback):
+    try:
+        rid = int(row.get('id') or 0)
+    except Exception:
+        rid = 0
+    if rid > 0:
+        return -1000000 - rid
+    return -2000000 - int(fallback or 0)
+
+
+def _yx_117_rewrite_column(cur, z, c, cells, visible_count=None):
+    """Safe compact rewrite for one warehouse column.
+
+    Fixes long-press actions failing to persist:
+    1. Move every existing row in this zone/column to a unique temporary
+       negative slot first, so old unique indexes cannot collide.
+    2. Reuse those rows for the new visible slots 1..N.
+    3. Keep extra rows hidden instead of deleting user data.
+    """
+    z = _yx_v116_zone(z); c = int(c or 1)
+    visible_count = max(1, int(visible_count or len(cells) or _YX_117_DEFAULT_SLOTS))
+    _yx_117_ensure_schema(cur)
+    _yx_123_relax_old_warehouse_unique_indexes(cur)
+
+    columns = _table_columns(cur, 'warehouse_cells')
+    has_deleted = 'is_deleted' in columns
+    has_problem = 'problem_flag' in columns
+    has_version = 'version' in columns
+    has_operation = 'operation_id' in columns
+
+    raw_rows = []
+    try:
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? ORDER BY slot_number, id"), (z, c))
+        desc = [d[0] for d in cur.description]
+        for r in cur.fetchall():
+            raw_rows.append(dict(zip(desc, r)) if not isinstance(r, dict) else dict(r))
+    except Exception:
+        raw_rows = []
+
+    # Step 1: move existing rows away from positive display slots.
+    reusable_ids = []
+    for i, row in enumerate(raw_rows, start=1):
+        rid = row.get('id')
+        if rid is None:
+            continue
+        tmp_slot = _yx_123_tmp_slot_for_row(row, i)
+        hidden_type = ('old_slot_%s' % rid)[:60]
+        sets = ["slot_number=?", "slot_type=?", "updated_at=?"]
+        params = [tmp_slot, hidden_type, now()]
+        if has_deleted:
+            sets.append("is_deleted=1")
+        if has_version:
+            sets.append("version=COALESCE(version,0)+1")
+        cur.execute(sql("UPDATE warehouse_cells SET " + ", ".join(sets) + " WHERE id=?"), tuple(params + [rid]))
+        reusable_ids.append(rid)
+
+    by_slot = {}
+    for cell in cells or []:
+        try:
+            s = int(cell.get('slot_number') or 0)
+        except Exception:
+            continue
+        if s < 1 or s > visible_count:
+            continue
+        items = cell.get('items') or _yx_117_cell_items(cell)
+        try:
+            items = _normalize_warehouse_items(items)
+        except Exception:
+            pass
+        by_slot[s] = {
+            'items_json': json.dumps(items or [], ensure_ascii=False),
+            'note': cell.get('note') or '',
+            'problem_flag': cell.get('problem_flag') or '',
+        }
+
+    # Step 2: write new visible sequence by reusing old rows first.
+    for s in range(1, visible_count + 1):
+        data = by_slot.get(s) or {'items_json': '[]', 'note': '', 'problem_flag': ''}
+        if reusable_ids:
+            rid = reusable_ids.pop(0)
+            sets = [
+                "zone=?", "column_index=?", "slot_type=?", "slot_number=?",
+                "items_json=?", "note=?", "updated_at=?"
+            ]
+            params = [z, c, 'direct', s, data['items_json'], data['note'], now()]
+            if has_deleted:
+                sets.append("is_deleted=0")
+            if has_problem:
+                sets.append("problem_flag=?"); params.append(data['problem_flag'])
+            if has_operation:
+                sets.append("operation_id=COALESCE(operation_id,'')")
+            if has_version:
+                sets.append("version=COALESCE(version,0)+1")
+            cur.execute(sql("UPDATE warehouse_cells SET " + ", ".join(sets) + " WHERE id=?"), tuple(params + [rid]))
+        else:
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """), (z, c, 'direct', s, data['items_json'], data['note'], now(), 0, data['problem_flag']))
+
+    # Step 3: leave unused physical rows hidden and out of public display.
+    for rid in reusable_ids:
+        hidden_type = ('old_slot_%s' % rid)[:60]
+        sets = ["slot_type=?", "items_json='[]'", "updated_at=?"]
+        params = [hidden_type, now()]
+        if has_deleted:
+            sets.append("is_deleted=1")
+        if has_version:
+            sets.append("version=COALESCE(version,0)+1")
+        cur.execute(sql("UPDATE warehouse_cells SET " + ", ".join(sets) + " WHERE id=?"), tuple(params + [rid]))
+
+    _yx_117_set_meta_count(cur, z, c, visible_count)
+
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    """Insert one empty visible slot after the requested slot and persist safely."""
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        _yx_123_relax_old_warehouse_unique_indexes(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        try:
+            after = int(insert_after if insert_after is not None else count)
+        except Exception:
+            after = count
+        after = max(0, min(after, count))
+        new_cells = []
+        inserted = False
+        for cell in cells:
+            n = int(cell.get('slot_number') or 0)
+            if n <= after:
+                new_cells.append(dict(cell))
+            else:
+                if not inserted:
+                    new_cells.append({'zone': z, 'column_index': c, 'slot_number': after + 1, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+                    inserted = True
+                shifted = dict(cell); shifted['slot_number'] = n + 1; new_cells.append(shifted)
+        if not inserted:
+            new_cells.append({'zone': z, 'column_index': c, 'slot_number': after + 1, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+        new_count = count + 1
+        _yx_117_rewrite_column(cur, z, c, new_cells, new_count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return after + 1
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    """Remove one empty visible slot and compact the display numbers safely."""
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        _yx_123_relax_old_warehouse_unique_indexes(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        if s > count:
+            conn.commit(); return {'success': False, 'error': '找不到格位'}
+        target = next((cell for cell in cells if int(cell.get('slot_number') or 0) == s), None)
+        if target and _yx_117_has_items(target):
+            conn.commit(); return {'success': False, 'error': '格子內還有商品，無法刪除。請先退回該格或移走商品'}
+        new_cells = []
+        for cell in cells:
+            n = int(cell.get('slot_number') or 0)
+            if n == s:
+                continue
+            shifted = dict(cell)
+            if n > s:
+                shifted['slot_number'] = n - 1
+            new_cells.append(shifted)
+        new_count = max(1, count - 1)
+        _yx_117_rewrite_column(cur, z, c, new_cells, new_count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return {'success': True, 'removed_slot': s, 'compacted': True, 'visible_count': new_count}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    """Persist problem mark from the long-press action sheet."""
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        _yx_123_relax_old_warehouse_unique_indexes(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count + 1, s + 1):
+                cells.append({'zone': z, 'column_index': c, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+            count = s
+        for cell in cells:
+            if int(cell.get('slot_number') or 0) == s:
+                cell['problem_flag'] = 'problem' if marked else ''
+                break
+        _yx_117_rewrite_column(cur, z, c, cells, count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return {'success': True, 'marked': bool(marked)}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+# V119 long-press persistence compatibility helper.
+# Batch2 mirror sync called warehouse_customer_key but older DB mainfiles only had
+# app-side helpers.  Keep it in db.py so warehouse long-press save/return/delete
+# cannot fail with NameError while syncing warehouse_cell_items.
+def warehouse_customer_key(name):
+    text = str(name or '').strip()
+    return text or '庫存'

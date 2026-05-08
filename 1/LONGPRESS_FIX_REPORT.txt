@@ -1,0 +1,44 @@
+V119 倉庫圖長按功能保存修復報告
+
+修復範圍：
+- 倉庫圖長按操作表：開啟/編輯、標記/取消問題格、新增一格、批量新增、刪除空格、批量刪除、返回該格。
+- 直接修主檔：static/yx_pages/warehouse_page.js 保持單一 renderer；app.py API 保持原路徑；db.py 改成正式安全保存流程；新增 PostgreSQL migration。
+
+修復原因：
+1. 長按功能背景保存會呼叫 warehouse_add_slot / warehouse_remove_slot / warehouse_set_cell_mark / warehouse_save_cell。
+2. 這些函式會重寫同一欄格位順序。
+3. 舊版重寫流程會先隱藏舊格，再插入新格；在 PostgreSQL 如果仍有舊唯一索引，例如 ux_warehouse_cells_zone_band_row_name_slot，會撞 duplicate key，造成前端先顯示但背景保存失敗。
+4. batch2 的 warehouse_cell_items 鏡像同步還引用了 db.py 沒有定義的 warehouse_customer_key，可能導致格位保存/退回/新增刪除後同步鏡像表時失敗。
+
+本次修復：
+- db.py 新增 V123 長按保存修復主線覆寫：
+  - _yx_123_relax_old_warehouse_unique_indexes
+  - _yx_117_rewrite_column 安全版
+  - warehouse_add_slot 安全版
+  - warehouse_remove_slot 安全版
+  - warehouse_set_cell_mark 安全版
+  - warehouse_customer_key 相容 helper
+- 格位重排改成：
+  1. 同欄既有格先移到唯一臨時負數 slot_number。
+  2. 再依顯示順序寫回 1..N。
+  3. 多餘實體列保留隱藏，不刪資料。
+  4. 同步 warehouse_cell_items。
+- 新增 migration：migrations/postgres_v123_warehouse_longpress_persistence.sql
+  - 移除舊唯一索引。
+  - 建立安全 lookup index。
+
+驗證：
+- python -m py_compile app.py db.py 通過。
+- SQLite 本地模擬測試通過：
+  - 有商品格禁止刪除。
+  - 新增空格可保存。
+  - 刪除空格後格號補齊。
+  - 問題格標記可保存。
+  - 商品資料不因刪除空格而消失。
+
+注意：
+- 沒有新增 renderer。
+- 沒有新增 setInterval。
+- 沒有新增 MutationObserver。
+- 沒有同按鈕多重 click 綁定。
+- 沒有只改 JS；這次主要修 db.py，並補 PostgreSQL migration。
