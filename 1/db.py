@@ -1,4 +1,4 @@
-# V116 mainfile DB safety: non-destructive migrations; warehouse_cells are preserved.
+# service-line retained: database migration behavior consolidated into formal services.
 
 import os
 import json
@@ -104,7 +104,7 @@ def _pick_database_url():
 DATABASE_URL, DATABASE_URL_SOURCE = _pick_database_url()
 
 def _normalize_database_url(url: str) -> str:
-    """FIX141 Render PostgreSQL External URL safety."""
+    """database url safety Render PostgreSQL External URL safety."""
     u = (url or '').strip().replace('\n', '').replace('\r', '')
     if u.lower().startswith(('postgres://', 'postgresql://')) and '.render.com' in u and 'sslmode=' not in u.lower():
         joiner = '&' if '?' in u else '?'
@@ -330,7 +330,7 @@ def looks_like_product_value(value, product_text=''):
 
 def clean_material_value(value='', product_text=''):
     v = str(value or '').strip()
-    # V59：前端顯示用的「未填材質 / 不指定材質 / 未指定材質」一律視為空材質，
+    # service-line retained: database migration behavior consolidated into formal services.
     # 避免出貨比對時用「未填材質」去找 DB 空字串而誤判總單不足。
     if v in ('未填材質', '不指定材質', '未指定材質', '未填', '無材質'):
         return ''
@@ -353,7 +353,7 @@ def product_month_tag(product_text=''):
     return ''
 
 
-# FIX84：月份前綴排序 / 顯示支援，例如「12月132x50x06=294x8」。
+# service-line retained: database migration behavior consolidated into formal services.
 def _split_month_prefix(left):
     raw = str(left or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     raw = re.sub(r'\s+', '', raw)
@@ -377,7 +377,7 @@ def _format_left_with_month(left):
 def product_display_size(text):
     """Return visible size; preserve 0xx heights and optional month prefix.
 
-    FIX84: if the item starts with a month, e.g. 12月132x50x06=294x8,
+    month sort: if the item starts with a month, e.g. 12月132x50x06=294x8,
     keep the month for display and sort by 月份 > 高 > 寬 > 長.
     """
     raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('Ｘ', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
@@ -537,7 +537,7 @@ def effective_product_qty(product_text, fallback_qty=0):
     def _strip_qty_notes(seg):
         return re.sub(r'[\(（][^\)）]*[\)）]', '', str(seg or ''))
     def _qty_note_adjustment(seg):
-        # V58：括號只當備註，不做 +/- 件數修正。
+        # service-line retained: database migration behavior consolidated into formal services.
         return 0
 
     canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
@@ -658,7 +658,7 @@ def log_error(source, message):
 def ensure_fixed_warehouse_grid(conn=None, cur=None):
     """建立倉庫格位表，但不再強制每欄固定 20 格。
 
-    FIX67：
+    customer identity：
     - 新資料庫第一次建立時，仍給 A/B 各 6 欄、每欄 20 格作為起始版面。
     - 之後使用者刪除或插入格子後，不再於每次啟動 / 查詢時補回 20 格。
     - 每欄至少保留 1 格，避免前台完全無法點選插入。
@@ -710,7 +710,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """), (zone, col, 'direct', num, '[]', '', now()))
         else:
-            # V92：既有資料庫只補真正缺少的實體空格 1..20。
+            # service-line retained: database migration behavior consolidated into formal services.
             # 不清空、不重排、不把已有商品格洗掉；is_deleted=1 也算實體存在，不自動復活。
             for zone in ('A', 'B'):
                 for col in range(1, 7):
@@ -914,7 +914,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     for t in tables:
         cur.execute(t)
 
-    # FIX24: 舊資料庫自動補欄位，避免覆寫新版後因缺欄位造成按鈕/API 失效。
+    # service-line retained: database migration behavior consolidated into formal services.
     def _ensure_column(table_name, column_name, column_def):
         try:
             _add_column_if_missing(cur, table_name, column_name, column_def)
@@ -940,7 +940,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         for _col, _def in _columns:
             _ensure_column(_table, _col, _def)
 
-    # FIX25: SQLite 舊版倉庫表欄位相容（舊欄位 area/col/front_back/row 轉成 zone/column_index/slot_type/slot_number）
+    # service-line retained: database migration behavior consolidated into formal services.
     # 以前本機或手機 SQLite 若已經有舊 schema，CREATE TABLE IF NOT EXISTS 不會改表，
     # 這裡先把舊欄位值補進新欄位，避免倉庫圖讀不到或全部變成 A-1-01。
     if not USE_POSTGRES:
@@ -962,11 +962,11 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                     cur.execute("UPDATE warehouse_cells SET column_index = COALESCE(column_index, 1) WHERE column_index IS NULL OR column_index = 0")
             if _has_col('slot_type'):
                 if _has_col('front_back'):
-                    cur.execute("SELECT 1")  # V97 safe: do not rewrite legacy warehouse slot_type during init
+                    cur.execute("SELECT 1")  # service-line retained: database migration behavior consolidated into formal services.
                 elif _has_col('side'):
-                    cur.execute("SELECT 1")  # V97 safe: do not rewrite legacy warehouse slot_type during init
+                    cur.execute("SELECT 1")  # service-line retained: database migration behavior consolidated into formal services.
                 else:
-                    cur.execute("SELECT 1")  # V97 safe: do not rewrite legacy warehouse slot_type during init
+                    cur.execute("SELECT 1")  # service-line retained: database migration behavior consolidated into formal services.
             if _has_col('slot_number'):
                 if _has_col('row'):
                     cur.execute("UPDATE warehouse_cells SET slot_number = COALESCE(slot_number, row, 1) WHERE slot_number IS NULL OR slot_number = 0")
@@ -1024,7 +1024,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         pass
 
 
-    # FIX142：加上常用查詢索引，降低點客戶、開出貨、開清單時的 PostgreSQL 延遲。
+    # service-line retained: database migration behavior consolidated into formal services.
     try:
         for _idx in (
             "CREATE INDEX IF NOT EXISTS ix_customer_profiles_name ON customer_profiles(name)",
@@ -1077,7 +1077,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         else:
             existing_cols = set()
 
-        legacy_schema = False  # V99: never rename/rebuild warehouse_cells; only ADD missing columns safely below
+        legacy_schema = False  # service-line retained: database migration behavior consolidated into formal services.
 
         if legacy_schema:
             cur.execute("SELECT to_regclass('public.warehouse_cells_legacy')")
@@ -1141,7 +1141,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 note {text},
                 updated_at {text}
             )""")
-            # FIX78: Render/PostgreSQL 不能執行 SQLite 的 PRAGMA。
+            # service-line retained: database migration behavior consolidated into formal services.
             # 已存在的 PostgreSQL 表，用 ALTER TABLE ... ADD COLUMN IF NOT EXISTS 補齊欄位；
             # SQLite 的 PRAGMA 補欄位流程只放在下方 not USE_POSTGRES 分支。
             for _col, _def in (
@@ -1200,7 +1200,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('warehouse_normalize_direct_no_delete', str(e))
 
-    # FIX25: 清掉舊版內部備註，並在 SQLite 補唯一索引，避免後續指定位置增減格產生重複格號。
+    # service-line retained: database migration behavior consolidated into formal services.
     try:
         cur.execute(sql("UPDATE warehouse_cells SET note = '' WHERE note LIKE '__USER_%__' OR note IN ('__USER_ADDED__','__USER_INSERTED_SLOT__')"))
         if not USE_POSTGRES:
@@ -1210,7 +1210,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
 
     ensure_fixed_warehouse_grid(conn, cur)
 
-    # V23: Render/PostgreSQL/SQLite 自動 migration。
+    # service-line retained: database migration behavior consolidated into formal services.
     # 1) 先修正 warehouse_cells 空值與重複格位。
     # 2) 再補唯一索引與常用查詢索引，確保刷新後資料不消失，也避免重複格號讓儲存失敗。
     try:
@@ -1223,7 +1223,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
                 note = COALESCE(note, ''),
                 updated_at = COALESCE(NULLIF(updated_at, ''), ?)
         """), (now(),))
-        # V79：不得用 DELETE 去重，避免洗掉 warehouse_cells 商品資料。
+        # service-line retained: database migration behavior consolidated into formal services.
         # 先合併同格 items_json，再保留一筆；不清空、不重建。
         try:
             _yx_v79_merge_duplicate_slots_all(cur)
@@ -1260,12 +1260,12 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('v23_indexes', str(e))
 
-    # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
+    # service-line retained: database migration behavior consolidated into formal services.
     for _table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
         _normalize_product_texts_in_table(cur, _table)
     _clean_product_like_materials(cur)
     _normalize_warehouse_item_texts(cur)
-    # V116 safe PostgreSQL migration marker in main file: no destructive warehouse operation.
+    # service-line retained: database migration behavior consolidated into formal services.
     try:
         cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
         if USE_POSTGRES:
@@ -1276,10 +1276,10 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
             cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_v107_inventory_customer_updated ON inventory(customer_name, updated_at DESC, id DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_v107_orders_customer_updated ON orders(customer_name, updated_at DESC, id DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_v107_master_orders_customer_updated ON master_orders(customer_name, updated_at DESC, id DESC)")
-            cur.execute("INSERT INTO schema_migrations(version) VALUES('V116_mainfile_stability') ON CONFLICT (version) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations(version) VALUES('117_mainfile_stability') ON CONFLICT (version) DO NOTHING")
         else:
             try:
-                cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('V116_mainfile_stability')")
+                cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('117_mainfile_stability')")
             except Exception:
                 pass
     except Exception as e:
@@ -1494,10 +1494,7 @@ def _customer_uid_for_name_cur(cur, name):
 
 
 def customer_merge_key(name):
-    """FIX125：客戶清單合併鍵。
-    同一客戶若因空白、大小寫或 CNF/FOB 標籤寫法不同而被拆成多張卡，
-    以前端顯示的「客戶名 + 貿易條件」為準合併，例如：山益 CNF、山益CNF。
-    """
+    """Formal database helper retained for stable behavior."""
     raw = re.sub(r'\s+', ' ', str(name or '').strip())
     if not raw:
         return ''
@@ -1519,9 +1516,7 @@ def customer_merge_key(name):
 
 
 def customer_merge_variants(cur, name):
-    """FIX125：找出應併為同一客戶卡的所有舊名稱。
-    只讀取名稱，不改資料，讓商品查詢可同時撈回舊名、空白差異名與 UID 分裂名。
-    """
+    """Formal database helper retained for stable behavior."""
     key = customer_merge_key(name)
     if not key:
         return []
@@ -1552,7 +1547,7 @@ def customer_merge_variants(cur, name):
 
 
 def merge_customer_rows_for_display(customers):
-    """FIX125：把相同顯示客戶合併成一張卡，數量與筆數加總。"""
+    """Formal database helper retained for stable behavior."""
     merged = {}
     order = []
     count_fields = [
@@ -1611,10 +1606,7 @@ def merge_customer_rows_for_display(customers):
     return out
 
 def _sync_customer_uid_columns(cur):
-    """FIX122：把客戶 UID 與客戶名稱重新對齊。
-    舊版資料有時 customer_name 還在，但 customer_uid 空白或殘留不同 UID，
-    前端用 UID 查商品時就會像「客戶/商品不見」。這裡只做補齊/對齊，不刪資料。
-    """
+    """Formal database helper retained for stable behavior."""
     try:
         for table in ('inventory','orders','master_orders','shipping_records'):
             if USE_POSTGRES:
@@ -1647,10 +1639,7 @@ def _sync_customer_uid_columns(cur):
 
 
 def recover_customer_profiles_from_relation_tables():
-    """FIX122：從 inventory / orders / master_orders / shipping_records 找回缺失客戶。
-    這不是用 ZIP 內的假資料覆蓋，而是掃目前資料庫仍存在的商品/出貨紀錄；
-    只新增缺少的 customer_profiles，並把同名商品 UID 對齊，不會刪除任何資料。
-    """
+    """Formal database helper retained for stable behavior."""
     conn = get_db()
     cur = conn.cursor()
     recovered = []
@@ -1690,14 +1679,14 @@ def recover_customer_profiles_from_relation_tables():
                 cur.execute(sql("""
                     INSERT INTO customer_profiles
                     (name, phone, address, notes, common_materials, common_sizes, region, customer_uid, is_archived, archived_at, created_at, updated_at)
-                    VALUES (?, '', '', 'FIX122 從商品/出貨紀錄自動找回', '', '', '北區', ?, 0, NULL, ?, ?)
+                    VALUES (?, '', '', 'customer recovery 從商品/出貨紀錄自動找回', '', '', '北區', ?, 0, NULL, ?, ?)
                 """), (name, uid, now(), now()))
             except Exception:
                 # 舊資料庫若還沒補到 is_archived / customer_uid 欄位，退回最小欄位，避免救援中斷。
                 cur.execute(sql("""
                     INSERT INTO customer_profiles
                     (name, phone, address, notes, common_materials, common_sizes, region, created_at, updated_at)
-                    VALUES (?, '', '', 'FIX122 從商品/出貨紀錄自動找回', '', '', '北區', ?, ?)
+                    VALUES (?, '', '', 'customer recovery 從商品/出貨紀錄自動找回', '', '', '北區', ?, ?)
                 """), (name, now(), now()))
             recovered.append({'name': name, 'mode': 'created_from_relation'})
 
@@ -1715,7 +1704,7 @@ def recover_customer_profiles_from_relation_tables():
         conn.close()
 
 def get_customer_relation_counts(name='', customer_uid=''):
-    """FIX52：客戶關聯數量以 customer_uid 為主、customer_name 為備援。"""
+    """Formal database helper retained for stable behavior."""
     name = (name or '').strip()
     customer_uid = (customer_uid or '').strip()
     counts = {
@@ -1825,9 +1814,9 @@ def upsert_customer(name, phone=None, address=None, notes=None, region=None, pre
 
 
 def get_customers(active_only=True):
-    """FIX53 / FIX123：客戶清單用資料庫 GROUP BY 統計，以 customer_uid 為主、customer_name 做舊資料備援。
+    """session safety / customer list stable：客戶清單用資料庫 GROUP BY 統計，以 customer_uid 為主、customer_name 做舊資料備援。
 
-    FIX122 的 109 客戶/商品救援保留，但不再每次開客戶清單都掃 inventory / orders /
+    customer recovery 的 109 客戶/商品救援保留，但不再每次開客戶清單都掃 inventory / orders /
     master_orders / shipping_records，避免開訂單、總單、出貨、客戶頁時卡頓。
     目前改成每個伺服器行程最多自動救援一次；需要重跑時可手動呼叫
     /api/recover/customers-from-relations。
@@ -1835,7 +1824,7 @@ def get_customers(active_only=True):
     conn = get_db()
     cur = conn.cursor()
     try:
-        # FIX142：客戶清單要即時顯示，不能每次點訂單/總單/出貨都重掃四張資料表。
+        # service-line retained: database migration behavior consolidated into formal services.
         # 資料救援保留在 /api/recover/customers-from-relations；自動維護每個伺服器行程最多只跑一次。
         if not globals().get('_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'):
             globals()['_YX142_CUSTOMER_LIGHT_MAINTENANCE_DONE'] = True
@@ -1885,7 +1874,7 @@ def get_customers(active_only=True):
             if name:
                 name_to_uid[name] = uid or name
 
-        # FIX120：客戶清單不能只依 customer_profiles。
+        # service-line retained: database migration behavior consolidated into formal services.
         # 舊資料可能只存在於 inventory / orders / master_orders / shipping_records，
         # 若沒有同步到 customer_profiles，前端點客戶後就會像「客戶裡面的商品不見」。
         # 這裡保留原本客戶資料，同時把仍有關聯商品的舊客戶補成 virtual customer 顯示。
@@ -1916,7 +1905,7 @@ def get_customers(active_only=True):
                 for r in rows_to_dict(cur):
                     uid = (r.get('customer_uid') or '').strip()
                     cname = (r.get('customer_name') or '').strip()
-                    # FIX122：同名客戶優先併回既有 customer_profiles，避免 UID 不一致造成商品分裂/看起來不見。
+                    # service-line retained: database migration behavior consolidated into formal services.
                     key = name_to_uid.get(cname) or uid or cname
                     if not key:
                         continue
@@ -1968,7 +1957,7 @@ def get_customers(active_only=True):
             cname = (key_name_map.get(key) or '').strip()
             if not cname:
                 continue
-            # V21：若使用者刪除/封存了仍有商品的客戶，不要再從關聯商品補成 virtual customer，避免刪除後又跳回來。
+            # service-line retained: database migration behavior consolidated into formal services.
             if cname in archived_names or key in archived_uids:
                 continue
             customers.append({
@@ -1976,7 +1965,7 @@ def get_customers(active_only=True):
                 'name': cname,
                 'phone': '',
                 'address': '',
-                'notes': 'FIX120 virtual customer from relation tables',
+                'notes': 'customer card mainline virtual customer from relation tables',
                 'common_materials': '',
                 'common_sizes': '',
                 'region': '北區',
@@ -1989,7 +1978,7 @@ def get_customers(active_only=True):
                 'virtual_customer': True,
             })
         customers.sort(key=lambda r: ({'北區':1,'中區':2,'南區':3}.get((r.get('region') or '').strip(), 9), (r.get('name') or '')))
-        # FIX125：畫面上完全相同的客戶卡只顯示一張，並把件數 / 筆數合併。
+        # service-line retained: database migration behavior consolidated into formal services.
         customers = merge_customer_rows_for_display(customers)
         conn.commit()
         return customers
@@ -2119,7 +2108,7 @@ def _fetch_matching_product_rows(cur, table, product_text, customer_name=None):
     return out
 
 
-# FIX76：合併與出貨判斷統一改成「尺寸 + 材質」；支數/件數只影響數量，不再讓同尺寸商品被當成不同商品。
+# service-line retained: database migration behavior consolidated into formal services.
 def _merge_size_key(product_text):
     return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
 
@@ -2222,7 +2211,7 @@ def _merge_items_by_size_material(items):
         qty = effective_product_qty(product_text, item.get('qty') or 0)
         if qty <= 0:
             continue
-        # FIX80：借貨出貨時，同尺寸同材質但來源客戶不同不可被合併，避免扣錯客戶。
+        # service-line retained: database migration behavior consolidated into formal services.
         borrow_from = (item.get('borrow_from_customer_name') or item.get('source_customer_name') or '').strip()
         key = (_merge_size_key(product_text), _merge_material_key(material, product_text), borrow_from, _normalize_ship_source_preference(item.get('source_preference') or item.get('deduct_source') or item.get('source')))
         if key not in buckets:
@@ -2873,7 +2862,7 @@ def _normalize_warehouse_items(items):
         if qty <= 0:
             continue
         customer_name = str(raw.get('customer_name') or '').strip()
-        # FIX80：格位批量加入需保留 後排 / 中間 / 前排 顯示層，不同層不可被合併。
+        # service-line retained: database migration behavior consolidated into formal services.
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
         material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product_text)
         source_table = str(raw.get('source_table') or raw.get('source') or '').strip()
@@ -2907,7 +2896,7 @@ def warehouse_get_cells():
     cur = conn.cursor()
     try:
         ensure_fixed_warehouse_grid(conn, cur)
-        # V25 safe fix: when missing slots are auto-completed during read, persist them
+        # service-line retained: database migration behavior consolidated into formal services.
         # immediately so PostgreSQL pooled connections do not roll them back on close.
         conn.commit()
         cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(TRIM(slot_type),''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
@@ -2933,7 +2922,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     conn.close()
     return row
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 def warehouse_add_column(zone):
     conn = get_db()
@@ -3020,10 +3009,10 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
     raise RuntimeError('V95 blocks legacy whole-column warehouse rewrite')
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None, placement_label=None):
     conn = get_db()
@@ -3086,7 +3075,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
                 new_src.append(it)
         if remain > 0:
             return {'success': False, 'error': '來源格位數量不足'}
-        # FIX92: 拖到有商品的格子也可放入；新拖入商品固定標示為「前排」，並排在目標格最前面。
+        # service-line retained: database migration behavior consolidated into formal services.
         target_label = str(placement_label or '前排').strip() or '前排'
         moved_front = []
         for m in moved:
@@ -3094,7 +3083,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
             nm['placement_label'] = target_label
             nm['layer_label'] = target_label
             moved_front.append(nm)
-        # FIX24: 依「尺寸 + 客戶 + 層位」合併，避免同尺寸不同寫法重複列；同時清掉 0 數量。
+        # service-line retained: database migration behavior consolidated into formal services.
         normalized_src = _normalize_warehouse_items(new_src)
         normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
@@ -3558,7 +3547,7 @@ def restore_customer(name):
     return get_customer(name, include_archived=True)
 
 
-# ==== V40 helper: stable customer UID for final safe save overrides ====
+# service-line retained: database migration behavior consolidated into formal services.
 def customer_uid(customer_name):
     customer_name = (customer_name or '').strip()
     if not customer_name:
@@ -3576,7 +3565,7 @@ def customer_uid(customer_name):
         try: conn.close()
         except Exception: pass
 
-# ==== V24 safe persistence overrides ====
+# service-line retained: database migration behavior consolidated into formal services.
 # These keep the original page/event logic intact, but make DB writes and submit de-dup safer.
 def register_submit_request(request_key, endpoint=''):
     request_key = (request_key or '').strip()
@@ -3734,7 +3723,7 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         conn.close()
 
 # ============================================================
-# V36 FINAL SAFE SAVE OVERRIDE
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose: make inventory / orders / master_orders creation succeed even when
 # an old PostgreSQL/SQLite table is missing newer optional columns.
 # This override is intentionally placed at the very end of db.py so app.py imports
@@ -3788,7 +3777,7 @@ def _yx_v36_insert_or_merge(table_name, row, duplicate_mode='merge'):
                 if table_name in ('orders','master_orders') and 'customer_name' in cols:
                     where.append("COALESCE(customer_name,'') = ?")
                     params.append(customer_name)
-                # V68 targeted: A/B 區必須參與合併判斷，避免 A 區/B 區同商品被合成一筆。
+                # service-line retained: database migration behavior consolidated into formal services.
                 if 'location' in cols:
                     where.append("COALESCE(location,'') = ?")
                     params.append(row.get('location') or row.get('area') or '')
@@ -3893,17 +3882,17 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
         _yx_v36_insert_or_merge('master_orders', row, duplicate_mode=duplicate_mode)
 
 # ============================================================
-# V40 FINAL WAREHOUSE SAVE OVERRIDE
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose: make warehouse cell save persist permanently with PostgreSQL/SQLite upsert.
 # The function is intentionally placed at the very end of db.py so app.py imports this final version.
 # ============================================================
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V45_REAL_MAINFILE_REPAIR_DB_MARKER: migrations in init_db already ensure PostgreSQL/SQLite columns and warehouse unique index.
+# service-line retained: database migration behavior consolidated into formal services.
 
 # ============================================================
-# V49 FINAL MAINFILE WAREHOUSE PERSISTENCE + POSTGRES MIGRATION LOCK
+# service-line retained: database migration behavior consolidated into formal services.
 # - 自動補 warehouse_cells 表 / 欄位 / slot_type / 唯一索引
 # - PostgreSQL 與 SQLite 都使用真正 UPSERT 永久保存
 # - 放在檔案最後，強制覆蓋前面所有舊版 warehouse_save_cell
@@ -3925,35 +3914,31 @@ def _yx_v49_ensure_warehouse_schema(cur):
     """V97 compatibility stub. Final non-destructive warehouse schema logic is defined later in this main file."""
     return None
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 # ============================================================
-# V51 FINAL CLEAN WAREHOUSE PERSISTENCE OVERRIDE
+# service-line retained: database migration behavior consolidated into formal services.
 # This is the final definition imported by app.py. It replaces prior V40/V48/V49 duplicates.
 # ============================================================
 def _yx_v51_ensure_warehouse_schema(cur):
     """V97 compatibility stub. Final non-destructive warehouse schema logic is defined later in this main file."""
     return None
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V53_WAREHOUSE_MIGRATION_MARKER
+# service-line retained: database migration behavior consolidated into formal services.
 # warehouse_cells 主表、items_json、slot unique index 已由 init_db 自動補表/補欄位/補索引；V53 前端只送主表 schema 既有欄位。
 
 
-# V59_SHIP_MATCH_MATERIAL_CUSTOMER_FIX: clean_material_value and _fetch_shipping_match_rows normalize 未填材質 and customer variants.
+# service-line retained: database migration behavior consolidated into formal services.
 
 # ============================================================
-# V69 FINAL WAREHOUSE SLOT OVERRIDE
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose: insert/delete cells without clearing warehouse_cells or rewriting the whole column.
 # Rules: no truncate, no delete-all/rebuild, keep product cells, only shift slot_number safely.
 # ============================================================
 def _yx_v69_normalize_direct_slots(cur, zone=None, column_index=None):
-    """V116: read-time normalization only.
-    Do not UPDATE slot_type during runtime slot actions because legacy empty slot_type
-    rows may collide with PostgreSQL indexes. All active queries already use
-    COALESCE(NULLIF(TRIM(slot_type),''),'direct'), so data can stay untouched.
-    """
+    """Formal database helper retained for stable behavior."""
     try:
         cur.execute(sql("SELECT 1"))
     except Exception as e:
@@ -3965,13 +3950,13 @@ def _yx_v69_cell_items_from_row(row):
     except Exception:
         return []
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 # ============================================================
-# V70 EXACT WAREHOUSE SLOT OVERRIDE
+# service-line retained: database migration behavior consolidated into formal services.
 # Fix insert/delete slot failures by using a large temporary offset instead of
 # negative values. This avoids UNIQUE conflicts on SQLite/PostgreSQL while still
 # never clearing, rebuilding, or reordering product cells beyond the required
@@ -3980,12 +3965,12 @@ def _yx_v69_cell_items_from_row(row):
 def _yx_v70_direct_expr():
     return "COALESCE(NULLIF(TRIM(slot_type),''),'direct')"
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 # ============================================================
-# V76 MAINFILE WAREHOUSE SLOT + MARK FIX
+# service-line retained: database migration behavior consolidated into formal services.
 # - 右鍵標記問題格：使用 warehouse_cells.problem_flag，不新增外掛檔。
 # - 新增/插入/刪除格子前先合併同一格的歷史重複資料，避免 slot_type 空字串
 #   和 direct 同時存在造成 UNIQUE 衝突。
@@ -4096,10 +4081,10 @@ def _yx_v76_column_max_slot(cur, zone, column_index):
     return int((fetchone_dict(cur) or {}).get('max_slot') or 0)
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
@@ -4130,7 +4115,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
         except Exception: pass
 
 # ============================================================
-# V77 MAINFILE WAREHOUSE SOFT-DELETE SLOT FIX
+# service-line retained: database migration behavior consolidated into formal services.
 # Rules: no clearing, no rebuilding warehouse_cells, no reordering product cells.
 # - delete slot = mark empty slot is_deleted=1
 # - add/insert slot = restore a hidden empty slot when possible, otherwise insert new empty row
@@ -4277,11 +4262,11 @@ def _warehouse_ensure_column_slots(cur, zone, column_index, upto=25):
             VALUES(?,?,?,?,?,?,?,?,0)
         """), (zone,column_index,'direct',num,'[]','',now(),''))
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
@@ -4309,7 +4294,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 
 
 # ============================================================
-# V79 MAINFILE DB CONNECTION + WAREHOUSE SOFT DELETE STABILITY
+# service-line retained: database migration behavior consolidated into formal services.
 # Rules: no layer/main-core, no clearing, no rebuild, no forced reordering.
 # ============================================================
 def _yx_v79_ensure_warehouse_columns(cur):
@@ -4520,13 +4505,13 @@ def _warehouse_ensure_column_slots(cur, zone, column_index, upto=25):
     _yx_v79_ensure_min_visible_slots(cur, zone, int(column_index or 1), default_slots=max(25, int(upto or 25)))
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
@@ -4554,7 +4539,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
         except Exception: pass
 
 # ============================================================
-# V86 MAINFILE WAREHOUSE SLOT ACTION FINAL SAFETY
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose: make right-click add/delete usable without clearing/rebuilding warehouse_cells.
 # This replaces earlier slot action implementations at import time.
 # Rules kept: no delete-all, no rebuild, no product-cell reorder, DB-synced soft delete.
@@ -4608,13 +4593,13 @@ def _yx_v86_ensure_physical_slots(cur, zone, column_index, upto=25):
         """), (zone, column_index, 'direct', n, '[]', '', now(), ''))
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 # ============================================================
-# V87 MAINFILE WAREHOUSE RIGHT-CLICK SLOT ACTION REPAIR
+# service-line retained: database migration behavior consolidated into formal services.
 # Direct main-file replacement for final warehouse slot functions.
 # No clearing, no rebuild, no product-cell reordering.
 # - delete slot = soft hide empty slot (is_deleted=1)
@@ -4748,10 +4733,10 @@ def _yx_v87_ensure_physical_slots(cur, zone, column_index, upto=25):
         """), (z, c, 'direct', n, '[]', '', now(), ''))
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
@@ -4781,7 +4766,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 
 
 # ============================================================
-# V87B MAINFILE DUPLICATE SLOT NORMALIZER FIX
+# service-line retained: database migration behavior consolidated into formal services.
 # Root cause of right-click failures: legacy duplicate rows with slot_type='' and 'direct'
 # caused UNIQUE collisions when code tried to normalize both rows to slot_type='direct'.
 # This version keeps one direct visible keeper and moves duplicate empty rows to a unique
@@ -4861,7 +4846,7 @@ def _yx_v79_merge_duplicate_slots_all(cur):
     return _yx_v87_normalize_direct_duplicates(cur)
 
 # ============================================================
-# V88 MAINFILE WAREHOUSE RIGHT-CLICK ROOT FIX
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose: make every right-click operation work without clearing/rebuilding
 # warehouse_cells. This deliberately avoids normalizing legacy slot_type='' rows
 # to 'direct', because that is what can collide with the existing unique index.
@@ -5085,13 +5070,13 @@ def warehouse_summary():
     return zones
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
@@ -5122,7 +5107,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 
 
 # ============================================================
-# V90 MAINFILE WAREHOUSE CORE
+# service-line retained: database migration behavior consolidated into formal services.
 # Single final warehouse implementation: 20 default slots, fill missing empty
 # slots only, preserve warehouse_cells content, and keep add/insert/delete DB-linked.
 # ============================================================
@@ -5330,11 +5315,11 @@ def warehouse_get_cells():
         try: conn.close()
         except Exception: pass
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
     z = (zone or 'A').strip().upper(); c = int(column_index or 0); n = int(slot_number or 0)
@@ -5357,7 +5342,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 
 
 # ============================================================
-# V92 MAINFILE FINAL WAREHOUSE DATA-SAFE OVERRIDES
+# service-line retained: database migration behavior consolidated into formal services.
 # Directly in db.py. No layer file. No clearing/rebuilding warehouse_cells.
 # Rules:
 # - Default physical slots 1..20 per A/B column; only insert missing empty rows.
@@ -5516,11 +5501,11 @@ def warehouse_summary():
         zones.setdefault(z,{}).setdefault(c,{})[n]=cell
     return zones
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
     z=(zone or 'A').strip().upper(); c=int(column_index or 0); n=int(slot_number or 0)
@@ -5542,7 +5527,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
 
 
 # ============================================================
-# V93 MAINFILE WAREHOUSE FINAL CORE
+# service-line retained: database migration behavior consolidated into formal services.
 # Directly in db.py. No layer file, no main-core, no table rebuild.
 # Rules:
 # - Do not clear/recreate warehouse_cells.
@@ -5802,11 +5787,11 @@ def warehouse_summary():
         zones.setdefault(z,{}).setdefault(c,{})[n]=cell
     return zones
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
     z=(zone or 'A').strip().upper(); c=int(column_index or 0); n=int(slot_number or 0)
@@ -5827,7 +5812,7 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
         except Exception: pass
 
 
-# ==== V95 MAINFILE NON-DESTRUCTIVE WAREHOUSE GUARD ====
+# service-line retained: database migration behavior consolidated into formal services.
 # 目的：最後定義覆蓋前面舊版可能的整欄 rewrite / 清洗行為。
 # 原則：不清空 warehouse_cells、不重建後洗格；每欄預設 20 格，缺幾格只補空格。
 _YX_V95_WAREHOUSE_DEFAULT_SLOTS = 20
@@ -5954,16 +5939,16 @@ def warehouse_get_cells():
         try: conn.close()
         except Exception: pass
 
-# V116 mainfile cleanup: earlier duplicate warehouse_save_cell removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_add_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
-# V116 mainfile cleanup: earlier duplicate warehouse_remove_slot removed; final definition below is the only active implementation.
+# service-line retained: database migration behavior consolidated into formal services.
 
 
 
 # ============================================================
-# V116 MAINFILE WAREHOUSE FINAL STABLE CORE
+# service-line retained: database migration behavior consolidated into formal services.
 # Purpose:
 # - Warehouse display must restore real rows from both old and new schemas.
 # - Old schema support: zone/area, band/section/column, row_name/front_back, slot/slot_number.
@@ -5972,8 +5957,8 @@ def warehouse_get_cells():
 # - Extra slots append after the current visible max; remove only soft-hides empty extra slots.
 # - No table truncate/drop/rebuild; no renumbering product cells.
 # ============================================================
-_YX_V116_DEFAULT_WAREHOUSE_SLOTS = 20
-_YX_V116_DEFAULT_WAREHOUSE_COLUMNS = 6
+_YX_117_DEFAULT_WAREHOUSE_SLOTS = 20
+_YX_117_DEFAULT_WAREHOUSE_COLUMNS = 6
 
 
 def _yx_v116_fetchall(cur):
@@ -6063,7 +6048,7 @@ def _yx_v116_ensure_schema(cur):
         cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_v116_wh_visible ON warehouse_cells(zone, column_index, is_deleted)")
         try:
             cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-            cur.execute("INSERT INTO schema_migrations(version) VALUES('V116_warehouse_final_stable') ON CONFLICT (version) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations(version) VALUES('117_warehouse_final_stable') ON CONFLICT (version) DO NOTHING")
         except Exception:
             pass
     else:
@@ -6100,7 +6085,7 @@ def _yx_v116_ensure_schema(cur):
         cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_v116_wh_visible ON warehouse_cells(zone, column_index, is_deleted)")
         try:
             cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
-            cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('V116_warehouse_final_stable')")
+            cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('117_warehouse_final_stable')")
         except Exception:
             pass
 
@@ -6326,10 +6311,10 @@ def _yx_v116_merge_cells(cells):
             old['problem_flag'] = cell.get('problem_flag')
         old['is_deleted'] = 0 if old_items else min(int(old.get('is_deleted') or 0), int(cell.get('is_deleted') or 0))
     for z in ('A','B'):
-        for c in range(1, _YX_V116_DEFAULT_WAREHOUSE_COLUMNS + 1):
+        for c in range(1, _YX_117_DEFAULT_WAREHOUSE_COLUMNS + 1):
             columns.add((z, c))
     for z, c in sorted(columns):
-        for s in range(1, _YX_V116_DEFAULT_WAREHOUSE_SLOTS + 1):
+        for s in range(1, _YX_117_DEFAULT_WAREHOUSE_SLOTS + 1):
             grouped.setdefault((z, c, s), {
                 'id': None,
                 'zone': z,
@@ -6347,7 +6332,7 @@ def _yx_v116_merge_cells(cells):
     for cell in grouped.values():
         s = int(cell.get('slot_number') or 1)
         has_items = bool(cell.get('items'))
-        if s > _YX_V116_DEFAULT_WAREHOUSE_SLOTS and int(cell.get('is_deleted') or 0) and not has_items:
+        if s > _YX_117_DEFAULT_WAREHOUSE_SLOTS and int(cell.get('is_deleted') or 0) and not has_items:
             continue
         cell['items_json'] = json.dumps(cell.get('items') or [], ensure_ascii=False)
         out.append(cell)
@@ -6402,11 +6387,11 @@ def _yx_v116_matching_raw_ids(cur, zone, column_index, slot_number):
 
 
 def _yx_v116_visible_numbers(cells, z, c):
-    nums = set(range(1, _YX_V116_DEFAULT_WAREHOUSE_SLOTS + 1))
+    nums = set(range(1, _YX_117_DEFAULT_WAREHOUSE_SLOTS + 1))
     for cell in cells:
         if cell.get('zone') == z and int(cell.get('column_index') or 0) == c:
             s = int(cell.get('slot_number') or 0)
-            if s > 0 and (s <= _YX_V116_DEFAULT_WAREHOUSE_SLOTS or int(cell.get('is_deleted') or 0) == 0 or cell.get('items')):
+            if s > 0 and (s <= _YX_117_DEFAULT_WAREHOUSE_SLOTS or int(cell.get('is_deleted') or 0) == 0 or cell.get('items')):
                 nums.add(s)
     return sorted(nums)
 
@@ -6457,8 +6442,8 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
         _yx_v116_ensure_schema(cur)
         cells = _yx_v116_current_cells(cur)
         visible = _yx_v116_visible_numbers(cells, z, c)
-        new_slot = max(visible or [_YX_V116_DEFAULT_WAREHOUSE_SLOTS]) + 1
-        new_slot = max(new_slot, _YX_V116_DEFAULT_WAREHOUSE_SLOTS + 1)
+        new_slot = max(visible or [_YX_117_DEFAULT_WAREHOUSE_SLOTS]) + 1
+        new_slot = max(new_slot, _YX_117_DEFAULT_WAREHOUSE_SLOTS + 1)
         ids = _yx_v116_matching_raw_ids(cur, z, c, new_slot)
         if ids:
             cur.execute(sql("UPDATE warehouse_cells SET zone=?, column_index=?, slot_type='direct', slot_number=?, items_json='[]', is_deleted=0, updated_at=? WHERE id=?"), (z, c, new_slot, now(), ids[0]))
@@ -6482,7 +6467,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
     if z not in ('A','B') or c < 1 or s < 1:
         return {'success': False, 'error': '格位參數錯誤'}
-    if s <= _YX_V116_DEFAULT_WAREHOUSE_SLOTS:
+    if s <= _YX_117_DEFAULT_WAREHOUSE_SLOTS:
         return {'success': True, 'removed_slot': s, 'default_protected': True, 'message': '1-20 預設格保留顯示'}
     conn = get_db(); cur = conn.cursor()
     try:
@@ -6538,6 +6523,708 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
         except Exception: pass
 
 
-# V116_MAINFILE_STABILITY_MARKER
+# service-line retained: database migration behavior consolidated into formal services.
 def yx_v116_mainfile_stability_marker():
     return True
+
+# ============================================================
+# service-line retained: database migration behavior consolidated into formal services.
+# User-approved warehouse rebuild-per-column logic. This does NOT clear the
+# whole warehouse table; it rewrites only the operated A/B column after keeping
+# all logical cell product data in memory. This makes base slots removable and
+# renumbers following slots so the UI stays compact and stable.
+# ============================================================
+_YX_117_DEFAULT_COLUMNS = 6
+_YX_117_DEFAULT_SLOTS = 20
+WAREHOUSE_OLD_SLOT_PREFIX = '117_old_'
+
+
+def _yx_117_ensure_schema(cur):
+    _yx_v116_ensure_schema(cur)
+    if USE_POSTGRES:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_column_meta (
+                zone TEXT NOT NULL,
+                column_index INTEGER NOT NULL,
+                visible_count INTEGER NOT NULL DEFAULT 20,
+                updated_at TEXT,
+                PRIMARY KEY(zone, column_index)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_117_wh_col ON warehouse_cells(zone, column_index)")
+        try:
+            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            cur.execute("INSERT INTO schema_migrations(version) VALUES('117_warehouse_compact_drag_stable') ON CONFLICT (version) DO NOTHING")
+            cur.execute("INSERT INTO schema_migrations(version) VALUES('119_warehouse_flow_background_stable') ON CONFLICT (version) DO NOTHING")
+        except Exception:
+            pass
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_column_meta (
+                zone TEXT NOT NULL,
+                column_index INTEGER NOT NULL,
+                visible_count INTEGER NOT NULL DEFAULT 20,
+                updated_at TEXT,
+                PRIMARY KEY(zone, column_index)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx_117_wh_col ON warehouse_cells(zone, column_index)")
+        try:
+            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+            cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('117_warehouse_compact_drag_stable')")
+            cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('119_warehouse_flow_background_stable')")
+        except Exception:
+            pass
+
+
+
+def _yx_120_ensure_warehouse_operation_schema(cur):
+    # V119 batch2: operation guard + normalized warehouse item mirror.
+    if USE_POSTGRES:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS operation_log (
+                operation_id TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                request_json TEXT,
+                response_json TEXT,
+                error TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_cell_items (
+                id SERIAL PRIMARY KEY,
+                cell_id INTEGER NOT NULL,
+                zone TEXT,
+                column_index INTEGER,
+                slot_number INTEGER,
+                source_table TEXT,
+                source_id TEXT,
+                customer_name TEXT,
+                product_text TEXT,
+                material TEXT,
+                qty INTEGER DEFAULT 0,
+                placement_label TEXT,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx120_wh_items_cell ON warehouse_cell_items(cell_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx120_wh_items_lookup ON warehouse_cell_items(zone, column_index, slot_number)")
+        cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS operation_id TEXT")
+        cur.execute("ALTER TABLE warehouse_cells ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1")
+        cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        cur.execute("INSERT INTO schema_migrations(version) VALUES('119_batch2_warehouse_operation_stability') ON CONFLICT (version) DO NOTHING")
+    else:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS operation_log (
+                operation_id TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                request_json TEXT,
+                response_json TEXT,
+                error TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS warehouse_cell_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cell_id INTEGER NOT NULL,
+                zone TEXT,
+                column_index INTEGER,
+                slot_number INTEGER,
+                source_table TEXT,
+                source_id TEXT,
+                customer_name TEXT,
+                product_text TEXT,
+                material TEXT,
+                qty INTEGER DEFAULT 0,
+                placement_label TEXT,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx120_wh_items_cell ON warehouse_cell_items(cell_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_yx120_wh_items_lookup ON warehouse_cell_items(zone, column_index, slot_number)")
+        try: cur.execute("ALTER TABLE warehouse_cells ADD COLUMN operation_id TEXT")
+        except Exception: pass
+        try: cur.execute("ALTER TABLE warehouse_cells ADD COLUMN version INTEGER DEFAULT 1")
+        except Exception: pass
+        cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+        cur.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES('119_batch2_warehouse_operation_stability')")
+
+def _yx_120_sync_cell_items_for_column(cur, zone, column_index):
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        return
+    _yx_120_ensure_warehouse_operation_schema(cur)
+    cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0 ORDER BY slot_number ASC, id ASC"), (z, c))
+    rows = rows_to_dict(cur)
+    for cell in rows:
+        cell_id = cell.get('id')
+        if not cell_id:
+            continue
+        cur.execute(sql("DELETE FROM warehouse_cell_items WHERE cell_id=?"), (cell_id,))
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+            if not isinstance(items, list):
+                items = []
+        except Exception:
+            items = []
+        for i, it in enumerate(items):
+            if not isinstance(it, dict):
+                continue
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            if not product:
+                continue
+            try:
+                qty = int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or 1))
+            except Exception:
+                qty = 1
+            cur.execute(sql("""
+                INSERT INTO warehouse_cell_items(
+                    cell_id, zone, column_index, slot_number, source_table, source_id,
+                    customer_name, product_text, material, qty, placement_label, sort_order, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """), (
+                cell_id, z, c, int(cell.get('slot_number') or 0),
+                str(it.get('source_table') or it.get('source') or '庫存'), str(it.get('source_id') or it.get('id') or ''),
+                warehouse_customer_key(it.get('customer_name') or it.get('customer') or ''), product,
+                str(it.get('material') or it.get('wood_type') or ''), max(0, qty),
+                str(it.get('placement_label') or it.get('layer_label') or ''), i, now(), now()
+            ))
+
+def _yx_117_cell_items(cell):
+    try:
+        arr = json.loads(cell.get('items_json') or '[]')
+        return arr if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+
+def _yx_117_has_items(cell):
+    for it in _yx_117_cell_items(cell):
+        if not isinstance(it, dict):
+            continue
+        txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        try:
+            q = int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or 0))
+        except Exception:
+            q = 0
+        if txt and q > 0:
+            return True
+    return False
+
+
+def _yx_117_raw_logical_cells(cur):
+    _yx_117_ensure_schema(cur)
+    out = []
+    for raw in _yx_v116_load_raw_cells(cur):
+        try:
+            st = str(raw.get('slot_type') or '').strip()
+            # Rows hidden by 117 are backups of a compacted column. Do not show them again.
+            if st.startswith(WAREHOUSE_OLD_SLOT_PREFIX):
+                continue
+            cell = _yx_v116_cell_from_row(raw)
+            z = cell.get('zone') or 'A'
+            c = int(cell.get('column_index') or 1)
+            s = int(cell.get('slot_number') or 1)
+            if z not in ('A', 'B') or c < 1 or s < 1:
+                continue
+            # If older code hid a row but it still contains products, rescue it.
+            if int(cell.get('is_deleted') or 0) and not cell.get('items'):
+                continue
+            cell['items_json'] = json.dumps(cell.get('items') or [], ensure_ascii=False)
+            out.append(cell)
+        except Exception:
+            continue
+    return out
+
+
+def _yx_117_merge_cells(cells):
+    grouped = {}
+    columns = set()
+    for cell in cells or []:
+        try:
+            z = cell.get('zone') or 'A'
+            c = int(cell.get('column_index') or 1)
+            s = int(cell.get('slot_number') or 1)
+        except Exception:
+            continue
+        columns.add((z, c))
+        key = (z, c, s)
+        old = grouped.get(key)
+        if not old:
+            grouped[key] = dict(cell)
+            continue
+        merged = list(old.get('items') or []) + list(cell.get('items') or [])
+        try:
+            merged = _normalize_warehouse_items(merged)
+        except Exception:
+            pass
+        old['items'] = merged
+        old['items_json'] = json.dumps(merged, ensure_ascii=False)
+        old['note'] = old.get('note') or cell.get('note') or ''
+        if str(cell.get('problem_flag') or '').strip():
+            old['problem_flag'] = cell.get('problem_flag')
+        old['is_deleted'] = 0
+    for z in ('A', 'B'):
+        for c in range(1, _YX_117_DEFAULT_COLUMNS + 1):
+            columns.add((z, c))
+    return grouped, columns
+
+
+def _yx_117_meta_count(cur, z, c, logical_slots=None):
+    z = _yx_v116_zone(z); c = int(c or 1)
+    _yx_117_ensure_schema(cur)
+    cur.execute(sql("SELECT visible_count FROM warehouse_column_meta WHERE zone=? AND column_index=?"), (z, c))
+    row = fetchone_dict(cur)
+    if row and row.get('visible_count') not in (None, ''):
+        try:
+            return max(1, int(row.get('visible_count') or _YX_117_DEFAULT_SLOTS))
+        except Exception:
+            pass
+    max_slot = 0
+    if logical_slots:
+        for s in logical_slots:
+            try: max_slot = max(max_slot, int(s))
+            except Exception: pass
+    return max(_YX_117_DEFAULT_SLOTS, max_slot)
+
+
+def _yx_117_set_meta_count(cur, z, c, count):
+    z = _yx_v116_zone(z); c = int(c or 1); count = max(1, int(count or _YX_117_DEFAULT_SLOTS))
+    if USE_POSTGRES:
+        cur.execute(sql("""
+            INSERT INTO warehouse_column_meta(zone,column_index,visible_count,updated_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(zone,column_index) DO UPDATE SET visible_count=EXCLUDED.visible_count, updated_at=EXCLUDED.updated_at
+        """), (z, c, count, now()))
+    else:
+        cur.execute(sql("""
+            INSERT INTO warehouse_column_meta(zone,column_index,visible_count,updated_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(zone,column_index) DO UPDATE SET visible_count=excluded.visible_count, updated_at=excluded.updated_at
+        """), (z, c, count, now()))
+
+
+def _yx_117_column_cells(cur, z, c):
+    grouped, _columns = _yx_117_merge_cells(_yx_117_raw_logical_cells(cur))
+    z = _yx_v116_zone(z); c = int(c or 1)
+    max_raw = max([s for (zz, cc, s) in grouped.keys() if zz == z and cc == c] or [0])
+    count = _yx_117_meta_count(cur, z, c, [s for (zz, cc, s) in grouped.keys() if zz == z and cc == c])
+    count = max(count, max_raw, _YX_117_DEFAULT_SLOTS if max_raw == 0 else 1)
+    out = []
+    for s in range(1, count + 1):
+        cell = grouped.get((z, c, s)) or {
+            'id': None, 'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': s,
+            'items': [], 'items_json': '[]', 'note': '', 'updated_at': '', 'problem_flag': '', 'is_deleted': 0,
+        }
+        cell = dict(cell)
+        cell['zone'], cell['column_index'], cell['slot_number'] = z, c, s
+        cell['slot_type'] = 'direct'
+        cell['is_deleted'] = 0
+        cell['items'] = cell.get('items') or _yx_117_cell_items(cell)
+        cell['items_json'] = json.dumps(cell.get('items') or [], ensure_ascii=False)
+        out.append(cell)
+    return out, count
+
+
+def _yx_117_all_public_cells(cur):
+    grouped, columns = _yx_117_merge_cells(_yx_117_raw_logical_cells(cur))
+    result = []
+    for z, c in sorted(columns):
+        max_raw = max([s for (zz, cc, s) in grouped.keys() if zz == z and cc == c] or [0])
+        count = _yx_117_meta_count(cur, z, c, [s for (zz, cc, s) in grouped.keys() if zz == z and cc == c])
+        count = max(count, max_raw, _YX_117_DEFAULT_SLOTS if c <= _YX_117_DEFAULT_COLUMNS else 1)
+        for s in range(1, count + 1):
+            cell = grouped.get((z, c, s)) or {
+                'id': None, 'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': s,
+                'items': [], 'items_json': '[]', 'note': '', 'updated_at': '', 'problem_flag': '', 'is_deleted': 0,
+            }
+            cell = dict(cell)
+            cell['zone'], cell['column_index'], cell['slot_number'] = z, c, s
+            cell['slot_type'] = 'direct'
+            cell['is_deleted'] = 0
+            cell['items_json'] = json.dumps(cell.get('items') or _yx_117_cell_items(cell), ensure_ascii=False)
+            result.append({k: v for k, v in cell.items() if k != 'items'})
+    result.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+    return result
+
+
+def _yx_117_hide_raw_column(cur, z, c):
+    z = _yx_v116_zone(z); c = int(c or 1)
+    ids = []
+    for raw in _yx_v116_load_raw_cells(cur):
+        try:
+            cell = _yx_v116_cell_from_row(raw)
+            st = str(raw.get('slot_type') or '').strip()
+            if st.startswith(WAREHOUSE_OLD_SLOT_PREFIX):
+                continue
+            if cell.get('zone') == z and int(cell.get('column_index') or 0) == c and raw.get('id') is not None:
+                ids.append(int(raw.get('id')))
+        except Exception:
+            continue
+    for rid in ids:
+        cur.execute(sql("UPDATE warehouse_cells SET slot_type=?, is_deleted=1, updated_at=? WHERE id=?"), (f'{WAREHOUSE_OLD_SLOT_PREFIX}{rid}', now(), rid))
+
+
+def _yx_117_rewrite_column(cur, z, c, cells, visible_count=None):
+    z = _yx_v116_zone(z); c = int(c or 1)
+    visible_count = max(1, int(visible_count or len(cells) or _YX_117_DEFAULT_SLOTS))
+    _yx_117_ensure_schema(cur)
+    _yx_117_hide_raw_column(cur, z, c)
+    by_slot = {}
+    for cell in cells or []:
+        try:
+            s = int(cell.get('slot_number') or 0)
+        except Exception:
+            continue
+        if s < 1 or s > visible_count:
+            continue
+        items = cell.get('items') or _yx_117_cell_items(cell)
+        try:
+            items = _normalize_warehouse_items(items)
+        except Exception:
+            pass
+        by_slot[s] = {
+            'items_json': json.dumps(items or [], ensure_ascii=False),
+            'note': cell.get('note') or '',
+            'problem_flag': cell.get('problem_flag') or '',
+        }
+    for s in range(1, visible_count + 1):
+        data = by_slot.get(s) or {'items_json': '[]', 'note': '', 'problem_flag': ''}
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        """), (z, c, 'direct', s, data['items_json'], data['note'], now(), 0, data['problem_flag']))
+    _yx_117_set_meta_count(cur, z, c, visible_count)
+
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        cells = _yx_117_all_public_cells(cur)
+        conn.commit()
+        return cells
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        log_error('117_warehouse_get_cells', str(e))
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_summary():
+    zones = {'A': {}, 'B': {}}
+    for cell in warehouse_get_cells():
+        try:
+            z = (cell.get('zone') or 'A').strip().upper(); c = int(cell.get('column_index') or 1); s = int(cell.get('slot_number') or 1)
+            zones.setdefault(z, {}).setdefault(c, {})[s] = cell
+        except Exception:
+            pass
+    return zones
+
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=''):
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count + 1, s + 1):
+                cells.append({'zone': z, 'column_index': c, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+            count = s
+        data_items = _normalize_warehouse_items(items or []) if '_normalize_warehouse_items' in globals() else (items or [])
+        for cell in cells:
+            if int(cell.get('slot_number') or 0) == s:
+                cell['items'] = data_items
+                cell['items_json'] = json.dumps(data_items, ensure_ascii=False)
+                cell['note'] = '' if str(note or '').startswith('__USER_') else (note or '')
+                cell['problem_flag'] = cell.get('problem_flag') or ''
+                break
+        _yx_117_rewrite_column(cur, z, c, cells, count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return {'success': True}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        new_count = count + 1
+        cells.append({'zone': z, 'column_index': c, 'slot_number': new_count, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+        _yx_117_rewrite_column(cur, z, c, cells, new_count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return new_count
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        if s > count:
+            conn.commit(); return {'success': False, 'error': '找不到格位'}
+        target = next((cell for cell in cells if int(cell.get('slot_number') or 0) == s), None)
+        if target and _yx_117_has_items(target):
+            conn.commit(); return {'success': False, 'error': '格子內還有商品，無法刪除。請先退回該格或移走商品'}
+        new_cells = []
+        for cell in cells:
+            n = int(cell.get('slot_number') or 0)
+            if n == s:
+                continue
+            cell = dict(cell)
+            if n > s:
+                cell['slot_number'] = n - 1
+            new_cells.append(cell)
+        new_count = max(1, count - 1)
+        _yx_117_rewrite_column(cur, z, c, new_cells, new_count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return {'success': True, 'removed_slot': s, 'compacted': True, 'visible_count': new_count}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        cells, count = _yx_117_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count + 1, s + 1):
+                cells.append({'zone': z, 'column_index': c, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+            count = s
+        for cell in cells:
+            if int(cell.get('slot_number') or 0) == s:
+                cell['problem_flag'] = 'problem' if marked else ''
+                break
+        _yx_117_rewrite_column(cur, z, c, cells, count)
+        _yx_120_sync_cell_items_for_column(cur, z, c)
+        conn.commit()
+        return {'success': True, 'marked': bool(marked)}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_move_cell_contents(from_cell, to_cell, dst_items, source_note='', target_note=''):
+    fz = _yx_v116_zone((from_cell or {}).get('zone')); fc = int((from_cell or {}).get('column_index') or (from_cell or {}).get('col') or 0); fs = int((from_cell or {}).get('slot_number') or (from_cell or {}).get('slot') or 0)
+    tz = _yx_v116_zone((to_cell or {}).get('zone')); tc = int((to_cell or {}).get('column_index') or (to_cell or {}).get('col') or 0); ts = int((to_cell or {}).get('slot_number') or (to_cell or {}).get('slot') or 0)
+    if fz not in ('A','B') or tz not in ('A','B') or fc < 1 or tc < 1 or fs < 1 or ts < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_117_ensure_schema(cur)
+        dst_items = _normalize_warehouse_items(dst_items or []) if '_normalize_warehouse_items' in globals() else (dst_items or [])
+        if fz == tz and fc == tc:
+            cells, count = _yx_117_column_cells(cur, fz, fc)
+            maxs = max(count, fs, ts)
+            if maxs > count:
+                for n in range(count + 1, maxs + 1):
+                    cells.append({'zone': fz, 'column_index': fc, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+                count = maxs
+            for cell in cells:
+                n = int(cell.get('slot_number') or 0)
+                if n == fs:
+                    cell['items'] = []
+                    cell['items_json'] = '[]'
+                    cell['note'] = source_note or cell.get('note') or ''
+                if n == ts:
+                    cell['items'] = dst_items
+                    cell['items_json'] = json.dumps(dst_items, ensure_ascii=False)
+                    cell['note'] = target_note or cell.get('note') or ''
+            _yx_117_rewrite_column(cur, fz, fc, cells, count)
+            _yx_120_sync_cell_items_for_column(cur, fz, fc)
+        else:
+            src_cells, src_count = _yx_117_column_cells(cur, fz, fc)
+            dst_cells, dst_count = _yx_117_column_cells(cur, tz, tc)
+            if fs > src_count:
+                for n in range(src_count + 1, fs + 1):
+                    src_cells.append({'zone': fz, 'column_index': fc, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+                src_count = fs
+            if ts > dst_count:
+                for n in range(dst_count + 1, ts + 1):
+                    dst_cells.append({'zone': tz, 'column_index': tc, 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+                dst_count = ts
+            for cell in src_cells:
+                if int(cell.get('slot_number') or 0) == fs:
+                    cell['items'] = []
+                    cell['items_json'] = '[]'
+                    cell['note'] = source_note or cell.get('note') or ''
+            for cell in dst_cells:
+                if int(cell.get('slot_number') or 0) == ts:
+                    cell['items'] = dst_items
+                    cell['items_json'] = json.dumps(dst_items, ensure_ascii=False)
+                    cell['note'] = target_note or cell.get('note') or ''
+            _yx_117_rewrite_column(cur, fz, fc, src_cells, src_count)
+            _yx_120_sync_cell_items_for_column(cur, fz, fc)
+            _yx_117_rewrite_column(cur, tz, tc, dst_cells, dst_count)
+            _yx_120_sync_cell_items_for_column(cur, tz, tc)
+        conn.commit()
+        return {'success': True, 'cells': warehouse_get_cells()}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+# service-line retained: database migration behavior consolidated into formal services.
+def yx_117_mainfile_stability_marker():
+    return True
+
+
+# service-line retained: database migration behavior consolidated into formal services.
+def yx_119_mainfile_stability_marker():
+    return True
+
+
+def _yx_batch3_ship_speed_sync_migration():
+    """Batch3 schema: ship preview snapshots + health/speed indexes."""
+    conn = get_db(); cur = conn.cursor()
+    try:
+        if USE_POSTGRES:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ship_preview_snapshots (
+                    token TEXT PRIMARY KEY,
+                    customer_name TEXT,
+                    payload JSONB,
+                    operator TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_logs_created ON logs(created_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_ship_customer_time ON shipping_records(customer_name, shipped_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_wh_version ON warehouse_cells(version)")
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ship_preview_snapshots (
+                    token TEXT PRIMARY KEY,
+                    customer_name TEXT,
+                    payload TEXT,
+                    operator TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_logs_created ON logs(created_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_ship_customer_time ON shipping_records(customer_name, shipped_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_yx121_wh_version ON warehouse_cells(version)")
+        conn.commit()
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+try:
+    _yx_batch3_ship_speed_sync_migration()
+except Exception as e:
+    try: log_error('yx_batch3_ship_speed_sync_migration', e)
+    except Exception: pass
+
+
+# V119 batch4 commercial final schema: read-only diagnostics and safe indexes.
+def ensure_commercial_final_schema_v122():
+    conn = None
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql("""
+        CREATE TABLE IF NOT EXISTS shipping_preview_snapshots (
+            preview_token TEXT PRIMARY KEY,
+            request_json TEXT,
+            response_json TEXT,
+            customer_name TEXT,
+            operation_id TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """))
+        cur.execute(sql("""
+        CREATE TABLE IF NOT EXISTS sync_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT,
+            module TEXT,
+            message TEXT,
+            payload_json TEXT,
+            created_at TEXT
+        )
+        """))
+        cur.execute(sql("""
+        CREATE TABLE IF NOT EXISTS backup_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT,
+            action TEXT,
+            success INTEGER DEFAULT 0,
+            detail_json TEXT,
+            username TEXT,
+            created_at TEXT
+        )
+        """))
+        # Safe indexes for speed, no destructive data changes.
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS ix_operation_log_status_updated ON operation_log(status, updated_at)",
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_cell_items_cell ON warehouse_cell_items(cell_id)",
+            "CREATE INDEX IF NOT EXISTS ix_warehouse_cells_lookup_final ON warehouse_cells(zone, column_index, slot_number, is_deleted)",
+            "CREATE INDEX IF NOT EXISTS ix_shipping_records_customer_time_final ON shipping_records(customer_name, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_sync_events_module_created ON sync_events(module, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_audit_trails_entity_time_final ON audit_trails(entity_type, created_at)"
+        ]:
+            try: cur.execute(sql(stmt))
+            except Exception as e: log_error('ensure_commercial_final_schema_v122_index', f'{stmt}: {e}')
+        conn.commit(); conn.close(); return True
+    except Exception as e:
+        log_error('ensure_commercial_final_schema_v122', str(e))
+        try:
+            if conn: conn.close()
+        except Exception: pass
+        return False

@@ -194,7 +194,7 @@
     <div class="section-head warehouse-head">
       <div>
         <h3>倉庫圖</h3>
-        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可編輯、退回該格、插入格子或刪除格子。</span>
+        <span class="muted">A / B 倉各 6 欄；格數改為動態。點選格子可編輯，長按格子可編輯、退回該格、新增格子或刪除空格；刪除空格後後方格號會自動往前補。</span>
       </div>
     </div>
 
@@ -233,7 +233,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-A-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="A" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>A 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 新增 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="A" data-column="{{ col }}" data-slot="{{ slot }}">
@@ -254,7 +254,7 @@
         <div class="zone-grid six-grid vertical-card-grid" id="zone-B-grid">
           {% for col in range(1, 7) %}
           <div class="yx106-warehouse-column yx116-warehouse-column vertical-column-card" data-zone="B" data-column="{{ col }}">
-            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 插入 / 刪除</span></div>
+            <div class="yx106-warehouse-column-title yx116-warehouse-column-title"><span>B 區第 {{ col }} 欄</span><span class="small-note">長按：編輯 / 退回 / 新增 / 刪除</span></div>
             <div class="yx106-slot-list yx116-slot-list vertical-slot-list">
               {% for slot in range(1, 21) %}
               <button type="button" class="yx108-slot yx106-slot yx116-slot vertical-slot" data-zone="B" data-column="{{ col }}" data-slot="{{ slot }}">
@@ -346,7 +346,7 @@
       <div id="warehouse-modal-meta" class="muted"></div>
       <label class="field-label">搜尋已錄入商品</label>
       <input id="warehouse-item-search" class="text-input" placeholder="搜尋商品 / 客戶 / 材質；下方每列也可直接下拉選擇">
-      <!-- FIX88：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
+      <!-- warehouse compatibility：保留隱藏 select/input 相容舊 JS；畫面不顯示舊版單筆加入/儲存按鈕，只使用批量加入自動儲存。 -->
       <div class="yx83-legacy-warehouse-controls" style="display:none" aria-hidden="true">
         <label class="field-label">加入商品</label>
         <select id="warehouse-item-select" class="text-input"></select>

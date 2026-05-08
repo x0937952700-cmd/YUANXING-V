@@ -1,5 +1,4 @@
-# V116 mainfile stability render config.
-# V116 warehouse dropdown safe: mainfile startup only
+# Yuanxing mainfile Render config.
 services:
   - type: web
     name: yuanxing

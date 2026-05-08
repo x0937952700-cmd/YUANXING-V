@@ -1,0 +1,20 @@
+V119 第四批：商用收尾與部署驗證
+
+這批直接接進第三批主檔，不是補丁檔。
+
+已加入：
+1. /api/health/smoke：部署後快速檢查必要 route、資料表、主檔是否存在。
+2. /api/backup/verify：驗證最新或指定備份檔，不執行還原，避免誤覆蓋資料。
+3. /api/admin/operation-log：管理員查看 operation_id 背景保存紀錄。
+4. /api/admin/operation-log/mark-stale：管理員整理卡住的 running/pending operation。
+5. backup.py 補入 operation_log、warehouse_cell_items、sync_events、shipping_preview_snapshots 備份。
+6. db.py 補 ensure_commercial_final_schema_v122，建立 sync_events / backup_audit / shipping_preview_snapshots 與安全索引。
+7. PostgreSQL migration：postgres_v122_commercial_final_smoke_backup.sql。
+8. scripts/smoke_test.py：Render 部署後可做只讀健康檢查。
+
+保留原則：
+- 沒有新增 overlay / hardlock。
+- 沒有 setInterval 補按鈕。
+- 沒有 MutationObserver 補按鈕。
+- 不新增多 renderer。
+- 不改掉原本資料流程，只補商用檢查、備份驗證、operation 觀測與索引。

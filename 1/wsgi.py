@@ -1,6 +1,5 @@
-# V116 wsgi entry stays lightweight; app import does not run blocking warehouse rebuild.
-"""Render/Gunicorn entrypoint for 沅興木業 V116.
-Fast import: app.py does not run heavy DB migration before binding PORT.
+"""Render/Gunicorn entrypoint for 沅興木業.
+Fast import: app.py does not run blocking database work before binding PORT.
 """
 from app import app
 

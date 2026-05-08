@@ -41,7 +41,8 @@ def backup_postgres():
         tables = [
             "users", "customer_profiles", "inventory", "orders", "master_orders",
             "shipping_records", "corrections", "image_hashes", "logs", "errors", "warehouse_cells",
-            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails"
+            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails",
+            "operation_log", "warehouse_cell_items", "sync_events", "shipping_preview_snapshots"
         ]
         backup_data = {}
         for table in tables:
@@ -82,3 +83,26 @@ def list_backups():
     except Exception as e:
         log_error("list_backups", str(e))
         return {"success": False, "files": []}
+
+
+def verify_backup_file(filename):
+    """Validate a backup file without restoring it. Used by the commercial smoke-check flow."""
+    try:
+        safe_name = os.path.basename(str(filename or ''))
+        if not safe_name:
+            return {"success": False, "error": "missing filename"}
+        path = os.path.join(BACKUP_FOLDER, safe_name)
+        if not os.path.isfile(path):
+            return {"success": False, "error": "backup not found"}
+        if safe_name.endswith('.json'):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            table_counts = {k: len(v) for k, v in data.items() if isinstance(v, list)}
+            required_any = any(k in table_counts for k in ("inventory", "orders", "master_orders", "warehouse_cells"))
+            return {"success": bool(required_any), "type": "postgres_json", "filename": safe_name, "tables": table_counts, "error": "backup has no known tables" if not required_any else ""}
+        if safe_name.endswith('.db'):
+            return {"success": True, "type": "sqlite_db", "filename": safe_name, "size": os.path.getsize(path)}
+        return {"success": False, "error": "unsupported backup type", "filename": safe_name}
+    except Exception as e:
+        log_error("verify_backup_file", str(e))
+        return {"success": False, "error": str(e)}

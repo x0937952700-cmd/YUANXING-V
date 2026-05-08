@@ -188,3 +188,25 @@
   window.addEventListener('pagehide', drain, {passive:true});
   try { (window.requestIdleCallback || function(fn){ return setTimeout(fn, 0); })(drain); } catch(_e) {}
 })();
+
+
+// Batch3: low-cost SSE dispatcher. It never reloads the page and lets modules update only touched rows/cells.
+(function(){
+  if(window.__YX_SSE_BATCH3__) return; window.__YX_SSE_BATCH3__ = true;
+  function start(){
+    if(!('EventSource' in window)) return;
+    try{
+      const es = new EventSource('/api/sync/stream');
+      es.onmessage = function(ev){
+        try{
+          const data = JSON.parse(ev.data || '{}');
+          window.dispatchEvent(new CustomEvent('yx:sync-event', {detail:data}));
+          if(data.module === 'today_changes' || data.module === 'all'){
+            try{ window.YXRefreshTodayBadge && window.YXRefreshTodayBadge(); }catch(_e){}
+          }
+        }catch(_e){}
+      };
+    }catch(_e){}
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true}); else start();
+})();
