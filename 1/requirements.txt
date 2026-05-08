@@ -9,3 +9,5 @@ python-dotenv==1.0.1
 # V117: dependency set intentionally unchanged; stability changes are mainfile code/schema only.
 
 # V119_MAINFILE_STABILITY_MARKER: warehouse flow background stable
+
+# V125: mobile whole-table zoom uses browser CSS/JS only; no new server dependency.

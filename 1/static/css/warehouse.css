@@ -21,3 +21,9 @@ body[data-module="warehouse"] .yx-current-material-input,
 body[data-module="warehouse"] .yx-current-placement-input{
   touch-action: manipulation;
 }
+
+/* V126: context menu actions insert below clicked slot; keep menu stable on touch/right-click. */
+body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-act="insert"],
+body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-act="batch-insert"]{
+  touch-action: manipulation;
+}

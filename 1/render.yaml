@@ -1,4 +1,5 @@
 # Yuanxing mainfile Render config.
+# V125 mobile zoom: no extra build step; main static files are versioned ?v=125.
 services:
   - type: web
     name: yuanxing

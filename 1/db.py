@@ -7243,19 +7243,24 @@ def _yx_123_relax_old_warehouse_unique_indexes(cur):
     compact warehouse map uses soft-hidden rows and rewrites the visible column,
     so uniqueness must not block temporary slot moves.
     """
-    for idx in (
+    legacy_names = (
         'ux_warehouse_cells_zone_band_row_name_slot',
         'ux_warehouse_cells_zone_col_slot',
         'ux_warehouse_cells_zone_column_slot',
         'ux_warehouse_cells_zone_column_direct_slot',
-    ):
+    )
+    for idx in legacy_names:
         try:
             cur.execute(f"DROP INDEX IF EXISTS {idx}")
         except Exception:
-            # Some PostgreSQL installations may have a constraint instead of a
-            # plain index.  Ignore here; the negative-slot rewrite below still
-            # avoids most duplicate conflicts.
             pass
+        # V126：有些 Render PostgreSQL 不是用獨立 index，而是 UNIQUE constraint。
+        # 若不移除，右鍵新增/刪除前端會先成功，但背景保存會因 duplicate key 失敗，重新整理又回復。
+        if USE_POSTGRES:
+            try:
+                cur.execute(f"ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS {idx}")
+            except Exception:
+                pass
 
 
 def _yx_123_tmp_slot_for_row(row, fallback):
@@ -7494,3 +7499,9 @@ def warehouse_customer_key(name):
 def warehouse_longpress_cache_version():
     """Return the warehouse long-press/cache schema marker used by /api/health and migrations."""
     return 'v124-warehouse-longpress-cache-return'
+
+
+# V125 mobile table/warehouse zoom marker: no schema dependency; DB file participates in release tracking.
+def mobile_zoom_layout_version():
+    """Return the mobile whole-table zoom layout marker used by health/smoke reports."""
+    return 'v125-mobile-table-warehouse-zoom'

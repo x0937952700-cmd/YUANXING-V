@@ -664,6 +664,7 @@
     ensureSlotRange();
     zones.forEach(z=>{ for(let c=1;c<=6;c++){ visibleSlotNumbers(z,c).forEach(s=>updateSlotUI(z,c,s)); removeExtraDom(z,c); } });
     updateNotes(); bindSlots(); setWarehouseZone(state.activeZone || localStorage.getItem('warehouseActiveZone') || 'A', false);
+    try{ window.YX && window.YX.mobileZoom && window.YX.mobileZoom.refreshSoon && window.YX.mobileZoom.refreshSoon(); }catch(_e){}
   }
   function updateNotes(){
     for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 20 格'; }
@@ -1249,12 +1250,20 @@
   function localInsertSlot(z,c,after){
     z=clean(z).toUpperCase(); c=Number(c); after=Number(after||0);
     state.data.cells = Array.isArray(state.data.cells) ? state.data.cells : [];
-    // Soft-delete add: do not renumber product cells. Restore first hidden slot is not known
-    // in front-end data, so we append visually and let the DB response reconcile exact slot.
-    const existing=visibleSlotNumbers(z,c);
-    const newSlot=existing.length ? Math.max(...existing)+1 : Math.max(1, after+1);
+    // V126：右鍵/長按「新增一格到此格下方」必須插在使用者點到的格子下一格，
+    // 不是追加到本欄最後。前端先安全重排顯示，後端用同樣 insert_after 永久保存。
+    const visible=visibleSlotNumbers(z,c);
+    const maxExisting=visible.length ? Math.max(...visible) : 0;
+    const insertAfter=Math.max(0, Math.min(after, maxExisting || after));
+    const newSlot=insertAfter + 1;
+    // 先由後往前移，避免同一輪前端資料出現重複 slot_number。
+    (state.data.cells||[])
+      .filter(cell=>clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && !isDeletedCell(cell) && Number(cell.slot_number)>insertAfter)
+      .sort((a,b)=>Number(b.slot_number)-Number(a.slot_number))
+      .forEach(cell=>{ cell.slot_number = Number(cell.slot_number) + 1; });
     state.data.cells.push({zone:z,column_index:c,slot_type:'direct',slot_number:newSlot,items:[],items_json:'[]',note:'',problem_flag:'',is_deleted:0});
     state.data.cells.sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
+    cacheWarehouseNow();
     return newSlot;
   }
   function localDeleteSlot(z,c,s){
@@ -1273,10 +1282,10 @@
     if(!count) return;
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     for(let i=0;i<count;i++) localInsertSlot(z,c,s+i);
-    updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先批量新增 ${count} 格，背景儲存`,'ok');
+    updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
     bgPost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, d=>{
       if(d && Array.isArray(d.cells)) state.data.cells=d.cells;
-      updateAllSlots(); highlightWarehouseCell(z,c,Number(d?.last_slot||s+1)); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
+      updateAllSlots(); highlightWarehouseCell(z,c,Number(d?.first_slot||s+1)); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
     }, '批量新增格子');
   }
   async function batchDeleteWarehouseCells(z,c,s){
@@ -1286,7 +1295,6 @@
     for(let i=0;i<count;i++){
       if(cellItems(z,c,s+i).length) return toast(`第 ${s+i} 格內還有商品，批量刪除已取消`,'warn');
     }
-    if(!confirm(`確定從 ${z} 區第 ${c} 欄第 ${s} 格開始刪除 ${count} 個空格？`)) return;
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     const visible=visibleSlotNumbers(z,c).filter(n=>n>=s).slice(0,count);
     if(!visible.length) return toast('找不到可刪除的空格','warn');
@@ -1301,7 +1309,7 @@
   async function insertWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
-    const localSlot=localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast('已先新增格子到本欄，背景儲存','ok');
+    const localSlot=localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
     bgPost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),zone:z,column_index:c,insert_after:s,slot_type:'direct'}, d=>{
       if(Array.isArray(d.cells)) state.data.cells=d.cells; cacheWarehouseNow(); updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||localSlot)); toast('新增格子已永久存入資料庫','ok');
     }, '新增格子');
@@ -1356,9 +1364,9 @@
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
     m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden';
-    m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到本欄</button><button type="button" data-wh-act="batch-insert">批量新增到本欄</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button>';
-    m.addEventListener('pointerup', ev=>{ const btn=ev.target?.closest?.('[data-wh-act]'); if(!btn) return; ev.preventDefault(); ev.stopPropagation(); executeWarehouseMenuAction(btn.dataset.whAct); }, true);
-    m.addEventListener('click', ev=>{ const btn=ev.target?.closest?.('[data-wh-act]'); if(!btn) return; ev.preventDefault(); ev.stopPropagation(); executeWarehouseMenuAction(btn.dataset.whAct); }, true);
+    m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button>';
+    // V126：只保留 document click 單一路徑執行選單動作；避免 pointerup+click 雙重觸發造成後端操作被鎖或重複。
+    m.addEventListener('pointerdown', ev=>{ if(ev.target?.closest?.('[data-wh-act]')) ev.stopPropagation(); }, true);
     document.body.appendChild(m); return m;
   }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }

@@ -2855,12 +2855,15 @@ def api_warehouse_batch_add_slots():
         insert_after = int(data.get("insert_after") or 0)
         if zone not in ("A", "B") or column_index < 1:
             return error_response("格位參數錯誤")
+        first_slot = None
         last_slot = None
         for _i in range(count):
             last_slot = warehouse_add_slot(zone, column_index, 'direct', insert_after=insert_after)
+            if first_slot is None:
+                first_slot = last_slot
             insert_after = int(last_slot or insert_after or 0)
         audit_service_safe_side_effect('warehouse_batch_add_log', log_action, current_username(), f"批量新增格子 {zone}{column_index} x{count}")
-        payload = dict(success=True, operation_id=operation_id, count=count, last_slot=last_slot, zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = dict(success=True, operation_id=operation_id, count=count, first_slot=first_slot, last_slot=last_slot, insert_after=int(data.get('insert_after') or 0), zones=warehouse_summary(), cells=warehouse_get_cells())
         _yx_operation_finish(operation_id, 'warehouse_batch_add_slots', payload)
         return jsonify(payload)
     except Exception as e:
@@ -4632,6 +4635,13 @@ def api_health_extended():
         try:
             if conn: conn.close()
         except Exception: pass
+
+
+@app.route('/api/ui/mobile-zoom-config', methods=['GET'])
+@login_required_json
+def api_mobile_zoom_config():
+    """V125 mobile table/warehouse zoom configuration. Read-only; no renderer or polling."""
+    return jsonify(success=True, version='v125-mobile-zoom', modules=['inventory','orders','master_order','warehouse'], min_scale=0.42, max_scale=1.35, default_mode='fit')
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
