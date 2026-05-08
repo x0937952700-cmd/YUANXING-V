@@ -1290,19 +1290,32 @@
   }
   async function batchDeleteWarehouseCells(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    const count=Math.max(1, Math.min(40, Number.parseInt(prompt('要從此格開始刪除幾個空格？', '5') || '0', 10) || 0));
+    // V127：批量刪除只問一次數量，不再跳第二次確認。
+    // 依使用者點到的格子往下找「空格」刪除，遇到有商品的格子自動略過，
+    // 避免刪第 1 格後第 2 格商品補上來，後端第二次刪除就失敗。
+    const raw=prompt('要刪除幾個空格？會從此格下方/此格開始往下刪除空格，商品格會保留。', '5');
+    if(raw===null) return;
+    const count=Math.max(1, Math.min(80, Number.parseInt(raw || '0', 10) || 0));
     if(!count) return;
-    for(let i=0;i<count;i++){
-      if(cellItems(z,c,s+i).length) return toast(`第 ${s+i} 格內還有商品，批量刪除已取消`,'warn');
-    }
+    const emptySlots=visibleSlotNumbers(z,c)
+      .filter(n=>n>=s && !cellItems(z,c,n).length)
+      .slice(0,count);
+    if(!emptySlots.length) return toast('此格往下找不到可刪除的空格','warn');
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
-    const visible=visibleSlotNumbers(z,c).filter(n=>n>=s).slice(0,count);
-    if(!visible.length) return toast('找不到可刪除的空格','warn');
-    for(let i=0;i<visible.length;i++) localDeleteSlot(z,c,s);
-    updateAllSlots(); toast(`已先批量刪除 ${visible.length} 格，背景儲存`,'ok');
-    bgPost('/api/warehouse/batch-remove-slots',{operation_id:yxOperationId('warehouse-batch-remove-slots'),zone:z,column_index:c,slot_number:s,count:visible.length,slot_type:'direct'}, d=>{
+    // 從大到小刪，避免前面刪除後格號位移影響後面目標。
+    emptySlots.slice().sort((a,b)=>b-a).forEach(n=>localDeleteSlot(z,c,n));
+    cacheWarehouseNow();
+    updateAllSlots();
+    toast(`已先批量刪除 ${emptySlots.length} 個空格，背景儲存`,'ok');
+    bgPost('/api/warehouse/batch-remove-slots',{
+      operation_id:yxOperationId('warehouse-batch-remove-slots'),
+      zone:z,column_index:c,slot_number:s,count:emptySlots.length,slot_type:'direct',
+      mode:'empty_from_here'
+    }, d=>{
       if(d && Array.isArray(d.cells)) state.data.cells=d.cells;
-      updateAllSlots(); toast(`批量刪除 ${visible.length} 格已永久存入資料庫`,'ok');
+      cacheWarehouseNow();
+      updateAllSlots();
+      toast(`批量刪除 ${Number(d?.removed||emptySlots.length)} 個空格已永久存入資料庫`,'ok');
     }, '批量刪除空格');
   }
 
@@ -1317,7 +1330,7 @@
   async function deleteWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
-    if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格空格？後面的格號會自動往前補。`)) return;
+    // V127：單格刪除不再跳確認，點選後立即前端刪除並背景保存。
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     localDeleteSlot(z,c,s); updateAllSlots(); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
     bgPost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),zone:z,column_index:c,slot_number:s,slot_type:'direct'}, d=>{
@@ -1328,7 +1341,7 @@
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
     const items=cellItems(z,c,s);
     if(!items.length) return toast('此格沒有商品可退回','warn');
-    if(!confirm(`確定將 ${z} 區第 ${c} 欄第 ${s} 格商品退回未錄入倉庫圖？`)) return;
+    // V127：返回該格不再二次確認，立即前端退回下拉並背景保存。
     const oldItems=JSON.parse(JSON.stringify(items));
     const cell=cellFromData(z,c,s);
     if(cell){ cell.items=[]; cell.items_json='[]'; }

@@ -2886,14 +2886,32 @@ def api_warehouse_batch_remove_slots():
         count = max(1, min(80, int(data.get("count") or 1)))
         if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
             return error_response("格位參數錯誤")
+        # V127：批量刪除從指定格往下找「空格」刪除，遇到有商品的格子保留。
+        # 先算出原始空格 slot，再由大到小刪，避免格號補位後刪到商品格。
+        all_cells = warehouse_get_cells()
+        def _cell_has_items_for_batch(cell):
+            try:
+                return len(safe_cell_items(cell)) > 0
+            except Exception:
+                return False
+        empty_slots = sorted([
+            int(c.get('slot_number') or 0) for c in all_cells
+            if str(c.get('zone') or '').strip().upper() == zone
+            and int(c.get('column_index') or 0) == column_index
+            and int(c.get('slot_number') or 0) >= slot_number
+            and not _cell_has_items_for_batch(c)
+            and str(c.get('is_deleted') or '0').lower() not in ('1','true','yes','deleted')
+        ])[:count]
+        if not empty_slots:
+            return error_response('此格往下找不到可刪除的空格')
         removed = 0
-        for _i in range(count):
-            result = warehouse_remove_slot(zone, column_index, 'direct', slot_number)
+        for target_slot in sorted(empty_slots, reverse=True):
+            result = warehouse_remove_slot(zone, column_index, 'direct', target_slot)
             if not result.get('success'):
-                return error_response(result.get('error') or f"第 {slot_number} 格無法刪除")
+                return error_response(result.get('error') or f"第 {target_slot} 格無法刪除")
             removed += 1
         audit_service_safe_side_effect('warehouse_batch_remove_log', log_action, current_username(), f"批量刪除空格 {zone}{column_index}-{slot_number} x{removed}")
-        payload = dict(success=True, operation_id=operation_id, removed=removed, zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = dict(success=True, operation_id=operation_id, requested=count, removed=removed, removed_slots=empty_slots, zones=warehouse_summary(), cells=warehouse_get_cells())
         _yx_operation_finish(operation_id, 'warehouse_batch_remove_slots', payload)
         return jsonify(payload)
     except Exception as e:
