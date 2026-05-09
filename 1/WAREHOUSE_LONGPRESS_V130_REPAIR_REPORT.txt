@@ -1,0 +1,56 @@
+YUANXING V119 / V130 倉庫圖長按功能正式修復報告
+
+這次修的真正問題：
+前端長按/右鍵選單已經有先顯示新增、刪除、退回，但資料庫沒有跟著保存。真正根因不是按鈕，而是舊 PostgreSQL 倉庫表還可能保留舊座標欄位與唯一限制，例如 zone + band + row_name + slot。V129 只移動新欄位 column_index / slot_type / slot_number，沒有同步移動 legacy 欄位 band / row_name / slot，所以第二次新增格、批量新增、刪格、返回後再操作時會撞 unique key，transaction 失敗，重新整理就回復原樣。
+
+本次直接修主檔：
+- db.py
+  - 新增 V130 canonical rewrite。
+  - 所有長按/右鍵操作共用同一套資料庫欄位重排。
+  - 同步新座標欄位：zone / column_index / slot_type / slot_number。
+  - 同步舊座標欄位：area / band / section / section_index / col / column / row_name / row_type / front_back / side / slot / slot_no / cell_number / position / pos / no。
+  - 寫入前先把同欄所有實體 row 移到 row-id 專屬暫存座標，避免任何 unique constraint 碰撞。
+  - 再重寫正式顯示格號 1..N。
+  - 多餘 row 不刪除，移到 hidden 暫存座標，避免資料遺失。
+  - warehouse_save_cell / warehouse_add_slot / warehouse_remove_slot / warehouse_set_cell_mark / warehouse_move_cell_contents 全部走同一套 rewrite。
+
+- app.py
+  - 更新 APP_VERSION / STATIC_VERSION。
+  - 加入 V130 倉庫長按 DB 修復標記。
+  - API 仍維持原本路徑，不新增第二套 renderer 或第二套按鈕流程。
+
+- static/yx_pages/warehouse_page.js
+  - 更新倉庫快取版本，避免手機/瀏覽器吃到舊倉庫快取。
+  - 加入 V130 marker，不新增 renderer、不重綁多次 click。
+
+- migrations/postgres_v130_warehouse_longpress_db_sync.sql
+  - 一次性整理舊 PostgreSQL unique index / constraint。
+  - 補齊倉庫欄位。
+  - 若舊座標欄位存在，會先和目前新座標對齊。
+  - Runtime 不再於使用者操作時 DROP constraint，避免 transaction aborted。
+
+本地實測項目：
+1. 乾淨 SQLite DB：
+   - 商品添加進格子，可讀回。
+   - 新增一格到點選格下方，可連續新增。
+   - 批量新增同一 anchor，可連續新增。
+   - 刪除空格，可連續刪除。
+   - 標記 / 取消問題格，可保存。
+   - 返回該格後商品清空，可保存。
+
+2. 模擬舊 PostgreSQL 問題的 SQLite DB：
+   - 加入舊欄位 band / row_name / slot。
+   - 建立舊 unique index：ux_warehouse_cells_zone_band_row_name_slot。
+   - 連續新增格 7 次成功。
+   - 商品添加進格子成功。
+   - 標記問題格成功。
+   - 連續刪除空格 7 次成功。
+   - 返回該格成功。
+   - 檢查 legacy unique 座標沒有重複。
+
+未新增：
+- 沒有新增 renderer。
+- 沒有新增 setInterval。
+- 沒有新增 MutationObserver。
+- 沒有同一按鈕綁多個 click。
+- 沒有補丁 JS 檔。

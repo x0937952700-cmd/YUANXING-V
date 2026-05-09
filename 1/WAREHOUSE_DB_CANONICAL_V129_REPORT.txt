@@ -1,0 +1,49 @@
+YUANXING V119 - Warehouse DB Canonical Persistence V129
+
+本次直接修改主檔，針對「長按/右鍵功能前端有動、背景保存失敗、重新整理回復原狀」做資料庫層修復。
+
+真正問題：
+1. 舊版倉庫操作在使用者每次新增/刪除/批量刪除時，會嘗試 DROP warehouse_cells 上的舊 unique constraint / unique index。
+2. PostgreSQL 只要其中一個 DROP 失敗，整個 transaction 會進入 aborted 狀態。
+3. 後面的 UPDATE/INSERT 即使語法正確也會全部失敗，所以前端先刪了，背景保存失敗，重新整理又回復。
+4. 另有一個問題是暫存欄位使用固定負數 column_index，反覆新增/刪除後可能和舊隱藏列互撞。
+
+已修正：
+- db.py
+  - 移除使用者操作期間的危險 DROP constraint/index 流程。
+  - 新增正式 canonical rewrite：同欄資料先移到每筆 row id 專屬的負數 column_index，再重寫正式 slot_number。
+  - warehouse_save_cell / warehouse_add_slot / warehouse_remove_slot / warehouse_set_cell_mark 全部改走同一套 canonical DB 寫入。
+  - 格內商品添加、減少、退回都會同步 items_json 與 warehouse_cell_items。
+  - 新增/刪除/批量新增/批量刪除後，warehouse_column_meta 會更新 visible_count。
+
+- app.py
+  - 批量刪除不再只相信前端 slots；後端會用 DB 目前狀態重新確認只刪空格。
+  - 倉庫 API 錯誤訊息會回傳真實資料庫原因，不再只顯示泛用「刪除格子失敗」。
+
+- static/yx_pages/warehouse_page.js
+  - 移除 return action 重複執行。
+  - 格位保存成功後同步更新本機快取。
+
+- templates/module.html
+  - 倉庫右鍵/長按功能版本標記更新為 129。
+
+- migrations
+  - 修正 postgres_v128_warehouse_front_db_alignment.sql，移除危險的任意 DROP unique index/constraint。
+  - 新增 postgres_v129_warehouse_canonical_persistence.sql。
+
+驗證：
+- Python compile 通過：app.py / db.py / wsgi.py。
+- SQLite 本地測試通過：
+  1. 商品添加進格子並讀回。
+  2. 新增一格到此格下方。
+  3. 刪除空格並補齊格號。
+  4. 標記/取消問題格。
+  5. 返回該格後再刪除空格。
+  6. 加上 unique index 模擬舊 PostgreSQL 約束後，新增/刪除/標記/退回仍可成功。
+
+未加入：
+- 沒有新增 renderer。
+- 沒有同一按鈕多 click 綁定。
+- 沒有 setInterval。
+- 沒有 MutationObserver。
+- 沒有補丁檔。

@@ -34,13 +34,19 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-BATCH4-COMMERCIAL-FINAL'
-STATIC_VERSION = "119-batch3"
+APP_VERSION = 'V119-V130-WAREHOUSE-LONGPRESS-DB-SYNC'
+STATIC_VERSION = "119-v130-warehouse-longpress"
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
 app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
+# V130 marker: warehouse long-press/right-click actions use canonical DB coordinate sync.
+try:
+    import db as _yx_db_module
+    app.config['YX_WAREHOUSE_LONGPRESS_DB_FIX'] = getattr(_yx_db_module, 'warehouse_longpress_db_fix_version', lambda: 'v130')()
+except Exception:
+    app.config['YX_WAREHOUSE_LONGPRESS_DB_FIX'] = 'v130'
 
 UPLOAD_FOLDER = "uploads"
 TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
@@ -2061,7 +2067,7 @@ def api_warehouse_cell():
     except Exception as e:
         log_error("warehouse_cell_main_save_v40", str(e))
         _yx_operation_finish(operation_id, 'warehouse_cell_save', {'success': False, 'error': '格位更新失敗'}, error=e)
-        return error_response("格位更新失敗")
+        return error_response("格位更新失敗：" + str(e)[:180])
     # Side effects must not make saved cell look failed.
     if items:
         top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
@@ -2158,7 +2164,7 @@ def api_warehouse_add_column():
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_column", str(e))
-        return error_response("新增格子失敗")
+        return error_response("新增格子失敗：" + str(e)[:180])
 
 @app.route("/api/warehouse/search")
 @login_required_json
@@ -2770,7 +2776,7 @@ def api_warehouse_return_unplaced():
         return jsonify(payload)
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
-        return error_response("退回該格失敗")
+        return error_response("退回該格失敗：" + str(e)[:180])
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
@@ -2803,7 +2809,7 @@ def api_warehouse_add_slot():
         return jsonify(payload)
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
-        return error_response("新增格子失敗")
+        return error_response("新增格子失敗：" + str(e)[:180])
 
 @app.route("/api/warehouse/remove-slot", methods=["POST"])
 @login_required_json
@@ -2836,7 +2842,7 @@ def api_warehouse_remove_slot():
         return jsonify(payload)
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
-        return error_response("刪除格子失敗")
+        return error_response("刪除格子失敗：" + str(e)[:180])
 
 
 @app.route("/api/warehouse/batch-add-slots", methods=["POST"])
@@ -2868,7 +2874,7 @@ def api_warehouse_batch_add_slots():
         return jsonify(payload)
     except Exception as e:
         log_error("warehouse_batch_add_slots_119", str(e))
-        return error_response("批量新增格子失敗")
+        return error_response("批量新增格子失敗：" + str(e)[:180])
 
 @app.route("/api/warehouse/batch-remove-slots", methods=["POST"])
 @login_required_json
@@ -2895,21 +2901,30 @@ def api_warehouse_batch_remove_slots():
                 return len(safe_cell_items(cell)) > 0
             except Exception:
                 return False
-        if isinstance(requested_slots, list) and requested_slots:
-            try:
-                wanted = [int(x) for x in requested_slots if int(x) >= slot_number]
-            except Exception:
-                wanted = []
-        else:
-            wanted = []
-        empty_slots = wanted[:count] if wanted else sorted([
+        current_empty = sorted([
             int(c.get('slot_number') or 0) for c in all_cells
             if str(c.get('zone') or '').strip().upper() == zone
             and int(c.get('column_index') or 0) == column_index
             and int(c.get('slot_number') or 0) >= slot_number
             and not _cell_has_items_for_batch(c)
             and str(c.get('is_deleted') or '0').lower() not in ('1','true','yes','deleted')
-        ])[:count]
+        ])
+        if isinstance(requested_slots, list) and requested_slots:
+            try:
+                wanted = [int(x) for x in requested_slots if int(x) >= slot_number]
+            except Exception:
+                wanted = []
+            # 以前直接相信前端 slots，DB 若已變動就會刪到商品格而失敗。
+            # 現在一律用 DB 目前狀態過濾，只刪真正空格。
+            empty_slots = [x for x in wanted if x in set(current_empty)][:count]
+            if len(empty_slots) < count:
+                for x in current_empty:
+                    if x not in empty_slots:
+                        empty_slots.append(x)
+                    if len(empty_slots) >= count:
+                        break
+        else:
+            empty_slots = current_empty[:count]
         if not empty_slots:
             return error_response('此格往下找不到可刪除的空格')
         removed = 0
@@ -2924,7 +2939,7 @@ def api_warehouse_batch_remove_slots():
         return jsonify(payload)
     except Exception as e:
         log_error("warehouse_batch_remove_slots_119", str(e))
-        return error_response("批量刪除空格失敗")
+        return error_response("批量刪除空格失敗：" + str(e)[:180])
 
 
 @app.route("/api/orders/to-master", methods=["POST"])

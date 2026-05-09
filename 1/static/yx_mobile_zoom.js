@@ -1,4 +1,4 @@
-/* V125 mobile zoom mainline: fit large product tables / warehouse map on phones, with native pan + pinch. No renderer, no polling, no MutationObserver. */
+/* V125 mobile zoom mainline: fit large product tables / warehouse map on phones, with native pan + pinch. No renderer, no polling, no DOM watcher. */
 (function(){
   'use strict';
   if(window.__YX_MOBILE_ZOOM_V125__) return;

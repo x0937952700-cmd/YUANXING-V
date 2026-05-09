@@ -7508,56 +7508,32 @@ def mobile_zoom_layout_version():
 
 
 # ============================================================
-# V128 warehouse DB/front-end alignment repair
-# Purpose: make long-press/right-click insert/delete/batch-delete persist in DB
-# exactly the way the front-end displays it. This is a main-file override of
-# the warehouse service functions above; no extra renderer or patch JS is added.
+# Warehouse canonical DB/front-end alignment
+# Purpose: make long-press/right-click insert/delete/batch-delete and cell item saves
+# persist exactly the way the front-end displays them.
 # ============================================================
 
-def _yx_128_drop_warehouse_unique_blockers(cur):
-    """Remove old unique indexes/constraints that block compact slot renumbering."""
-    known = (
-        'ux_warehouse_cells_zone_band_row_name_slot',
-        'ux_warehouse_cells_zone_col_slot',
-        'ux_warehouse_cells_zone_column_slot',
-        'ux_warehouse_cells_zone_column_direct_slot',
-        'warehouse_cells_zone_column_index_slot_number_key',
-        'warehouse_cells_zone_column_slot_key',
-    )
-    for name in known:
-        try: cur.execute(f'DROP INDEX IF EXISTS {name}')
-        except Exception: pass
-        if USE_POSTGRES:
-            try: cur.execute(f'ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS {name}')
-            except Exception: pass
-    if USE_POSTGRES:
-        try:
-            cur.execute("""SELECT conname FROM pg_constraint WHERE conrelid = 'warehouse_cells'::regclass AND contype = 'u'""")
-            for row in cur.fetchall():
-                cname = row[0] if not isinstance(row, dict) else row.get('conname')
-                if not cname: continue
-                low = str(cname).lower()
-                if 'warehouse' in low or 'zone' in low or 'slot' in low or 'column' in low:
-                    try: cur.execute(f'ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS {cname}')
-                    except Exception: pass
-        except Exception:
-            pass
-        try:
-            cur.execute("""SELECT indexname FROM pg_indexes WHERE tablename='warehouse_cells' AND indexdef ILIKE '%%UNIQUE%%'""")
-            for row in cur.fetchall():
-                iname = row[0] if not isinstance(row, dict) else row.get('indexname')
-                if not iname: continue
-                low = str(iname).lower()
-                if 'warehouse' in low or 'zone' in low or 'slot' in low or 'column' in low:
-                    try: cur.execute(f'DROP INDEX IF EXISTS {iname}')
-                    except Exception: pass
-        except Exception:
-            pass
-    try: cur.execute(sql('CREATE INDEX IF NOT EXISTS ix_yx128_wh_cells_position ON warehouse_cells(zone,column_index,slot_number)'))
-    except Exception: pass
+# ============================================================
+# 倉庫資料庫正式對齊：右鍵/長按操作與格內商品保存共用同一套欄位重排
+# ============================================================
+# PostgreSQL 失敗主因：舊版在每次操作時嘗試 DROP 舊 unique constraint / index，
+# 任何 DROP 失敗都會讓 PostgreSQL transaction 進入 aborted 狀態，後續 UPDATE/INSERT 全部失敗。
+# 這裡不再於一般操作中 drop constraint；改用「全欄移到每筆 id 專屬暫存欄位 → 重寫正式格號」。
+
+def _yx_129_no_runtime_constraint_drop(cur):
+    try:
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cur.execute(sql('CREATE INDEX IF NOT EXISTS ix_yx129_wh_cells_position ON warehouse_cells(zone,column_index,slot_number)'))
+    except Exception:
+        # 不在這裡丟錯，避免輔助索引失敗影響使用者操作；真正寫入會在外層回報。
+        pass
+
+# 舊函式名稱仍被前面流程呼叫，改成安全無破壞版本。
+_yx_128_drop_warehouse_unique_blockers = _yx_129_no_runtime_constraint_drop
 
 
-def _yx_128_safe_items(cell):
+def _yx_129_safe_items(cell):
     try:
         items = cell.get('items') if isinstance(cell, dict) else None
         if items is None:
@@ -7569,176 +7545,471 @@ def _yx_128_safe_items(cell):
         return []
 
 
-def _yx_128_visible_column_cells(cur, z, c):
+def _yx_129_raw_ids_for_logical_column(cur, z, c):
+    z = _yx_v116_zone(z); c = int(c or 1)
+    ids = []
+    try:
+        for raw in _yx_v116_load_raw_cells(cur):
+            try:
+                cell = _yx_v116_cell_from_row(raw)
+                rid = cell.get('id')
+                if rid is not None and cell.get('zone') == z and int(cell.get('column_index') or 0) == c:
+                    ids.append(int(rid))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # 去重且維持順序
+    seen = set(); out = []
+    for rid in ids:
+        if rid not in seen:
+            seen.add(rid); out.append(rid)
+    return out
+
+
+def _yx_129_visible_column_cells(cur, z, c):
     cells, count = _yx_117_column_cells(cur, z, c)
-    out=[]
-    for n in range(1, int(count or _YX_117_DEFAULT_SLOTS)+1):
-        src = next((dict(x) for x in cells if int(x.get('slot_number') or 0)==n), None)
+    out = []
+    for n in range(1, int(count or _YX_117_DEFAULT_SLOTS) + 1):
+        src = next((dict(x) for x in cells if int(x.get('slot_number') or 0) == n), None)
         if not src:
-            src={'zone':z,'column_index':c,'slot_type':'direct','slot_number':n,'items':[],'items_json':'[]','note':'','problem_flag':''}
-        src['zone']=z; src['column_index']=int(c); src['slot_type']='direct'; src['slot_number']=n; src['is_deleted']=0
-        src['items']=_yx_128_safe_items(src)
-        src['items_json']=json.dumps(src['items'], ensure_ascii=False)
+            src = {'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''}
+        src['zone'] = _yx_v116_zone(z)
+        src['column_index'] = int(c)
+        src['slot_type'] = 'direct'
+        src['slot_number'] = n
+        src['is_deleted'] = 0
+        src['items'] = _yx_129_safe_items(src)
+        src['items_json'] = json.dumps(src['items'], ensure_ascii=False)
         out.append(src)
     return out, int(count or len(out) or _YX_117_DEFAULT_SLOTS)
 
 
-def _yx_128_rewrite_column(cur, z, c, cells, visible_count=None):
-    z=_yx_v116_zone(z); c=int(c or 1)
-    visible_count=max(1,int(visible_count or len(cells) or _YX_117_DEFAULT_SLOTS))
-    _yx_117_ensure_schema(cur)
+def _yx_129_temp_column_for_id(rid, fallback=1):
+    try:
+        n = abs(int(rid or fallback))
+    except Exception:
+        n = abs(int(fallback or 1))
+    # PostgreSQL INTEGER 安全範圍內；每個 row id 專屬，避免和上次隱藏列互撞。
+    return -max(1, min(1900000000, n))
+
+
+def _yx_129_rewrite_column(cur, z, c, cells, visible_count=None):
+    z = _yx_v116_zone(z); c = int(c or 1)
+    visible_count = max(1, int(visible_count or len(cells or []) or _YX_117_DEFAULT_SLOTS))
+    _yx_v116_ensure_schema(cur)
     _yx_120_ensure_warehouse_operation_schema(cur)
-    _yx_128_drop_warehouse_unique_blockers(cur)
-    cols=_table_columns(cur,'warehouse_cells')
-    has_deleted='is_deleted' in cols; has_problem='problem_flag' in cols; has_version='version' in cols; has_operation='operation_id' in cols
+    _yx_129_no_runtime_constraint_drop(cur)
+    cols = _table_columns(cur, 'warehouse_cells')
+    has_deleted = 'is_deleted' in cols
+    has_problem = 'problem_flag' in cols
+    has_version = 'version' in cols
+    has_operation = 'operation_id' in cols
 
-    cur.execute(sql('SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? ORDER BY slot_number ASC, id ASC'), (z,c))
-    rows=rows_to_dict(cur)
-    ids=[]
-    stamp=str(int(datetime.now().timestamp()*1000000))
-    for i,r in enumerate(rows, start=1):
-        rid=r.get('id')
-        if rid is None: continue
-        temp_col=-(100000 + int(c)*1000 + i)
-        hidden_type=(f'yx128_tmp_{stamp}_{i}')[:60]
-        sets=['column_index=?','slot_type=?','updated_at=?']
-        params=[temp_col, hidden_type, now()]
-        if has_deleted: sets.append('is_deleted=1')
-        if has_version: sets.append('version=COALESCE(version,0)+1')
-        cur.execute(sql('UPDATE warehouse_cells SET '+', '.join(sets)+' WHERE id=?'), tuple(params+[rid]))
-        ids.append(rid)
+    raw_ids = _yx_129_raw_ids_for_logical_column(cur, z, c)
+    # 先把同一邏輯欄所有舊 row 移到 row-id 專屬暫存欄；不要刪資料。
+    for idx, rid in enumerate(raw_ids, start=1):
+        temp_col = _yx_129_temp_column_for_id(rid, idx)
+        temp_type = ('yx129_tmp_%s' % rid)[:60]
+        sets = ['column_index=?', 'slot_type=?', 'updated_at=?']
+        params = [temp_col, temp_type, now()]
+        if has_deleted:
+            sets.append('is_deleted=1')
+        if has_version:
+            sets.append('version=COALESCE(version,0)+1')
+        cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
 
-    byslot={}
+    byslot = {}
     for cell in cells or []:
-        try: s=int(cell.get('slot_number') or 0)
-        except Exception: continue
-        if s<1 or s>visible_count: continue
-        items=_yx_128_safe_items(cell)
-        byslot[s]={
+        try:
+            s = int(cell.get('slot_number') or 0)
+        except Exception:
+            continue
+        if s < 1 or s > visible_count:
+            continue
+        items = _yx_129_safe_items(cell)
+        # 若同一格有重複來源，保留最後一份非空資料；這樣前端送回的狀態就是 DB 狀態。
+        byslot[s] = {
             'items_json': json.dumps(items, ensure_ascii=False),
             'note': '' if str(cell.get('note') or '').startswith('__USER_') else (cell.get('note') or ''),
             'problem_flag': cell.get('problem_flag') or ''
         }
 
-    for s in range(1, visible_count+1):
-        data=byslot.get(s) or {'items_json':'[]','note':'','problem_flag':''}
-        if ids:
-            rid=ids.pop(0)
-            sets=['zone=?','column_index=?','slot_type=?','slot_number=?','items_json=?','note=?','updated_at=?']
-            params=[z,c,'direct',s,data['items_json'],data['note'],now()]
-            if has_deleted: sets.append('is_deleted=0')
-            if has_problem: sets.append('problem_flag=?'); params.append(data['problem_flag'])
-            if has_operation: sets.append("operation_id=COALESCE(operation_id,'')")
-            if has_version: sets.append('version=COALESCE(version,0)+1')
-            cur.execute(sql('UPDATE warehouse_cells SET '+', '.join(sets)+' WHERE id=?'), tuple(params+[rid]))
+    reuse_ids = list(raw_ids)
+    for s in range(1, visible_count + 1):
+        data = byslot.get(s) or {'items_json': '[]', 'note': '', 'problem_flag': ''}
+        if reuse_ids:
+            rid = reuse_ids.pop(0)
+            sets = ['zone=?', 'column_index=?', 'slot_type=?', 'slot_number=?', 'items_json=?', 'note=?', 'updated_at=?']
+            params = [z, c, 'direct', s, data['items_json'], data['note'], now()]
+            if has_deleted:
+                sets.append('is_deleted=0')
+            if has_problem:
+                sets.append('problem_flag=?'); params.append(data['problem_flag'])
+            if has_operation:
+                sets.append("operation_id=COALESCE(operation_id,'')")
+            if has_version:
+                sets.append('version=COALESCE(version,0)+1')
+            cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
         else:
-            cur.execute(sql("""
-                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
-                VALUES(?,?,?,?,?,?,?,?,?)
-            """), (z,c,'direct',s,data['items_json'],data['note'],now(),0,data['problem_flag']))
-    for rid in ids:
-        hidden_type=(f'yx128_old_{rid}')[:60]
-        sets=['slot_type=?',"items_json='[]'",'updated_at=?']
-        params=[hidden_type,now()]
-        if has_deleted: sets.append('is_deleted=1')
-        if has_version: sets.append('version=COALESCE(version,0)+1')
-        cur.execute(sql('UPDATE warehouse_cells SET '+', '.join(sets)+' WHERE id=?'), tuple(params+[rid]))
-    _yx_117_set_meta_count(cur,z,c,visible_count)
+            if USE_POSTGRES:
+                cur.execute(sql("""
+                    INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """), (z, c, 'direct', s, data['items_json'], data['note'], now(), 0, data['problem_flag']))
+            else:
+                cur.execute(sql("""
+                    INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """), (z, c, 'direct', s, data['items_json'], data['note'], now(), 0, data['problem_flag']))
 
-_yx_117_rewrite_column = _yx_128_rewrite_column
+    # 多出來的舊 row 不刪除，永久移到自己的負欄位並標 hidden，避免任何 unique index 互撞。
+    for rid in reuse_ids:
+        hidden_col = _yx_129_temp_column_for_id(rid, rid)
+        hidden_type = ('yx129_hidden_%s' % rid)[:60]
+        sets = ['column_index=?', 'slot_type=?', "items_json='[]'", 'updated_at=?']
+        params = [hidden_col, hidden_type, now()]
+        if has_deleted:
+            sets.append('is_deleted=1')
+        if has_version:
+            sets.append('version=COALESCE(version,0)+1')
+        cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
+
+    _yx_117_set_meta_count(cur, z, c, visible_count)
+    _yx_120_sync_cell_items_for_column(cur, z, c)
+
+_yx_117_rewrite_column = _yx_129_rewrite_column
+_yx_128_rewrite_column = _yx_129_rewrite_column
+
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=''):
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count + 1, s + 1):
+                cells.append({'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+            count = s
+        data_items = _normalize_warehouse_items(items or []) if '_normalize_warehouse_items' in globals() else (items or [])
+        safe_note = '' if str(note or '').startswith('__USER_') else (note or '')
+        found = False
+        for cell in cells:
+            if int(cell.get('slot_number') or 0) == s:
+                cell['items'] = data_items
+                cell['items_json'] = json.dumps(data_items, ensure_ascii=False)
+                cell['note'] = safe_note
+                found = True
+                break
+        if not found:
+            cells.append({'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': s, 'items': data_items, 'items_json': json.dumps(data_items, ensure_ascii=False), 'note': safe_note, 'problem_flag': ''})
+            count = max(count, s)
+        _yx_129_rewrite_column(cur, z, c, cells, count)
+        conn.commit()
+        return {'success': True, 'zone': z, 'column_index': c, 'slot_number': s}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
 
 
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
-    z=_yx_v116_zone(zone); c=int(column_index or 0)
-    if z not in ('A','B') or c<1: raise ValueError('格位參數錯誤')
-    conn=get_db(); cur=conn.cursor()
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        raise ValueError('格位參數錯誤')
+    conn = get_db(); cur = conn.cursor()
     try:
-        _yx_117_ensure_schema(cur); _yx_128_drop_warehouse_unique_blockers(cur)
-        cells,count=_yx_128_visible_column_cells(cur,z,c)
-        try: after=int(insert_after if insert_after is not None else count)
-        except Exception: after=count
-        after=max(0,min(after,count))
-        new=[]; inserted=False
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+        try:
+            after = int(insert_after if insert_after is not None else count)
+        except Exception:
+            after = count
+        after = max(0, min(after, count))
+        new = []
+        inserted = False
         for cell in cells:
-            n=int(cell.get('slot_number') or 0)
-            if n<=after:
+            n = int(cell.get('slot_number') or 0)
+            if n <= after:
                 new.append(dict(cell))
             else:
                 if not inserted:
-                    new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1,'items':[],'items_json':'[]','note':'','problem_flag':''})
-                    inserted=True
-                shifted=dict(cell); shifted['slot_number']=n+1; new.append(shifted)
+                    new.append({'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': after + 1, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+                    inserted = True
+                shifted = dict(cell); shifted['slot_number'] = n + 1; new.append(shifted)
         if not inserted:
-            new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1,'items':[],'items_json':'[]','note':'','problem_flag':''})
-        _yx_128_rewrite_column(cur,z,c,new,count+1)
-        _yx_120_sync_cell_items_for_column(cur,z,c)
-        conn.commit(); return after+1
-    except Exception as e:
+            new.append({'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': after + 1, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+        _yx_129_rewrite_column(cur, z, c, new, count + 1)
+        conn.commit()
+        return after + 1
+    except Exception:
         try: conn.rollback()
         except Exception: pass
-        log_error('yx128_warehouse_add_slot', str(e)); raise
+        raise
     finally:
         try: conn.close()
         except Exception: pass
 
 
 def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
-    z=_yx_v116_zone(zone); c=int(column_index or 0); s=int(slot_number or 0)
-    if z not in ('A','B') or c<1 or s<1: return {'success':False,'error':'格位參數錯誤'}
-    conn=get_db(); cur=conn.cursor()
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
     try:
-        _yx_117_ensure_schema(cur); _yx_128_drop_warehouse_unique_blockers(cur)
-        cells,count=_yx_128_visible_column_cells(cur,z,c)
-        if s>count: conn.commit(); return {'success':False,'error':'找不到格位'}
-        target=next((x for x in cells if int(x.get('slot_number') or 0)==s), None)
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+        if s > count:
+            conn.commit(); return {'success': False, 'error': '找不到格位'}
+        target = next((x for x in cells if int(x.get('slot_number') or 0) == s), None)
         if target and _yx_117_has_items(target):
-            conn.commit(); return {'success':False,'error':'格子內還有商品，無法刪除。請先退回該格或移走商品'}
-        new=[]
+            conn.commit(); return {'success': False, 'error': '格子內還有商品，無法刪除。請先退回該格或移走商品'}
+        new = []
         for cell in cells:
-            n=int(cell.get('slot_number') or 0)
-            if n==s: continue
-            cell=dict(cell)
-            if n>s: cell['slot_number']=n-1
+            n = int(cell.get('slot_number') or 0)
+            if n == s:
+                continue
+            cell = dict(cell)
+            if n > s:
+                cell['slot_number'] = n - 1
             new.append(cell)
-        new_count=max(1,count-1)
-        _yx_128_rewrite_column(cur,z,c,new,new_count)
-        _yx_120_sync_cell_items_for_column(cur,z,c)
-        conn.commit(); return {'success':True,'removed_slot':s,'compacted':True,'visible_count':new_count}
+        new_count = max(1, count - 1)
+        _yx_129_rewrite_column(cur, z, c, new, new_count)
+        conn.commit()
+        return {'success': True, 'removed_slot': s, 'compacted': True, 'visible_count': new_count}
     except Exception as e:
         try: conn.rollback()
         except Exception: pass
-        log_error('yx128_warehouse_remove_slot', str(e)); return {'success':False,'error':'資料庫刪除格子失敗：'+str(e)[:120]}
+        log_error('warehouse_remove_slot_final', str(e))
+        return {'success': False, 'error': '資料庫刪除格子失敗：' + str(e)[:180]}
     finally:
         try: conn.close()
         except Exception: pass
 
 
 def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
-    z=_yx_v116_zone(zone); c=int(column_index or 0); s=int(slot_number or 0)
-    if z not in ('A','B') or c<1 or s<1: return {'success':False,'error':'格位參數錯誤'}
-    conn=get_db(); cur=conn.cursor()
+    z = _yx_v116_zone(zone); c = int(column_index or 0); s = int(slot_number or 0)
+    if z not in ('A','B') or c < 1 or s < 1:
+        return {'success': False, 'error': '格位參數錯誤'}
+    conn = get_db(); cur = conn.cursor()
     try:
-        _yx_117_ensure_schema(cur); _yx_128_drop_warehouse_unique_blockers(cur)
-        cells,count=_yx_128_visible_column_cells(cur,z,c)
-        if s>count:
-            for n in range(count+1,s+1):
-                cells.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':n,'items':[],'items_json':'[]','note':'','problem_flag':''})
-            count=s
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count + 1, s + 1):
+                cells.append({'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': n, 'items': [], 'items_json': '[]', 'note': '', 'problem_flag': ''})
+            count = s
         for cell in cells:
-            if int(cell.get('slot_number') or 0)==s:
-                cell['problem_flag']='problem' if marked else ''
+            if int(cell.get('slot_number') or 0) == s:
+                cell['problem_flag'] = 'problem' if marked else ''
                 break
-        _yx_128_rewrite_column(cur,z,c,cells,count)
-        _yx_120_sync_cell_items_for_column(cur,z,c)
-        conn.commit(); return {'success':True,'marked':bool(marked)}
+        _yx_129_rewrite_column(cur, z, c, cells, count)
+        conn.commit()
+        return {'success': True, 'marked': bool(marked)}
     except Exception as e:
         try: conn.rollback()
         except Exception: pass
-        log_error('yx128_warehouse_set_cell_mark', str(e)); return {'success':False,'error':'資料庫標記格子失敗：'+str(e)[:120]}
+        log_error('warehouse_set_cell_mark_final', str(e))
+        return {'success': False, 'error': '資料庫標記格子失敗：' + str(e)[:180]}
     finally:
         try: conn.close()
         except Exception: pass
 
 
 def warehouse_context_db_alignment_version():
-    return 'v128-warehouse-front-db-aligned'
+    return 'v129-warehouse-db-canonical-write'
+
+# ============================================================
+# V130 warehouse long-press canonical persistence repair
+# Purpose: make every right-click / long-press action persist even when old
+# PostgreSQL schemas still contain legacy coordinate columns and old unique
+# constraints such as (zone, band, row_name, slot).  This is direct mainfile
+# service code, not a UI overlay.
+# ============================================================
+
+def _yx_130_ident(name):
+    name = _safe_identifier(name)
+    if not name:
+        return ''
+    # Double-quote so legacy columns named "column" are safe on PostgreSQL and SQLite.
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _yx_130_has_col(cols, name):
+    return str(name or '') in (cols or set())
+
+
+def _yx_130_add_set(sets, params, cols, col, value):
+    if _yx_130_has_col(cols, col):
+        ident = _yx_130_ident(col)
+        if ident:
+            sets.append(f'{ident}=?')
+            params.append(value)
+
+
+def _yx_130_legacy_coord_sets(cols, z, c, row_name, slot_number):
+    """Return SET fragments for old warehouse coordinate columns.
+
+    Older deployments may still have a unique index/constraint on fields like
+    zone + band + row_name + slot.  V129 moved only column_index/slot_type/
+    slot_number, leaving those legacy fields behind; the next insert then hit
+    duplicate key and all long-press actions failed after refresh.  Every write
+    now keeps new and legacy coordinates synchronized.
+    """
+    sets, params = [], []
+    z = _yx_v116_zone(z)
+    try: c = int(c or 1)
+    except Exception: c = 1
+    try: slot_number = int(slot_number or 1)
+    except Exception: slot_number = 1
+    row_name = str(row_name or 'direct')
+    _yx_130_add_set(sets, params, cols, 'area', z)
+    for col in ('band', 'section', 'section_index', 'col', 'column'):
+        _yx_130_add_set(sets, params, cols, col, c)
+    for col in ('row_name', 'row_type', 'front_back', 'side'):
+        _yx_130_add_set(sets, params, cols, col, row_name)
+    for col in ('slot', 'slot_no', 'cell_number', 'position', 'pos', 'no'):
+        _yx_130_add_set(sets, params, cols, col, slot_number)
+    return sets, params
+
+
+def _yx_130_insert_warehouse_cell(cur, cols, z, c, slot_number, items_json='[]', note='', problem_flag='', is_deleted=0, row_name='direct'):
+    z = _yx_v116_zone(z)
+    c = int(c or 1)
+    slot_number = int(slot_number or 1)
+    row_name = str(row_name or 'direct')
+    insert_cols = ['zone', 'column_index', 'slot_type', 'slot_number', 'items_json', 'note', 'updated_at']
+    values = [z, c, row_name, slot_number, items_json or '[]', note or '', now()]
+    if _yx_130_has_col(cols, 'is_deleted'):
+        insert_cols.append('is_deleted'); values.append(int(is_deleted or 0))
+    if _yx_130_has_col(cols, 'problem_flag'):
+        insert_cols.append('problem_flag'); values.append(problem_flag or '')
+    if _yx_130_has_col(cols, 'operation_id'):
+        insert_cols.append('operation_id'); values.append('')
+    if _yx_130_has_col(cols, 'version'):
+        insert_cols.append('version'); values.append(1)
+    # Keep legacy coordinate columns synchronized with visible direct cells.
+    legacy_sets, legacy_params = _yx_130_legacy_coord_sets(cols, z, c, row_name, slot_number)
+    for frag, val in zip(legacy_sets, legacy_params):
+        col = frag.split('=')[0].strip().strip('"')
+        if col not in insert_cols:
+            insert_cols.append(col); values.append(val)
+    col_sql = ','.join(_yx_130_ident(cn) for cn in insert_cols)
+    ph = ','.join(['?'] * len(insert_cols))
+    cur.execute(sql(f'INSERT INTO warehouse_cells({col_sql}) VALUES({ph})'), tuple(values))
+
+
+def _yx_130_rewrite_column(cur, z, c, cells, visible_count=None):
+    """Canonical warehouse column rewrite used by all long-press actions.
+
+    Fixes the real failure point:
+    - existing legacy unique constraints still watch band/row_name/slot;
+    - old rewrites changed only column_index/slot_type/slot_number;
+    - repeated insert/delete then created duplicate legacy coordinates.
+
+    This version moves both new and legacy coordinates to row-id-specific
+    temporary coordinates before writing visible cells back 1..N.
+    """
+    z = _yx_v116_zone(z); c = int(c or 1)
+    visible_count = max(1, int(visible_count or len(cells or []) or _YX_117_DEFAULT_SLOTS))
+    _yx_v116_ensure_schema(cur)
+    _yx_120_ensure_warehouse_operation_schema(cur)
+    cols = _table_columns(cur, 'warehouse_cells')
+    has_deleted = 'is_deleted' in cols
+    has_problem = 'problem_flag' in cols
+    has_version = 'version' in cols
+    has_operation = 'operation_id' in cols
+
+    raw_ids = _yx_129_raw_ids_for_logical_column(cur, z, c)
+
+    # Step 1: move all existing physical rows for this logical column out of the
+    # visible coordinate space.  Move legacy coordinates too; otherwise old
+    # unique constraints still collide even when column_index moved away.
+    for idx, rid in enumerate(raw_ids, start=1):
+        temp_col = _yx_129_temp_column_for_id(rid, idx)
+        temp_type = ('yx130_tmp_%s' % rid)[:60]
+        temp_slot = -abs(int(rid or idx))
+        sets = ['column_index=?', 'slot_type=?', 'slot_number=?', 'updated_at=?']
+        params = [temp_col, temp_type, temp_slot, now()]
+        legacy_sets, legacy_params = _yx_130_legacy_coord_sets(cols, z, temp_col, temp_type, temp_slot)
+        sets.extend(legacy_sets); params.extend(legacy_params)
+        if has_deleted:
+            sets.append('is_deleted=1')
+        if has_version:
+            sets.append('version=COALESCE(version,0)+1')
+        cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
+
+    byslot = {}
+    for cell in cells or []:
+        try:
+            s = int(cell.get('slot_number') or 0)
+        except Exception:
+            continue
+        if s < 1 or s > visible_count:
+            continue
+        items = _yx_129_safe_items(cell)
+        byslot[s] = {
+            'items_json': json.dumps(items, ensure_ascii=False),
+            'note': '' if str(cell.get('note') or '').startswith('__USER_') else (cell.get('note') or ''),
+            'problem_flag': cell.get('problem_flag') or ''
+        }
+
+    reuse_ids = list(raw_ids)
+    for s in range(1, visible_count + 1):
+        data = byslot.get(s) or {'items_json': '[]', 'note': '', 'problem_flag': ''}
+        if reuse_ids:
+            rid = reuse_ids.pop(0)
+            sets = ['zone=?', 'column_index=?', 'slot_type=?', 'slot_number=?', 'items_json=?', 'note=?', 'updated_at=?']
+            params = [z, c, 'direct', s, data['items_json'], data['note'], now()]
+            legacy_sets, legacy_params = _yx_130_legacy_coord_sets(cols, z, c, 'direct', s)
+            sets.extend(legacy_sets); params.extend(legacy_params)
+            if has_deleted:
+                sets.append('is_deleted=0')
+            if has_problem:
+                sets.append('problem_flag=?'); params.append(data['problem_flag'])
+            if has_operation:
+                sets.append("operation_id=COALESCE(operation_id,'')")
+            if has_version:
+                sets.append('version=COALESCE(version,0)+1')
+            cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
+        else:
+            _yx_130_insert_warehouse_cell(cur, cols, z, c, s, data['items_json'], data['note'], data['problem_flag'], 0, 'direct')
+
+    # Step 3: keep extra rows hidden outside all visible and legacy coordinates.
+    for rid in reuse_ids:
+        hidden_col = _yx_129_temp_column_for_id(rid, rid)
+        hidden_type = ('yx130_hidden_%s' % rid)[:60]
+        hidden_slot = -abs(int(rid or 1))
+        sets = ['column_index=?', 'slot_type=?', 'slot_number=?', "items_json='[]'", 'updated_at=?']
+        params = [hidden_col, hidden_type, hidden_slot, now()]
+        legacy_sets, legacy_params = _yx_130_legacy_coord_sets(cols, z, hidden_col, hidden_type, hidden_slot)
+        sets.extend(legacy_sets); params.extend(legacy_params)
+        if has_deleted:
+            sets.append('is_deleted=1')
+        if has_version:
+            sets.append('version=COALESCE(version,0)+1')
+        cur.execute(sql('UPDATE warehouse_cells SET ' + ', '.join(sets) + ' WHERE id=?'), tuple(params + [rid]))
+
+    _yx_117_set_meta_count(cur, z, c, visible_count)
+    _yx_120_sync_cell_items_for_column(cur, z, c)
+
+
+# Replace every warehouse writer path with the same canonical rewrite.
+_yx_117_rewrite_column = _yx_130_rewrite_column
+_yx_128_rewrite_column = _yx_130_rewrite_column
+_yx_129_rewrite_column = _yx_130_rewrite_column
+
+
+def warehouse_longpress_db_fix_version():
+    return 'v130-warehouse-longpress-canonical-db-sync'
+
