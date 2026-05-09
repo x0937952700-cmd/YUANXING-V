@@ -28,7 +28,7 @@
   root.undo = root.undo || {};
   root.audit = root.audit || {};
   root.sync = root.sync || {};
-  root.version = '119-longpress-cache-v124';
+  root.version = '119-v131-rightclick-cache';
   window.YX = root;
 })();
 
@@ -37,7 +37,7 @@
   'use strict';
   if (window.__YX_CACHE_GUARD_RUNNING__) return;
   window.__YX_CACHE_GUARD_RUNNING__ = true;
-  const VERSION='124';
+  const VERSION='131';
   const FLAG='yx_cache_guard_'+VERSION;
   const DB_FLAG='yx_indexeddb_clear_'+VERSION;
   function idle(fn){

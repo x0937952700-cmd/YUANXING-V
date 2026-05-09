@@ -406,13 +406,22 @@
       return null;
     }).catch(err=>{ toast(`${label||'操作'}已保留在背景佇列，切頁後仍會重試`, 'warn'); return null; });
   }
+  function queuedWarehousePost(url, payload, onSuccess, label){
+    const z=clean(payload?.zone || payload?.from?.zone || 'A').toUpperCase();
+    const c=Number(payload?.column_index || payload?.from?.column_index || payload?.from?.col || 1);
+    const key=`${z}-${c}`;
+    const prev=state.columnChains.get(key) || Promise.resolve();
+    const task=prev.catch(()=>{}).then(()=>bgPost(url,payload,onSuccess,label));
+    state.columnChains.set(key, task.finally(()=>{ if(state.columnChains.get(key)===task) state.columnChains.delete(key); }));
+    return task;
+  }
   const isWarehouse = () => document.querySelector('.module-screen[data-module="warehouse"]') || (location.pathname||'').includes('/warehouse');
   const state = {
     data:{cells:[], zones:{A:{},B:{}}}, available:[], availableByZone:{A:[],B:[]}, activeZone:null, searchKeys:new Set(), undoStack:[],
-    current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false
+    current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false, columnChains:new Map(), menuBusy:false
   };
   const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
-  const CACHE_VERSION = 'v130-warehouse-longpress-db-sync';
+  const CACHE_VERSION = 'v131-warehouse-rightclick-cache-stable';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
@@ -431,6 +440,32 @@
   }
   function cacheAvailableNow(){
     try{ cacheSet(AVAILABLE_CACHE_KEY, {available:state.available||[], availableByZone:state.availableByZone||{A:[],B:[]}}); }catch(_e){}
+  }
+  function applyColumnCells(z,c,columnCells){
+    if(!Array.isArray(columnCells)) return false;
+    z=clean(z).toUpperCase(); c=Number(c);
+    const others=(state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c));
+    const incoming=columnCells.map(cell=>{
+      const row={...(cell||{})};
+      row.zone=z; row.column_index=c; row.slot_type=row.slot_type||'direct';
+      if(Array.isArray(row.items)) row.items=row.items;
+      else { try{ const arr=JSON.parse(row.items_json||'[]'); row.items=Array.isArray(arr)?arr:[]; }catch(_e){ row.items=[]; } }
+      row.items_json=JSON.stringify(row.items||[]);
+      row.is_deleted=row.is_deleted||0;
+      return row;
+    });
+    state.data.cells=others.concat(incoming).sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
+    cacheWarehouseNow();
+    return true;
+  }
+  function applyWarehouseResponse(d, fallbackZ, fallbackC){
+    if(!d) return false;
+    if(Array.isArray(d.column_cells)){
+      const z=d.zone || fallbackZ; const c=d.column_index || fallbackC;
+      return applyColumnCells(z,c,d.column_cells);
+    }
+    if(Array.isArray(d.cells)){ state.data.cells=d.cells; cacheWarehouseNow(); return true; }
+    return false;
   }
   function hydrateWarehouseFromCache(){
     const cached=cacheGet(WAREHOUSE_CACHE_KEY, 1000*60*60*12);
@@ -689,7 +724,7 @@
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
     // 124：開頁先用本機快取畫出倉庫圖，再背景抓最新資料；不攔截 fetch、不快取 API、不整頁重畫。
-    if(!force) hydrateWarehouseFromCache();
+    hydrateWarehouseFromCache();
     hydrateAvailableFromCache();
     state.loading=(async()=>{ try{
       const d = await api('/api/warehouse?ts='+Date.now());
@@ -1205,11 +1240,12 @@
       closeWarehouseModal();
       clearWarehouseDraft(saveZone,saveCol,saveSlot);
       highlightWarehouseCell(saveZone,saveCol,saveSlot);
-      saveCellBg(saveZone,saveCol,saveSlot,items,saveNote, async saved=>{
+      queuedWarehousePost('/api/warehouse/cell', saveCellPayload(saveZone,saveCol,saveSlot,items,saveNote), async saved=>{
         // 119：後端讀回 saved_cell 後，只同步這一格，不整包覆蓋；若切頁造成請求延後，佇列會在其他頁繼續送。
         if(saved && saved.saved_cell){
           const sc=saved.saved_cell;
           setLocalCellItems(saveZone,saveCol,saveSlot,Array.isArray(sc.items)?sc.items:items,sc.note ?? saveNote);
+          if(Array.isArray(saved.column_cells)) applyColumnCells(saveZone,saveCol,saved.column_cells);
           cacheWarehouseNow();
         }
         await loadAvailable().catch(()=>{});
@@ -1284,8 +1320,8 @@
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     for(let i=0;i<count;i++) localInsertSlot(z,c,s+i);
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
-    bgPost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, d=>{
-      if(d && Array.isArray(d.cells)) state.data.cells=d.cells;
+    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, d=>{
+      applyWarehouseResponse(d,z,c);
       updateAllSlots(); highlightWarehouseCell(z,c,Number(d?.first_slot||s+1)); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
     }, '批量新增格子');
   }
@@ -1308,12 +1344,12 @@
     cacheWarehouseNow();
     updateAllSlots();
     toast(`已先批量刪除 ${emptySlots.length} 個空格，背景儲存`,'ok');
-    bgPost('/api/warehouse/batch-remove-slots',{
+    queuedWarehousePost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
       zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, d=>{
-      if(d && Array.isArray(d.cells)) state.data.cells=d.cells;
+      applyWarehouseResponse(d,z,c);
       cacheWarehouseNow();
       updateAllSlots();
       toast(`批量刪除 ${Number(d?.removed||emptySlots.length)} 個空格已永久存入資料庫`,'ok');
@@ -1324,8 +1360,8 @@
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     const localSlot=localInsertSlot(z,c,s); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
-    bgPost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),zone:z,column_index:c,insert_after:s,slot_type:'direct'}, d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells; cacheWarehouseNow(); updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||localSlot)); toast('新增格子已永久存入資料庫','ok');
+    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),zone:z,column_index:c,insert_after:s,slot_type:'direct'}, d=>{
+      applyWarehouseResponse(d,z,c); cacheWarehouseNow(); updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||localSlot)); toast('新增格子已永久存入資料庫','ok');
     }, '新增格子');
   }
   async function deleteWarehouseCell(z,c,s){
@@ -1334,8 +1370,8 @@
     // V127：單格刪除不再跳確認，點選後立即前端刪除並背景保存。
     const old=JSON.parse(JSON.stringify(state.data.cells||[]));
     localDeleteSlot(z,c,s); updateAllSlots(); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
-    bgPost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),zone:z,column_index:c,slot_number:s,slot_type:'direct'}, d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells; cacheWarehouseNow(); updateAllSlots(); toast('刪除空格已永久存入資料庫','ok');
+    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),zone:z,column_index:c,slot_number:s,slot_type:'direct'}, d=>{
+      applyWarehouseResponse(d,z,c); cacheWarehouseNow(); updateAllSlots(); toast('刪除空格已永久存入資料庫','ok');
     }, '刪除空格');
   }
   async function returnWarehouseCell(z,c,s){
@@ -1351,8 +1387,8 @@
     updateSlotUI(z,c,s);
     if(state.current && state.current.zone===z && Number(state.current.col)===c && Number(state.current.slot)===s){ state.current.items=[]; renderCellItems(true); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
-    bgPost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),zone:z,column_index:c,slot_number:s}, async d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),zone:z,column_index:c,slot_number:s}, async d=>{
+      applyWarehouseResponse(d,z,c);
       await loadAvailable().catch(()=>{});
       updateAllSlots();
       highlightWarehouseCell(z,c,s);
@@ -1360,20 +1396,21 @@
     }, '退回該格');
   }
   async function executeWarehouseMenuAction(action){
-    const m=menu(); const now=Date.now();
-    if(now < Number(m.dataset.lockUntil||0)) return;
-    m.dataset.lockUntil=String(now+700);
+    const m=menu();
     const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot);
     m.classList.add('hidden');
+    if(state.menuBusy){ toast('上一個格位操作仍在排隊保存，已保留目前畫面，請稍候半秒再操作','warn'); return; }
+    state.menuBusy=true;
     try{
       if(action==='open') await openWarehouseModal(z,c,s);
-      if(action==='mark') await toggleProblemMark(z,c,s);
-      if(action==='return') await returnWarehouseCell(z,c,s);
-      if(action==='insert') await insertWarehouseCell(z,c,s);
-      if(action==='batch-insert') await batchInsertWarehouseCells(z,c,s);
-      if(action==='delete') await deleteWarehouseCell(z,c,s);
-      if(action==='batch-delete') await batchDeleteWarehouseCells(z,c,s);
+      else if(action==='mark') await toggleProblemMark(z,c,s);
+      else if(action==='return') await returnWarehouseCell(z,c,s);
+      else if(action==='insert') await insertWarehouseCell(z,c,s);
+      else if(action==='batch-insert') await batchInsertWarehouseCells(z,c,s);
+      else if(action==='delete') await deleteWarehouseCell(z,c,s);
+      else if(action==='batch-delete') await batchDeleteWarehouseCells(z,c,s);
     }catch(e){ toast(e.message||'格位操作失敗','error'); }
+    finally{ setTimeout(()=>{ state.menuBusy=false; }, 80); }
   }
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
@@ -1393,8 +1430,8 @@
     cell.problem_flag = nowMarked ? 'problem' : '';
     updateSlotUI(z,c,s);
     toast(nowMarked?'已先標記成問題格，背景儲存':'已先取消問題格標記，背景儲存','ok');
-    bgPost('/api/warehouse/mark-cell',{operation_id:yxOperationId('warehouse-mark-cell'),zone:z,column_index:c,slot_number:s,marked:nowMarked}, d=>{
-      if(Array.isArray(d.cells)) state.data.cells=d.cells;
+    queuedWarehousePost('/api/warehouse/mark-cell',{operation_id:yxOperationId('warehouse-mark-cell'),zone:z,column_index:c,slot_number:s,marked:nowMarked}, d=>{
+      applyWarehouseResponse(d,z,c);
       cacheWarehouseNow(); updateAllSlots();
     }, '標記格子');
   }
@@ -1477,7 +1514,7 @@
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=hit.cell||hit; highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }
-  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v130'; bindGlobal(); bindSlots(); setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(true); }
+  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v130'; bindGlobal(); bindSlots(); setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
   window.searchWarehouse=searchWarehouse;

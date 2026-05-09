@@ -22,7 +22,7 @@ from db import (
     ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
-    warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark, warehouse_move_cell_contents,
+    warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark, warehouse_move_cell_contents, warehouse_get_column_cells,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
     list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now, USE_POSTGRES, database_mode_info, table_counts,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
@@ -34,8 +34,8 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V130-WAREHOUSE-LONGPRESS-DB-SYNC'
-STATIC_VERSION = "119-v130-warehouse-longpress"
+APP_VERSION = 'V119-V131-WAREHOUSE-RIGHTCLICK-CACHE-STABLE'
+STATIC_VERSION = "119-v131-warehouse-rightclick-cache"
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -2007,19 +2007,69 @@ def api_customer_detail(name):
         return error_response("找不到客戶", 404)
     return jsonify(success=True, item=row, counts=get_customer_relation_counts(name))
 
+
+# ============================================================
+# V131 warehouse lightweight server cache / column response helpers
+# - Browser still uses no-store for API.  This is only a very short in-memory
+#   cache to avoid rebuilding the whole warehouse on repeated page opens.
+# - Any warehouse write invalidates the cache immediately.
+# ============================================================
+_WAREHOUSE_API_CACHE = {"at": 0.0, "payload": None}
+
+def _warehouse_cache_get(max_age=2.5):
+    try:
+        payload = _WAREHOUSE_API_CACHE.get('payload')
+        if payload and (time.time() - float(_WAREHOUSE_API_CACHE.get('at') or 0)) <= max_age:
+            return json.loads(json.dumps(payload, ensure_ascii=False))
+    except Exception:
+        pass
+    return None
+
+def _warehouse_cache_set(payload):
+    try:
+        _WAREHOUSE_API_CACHE['payload'] = json.loads(json.dumps(payload, ensure_ascii=False))
+        _WAREHOUSE_API_CACHE['at'] = time.time()
+    except Exception:
+        pass
+
+def _warehouse_cache_clear():
+    try:
+        _WAREHOUSE_API_CACHE['payload'] = None
+        _WAREHOUSE_API_CACHE['at'] = 0.0
+    except Exception:
+        pass
+
+def _warehouse_payload_from_cells(cells):
+    zones = {"A": {}, "B": {}}
+    for cell in cells or []:
+        z = (cell.get('zone') or 'A').strip().upper()
+        if z not in ('A','B'):
+            z = 'A'
+        c = int(cell.get('column_index') or 1)
+        n = int(cell.get('slot_number') or 1)
+        zones.setdefault(z, {}).setdefault(c, {})[n] = cell
+    return dict(success=True, zones=zones, cells=cells or [], cache_version='v131-warehouse-rightclick-cache', cache_policy='client-local-first')
+
+def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
+    z = (zone or 'A').strip().upper()
+    c = int(column_index or 1)
+    col_cells = warehouse_get_column_cells(z, c)
+    payload = dict(success=True, operation_id=operation_id, partial=True, zone=z, column_index=c, column_cells=col_cells)
+    payload.update(extra or {})
+    return payload
+
 @app.route("/api/warehouse", methods=["GET"])
 @login_required_json
 def api_warehouse():
     try:
+        cached = _warehouse_cache_get()
+        if cached:
+            cached['server_cache'] = True
+            return jsonify(cached)
         cells = warehouse_get_cells()
-        zones = {"A": {}, "B": {}}
-        for cell in cells:
-            z = (cell.get('zone') or 'A').strip().upper()
-            if z not in ('A','B'): z = 'A'
-            c = int(cell.get('column_index') or 1)
-            n = int(cell.get('slot_number') or 1)
-            zones.setdefault(z, {}).setdefault(c, {})[n] = cell
-        return jsonify(success=True, zones=zones, cells=cells, cache_version='v124-warehouse-longpress-cache', cache_policy='client-local-first')
+        payload = _warehouse_payload_from_cells(cells)
+        _warehouse_cache_set(payload)
+        return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse", str(e))
         return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], error=str(e))
@@ -2051,6 +2101,7 @@ def api_warehouse_cell():
             return error_response(msg)
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
+        _warehouse_cache_clear()
         saved_after = next((c for c in warehouse_get_cells() if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
         if not saved_after:
             return error_response("格位沒有確實寫入資料庫")
@@ -2077,12 +2128,12 @@ def api_warehouse_cell():
     audit_service_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
     try:
         # service-line retained: mainfile behavior consolidated into formal services.
-        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload}
+        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload, 'column_cells': warehouse_get_column_cells(zone, column_index)}
         _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
         return jsonify(payload)
     except Exception as e:
         log_error('warehouse_cell_response_v40', str(e))
-        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload}
+        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload, 'column_cells': warehouse_get_column_cells(zone, column_index)}
         _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
         return jsonify(payload)
 
@@ -2768,10 +2819,11 @@ def api_warehouse_return_unplaced():
         items = safe_cell_items(cell)
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
+        _warehouse_cache_clear()
         log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
         audit_service_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         audit_service_safe_side_effect('warehouse_return_notify', notify_sync_event, kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
-        payload = dict(success=True, operation_id=operation_id, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = _warehouse_column_payload(zone, column_index, operation_id, returned_items=items)
         _yx_operation_finish(operation_id, 'warehouse_return_unplaced', payload)
         return jsonify(payload)
     except Exception as e:
@@ -2796,15 +2848,11 @@ def api_warehouse_add_slot():
         if insert_after is None and data.get("slot_number") not in (None, ""):
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
+        _warehouse_cache_clear()
         audit_service_safe_side_effect('warehouse_add_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         audit_service_safe_side_effect('warehouse_add_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         audit_service_safe_side_effect('warehouse_add_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        payload = {'success': True, 'slot_number': slot_number}
-        try:
-            payload['zones'] = warehouse_summary()
-            payload['cells'] = warehouse_get_cells()
-        except Exception as read_err:
-            log_error('warehouse_add_slot_readback', str(read_err))
+        payload = _warehouse_column_payload(zone, column_index, operation_id, slot_number=slot_number)
         _yx_operation_finish(operation_id, 'warehouse_add_slot', payload)
         return jsonify(payload)
     except Exception as e:
@@ -2829,15 +2877,11 @@ def api_warehouse_remove_slot():
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
             return error_response(result.get('error') or '刪除格子失敗')
+        _warehouse_cache_clear()
         audit_service_safe_side_effect('warehouse_remove_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         audit_service_safe_side_effect('warehouse_remove_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         audit_service_safe_side_effect('warehouse_remove_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        payload = {'success': True}
-        try:
-            payload['zones'] = warehouse_summary()
-            payload['cells'] = warehouse_get_cells()
-        except Exception as read_err:
-            log_error('warehouse_remove_slot_readback', str(read_err))
+        payload = _warehouse_column_payload(zone, column_index, operation_id, removed_slot=slot_number)
         _yx_operation_finish(operation_id, 'warehouse_remove_slot', payload)
         return jsonify(payload)
     except Exception as e:
@@ -2865,11 +2909,12 @@ def api_warehouse_batch_add_slots():
         last_slot = None
         for _i in range(count):
             last_slot = warehouse_add_slot(zone, column_index, 'direct', insert_after=insert_after)
+            _warehouse_cache_clear()
             if first_slot is None:
                 first_slot = last_slot
             insert_after = int(last_slot or insert_after or 0)
         audit_service_safe_side_effect('warehouse_batch_add_log', log_action, current_username(), f"批量新增格子 {zone}{column_index} x{count}")
-        payload = dict(success=True, operation_id=operation_id, count=count, first_slot=first_slot, last_slot=last_slot, insert_after=int(data.get('insert_after') or 0), zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = _warehouse_column_payload(zone, column_index, operation_id, count=count, first_slot=first_slot, last_slot=last_slot, insert_after=int(data.get('insert_after') or 0))
         _yx_operation_finish(operation_id, 'warehouse_batch_add_slots', payload)
         return jsonify(payload)
     except Exception as e:
@@ -2895,7 +2940,7 @@ def api_warehouse_batch_remove_slots():
             return error_response("格位參數錯誤")
         # V128：前端如果已算好要刪的空格，後端優先照同一組 slot 執行，避免前端與 DB 目標不一致。
         # 先算出原始空格 slot，再由大到小刪，避免格號補位後刪到商品格。
-        all_cells = warehouse_get_cells()
+        all_cells = warehouse_get_column_cells(zone, column_index)
         def _cell_has_items_for_batch(cell):
             try:
                 return len(safe_cell_items(cell)) > 0
@@ -2933,8 +2978,9 @@ def api_warehouse_batch_remove_slots():
             if not result.get('success'):
                 return error_response(result.get('error') or f"第 {target_slot} 格無法刪除")
             removed += 1
+        _warehouse_cache_clear()
         audit_service_safe_side_effect('warehouse_batch_remove_log', log_action, current_username(), f"批量刪除空格 {zone}{column_index}-{slot_number} x{removed}")
-        payload = dict(success=True, operation_id=operation_id, requested=count, removed=removed, removed_slots=empty_slots, zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = _warehouse_column_payload(zone, column_index, operation_id, requested=count, removed=removed, removed_slots=empty_slots)
         _yx_operation_finish(operation_id, 'warehouse_batch_remove_slots', payload)
         return jsonify(payload)
     except Exception as e:
@@ -4335,8 +4381,9 @@ def api_warehouse_mark_cell():
         result = warehouse_set_cell_mark(zone, column_index, slot_number, marked)
         if not result.get('success'):
             return error_response(result.get('error') or '標記失敗')
+        _warehouse_cache_clear()
         log_action(current_username(), f"{'標記問題格' if marked else '取消問題格標記'} {zone}{column_index}-{slot_number}")
-        payload = dict(success=True, operation_id=operation_id, marked=marked, zones=warehouse_summary(), cells=warehouse_get_cells())
+        payload = _warehouse_column_payload(zone, column_index, operation_id, marked=marked)
         _yx_operation_finish(operation_id, 'warehouse_mark_cell', payload)
         return jsonify(payload)
     except Exception as e:

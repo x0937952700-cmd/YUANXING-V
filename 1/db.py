@@ -8013,3 +8013,42 @@ _yx_129_rewrite_column = _yx_130_rewrite_column
 def warehouse_longpress_db_fix_version():
     return 'v130-warehouse-longpress-canonical-db-sync'
 
+
+
+# ============================================================
+# V131 warehouse right-click stability + fast column read
+# Purpose: long-press/right-click operations should not need to reread the
+# entire warehouse after every structural write.  This function returns only
+# the touched column using the same canonical visible-column logic.
+# ============================================================
+
+def warehouse_get_column_cells(zone, column_index):
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        return []
+    conn = get_db(); cur = conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+        out = []
+        for cell in cells:
+            row = dict(cell or {})
+            row['zone'] = z
+            row['column_index'] = c
+            row['slot_type'] = 'direct'
+            try:
+                row['slot_number'] = int(row.get('slot_number') or 0)
+            except Exception:
+                row['slot_number'] = 0
+            row['items'] = _yx_129_safe_items(row)
+            row['items_json'] = json.dumps(row['items'], ensure_ascii=False)
+            row['is_deleted'] = 0
+            out.append(row)
+        return sorted(out, key=lambda r: int(r.get('slot_number') or 0))
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_v131_stability_version():
+    return 'v131-warehouse-rightclick-cache-fast-column'
