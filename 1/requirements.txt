@@ -1,0 +1,13 @@
+# V117 mainfile stability dependencies; no extra runtime package required.
+Flask==3.0.3
+gunicorn==22.0.0
+Werkzeug==3.0.6
+Pillow==10.4.0
+openpyxl==3.1.5
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+# V117: dependency set intentionally unchanged; stability changes are mainfile code/schema only.
+
+# V119_MAINFILE_STABILITY_MARKER: warehouse flow background stable
+
+# V125: mobile whole-table zoom uses browser CSS/JS only; no new server dependency.

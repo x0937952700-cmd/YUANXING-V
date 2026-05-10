@@ -1,0 +1,66 @@
+/* warehouse.css: formal split stylesheet. Base rules preserved in base.css; new scoped rules for warehouse attach here. */
+
+/* V124 warehouse long-press and instant-return stability: scoped to warehouse page only. */
+body[data-module="warehouse"] #yx-final-warehouse-menu{
+  touch-action: manipulation;
+  user-select: none;
+  pointer-events: auto;
+  max-width: min(210px, calc(100vw - 24px));
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu button{
+  touch-action: manipulation;
+  pointer-events: auto;
+  cursor: pointer;
+}
+body[data-module="warehouse"] .yx-direct-current-item[data-yx-saving="1"]{
+  opacity: .86;
+}
+body[data-module="warehouse"] .yx-current-qty-input,
+body[data-module="warehouse"] .yx-current-product-input,
+body[data-module="warehouse"] .yx-current-material-input,
+body[data-module="warehouse"] .yx-current-placement-input{
+  touch-action: manipulation;
+}
+
+/* V126: context menu actions insert below clicked slot; keep menu stable on touch/right-click. */
+body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-act="insert"],
+body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-act="batch-insert"]{
+  touch-action: manipulation;
+}
+
+/* V133: 倉庫格數量超出 庫存+訂單+總單 來源合計時，用淡粉色提醒，不擋操作。 */
+body[data-module="warehouse"] .yx-final-slot.yx-warehouse-overstock,
+body[data-module="warehouse"] .yx108-slot.yx-warehouse-overstock,
+body[data-module="warehouse"] .vertical-slot.yx-warehouse-overstock{
+  background: linear-gradient(135deg, rgba(255,228,235,.96), rgba(255,246,248,.98)) !important;
+  border-color: rgba(244,114,182,.72) !important;
+  box-shadow: 0 0 0 2px rgba(244,114,182,.12), 0 8px 18px rgba(190,24,93,.08) !important;
+}
+body[data-module="warehouse"] .yx-final-slot.yx-warehouse-overstock .yx108-slot-total,
+body[data-module="warehouse"] .yx108-slot.yx-warehouse-overstock .yx108-slot-total{
+  color:#be123c !important;
+  font-weight:900;
+}
+
+/* V142 warehouse speed: reduce mobile layout work while cached grid is being painted. */
+.warehouse-grid,.yx-warehouse-grid,#warehouse-grid{contain:layout paint style;}
+.yx108-slot{content-visibility:auto; contain:layout paint style;}
+
+/* V156 warehouse stability: show column-level background persistence without blocking navigation */
+#warehouse-root [data-zone][data-column].yx-warehouse-column-saving {
+  outline: 2px dashed rgba(120, 120, 120, 0.35);
+  outline-offset: -2px;
+}
+#warehouse-root [data-zone][data-column].yx-warehouse-column-saving::after {
+  content: '同步中';
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.72);
+  color: #666;
+  pointer-events: none;
+}
