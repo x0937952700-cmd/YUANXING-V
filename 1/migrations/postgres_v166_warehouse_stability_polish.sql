@@ -1,2 +1,0 @@
--- V166 warehouse stability polish
--- Front-end focused stability update; no destructive schema changes.
