@@ -1,0 +1,148 @@
+@import url('./css/base.css');
+@import url('./css/home.css');
+@import url('./css/product.css');
+@import url('./css/warehouse.css');
+@import url('./css/shipping.css');
+@import url('./css/mobile.css');
+
+
+/* V282 operation status card: unified non-blocking save/retry status for 訂單/總單/出貨/倉庫圖. */
+.yx282-operation-status-card{margin:10px 0 12px; padding:10px 12px; border:1px solid rgba(148,163,184,.34); border-radius:16px; background:rgba(255,255,255,.78); box-shadow:0 8px 22px rgba(15,23,42,.06); backdrop-filter:blur(10px);}
+.yx282-operation-status-card[hidden]{display:none!important;}
+.yx282-op-head{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+.yx282-op-head b{display:block; font-size:14px; color:#0f172a;}
+.yx282-op-head span{display:block; font-size:12px; color:#64748b; margin-top:2px;}
+.yx282-op-actions{display:flex; gap:6px; align-items:center; flex-wrap:wrap;}
+.yx282-op-list{display:grid; gap:6px; margin-top:8px;}
+.yx282-op-row{display:grid; grid-template-columns:12px auto auto 42px 1fr; gap:6px; align-items:center; font-size:12px; color:#475569; padding:6px 8px; border-radius:12px; background:rgba(248,250,252,.84);}
+.yx282-op-row strong{font-size:12px; color:#111827; white-space:nowrap;}
+.yx282-op-row em{font-style:normal; color:#94a3b8; font-size:11px;}
+.yx282-op-dot{width:8px; height:8px; border-radius:99px; background:#94a3b8; display:inline-block;}
+.yx282-op-row.ok .yx282-op-dot,.yx282-op-head.ok + .yx282-op-list .yx282-op-row.ok .yx282-op-dot{background:#16a34a;}
+.yx282-op-row.pending .yx282-op-dot{background:#f59e0b;}
+.yx282-op-row.bad .yx282-op-dot{background:#dc2626;}
+.yx282-op-head.bad b{color:#b91c1c;}
+.yx282-op-head.pending b{color:#92400e;}
+@media (max-width: 640px){.yx282-op-row{grid-template-columns:10px auto 1fr;}.yx282-op-row em{display:none}.yx282-op-row div{grid-column:2 / -1}.yx282-op-actions button{font-size:12px;padding:6px 8px;}}
+
+/* V287 operation status card detail rows: shows customer / slot / product for pending retry items. */
+.yx287-op-detail{display:block;margin-top:3px;color:#334155;font-size:11px;line-height:1.35;white-space:normal;}
+.yx287-op-pending-detail{margin-top:8px;border-top:1px dashed rgba(148,163,184,.45);padding-top:8px;display:grid;gap:6px;}
+.yx287-op-pending-detail>b{font-size:12px;color:#0f172a;}
+.yx287-op-pending-row{display:grid;grid-template-columns:86px 1fr;gap:6px;align-items:start;padding:6px 8px;border-radius:12px;background:rgba(255,247,237,.72);font-size:12px;color:#475569;}
+.yx287-op-pending-row>span{color:#92400e;white-space:nowrap;}
+.yx287-op-pending-row>strong{font-size:12px;color:#111827;font-weight:700;}
+.yx287-op-pending-row>em{grid-column:2 / -1;font-style:normal;font-size:11px;color:#b91c1c;}
+@media (max-width:640px){.yx287-op-pending-row{grid-template-columns:1fr}.yx287-op-pending-row>em{grid-column:auto}}
+
+
+/* V292 status card: single retry / single cancel per pending item. */
+.yx292-op-pending-row{grid-template-columns:86px 1fr auto;align-items:center;}
+.yx292-op-pending-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.yx292-op-pending-actions .tiny-btn{font-size:11px;padding:4px 7px;border-radius:10px;line-height:1.2;}
+.yx292-op-pending-actions .danger-text{color:#b91c1c;border-color:rgba(185,28,28,.22);}
+@media (max-width:640px){.yx292-op-pending-row{grid-template-columns:1fr}.yx292-op-pending-actions{justify-content:flex-start}.yx292-op-pending-row>em{grid-column:auto}}
+
+/* V307 status card: show exact target refreshed after single retry. */
+.yx302-operation-status-card yx307-operation-status-card .yx302-op-target,.yx302-op-target{display:block;margin-top:3px;font-size:11px;line-height:1.35;color:#166534;font-weight:700;white-space:normal;}
+.yx302-operation-status-card yx307-operation-status-card .yx282-op-row.ok .yx302-op-target{color:#166534;}
+.yx302-operation-status-card yx307-operation-status-card .yx282-op-row.pending .yx302-op-target{color:#92400e;}
+.yx302-operation-status-card yx307-operation-status-card .yx282-op-row.bad .yx302-op-target{color:#b91c1c;}
+.yx297-op-pending-actions,.yx302-op-pending-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.yx297-op-pending-actions .tiny-btn,.yx302-op-pending-actions .tiny-btn{font-size:11px;padding:4px 7px;border-radius:10px;line-height:1.2;}
+.yx297-op-pending-actions .danger-text,.yx302-op-pending-actions .danger-text{color:#b91c1c;border-color:rgba(185,28,28,.22);}
+@media (max-width:640px){.yx297-op-pending-actions,.yx302-op-pending-actions{justify-content:flex-start}}
+
+/* V307 status card save/fail time detail */
+.yx307-operation-status-card .yx307-op-summary{display:block;margin-top:3px;font-size:11px;line-height:1.35;color:#475569;font-weight:700;}
+.yx307-operation-status-card .yx307-op-time,.yx307-op-time{display:block;margin-top:3px;font-size:11px;line-height:1.35;color:#64748b;font-weight:600;}
+.yx307-operation-status-card .yx282-op-row.bad .yx307-op-time{color:#b91c1c;}
+.yx307-operation-status-card .yx282-op-row.pending .yx307-op-time{color:#92400e;}
+.yx307-operation-status-card .yx282-op-row.ok .yx307-op-time{color:#166534;}
+.yx307-op-pending-time{grid-column:2 / -1;display:block;font-size:11px;color:#64748b;font-weight:600;line-height:1.35;}
+@media (max-width:640px){.yx307-op-pending-time{grid-column:auto}}
+
+
+/* V312 operation status card: pending retry type filter. */
+.yx312-op-pending-detail{gap:8px;}
+.yx312-op-pending-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.yx312-op-pending-head>b{font-size:12px;color:#0f172a;}
+.yx312-op-pending-head>small{font-size:11px;color:#64748b;font-weight:700;}
+.yx312-op-filter{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 2px;}
+.yx312-op-filter-chip{appearance:none;border:1px solid rgba(148,163,184,.38);background:rgba(248,250,252,.9);color:#334155;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:800;line-height:1;display:inline-flex;gap:5px;align-items:center;}
+.yx312-op-filter-chip em{font-style:normal;color:#64748b;font-weight:900;}
+.yx312-op-filter-chip.active{background:#111827;color:#fff;border-color:#111827;box-shadow:0 4px 12px rgba(15,23,42,.12);}
+.yx312-op-filter-chip.active em{color:#e5e7eb;}
+.yx312-op-empty{padding:8px 10px;border-radius:12px;background:rgba(248,250,252,.86);font-size:12px;color:#64748b;font-weight:700;}
+.yx312-op-pending-row[data-yx312-pending-type="cell"]>span{color:#2563eb;}
+.yx312-op-pending-row[data-yx312-pending-type="structure"]>span{color:#7c3aed;}
+.yx312-op-pending-row[data-yx312-pending-type="consistency"]>span{color:#0f766e;}
+.yx312-op-pending-row[data-yx312-pending-type="ship"]>span{color:#dc2626;}
+.yx312-op-pending-row[data-yx312-pending-type="product"]>span{color:#166534;}
+@media (max-width:640px){.yx312-op-pending-head{align-items:flex-start}.yx312-op-filter-chip{font-size:10px;padding:5px 7px}}
+
+
+/* V317 operation status card: pending retry state filter. */
+.yx317-operation-status-card .yx317-op-status-filter{margin-top:8px;margin-bottom:8px;padding-top:7px;border-top:1px dashed rgba(148,163,184,.28);}
+.yx317-op-state-chip[data-yx317-status="failed"]{border-color:rgba(220,38,38,.22);color:#b91c1c;background:rgba(254,242,242,.82);}
+.yx317-op-state-chip[data-yx317-status="pending"]{border-color:rgba(245,158,11,.25);color:#92400e;background:rgba(255,251,235,.86);}
+.yx317-op-state-chip[data-yx317-status="success"]{border-color:rgba(22,163,74,.22);color:#166534;background:rgba(240,253,244,.84);}
+.yx317-op-state-chip.active{background:#111827!important;color:#fff!important;border-color:#111827!important;}
+.yx317-op-state-chip.active em{color:#e5e7eb!important;}
+.yx317-op-pending-row[data-yx317-pending-status="failed"]{background:rgba(254,242,242,.78);}
+.yx317-op-pending-row[data-yx317-pending-status="pending"]{background:rgba(255,251,235,.78);}
+.yx317-op-pending-row[data-yx317-pending-status="success"]{background:rgba(240,253,244,.78);}
+.yx317-op-empty{font-weight:800;}
+
+/* V322: operation status card keyword search. Lightweight only; no renderer/interval/observer. */
+.yx322-operation-status-card .yx322-op-search,
+.yx322-op-search{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 6px;padding:7px 8px;border-radius:14px;background:rgba(248,250,252,.84);border:1px solid rgba(148,163,184,.24);}
+.yx322-op-search input{flex:1 1 180px;min-width:0;border:1px solid rgba(148,163,184,.42);border-radius:12px;background:rgba(255,255,255,.96);padding:8px 10px;font-size:13px;font-weight:700;color:#0f172a;outline:none;}
+.yx322-op-search input:focus{border-color:rgba(15,23,42,.58);box-shadow:0 0 0 3px rgba(15,23,42,.06);}
+.yx322-op-search small{font-size:11px;color:#64748b;font-weight:800;white-space:nowrap;}
+.yx322-op-pending-row strong{word-break:break-word;}
+@media (max-width:640px){.yx322-op-search{align-items:stretch}.yx322-op-search input{flex-basis:100%;font-size:14px}.yx322-op-search small{white-space:normal}.yx322-op-search .tiny-btn{width:auto}}
+
+/* V332 status search shortcuts: only adds buttons inside existing status card. */
+.yx332-op-shortcuts{margin-top:6px;justify-content:flex-start!important;}
+.yx332-op-shortcut{font-size:11px;padding:4px 7px;border-radius:10px;line-height:1.2;border-color:rgba(15,23,42,.18);}
+.yx332-op-result-row .yx332-op-shortcuts{margin-top:5px;}
+.yx332-status-shortcut-hit{outline:3px solid rgba(37,99,235,.22);border-radius:12px;animation:yx332ShortcutFlash 1.8s ease-out 1;}
+@keyframes yx332ShortcutFlash{0%{box-shadow:0 0 0 0 rgba(37,99,235,.38)}100%{box-shadow:0 0 0 16px rgba(37,99,235,0)}}
+
+/* V332: shortcut target highlight after jumping from operation status card. */
+.yx332-status-target-highlight{
+  position:relative;
+  outline:3px solid rgba(37,99,235,.35)!important;
+  box-shadow:0 0 0 6px rgba(37,99,235,.10),0 12px 26px rgba(37,99,235,.16)!important;
+  border-radius:14px!important;
+  animation:yx332TargetFlash 1.05s ease-in-out 2!important;
+  scroll-margin:96px;
+}
+.yx332-status-target-highlight::after{
+  content:'已定位';
+  position:absolute;
+  right:8px;
+  top:6px;
+  z-index:8;
+  padding:3px 7px;
+  border-radius:999px;
+  background:rgba(37,99,235,.92);
+  color:white;
+  font-size:11px;
+  line-height:1;
+  font-weight:900;
+  pointer-events:none;
+}
+input.yx332-status-target-highlight,
+textarea.yx332-status-target-highlight,
+select.yx332-status-target-highlight{border-color:rgba(37,99,235,.72)!important;}
+input.yx332-status-target-highlight::after,
+textarea.yx332-status-target-highlight::after,
+select.yx332-status-target-highlight::after{display:none;}
+@keyframes yx332TargetFlash{
+  0%{transform:scale(1);filter:brightness(1)}
+  45%{transform:scale(1.015);filter:brightness(1.04)}
+  100%{transform:scale(1);filter:brightness(1)}
+}
+@media (max-width:640px){.yx332-status-target-highlight{scroll-margin:78px}.yx332-status-target-highlight::after{font-size:10px;right:6px;top:5px}}
