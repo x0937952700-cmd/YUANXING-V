@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes, viewport-fit=cover">
+  <title>{{ title or '沅興木業' }}</title>
+  <meta name="theme-color" content="#7b4a26">
+  <meta name="application-name" content="沅興木業">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="沅興木業">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v={{ static_version }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v={{ static_version }}">
+  <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v={{ static_version }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v={{ static_version }}">
+  <!-- 119/V403: safe PWA registration after load; service worker only caches static CSS/icons and never caches API. -->
+  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_starry_background.png') }}?v={{ static_version }}">
+  <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_pill_button.png') }}?v={{ static_version }}">
+  
+  {% set _ep = request.endpoint or '' %}
+  <style>
+    body{margin:0;background:#f7f3ed;color:#2b2118;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Segoe UI",sans-serif;}
+    .page-shell{min-height:100vh}.module-topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(247,243,237,.94);backdrop-filter:blur(10px)}
+    .glass,.panel,.table-card{background:rgba(255,255,255,.82);border:1px solid rgba(120,90,50,.14);border-radius:16px}.yx-fast-paint-note{font-size:12px;color:#8a765f;padding:6px 12px}
+  </style>
+  <link rel="preload" as="style" href="{{ url_for('static', filename='css/base.css') }}?v={{ static_version }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ static_version }}">
+  {% if _ep == 'home' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}?v={{ static_version }}">{% endif %}
+  {% if _ep in ['inventory_page','orders_page','master_order_page','customers_page'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/product.css') }}?v={{ static_version }}">{% endif %}
+  {% if _ep == 'warehouse_page' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/warehouse.css') }}?v={{ static_version }}">{% endif %}
+  {% if _ep in ['ship_page','shipping_query_page'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shipping.css') }}?v={{ static_version }}">{% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}?v={{ static_version }}" media="(max-width: 920px), (pointer: coarse)">
+  <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_core.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_mobile_zoom.js') }}?v={{ static_version }}"></script>
+  <script>
+    window.addEventListener('load', function(){
+      try{var s=document.createElement('script');s.defer=true;s.src="{{ url_for('static', filename='pwa.js') }}?v={{ static_version }}";document.head.appendChild(s);}catch(e){}
+    }, {once:true});
+  </script>
+<script>window.__YX_STATIC_VERSION__ = {{ static_version|tojson }}; window.__YX_APP_VERSION__ = {{ app_version|tojson }}; window.__YX_USERNAME__ = {{ (username or '')|tojson }}; window.__YX_PAGE_ENDPOINT__ = {{ (request.endpoint or '')|tojson }}; window.__YX_SHIP_SINGLE_MAIN__ = {{ 'true' if (request.endpoint or '') == 'ship_page' else 'false' }}; window.__YX_HTML_DIRECT_MASTER__ = true; window.__YX_FINAL_WAREHOUSE_HTML_MAIN__ = {{ 'true' if (request.endpoint or '') == 'warehouse_page' else 'false' }};</script>
+  {% if _ep == 'login_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/login_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'home' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/home_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'inventory_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/inventory_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'orders_page' %}
+  <link rel="modulepreload" href="{{ url_for('static', filename='yx_pages/product_page_core.js') }}?v={{ static_version }}">
+  <script type="module" src="{{ url_for('static', filename='yx_pages/orders_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'master_order_page' %}
+  <link rel="modulepreload" href="{{ url_for('static', filename='yx_pages/product_page_core.js') }}?v={{ static_version }}">
+  <script type="module" src="{{ url_for('static', filename='yx_pages/master_order_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'ship_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/shipping_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'warehouse_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/warehouse_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'today_changes_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/today_changes_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'settings_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/settings_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'shipping_query_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/shipping_query_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'todos_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/todos_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'customers_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/customers_page.js') }}?v={{ static_version }}"></script>
+  {% endif %}
+</head>
+  {% set _yx_body_module = {
+    'home':'home', 'login_page':'login', 'settings_page':'settings', 'today_changes_page':'today_changes',
+    'inventory_page':'inventory', 'orders_page':'orders', 'master_order_page':'master_order', 'ship_page':'ship',
+    'warehouse_page':'warehouse', 'shipping_query_page':'shipping_query', 'customers_page':'customers', 'todos_page':'todos'
+  }.get(request.endpoint or '', module_key|default('')) %}
+<body data-module="{{ _yx_body_module }}" data-yx-dream-ui="156_warehouse_stability_from_v155">
+  <button id="yx-global-page-undo-btn" class="ghost-btn small-btn yx-page-undo-btn" type="button" aria-label="還原功能">還原功能</button>
+  <div class="page-shell">
+    {% block body %}{% endblock %}
+  </div>
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-card glass confirm-card">
+      <div class="modal-head">
+        <div class="section-title" id="confirm-title">請確認</div>
+      </div>
+      <div id="confirm-message" class="muted confirm-message"></div>
+      <div class="btn-row">
+        <button class="ghost-btn" id="confirm-cancel-btn" type="button">取消</button>
+        <button class="primary-btn" id="confirm-ok-btn" type="button">確認</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
