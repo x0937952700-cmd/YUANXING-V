@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="auth-screen">
+  <form id="login-form" class="auth-card glass">
+    <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
+    <h1 class="page-title center">沅興木業</h1>
+    <p class="muted center">登入後自動記住你，支援手機與電腦同步</p>
+
+    <div id="login-error" class="alert hidden"></div>
+
+    <label class="field-label" for="login-username">帳號</label>
+    <input id="login-username" name="username" class="text-input" type="text" placeholder="請輸入員工姓名" autocomplete="username">
+
+    <label class="field-label" for="login-password">密碼</label>
+    <input id="login-password" name="password" class="text-input" type="password" placeholder="請輸入密碼" autocomplete="current-password">
+
+    <button id="login-submit-btn" class="primary-btn full" type="submit">登入</button>
+    <button class="ghost-btn full" type="button" data-action="toggle-login-save">切換永久登入：<span id="remember-label">開</span></button>
+  </form>
+</div>
+{% endblock %}
