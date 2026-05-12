@@ -1,0 +1,38 @@
+/* product.css: formal split stylesheet. Base rules preserved in base.css; new scoped rules for inventory orders master_order attach here. */
+
+/* V132: customer name no longer repeats CNF/FOB text; keep long customer names in one row. */
+.customer-region-card .yx116-customer-name,
+.customer-region-card .yx-v43-big-customer-name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:inline-block;
+  vertical-align:middle;
+}
+.customer-region-card.yx132-name-shrink .yx116-customer-name,
+.customer-region-card.yx132-name-shrink .yx-v43-big-customer-name{
+  font-size:clamp(15px, 4.1vw, 20px);
+  letter-spacing:-0.02em;
+  max-width:10.5em;
+}
+.customer-region-card .yx116-customer-tag,
+.customer-region-card .yx113-customer-tag{
+  flex:0 0 auto;
+}
+.customer-region-card{
+  min-width:0;
+}
+
+/* V137 second speed pack: progressive product table rendering */
+.yx137-more-row{display:flex;gap:8px;align-items:center;justify-content:center;padding:10px 8px;flex-wrap:wrap;background:rgba(255,255,255,.72);border-radius:14px;margin:8px 0;}
+.yx137-more-row .small-note{font-size:12px;color:#64748b;}
+
+/* V142 speed: large tables paint first rows immediately, then append remaining rows in idle chunks. */
+.yx137-more-row,.yx141-render-note{content-visibility:auto;}
+.yx113-table-wrap{contain:layout paint style;}
+.yx113-table tbody tr{contain:layout style;}
+
+/* V216 pending-save marker: non-blocking, no overlay, no focus stealing */
+.yx-pending-save{outline:1px dashed rgba(180,83,9,.45); outline-offset:2px;}
+.yx-pending-save::after{content:'背景待同步'; display:inline-block; margin-left:6px; font-size:11px; color:#92400e; background:#fff7ed; border:1px solid #fed7aa; border-radius:999px; padding:1px 6px; vertical-align:middle;}
