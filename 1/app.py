@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V414-CUSTOMER-COUNT-SOURCE-SYNC'
-STATIC_VERSION = '119-v414-customer-count-source-sync'
-API_SCHEMA_VERSION = 'v414-customer-count-source-sync'
+APP_VERSION = 'V119-V417-REMOVE-OPSTATUS-WAREHOUSE-VISIBLE-LONGPRESS'
+STATIC_VERSION = '119-v417-remove-opstatus-warehouse-visible-longpress'
+API_SCHEMA_VERSION = 'v417-remove-opstatus-warehouse-visible-longpress'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -441,6 +441,68 @@ def build_customer_payload_snapshot(customer_name=''):
     customer = get_customer(customer_name, include_archived=True) if customer_name else None
     counts = get_customer_relation_counts(customer_name) if customer_name else {}
     return {'customer': customer, 'relation_counts': counts}
+
+
+
+def _yx416_source_key_from_table(table_name=''):
+    table_name = (table_name or '').strip()
+    if table_name == 'master_orders':
+        return 'master_order'
+    if table_name == 'orders':
+        return 'orders'
+    if table_name == 'inventory':
+        return 'inventory'
+    return table_name or ''
+
+
+def _yx416_transfer_refresh_payload(source_table='', target_source='', customer_names=None, moved_rows=None, extra=None):
+    """Unified transfer/move response: clear derived caches and return aligned snapshots.
+
+    This is intentionally a small response helper only. It does not add renderers,
+    polling, intervals, or mutate yx_cache/yx_core. It makes inventory->orders,
+    inventory->master, orders->master, and direct transfers return the same
+    snapshot contract so the existing single renderer can refresh without stale cache.
+    """
+    customers = []
+    for n in (customer_names or []):
+        n = (n or '').strip()
+        if n and n not in customers:
+            customers.append(n)
+    source_key = _yx416_source_key_from_table(source_table)
+    target_key = 'master_order' if target_source in ('master_orders', 'master_order', '總單') else ('orders' if target_source in ('orders', '訂單') else ('inventory' if target_source in ('inventory', '庫存') else (target_source or '')))
+    affected_sources = []
+    for src in (source_key, target_key):
+        if src and src not in affected_sources:
+            affected_sources.append(src)
+    try:
+        _clear_product_fast_cache()
+        for n in customers:
+            try:
+                _v211_clear_cross_function_cache(n)
+            except Exception:
+                pass
+    except Exception as e:
+        try: log_error('yx416_transfer_cache_clear', str(e))
+        except Exception: pass
+    payload = {
+        'success': True,
+        'cache_bust': API_SCHEMA_VERSION,
+        'sync_version': API_SCHEMA_VERSION,
+        'source': source_key,
+        'source_table': source_table,
+        'target_source': target_key,
+        'affected_sources': affected_sources,
+        'affected_customer_names': customers,
+        'customer_names': customers,
+        'moved': moved_rows or [],
+        'snapshots': product_service_snapshots(),
+        'customers': get_customers(),
+    }
+    if customers:
+        payload.update(build_customer_payload_snapshot(customers[0]))
+    if isinstance(extra, dict):
+        payload.update(extra)
+    return payload
 
 
 def customer_name_variants_safe(customer_name=''):
@@ -2208,10 +2270,12 @@ def api_inventory_item_move(item_id):
         conn.close()
         log_action(current_username(), f"庫存移到{target_label}：{customer_name}")
         add_audit_trail(current_username(), 'move', 'inventory', str(item_id), before_json={'id': item_id, 'qty': current_qty, 'product_text': product_text}, after_json={'target': target_label, 'customer_name': customer_name, 'qty': move_qty, 'product_text': product_text})
-        notify_sync_event(kind='refresh', module='inventory', message=f'庫存已移到{target_label}', extra={'id': item_id, 'customer_name': customer_name, 'qty': move_qty})
-        notify_sync_event(kind='refresh', module=module, message=f'{target_label}已更新', extra={'customer_name': customer_name, 'qty': move_qty})
-        snap = build_customer_payload_snapshot(customer_name)
-        return jsonify(success=True, items=grouped_inventory(), customer_name=customer_name, target=target_label, **snap)
+        sync_extra = {'id': item_id, 'customer_name': customer_name, 'qty': move_qty, 'source': 'inventory', 'target_source': module, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
+        for _m in ('inventory', module, 'ship', 'warehouse', 'today_changes'):
+            notify_sync_event(kind='refresh', module=_m, message=f'庫存已移到{target_label}', extra=sync_extra)
+        moved_row = {'source': '庫存', 'target': target_label, 'id': item_id, 'product_text': product_text, 'qty': move_qty, 'customer_name': customer_name}
+        payload = _yx416_transfer_refresh_payload('inventory', module, [customer_name], [moved_row], extra={'items': grouped_inventory(), 'customer_name': customer_name, 'target': target_label, 'target_label': target_label, 'moved_qty': move_qty})
+        return jsonify(payload)
     except Exception as e:
         log_error('inventory_item_move', str(e))
         return error_response('庫存移動失敗')
@@ -4037,14 +4101,16 @@ def api_customer_items_batch_material():
             entity = source_map.get((it.get('source') or '').strip())
             if entity:
                 grouped_sources.setdefault(entity, []).append(it)
+        affected_customers = sorted({str((b.get('row') or {}).get('customer_name') or '').strip() for rows0 in before_by_entity.values() for b in rows0 if str((b.get('row') or {}).get('customer_name') or '').strip()})
+        affected_sources = sorted({({'inventory':'inventory','orders':'orders','master_orders':'master_order'}.get(entity, entity)) for entity in grouped_sources.keys()})
         for entity, source_items in grouped_sources.items():
             add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json=before_by_entity.get(entity, []), after_json={'material': material, 'count': len(source_items), 'items': source_items})
         if not grouped_sources:
             add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json=before_by_entity, after_json={'material': material, 'count': count, 'items': items})
         log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
-        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count, 'cache_bust': API_SCHEMA_VERSION, 'source':'batch_material'})
+        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count, 'cache_bust': API_SCHEMA_VERSION, 'source':'batch_material', 'affected_customer_names': affected_customers, 'affected_sources': affected_sources})
         _clear_product_fast_cache()
-        return jsonify(success=True, count=count, material=material, cache_bust=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers())
+        return jsonify(success=True, count=count, material=material, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers(), affected_customer_names=affected_customers, affected_customers=affected_customers, affected_sources=affected_sources)
     except Exception as e:
         log_error("customer_items_batch_material", str(e))
         return error_response(str(e) or "批量材質更新失敗")
@@ -4151,14 +4217,16 @@ def api_customer_items_batch_delete():
             entity = before.get('table')
             if entity in ('inventory', 'orders', 'master_orders'):
                 grouped_sources.setdefault(entity, []).append(before)
+        affected_customers = sorted({((x.get('row') or {}).get('customer_name') or '').strip() for x in before_items if ((x.get('row') or {}).get('customer_name') or '').strip()})
+        affected_sources = sorted({({'inventory':'inventory','orders':'orders','master_orders':'master_order'}.get(x.get('table') or '', x.get('table') or '')) for x in before_items if x.get('table')})
         for entity, rows in grouped_sources.items():
             add_audit_trail(current_username(), "delete", entity, "batch_delete", before_json=rows, after_json={"count": len(rows)})
         if not grouped_sources:
             add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
         log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
-        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted, "cache_bust": API_SCHEMA_VERSION, "source":"batch_delete"})
+        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted, "cache_bust": API_SCHEMA_VERSION, "source":"batch_delete", "affected_customer_names": affected_customers, "affected_sources": affected_sources})
         _clear_product_fast_cache()
-        return jsonify(success=True, count=deleted, cache_bust=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers())
+        return jsonify(success=True, count=deleted, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers(), affected_customer_names=affected_customers, affected_customers=affected_customers, affected_sources=affected_sources)
     except Exception as e:
         log_error("customer_items_batch_delete", str(e))
         return error_response(str(e) or "批量刪除失敗")
@@ -4253,10 +4321,10 @@ def api_customer_items_batch_update():
         log_action(current_username(), f"批量編輯商品，共 {updated} 筆")
         affected_customers = sorted({(x.get('customer_name') or '').strip() for x in changed if (x.get('customer_name') or '').strip()})
         affected_sources = sorted({(x.get('source') or '').strip() for x in changed if (x.get('source') or '').strip()})
-        notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated, "customers": affected_customers, "sources": affected_sources, "cache_bust": API_SCHEMA_VERSION})
+        notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated, "customers": affected_customers, "affected_customer_names": affected_customers, "sources": affected_sources, "affected_sources": affected_sources, "cache_bust": API_SCHEMA_VERSION})
         _clear_product_fast_cache()
         snaps = product_service_snapshots()
-        return jsonify(success=True, count=updated, items=changed, changed_items=changed, items_are_delta=True, cache_bust=API_SCHEMA_VERSION, snapshots=snaps, customers=get_customers(), affected_customers=affected_customers, affected_sources=affected_sources)
+        return jsonify(success=True, count=updated, items=changed, changed_items=changed, items_are_delta=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, snapshots=snaps, customers=get_customers(), affected_customer_names=affected_customers, affected_customers=affected_customers, affected_sources=affected_sources)
     except Exception as e:
         log_error("customer_items_batch_update", str(e))
         return error_response(str(e) or "批量編輯失敗")
@@ -5780,8 +5848,22 @@ def api_fix28_items_transfer():
             return error_response('目標類型錯誤')
         add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, 'table': source_table, **row}, after_json={'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty, 'result': result_payload, 'breakdown': result_payload.get('breakdown') if isinstance(result_payload, dict) else []})
         log_action(current_username(), f"{source_label}移到{target_label}：{customer_name} {product_text}x{qty}")
-        notify_sync_event(kind='refresh', module='all', message=f'{source_label}已移到{target_label}', extra={'source': source_label, 'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
-        return jsonify(success=True, message=f'已從{source_label}移到{target_label}', customer_name=customer_name, target=target_label, **result_payload)
+        target_source = 'master_order' if target in ('master_order', 'master_orders') else ('orders' if target == 'orders' else ('inventory' if target == 'inventory' else 'ship'))
+        affected_names = []
+        if customer_name:
+            affected_names.append(customer_name)
+        try:
+            affected_names.extend([n for n in (result_payload.get('affected_customer_names') or result_payload.get('customer_names') or []) if n and n not in affected_names])
+        except Exception:
+            pass
+        moved_row = {'source': source_label, 'target': target_label, 'id': item_id, 'product_text': product_text, 'qty': qty, 'customer_name': customer_name}
+        sync_extra = {'source': source_label, 'source_table': source_table, 'target': target_label, 'target_source': target_source, 'customer_name': customer_name, 'customer_names': affected_names, 'product_text': product_text, 'qty': qty, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
+        for _m in ('inventory', 'orders', 'master_order', 'ship', 'warehouse', 'today_changes'):
+            notify_sync_event(kind='refresh', module=_m, message=f'{source_label}已移到{target_label}', extra=sync_extra)
+        transfer_extra = dict(result_payload or {})
+        transfer_extra.update({'message': f'已從{source_label}移到{target_label}', 'customer_name': customer_name, 'target': target_label, 'target_label': target_label})
+        payload = _yx416_transfer_refresh_payload(source_table, target_source, affected_names, [moved_row], extra=transfer_extra)
+        return jsonify(payload)
     except Exception as e:
         log_error('fix28_items_transfer', str(e))
         return error_response('互通操作失敗')
@@ -5854,8 +5936,26 @@ def api_v17_items_batch_transfer():
             return error_response(errors[0].get('error') or '批量轉入失敗')
         target_label = {'inventory':'庫存','orders':'訂單','master_order':'總單'}[target]
         log_action(current_username(), f'批量轉入{target_label}，共 {len(moved_rows)} 筆')
-        notify_sync_event(kind='refresh', module='all', message=f'商品已批量轉入{target_label}', extra={'count': len(moved_rows), 'target': target_label})
-        payload = {'success': True, 'count': len(moved_rows), 'moved': moved_rows, 'errors': errors, 'snapshots': product_service_snapshots(), 'customers': get_customers()}
+        affected_names = []
+        for r in moved_rows:
+            n = (r.get('customer_name') or '').strip()
+            if n and n not in affected_names:
+                affected_names.append(n)
+        affected_tables = []
+        for it in items:
+            src_info = _fix28_table_for_source(it.get('source'))
+            if src_info and src_info[0] not in affected_tables:
+                affected_tables.append(src_info[0])
+        affected_tables.append('master_orders' if target == 'master_order' else target)
+        affected_sources = []
+        for t in affected_tables:
+            k = _yx416_source_key_from_table(t)
+            if k and k not in affected_sources:
+                affected_sources.append(k)
+        sync_extra = {'count': len(moved_rows), 'target': target_label, 'target_source': target, 'affected_customer_names': affected_names, 'customer_names': affected_names, 'affected_sources': affected_sources, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
+        for _m in ('inventory', 'orders', 'master_order', 'ship', 'warehouse', 'today_changes'):
+            notify_sync_event(kind='refresh', module=_m, message=f'商品已批量轉入{target_label}', extra=sync_extra)
+        payload = _yx416_transfer_refresh_payload(affected_tables[0] if affected_tables else '', target, affected_names, moved_rows, extra={'count': len(moved_rows), 'errors': errors, 'affected_sources': affected_sources, 'target': target_label, 'target_label': target_label})
         if target == 'inventory':
             payload['items'] = grouped_inventory()
         elif target == 'orders':

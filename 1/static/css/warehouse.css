@@ -174,3 +174,9 @@ body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"] button{poi
 #yx-final-warehouse-menu button:hover{ filter: brightness(.98); }
 .warehouse-slot.yx-consistency-pending,
 [data-zone][data-column][data-slot].yx-consistency-pending{ outline: 2px dashed rgba(245,158,11,.85); outline-offset: 2px; }
+
+
+/* V417: warehouse slot product/long-press rescue; no new renderer. */
+body[data-module="warehouse"] #warehouse-root .yx108-slot-product:not(.empty),
+body[data-module="warehouse"] #warehouse-root .yx-slot-product-line{display:block!important;visibility:visible!important;opacity:1!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}

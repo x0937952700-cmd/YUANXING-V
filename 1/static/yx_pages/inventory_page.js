@@ -709,9 +709,12 @@
     if (action === 'to-master') {
       if (source === 'orders') {
         const row = rowsStore(source).find(r => String(idOf(r) || '') === String(id));
-        await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:(customerOf(row) || selectedCustomer()), allow_inventory_fallback:true})});
+        const customer = customerOf(row) || selectedCustomer();
+        const d = await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:customer, allow_inventory_fallback:true})});
         YX.toast('已加到總單', 'ok');
-        await loadSource(source);
+        if (!applySnapshotFromResponse(d, 'orders')) await loadSource('orders', {force:true});
+        try { if (!applySnapshotFromResponse(d, 'master_order')) await loadSource('master_order', {force:true}); } catch(_e) {}
+        try { await refreshCustomerBoards(customer); } catch(_e) {}
         return;
       }
       return moveInventory(pseudo, 'master_order');
@@ -796,8 +799,9 @@
     clearSelected(source);
     YX.toast(`已移動 ${d.count || items.length} 筆商品`, 'ok');
     if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
-    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; if (!applySnapshotFromResponse(d, t)) await loadSource(t); } } catch(_e) {}
-    await refreshCustomerBoards(customer);
+    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; if (!applySnapshotFromResponse(d, t)) await loadSource(t, {force:true}); } } catch(_e) {}
+    const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : [customer]).filter(Boolean);
+    try { for (const n of names) await refreshCustomerBoards(n); } catch(_e) {}
   }
   async function batchMoveZone(source, zone){
     const ids = selectedOrAllIds(source);
@@ -1084,20 +1088,25 @@
     if (!customer) customer = prompt(`要加入${target === 'orders' ? '訂單' : '總單'}的客戶名稱`) || '';
     customer = YX.clean(customer);
     if (!customer) return YX.toast('請輸入客戶名稱', 'warn');
-    await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer, region:'北區'})});
+    const targetSource = target === 'orders' ? 'orders' : 'master_order';
+    const d = await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer, region:'北區'})});
     YX.toast(`已加到${target === 'orders' ? '訂單' : '總單'}`, 'ok');
     window.__YX_SELECTED_CUSTOMER__ = customer;
-    await loadSource('inventory');
-    try { await loadSource(target === 'orders' ? 'orders' : 'master_order'); } catch(_e) {}
+    if (!applySnapshotFromResponse(d, 'inventory')) await loadSource('inventory', {force:true});
+    try { if (!applySnapshotFromResponse(d, targetSource)) await loadSource(targetSource, {force:true}); } catch(_e) {}
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
+    try { await refreshCustomerBoards(customer); } catch(_e) {}
     try { if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
   }
   async function shipItem(card){
     const source = card.dataset.source, id = card.dataset.id;
     const row = rowsStore(source).find(r => String(idOf(r) || '') === String(id)); if (!row) return;
     if (!confirm(`直接出貨：${customerOf(row)} ${row.product_text || ''}？`)) return;
-    await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:apiSource(source), id, target:'ship', customer_name:customerOf(row), qty:row.qty || qtyOf(row), allow_inventory_fallback:true})});
-    YX.toast('已直接出貨', 'ok'); await loadSource(source);
+    const customer = customerOf(row);
+    const d = await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:apiSource(source), id, target:'ship', customer_name:customer, qty:row.qty || qtyOf(row), allow_inventory_fallback:true})});
+    YX.toast('已直接出貨', 'ok');
+    if (!applySnapshotFromResponse(d, source)) await loadSource(source, {force:true});
+    try { await refreshCustomerBoards(customer); } catch(_e) {}
   }
   async function saveAllEdits(source){
     const rows = [...document.querySelectorAll(`#yx113-${source}-summary .yx128-edit-row[data-source="${source}"]`)];

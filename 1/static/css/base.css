@@ -7215,3 +7215,23 @@ body[data-module="today_changes"] .yx112-single-panel-list{display:grid!importan
 .yx403-op-page-sync{display:block;margin-top:4px;color:#166534;font-weight:800;line-height:1.35;}
 .yx282-op-row.pending .yx403-op-page-sync,.yx287-op-pending-row .yx403-op-page-sync{color:#92400e;}
 .yx282-op-row.bad .yx403-op-page-sync{color:#991b1b;}
+
+
+/* V417: Operation status panel permanently removed from every page; keep only background save logic. */
+#yx282-operation-status-card,
+.yx282-operation-status-card,
+.yx287-operation-status-detail-card,
+.yx297-operation-status-targeted-card,
+.yx302-operation-status-card,
+.yx307-operation-status-card,
+.yx312-operation-status-card,
+.yx317-operation-status-card,
+.yx322-operation-status-card,
+.yx332-operation-status-card,
+.yx342-operation-status-card{display:none!important;visibility:hidden!important;pointer-events:none!important;height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;}
+body [data-yx282-op-action],body [data-yx322-op-search]{display:none!important;}
+body[data-module="warehouse"] #warehouse-root .yx-final-slot .yx108-slot-product:not(.empty),
+body[data-module="warehouse"] #warehouse-root .yx-final-slot .yx-slot-product-line{display:block!important;visibility:visible!important;opacity:1!important;color:#0f766e!important;font-weight:900!important;}
+body[data-module="warehouse"] #warehouse-root .yx-final-slot[data-has-items="1"] .yx108-slot-product{min-height:18px!important;max-height:34px!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden),
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}
