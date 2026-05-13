@@ -38,7 +38,7 @@
   root.undo = root.undo || {};
   root.audit = root.audit || {};
   root.sync = root.sync || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v403-status-cleanup-sync';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v406-warehouse-order-drag-longpress-fix';
   window.YX = root;
 })();
 
@@ -47,7 +47,7 @@
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
-  const PREFIX = 'yx_v403_cache_';
+  const PREFIX = 'yx_v406_cache_';
   // V387: read only the current cache generation so old local data does not flash over the new UI.
   const PREFIXES = [PREFIX];
   const OLD_PREFIXES = ['yx_v402_cache_','yx_v401_cache_','yx_v400_cache_','yx_v399_cache_','yx_v398_cache_','yx_v397_cache_','yx_v396_cache_','yx_v395_cache_','yx_v394_cache_','yx_v393_cache_','yx_v392_cache_','yx_v391_cache_','yx_v390_cache_','yx_v389_cache_','yx_v388_cache_','yx_v387_cache_','yx_v386_cache_','yx_v385_cache_','yx_v384_cache_','yx_v383_cache_','yx_v382_cache_','yx_v381_cache_','yx_v155_cache_', 'yx_v154_cache_', 'yx_v153_cache_', 'yx_v146_cache_', 'yx_v145_cache_', 'yx_v144_cache_', 'yx_v143_cache_', 'yx_v142_cache_', 'yx_v141_cache_', 'yx_v140_cache_', 'yx_v139_cache_', 'yx_v138_cache_', 'yx_v137_cache_', 'yx_v136_cache_', 'yx_v135_cache_', 'yx_v134_cache_', 'yx_v132_cache_'];
@@ -98,7 +98,7 @@
     });
     return cached ? Promise.resolve(cached).then(()=>p) : p;
   }
-  root.cache = Object.assign(root.cache || {}, {version:'v403-status-cleanup-sync', storagePrefix:PREFIX, read, write, remove, clearGroup, paintThenFetch});
+  root.cache = Object.assign(root.cache || {}, {version:'v406-warehouse-order-drag-longpress-fix', storagePrefix:PREFIX, read, write, remove, clearGroup, paintThenFetch});
   window.YX = root;
 })();
 
@@ -117,7 +117,7 @@
   function softNavigate(url){
     try { afterPaint(() => { window.location.href = url; }); return false; } catch(_e) { return true; }
   }
-  root.scheduler = Object.assign(root.scheduler || {}, {idle, afterPaint, softNavigate, version:'v403'});
+  root.scheduler = Object.assign(root.scheduler || {}, {idle, afterPaint, softNavigate, version:'v406'});
 })();
 
 
@@ -416,7 +416,7 @@
         created_at:Number(item&&item.created_at||0),
         retry_at:Number(item&&item.retry_at||0),
         tries:Number(item&&item.tries||0),
-        version:'v403-status-cleanup-sync'
+        version:'v406-warehouse-order-drag-longpress-fix'
       }, extra||{});
       window.dispatchEvent(new CustomEvent(name, {detail}));
     }catch(_e){}
@@ -521,7 +521,7 @@
       return {success:false, queued:!isPermanentFailure(err), error:err && err.message, permanent:isPermanentFailure(err)};
     });
   }
-  window.YXBackgroundSave = {enqueue, request, requestSoft, drain, list:()=>read(), remove, cancel:(id)=>{ const before=read().length; remove(id); const after=read().length; return Math.max(0,before-after); }, pending:()=>read().length, key:KEY, version:'119-v403-queued-lanes-timeout-status-sync'};
+  window.YXBackgroundSave = {enqueue, request, requestSoft, drain, list:()=>read(), remove, cancel:(id)=>{ const before=read().length; remove(id); const after=read().length; return Math.max(0,before-after); }, pending:()=>read().length, key:KEY, version:'119-v406-queued-lanes-timeout-status-sync'};
   window.addEventListener('online', drain, {passive:true});
   // V135: do not drain on pagehide/visibilitychange; background saves already send immediately.
   // Avoid blocking page switches on mobile after warehouse edits.
@@ -627,7 +627,7 @@
   root.apiLatest = apiLatest;
   root.shouldPaint = shouldPaint;
   root.memoPaint = memoPaint;
-  root.nav = Object.assign(root.nav || {}, {markLeaving, nextPageSeq, version:'v403'});
+  root.nav = Object.assign(root.nav || {}, {markLeaving, nextPageSeq, version:'v406'});
   document.addEventListener('click', function(ev){
     const a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
     if (!a) return;
@@ -702,7 +702,7 @@
   root.apiLatest = guardedApi;
   root.safePaint = safePaint;
   root.currentRouteToken = currentToken;
-  root.nav = Object.assign(root.nav || {}, {markLeaving:markRouteLeaving, currentToken, version:'v403'});
+  root.nav = Object.assign(root.nav || {}, {markLeaving:markRouteLeaving, currentToken, version:'v406'});
   document.addEventListener('click', function(ev){
     const a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
     if (!a) return;
@@ -741,7 +741,7 @@
   const root = window.YX || (window.YX = {});
   if (root.__v144FinalSpeedGuard) return;
   root.__v144FinalSpeedGuard = true;
-  const API_CACHE_PREFIX = 'yx_v403_api_cache_';
+  const API_CACHE_PREFIX = 'yx_v406_api_cache_';
   // V387: do not read old API GET cache for live data. Old API cache is only cleaned, never painted.
   const FALLBACK_PREFIXES = [API_CACHE_PREFIX];
   const OLD_API_PREFIXES = ['yx_v400_api_cache_','yx_v399_api_cache_','yx_v398_api_cache_','yx_v397_api_cache_','yx_v396_api_cache_','yx_v395_api_cache_','yx_v394_api_cache_','yx_v393_api_cache_','yx_v392_api_cache_','yx_v391_api_cache_','yx_v390_api_cache_','yx_v389_api_cache_','yx_v388_api_cache_','yx_v387_api_cache_','yx_v386_api_cache_','yx_v385_api_cache_','yx_v384_api_cache_','yx_v383_api_cache_','yx_v382_api_cache_','yx_v381_api_cache_','yx_v149_api_cache_','yx_v148_api_cache_','yx_v147_api_cache_','yx_v146_api_cache_','yx_v145_api_cache_','yx_v144_api_cache_','yx_v143_api_cache_','yx_v142_api_cache_','yx_v141_api_cache_','yx_v140_api_cache_','yx_v139_api_cache_','yx_v138_api_cache_','yx_v137_api_cache_','yx_v136_api_cache_'];
@@ -878,9 +878,9 @@
     return p;
   }
   root.api = apiV144;
-  root.apiCache = Object.assign(root.apiCache || {}, {version:'v403', read:readApiCache, write:writeApiCache, clearGroup:clearApiCacheByFragments, clearAll:clearApiCacheAll, prefix:API_CACHE_PREFIX});
-  if(!root.__v403ApiCacheInvalidation){
-    root.__v403ApiCacheInvalidation = true;
+  root.apiCache = Object.assign(root.apiCache || {}, {version:'v406', read:readApiCache, write:writeApiCache, clearGroup:clearApiCacheByFragments, clearAll:clearApiCacheAll, prefix:API_CACHE_PREFIX});
+  if(!root.__v406ApiCacheInvalidation){
+    root.__v406ApiCacheInvalidation = true;
     ['yx:product-data-changed','yx:customer-profile-changed','yx:warehouse-changed','yx:ship-completed','yx:today-changes-refresh'].forEach(name=>{
       try{ window.addEventListener(name, invalidateApiCacheForEvent, {passive:true}); }catch(_e){}
     });
@@ -888,13 +888,13 @@
   root.requestGuard = Object.assign(root.requestGuard || {}, {version:'v155', inflightCount:()=>inflight.size});
 })();
 
-/* V403 cross-page refresh convergence: one shared cache invalidation bus, no renderer/polling/click binding. */
+/* V406 cross-page refresh convergence: one shared cache invalidation bus, no renderer/polling/click binding. */
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
-  if(root.__v403CrossPageRefreshSync) return;
-  root.__v403CrossPageRefreshSync = true;
-  const VERSION = 'v403-status-cleanup-sync';
+  if(root.__v406CrossPageRefreshSync) return;
+  root.__v406CrossPageRefreshSync = true;
+  const VERSION = 'v406-warehouse-order-drag-longpress-fix';
   const EVENT_NAMES = ['yx:product-data-changed','yx:product-batch-write-success','yx:customer-profile-changed','yx:warehouse-changed','yx:ship-completed','yx:today-changes-refresh','yx:order-master-changed'];
   const LOCAL_GROUPS = ['products_','customer_blocks_','ship_customers_','ship_items_','warehouse_available_','warehouse_source_qty_map_','today_changes_','today_changes_light_'];
   const API_GROUPS = ['/api/customers','/api/customer-items','/api/inventory','/api/orders','/api/master_orders','/api/ship','/api/shipping','/api/shipping_records','/api/warehouse','/api/warehouse/available-items','/api/warehouse/source-qty-map','/api/today','/api/today-changes'];
@@ -916,7 +916,7 @@
     try { if (badgeTimer) clearTimeout(badgeTimer); } catch(_e){}
     badgeTimer = idle(function(){
       badgeTimer = null;
-      try { if (typeof window.YXRefreshTodayBadge === 'function') window.YXRefreshTodayBadge({source:'v403-status-cleanup-sync'}); } catch(_e){}
+      try { if (typeof window.YXRefreshTodayBadge === 'function') window.YXRefreshTodayBadge({source:'v406-warehouse-order-drag-longpress-fix'}); } catch(_e){}
     }, 160);
   }
   function handle(ev){
@@ -932,14 +932,14 @@
 
 
 
-/* V403 operation status data bus: records queue/ship/product/warehouse states for the existing status center.
+/* V406 operation status data bus: records queue/ship/product/warehouse states for the existing status center.
    Data only; no renderer, no polling, no click binding. */
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
-  if(root.__v403OperationStatusBus) return;
-  root.__v403OperationStatusBus = true;
-  const STORE_KEY='yx_operation_status_card_v403';
+  if(root.__v406OperationStatusBus) return;
+  root.__v406OperationStatusBus = true;
+  const STORE_KEY='yx_operation_status_card_v406';
   const OLD_STORE_KEYS=['yx_operation_status_card_v402','yx_operation_status_card_v401','yx_operation_status_card_v400','yx_operation_status_card_v399','yx_operation_status_card_v398','yx_operation_status_card_v348','yx_operation_status_card_v342','yx_operation_status_card_v337','yx_operation_status_card_v332','yx_operation_status_card_v327','yx_operation_status_card_v322','yx_operation_status_card_v317','yx_operation_status_card_v312','yx_operation_status_card_v307','yx_operation_status_card_v302','yx_operation_status_card_v297','yx_operation_status_card_v292','yx_operation_status_card_v287','yx_operation_status_card_v282'];
   const MAX_ROWS=40;
   const clean=v=>String(v==null?'':v).replace(/\s+/g,' ').trim();
@@ -953,7 +953,7 @@
     const next=arr.filter(matches);
     writeStore(next);
     try{ OLD_STORE_KEYS.forEach(k=>{ const a=parseStore(k); const b=a.filter(matches); if(b.length!==a.length) localStorage.setItem(k, JSON.stringify(b)); }); }catch(_e){}
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{removed_id:id,version:'v403-status-cleanup-sync'}})); }catch(_e){}
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{removed_id:id,version:'v406-warehouse-order-drag-longpress-fix'}})); }catch(_e){}
     return arr.length-next.length;
   }
   function updateStatus(id, patch){
@@ -964,7 +964,7 @@
       return x;
     });
     if(found) writeStore(arr);
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{row:found,version:'v403-status-cleanup-sync'}})); }catch(_e){}
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{row:found,version:'v406-warehouse-order-drag-longpress-fix'}})); }catch(_e){}
     return found;
   }
   function normalizeSource(s){ s=clean(s); if(s==='master_orders') return 'master_order'; if(s==='shipping') return 'ship'; return s || 'operation'; }
@@ -1171,7 +1171,7 @@
         permanent:!!d.permanent,
         retry_at:Number(d.retry_at || 0),
         tries:Number(d.tries || 0),
-        version:'v403-status-cleanup-sync'
+        version:'v406-warehouse-order-drag-longpress-fix'
       };
       if(status==='success') row.success_at=Number(d.success_at||d.saved_at||ts);
       else if(status==='failed') row.failed_at=Number(d.failed_at||d.last_failed_at||ts);
@@ -1179,7 +1179,7 @@
       const arr=read().filter(x=>clean(x.id)!==id && !shouldCollapseOldStatus(x,row,status));
       arr.unshift(row);
       writeStore(arr);
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{row,pending:Number(d.pending||0),version:'v403-status-cleanup-sync'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-status-updated',{detail:{row,pending:Number(d.pending||0),version:'v406-warehouse-order-drag-longpress-fix'}})); }catch(_e){}
       return row;
     }catch(_e){ return null; }
   }
@@ -1195,19 +1195,19 @@
   window.addEventListener('yx:operation-status-snapshot-applied', ev=>record(Object.assign({status:'success',reason:'snapshot-applied',message:'後端 snapshot 已套用'}, ev.detail||{})), {passive:true});
   window.addEventListener('yx:operation-target-refresh', ev=>record(Object.assign({status:'success',reason:'targeted-refresh',message:'局部刷新完成'}, ev.detail||{})), {passive:true});
   window.addEventListener('yx:operation-soft-failed', ev=>record(Object.assign({status:(ev.detail&&ev.detail.retry_saved)?'pending':'failed'}, ev.detail||{})), {passive:true});
-  root.operationStatus = Object.assign(root.operationStatus || {}, {version:'v403-status-cleanup-sync', key:STORE_KEY, read, record, remove:removeStatus, update:updateStatus});
+  root.operationStatus = Object.assign(root.operationStatus || {}, {version:'v406-warehouse-order-drag-longpress-fix', key:STORE_KEY, read, record, remove:removeStatus, update:updateStatus});
 })();
 
 
-/* V403 visual sync markers: align existing table rows/cards, warehouse cells, and ship preview card with operationStatus.
+/* V406 visual sync markers: align existing table rows/cards, warehouse cells, and ship preview card with operationStatus.
    Visual markers only; no renderer, no polling, no click binding. */
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
-  if(root.__v403VisualSyncMarkers) return;
-  root.__v403VisualSyncMarkers = true;
-  const VERSION='v403-status-cleanup-sync';
-  const SUCCESS_MS=8000; // V403: success markers are short-lived visual feedback, status rows remain in the operation center.
+  if(root.__v406VisualSyncMarkers) return;
+  root.__v406VisualSyncMarkers = true;
+  const VERSION='v406-warehouse-order-drag-longpress-fix';
+  const SUCCESS_MS=8000; // V406: success markers are short-lived visual feedback, status rows remain in the operation center.
   const clean=v=>String(v==null?'':v).replace(/\s+/g,' ').trim();
   const now=()=>Date.now();
   const normSource=s=>{ s=clean(s); if(s==='master_orders'||s==='master') return 'master_order'; if(s==='order') return 'orders'; if(s==='shipping') return 'ship'; return s; };
@@ -1396,7 +1396,7 @@
   const root = window.YX || (window.YX = {});
   if (root.__v149PerformanceWatchdog) return;
   root.__v149PerformanceWatchdog = true;
-  const VERSION = 'v403';
+  const VERSION = 'v406';
   function now(){ return Date.now(); }
   function idle(fn, timeout){
     try { if (typeof requestIdleCallback === 'function') return requestIdleCallback(fn, {timeout: timeout || 2200}); } catch(_e) {}
@@ -1418,7 +1418,7 @@
   }
   function cleanupOldLargeCaches(){
     try{
-      const keep = ['yx_v403_cache_','yx_v403_api_cache_','yx_bg_save_queue_119'];
+      const keep = ['yx_v406_cache_','yx_v406_api_cache_','yx_bg_save_queue_119'];
       const stalePrefixes = ['yx_v402_cache_','yx_v401_cache_','yx_v399_cache_','yx_v398_cache_','yx_v397_cache_','yx_v396_cache_','yx_v395_cache_','yx_v394_cache_','yx_v393_cache_','yx_v392_cache_','yx_v391_cache_','yx_v390_cache_','yx_v389_cache_','yx_v388_cache_','yx_v387_cache_','yx_v386_cache_','yx_v385_cache_','yx_v384_cache_','yx_v383_cache_','yx_v382_cache_','yx_v381_cache_','yx_v132_cache_','yx_v134_cache_','yx_v135_cache_','yx_v136_cache_','yx_v137_cache_','yx_v138_cache_','yx_v139_cache_','yx_v140_cache_','yx_v141_cache_','yx_v142_cache_','yx_v143_cache_','yx_v144_cache_','yx_v145_cache_','yx_v146_cache_','yx_v147_cache_','yx_v148_cache_','yx_v149_cache_','yx_v153_cache_','yx_v154_cache_','yx_v155_cache_'];
       const apiStale = ['yx_v402_api_cache_','yx_v401_api_cache_','yx_v399_api_cache_','yx_v398_api_cache_','yx_v397_api_cache_','yx_v396_api_cache_','yx_v395_api_cache_','yx_v394_api_cache_','yx_v393_api_cache_','yx_v392_api_cache_','yx_v391_api_cache_','yx_v390_api_cache_','yx_v389_api_cache_','yx_v388_api_cache_','yx_v387_api_cache_','yx_v386_api_cache_','yx_v385_api_cache_','yx_v384_api_cache_','yx_v383_api_cache_','yx_v382_api_cache_','yx_v381_api_cache_','yx_v136_api_cache_','yx_v137_api_cache_','yx_v138_api_cache_','yx_v139_api_cache_','yx_v140_api_cache_','yx_v141_api_cache_','yx_v142_api_cache_','yx_v143_api_cache_','yx_v144_api_cache_','yx_v145_api_cache_','yx_v146_api_cache_','yx_v147_api_cache_','yx_v148_api_cache_','yx_v149_api_cache_'];
       const prefixes = stalePrefixes.concat(apiStale);

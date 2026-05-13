@@ -549,7 +549,7 @@
     return state.rows[source] || window.__YX112_ROWS__[source] || window.__yx63Rows[source] || [];
   }
   function cloneRows(rows){ try{return JSON.parse(JSON.stringify(rows||[]));}catch(_e){return Array.isArray(rows)?rows.slice():[];} }
-  function cacheVersionToken(){ return String(window.__YX_STATIC_VERSION__ || window.YX?.version || 'v403-status-cleanup-sync').replace(/[^A-Za-z0-9_-]/g,'_'); }
+  function cacheVersionToken(){ return String(window.__YX_STATIC_VERSION__ || window.YX?.version || 'v406-warehouse-order-drag-longpress-fix').replace(/[^A-Za-z0-9_-]/g,'_'); }
   function versionedCacheName(prefix, source){ return String(prefix || '') + String(source || sourceFromModule() || 'unknown') + '_' + cacheVersionToken(); }
   function cacheName(source){ return versionedCacheName('products_', source); }
   function cacheRows(source, rows){ try{ window.YX?.cache?.write(cacheName(source), {rows:Array.isArray(rows)?rows:[], selectedCustomer:selectedCustomer()||'', saved_at:Date.now()}); }catch(_e){} }

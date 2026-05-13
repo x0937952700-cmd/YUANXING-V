@@ -604,7 +604,7 @@
   async function loadTodayChanges112(opts={}){
     if (!isToday()) return null;
     if (state.loading && !opts.force) return state.loading;
-    const cacheKey = 'today_changes_light_v403';
+    const cacheKey = 'today_changes_light_v406';
     const cached = !opts.force ? window.YX?.cache?.read(cacheKey, 1000*60*60*8) : null;
     if (cached && !opts.force) {
       try { cleanLegacyTodayDom(); render(cached); if ($('today-unread-badge')) $('today-unread-badge').textContent = String(cached.summary?.unread_count || 0); } catch(_e) {}
@@ -613,11 +613,11 @@
       try {
         cleanLegacyTodayDom();
         const forceHeavy = !!(opts.force || state.forceNext);
-        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v403-status-cleanup-sync&force=' + (forceHeavy ? '1' : '0'), {method:'GET'}); state.forceNext=false;
+        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v406-warehouse-order-drag-longpress-fix&force=' + (forceHeavy ? '1' : '0'), {method:'GET'}); state.forceNext=false;
         // V136: 不再每次開今日異動就另外打 warehouse/available-items；只有手動刷新(force)才補最新未入倉區域統計。
         if (forceHeavy) {
           try {
-            const wz = await YX.api('/api/warehouse/available-items?fast=1&yx138_manual=1&v=119-v403-status-cleanup-sync', {method:'GET'});
+            const wz = await YX.api('/api/warehouse/available-items?fast=1&yx138_manual=1&v=119-v406-warehouse-order-drag-longpress-fix', {method:'GET'});
             data.summary = data.summary || {};
             data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
           } catch(_e) {}
@@ -752,7 +752,7 @@
       state.shipRefreshBound = true;
       const refreshTodayV214 = ()=>{
         try{
-          ['today_changes_light_v403','today_changes_light_v402','today_changes_light_v396','today_changes_light_v380','today_changes_light_v379','today_changes_light_v350','today_changes_light_v337','today_changes_light_v332','today_changes_light_v307','today_changes_light_v287','today_changes_light_v282','today_changes_light_v252','today_changes_light_v215','today_changes_light_v210','today_changes_light_v208','today_changes_light_v207','today_changes_light_v198','today_changes_v215','today_changes_v210','today_changes_v208','today_changes_v207','today_changes_v198'].forEach(k=>window.YX?.cache?.remove?.(k));
+          ['today_changes_light_v406','today_changes_light_v402','today_changes_light_v396','today_changes_light_v380','today_changes_light_v379','today_changes_light_v350','today_changes_light_v337','today_changes_light_v332','today_changes_light_v307','today_changes_light_v287','today_changes_light_v282','today_changes_light_v252','today_changes_light_v215','today_changes_light_v210','today_changes_light_v208','today_changes_light_v207','today_changes_light_v198','today_changes_v215','today_changes_v210','today_changes_v208','today_changes_v207','today_changes_v198'].forEach(k=>window.YX?.cache?.remove?.(k));
         }catch(_e){}
         loadTodayChanges112({force:true, silent:true});
       };

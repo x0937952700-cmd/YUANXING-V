@@ -37,7 +37,7 @@
   root.undo = root.undo || {};
   root.audit = root.audit || {};
   root.sync = root.sync || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v403-status-cleanup-sync';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v406-warehouse-order-drag-longpress-fix';
   window.YX = root;
 })();
 
@@ -257,7 +257,7 @@
         created_at:Number(item&&item.created_at||0),
         retry_at:Number(item&&item.retry_at||0),
         tries:Number(item&&item.tries||0),
-        version:'v403-status-cleanup-sync'
+        version:'v406-warehouse-order-drag-longpress-fix'
       }, extra||{});
       window.dispatchEvent(new CustomEvent(name, {detail}));
     }catch(_e){}
@@ -362,7 +362,7 @@
       return {success:false, queued:!isPermanentFailure(err), error:err && err.message, permanent:isPermanentFailure(err)};
     });
   }
-  window.YXBackgroundSave = {enqueue, request, requestSoft, drain, list:()=>read(), remove, cancel:(id)=>{ const before=read().length; remove(id); const after=read().length; return Math.max(0,before-after); }, pending:()=>read().length, key:KEY, version:'119-v403-queued-lanes-timeout-status-sync'};
+  window.YXBackgroundSave = {enqueue, request, requestSoft, drain, list:()=>read(), remove, cancel:(id)=>{ const before=read().length; remove(id); const after=read().length; return Math.max(0,before-after); }, pending:()=>read().length, key:KEY, version:'119-v406-queued-lanes-timeout-status-sync'};
   window.addEventListener('online', drain, {passive:true});
   // V135: do not drain on pagehide/visibilitychange; background saves already send immediately.
   // Avoid blocking page switches on mobile after warehouse edits.
@@ -370,4 +370,4 @@
 })();
 
 /* V144 cache status marker. */
-(function(){ try { window.YX = window.YX || {}; window.YX.cacheVersion = 'v403-status-cleanup-sync'; } catch(_e){} })();
+(function(){ try { window.YX = window.YX || {}; window.YX.cacheVersion = 'v406-warehouse-order-drag-longpress-fix'; } catch(_e){} })();

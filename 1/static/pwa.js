@@ -1,9 +1,9 @@
-/* 沅興木業 V403: safe PWA cache registration.
+/* 沅興木業 V406: safe PWA cache registration.
    Only static CSS/icons are cached by service-worker.js. API/data requests are never cached. */
 (function(){
   'use strict';
   const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v403-status-cleanup-sync';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v406-warehouse-order-drag-longpress-fix';
   root.enabled = true;
   root.policy = 'static-css-icons-only-no-api-cache';
   async function register(){
@@ -20,7 +20,7 @@
   }
   root.register = register;
   window.YXPWA = root;
-  // V403: base.html injects this file after window load. If load already fired, register immediately.
+  // V406: base.html injects this file after window load. If load already fired, register immediately.
   if(document.readyState === 'complete' || document.readyState === 'interactive') scheduleRegister();
   else window.addEventListener('load', scheduleRegister, {once:true});
 })();

@@ -143,3 +143,34 @@ body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"] button{poi
   pointer-events:none;
 }
 #warehouse-root [data-zone][data-column][data-slot][data-yx-sync-pages]::after{max-width:78px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* V406 warehouse long-press action menu hard visibility: keep original menu, no new renderer */
+#yx-final-warehouse-menu{
+  position: fixed !important;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 210px;
+  max-width: 260px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.96);
+  border: 1px solid rgba(201,145,45,.55);
+  box-shadow: 0 18px 40px rgba(15,23,42,.20);
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+}
+#yx-final-warehouse-menu.hidden{ display:none !important; }
+#yx-final-warehouse-menu button{
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201,145,45,.35);
+  background: #fffaf0;
+  color: #111827;
+  font-weight: 800;
+}
+#yx-final-warehouse-menu button:hover{ filter: brightness(.98); }
+.warehouse-slot.yx-consistency-pending,
+[data-zone][data-column][data-slot].yx-consistency-pending{ outline: 2px dashed rgba(245,158,11,.85); outline-offset: 2px; }

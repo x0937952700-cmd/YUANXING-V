@@ -230,6 +230,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const headers = {'Accept':'application/json','Content-Type':'application/json', ...(opt.headers || {})};
     let res;
     try { res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers}); }
+    catch(fetchErr){
+      if (timer) clearTimeout(timer);
+      const msg=String(fetchErr?.message || fetchErr || '').toLowerCase();
+      const e = new Error((fetchErr?.name === 'AbortError' || msg.includes('aborted') || msg.includes('signal is aborted')) ? '請求逾時，已保留操作並可稍後重試' : (fetchErr?.message || '網路請求失敗'));
+      e.abort_like = fetchErr?.name === 'AbortError' || msg.includes('aborted') || msg.includes('signal is aborted');
+      throw e;
+    }
     finally { if (timer) clearTimeout(timer); }
     const txt = await res.text();
     let data = {};
@@ -429,6 +436,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
    原則：倉庫頁只吃 templates/module.html 內唯一 HTML；本檔只更新資料、事件、API，不再整頁 render / 不再吃舊 render。 */
 (function(){
   'use strict';
+  // V411 warehouse cell-edit stability: remove-current-item redraws before autosave, baseline delta is explicit for deletes, and batch same item keeps placement; no renderer/timer loop added.
   // V219 warehouse stability: live editor inputs are flushed to local cell + draft before switching/closing, and input debounced autosave protects quick cell changes; no renderer/timer loop added.
   // V188 warehouse stability: delayed same-cell saves are key-checked before running, so a queued save can never write into the wrong cell after the user switches cells; no renderer/timer loop added.
   // V187 warehouse stability: save locks now self-heal on stale background requests and release safely on immediate exceptions; no renderer/timer loop added.
@@ -493,6 +501,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function clearWarehouseDraft(z,c,s){
     try { localStorage.removeItem(`yx119b2-warehouse-draft-${clean(z||'A')}-${Number(c||1)}-${Number(s||1)}`); } catch(_e){}
+  }
+  function clearWarehouseColumnDrafts(z,c){
+    // V408: insert/delete/batch compacts slot numbers. Old per-slot drafts become unsafe
+    // because slot 5 may become another cell after renumbering. Clear only the touched column.
+    try{
+      z=clean(z||'A').toUpperCase(); c=Number(c||1);
+      const prefix=`yx119b2-warehouse-draft-${z}-${c}-`;
+      Object.keys(localStorage||{}).forEach(k=>{ if(String(k).startsWith(prefix)) localStorage.removeItem(k); });
+    }catch(_e){}
   }
   function restoreWarehouseDraft(){
     try {
@@ -573,8 +590,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       }
     }
     writeFailedSaves(keep);
-    if(ok){ try{ clearWarehouseCaches(); cacheWarehouseNow(); notifyWarehouseChanged({action:'cell-save-retry',version:'v403',count:ok}); await loadAvailable().catch(()=>{}); updateAllSlots(); }catch(_e){} }
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-cell-save-retry',message:fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆`,count:ok,failed:fail,version:'v403',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
+    if(ok){ try{ clearWarehouseCaches(); cacheWarehouseNow(); notifyWarehouseChanged({action:'cell-save-retry',version:'v406',count:ok}); await loadAvailable().catch(()=>{}); updateAllSlots(); }catch(_e){} }
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-cell-save-retry',message:fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆`,count:ok,failed:fail,version:'v406',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
     if(opts.toast || ok || fail){ toast(fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆` , fail?'warn':'ok'); }
     return {success:fail===0,count:ok,failed:fail};
   }
@@ -658,10 +675,10 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         clearWarehouseCaches();
         await renderWarehouse(true);
         await loadAvailable().catch(()=>{});
-        notifyWarehouseChanged({action:'structure-op-retry',version:'v403',count:ok});
+        notifyWarehouseChanged({action:'structure-op-retry',version:'v406',count:ok});
       }catch(_e){}
     }
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-structure-retry',message:fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`,count:ok,failed:fail,version:'v403',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-structure-retry',message:fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`,count:ok,failed:fail,version:'v406',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
     if(opts.toast || ok || fail){ toast(fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`, fail?'warn':'ok'); }
     return {success:fail===0,count:ok,failed:fail};
   }
@@ -694,7 +711,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const isStructureRetry=shouldRememberWarehouseStructureOp(url,payload) && !(result && result.permanent===true);
       if(isStructureRetry) rememberFailedWarehouseStructureOp(url,payload,label,result?.error||'background-save-failed');
       else forgetFailedWarehouseStructureOp(url,payload);
-      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'warehouse-background-failed',error:result?.error||'請稍後確認',version:'v403',retry_saved:isStructureRetry,url,payload,label,cell_label:[clean(payload?.zone||payload?.from?.zone||''), payload?.column_index||payload?.from?.column_index||'', payload?.slot_number||payload?.from?.slot_number||''].filter(Boolean).join('-')}}));}catch(_e){}
+      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'warehouse-background-failed',error:result?.error||'請稍後確認',version:'v406',retry_saved:isStructureRetry,url,payload,label,cell_label:[clean(payload?.zone||payload?.from?.zone||''), payload?.column_index||payload?.from?.column_index||'', payload?.slot_number||payload?.from?.slot_number||''].filter(Boolean).join('-')}}));}catch(_e){}
       toast(isStructureRetry ? `${label||'操作'}保存延遲，畫面已保留並加入結構重送` : `${label||'操作'}沒有確實存入資料庫，已還原該欄：${result?.error||'請稍後確認'}`, isStructureRetry?'warn':'error');
       if(isStructureRetry) return {success:true, queued:true, retry_saved:true, structure_retry:true, error:result?.error||'background-save-failed'};
       return {success:false, retry_saved:false, error:result?.error||'background-save-failed'};
@@ -912,7 +929,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       markColumnPending(z,c,true);
       markCellsPendingFromPayload(payload,true);
       cacheWarehouseNow();
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-queued-protected',message:`${label||'倉庫操作'}已進背景佇列，畫面先保留，不會被舊資料覆蓋`,operation_id:op,zone:z,column_index:Number(c),version:'v403'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-queued-protected',message:`${label||'倉庫操作'}已進背景佇列，畫面先保留，不會被舊資料覆蓋`,operation_id:op,zone:z,column_index:Number(c),version:'v406'}})); }catch(_e){}
     }catch(_e){}
   }
   function payloadFromBgItem(item){
@@ -978,7 +995,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v403-status-cleanup-sync';
+  const CACHE_VERSION = 'v414-customer-count-source-sync';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
@@ -1259,7 +1276,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       try{ state.availableCache={}; state.availableSeq++; }catch(_e){}
       try{ updateAllSlots(); }catch(_e){}
       try{ updateUnplacedPillLocal(); }catch(_e){}
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v403-status-cleanup-sync'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v414-customer-count-source-sync'}})); }catch(_e){}
     }
     return changed;
   }
@@ -1408,182 +1425,6 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(Number.isFinite(n) && n>0) return Math.floor(n);
     }
     return 0;
-  }
-  function forgetViewedMeta(id){
-    id=clean(id); if(!id) return 0;
-    const t=now();
-    const map={...readCurrentViewedStore()};
-    map[id]={viewed_at:0, viewed_label:'', unviewed_at:t};
-    const keys=Object.keys(map).sort((a,b)=>Number((map[b]&& (map[b].viewed_at||map[b].unviewed_at))||0)-Number((map[a]&&(map[a].viewed_at||map[a].unviewed_at))||0));
-    if(keys.length>160) keys.slice(160).forEach(k=>delete map[k]);
-    writeViewedMap(map);
-    return t;
-  }
-  function setPendingViewedById(id, viewed, label){
-    id=clean(id); if(!id) return false;
-    let updated=false;
-    const t=viewed?rememberViewedMeta(id,label):forgetViewedMeta(id);
-    try{
-      for(let i=0;i<localStorage.length;i++){
-        const key=localStorage.key(i)||'';
-        if(!(key.startsWith('yx_warehouse_failed_saves_') || key.startsWith('yx_warehouse_failed_structure_ops_') || key.startsWith('yx_warehouse_consistency_pending_'))) continue;
-        const arr=readArr(key); let changed=false;
-        for(let idx=0; idx<arr.length; idx++){
-          const row=rowForPending(key,arr[idx],idx);
-          if(row.id===id){
-            arr[idx]={...(arr[idx]||{})};
-            if(viewed){ arr[idx].viewed_at=t; arr[idx].viewed_label=clean(label||'已標記查看'); delete arr[idx].unviewed_at; }
-            else { arr[idx].viewed_at=0; arr[idx].viewed_label=''; arr[idx].unviewed_at=t; }
-            changed=true; updated=true;
-          }
-        }
-        if(changed) writeArr(key,arr);
-      }
-    }catch(_e){}
-    return updated;
-  }
-  function setStoreViewedById(id, viewed, label){
-    id=clean(id); if(!id) return false;
-    let changed=false;
-    const t=viewed?rememberViewedMeta(id,label):forgetViewedMeta(id);
-    const arr=read().map(r=>{
-      if(clean(r.id)!==id) return r;
-      changed=true;
-      const next={...r};
-      if(viewed){ next.viewed_at=t; next.viewed_label=clean(label||'已標記查看'); delete next.unviewed_at; }
-      else { next.viewed_at=0; next.viewed_label=''; next.unviewed_at=t; }
-      return next;
-    });
-    if(changed) write(arr);
-    return changed;
-  }
-  const BULK_SCOPES=[['all','全部項目'],['pending','只套用待重送'],['recent','只套用最近操作']];
-  function bulkScope(){
-    try{ const v=clean(localStorage.getItem(BULK_SCOPE_KEY)||'all'); return BULK_SCOPES.some(x=>x[0]===v)?v:'all'; }catch(_e){ return 'all'; }
-  }
-  function setBulkScope(v){
-    v=clean(v||'all'); if(!BULK_SCOPES.some(x=>x[0]===v)) v='all';
-    try{ localStorage.setItem(BULK_SCOPE_KEY,v); }catch(_e){}
-    return v;
-  }
-  function bulkScopeName(v){ const hit=BULK_SCOPES.find(x=>x[0]===v); return hit?hit[1]:'全部項目'; }
-  function readBulkUndo(){ try{ const o=JSON.parse(localStorage.getItem(BULK_UNDO_KEY)||'null'); return o&&typeof o==='object'?o:null; }catch(_e){ return null; } }
-  function writeBulkUndo(o){ try{ if(o) localStorage.setItem(BULK_UNDO_KEY, JSON.stringify(o)); else localStorage.removeItem(BULK_UNDO_KEY); }catch(_e){} }
-  function readBulkUndoResult(){
-    const keys=[BULK_UNDO_RESULT_KEY,'yx_operation_status_bulk_undo_result_v380','yx_operation_status_bulk_undo_result_v379','yx_operation_status_bulk_undo_result_v366','yx_operation_status_bulk_undo_result_v361'];
-    for(const key of keys){
-      try{ const o=JSON.parse(localStorage.getItem(key)||'null'); if(o&&typeof o==='object') return {...o, __key:key}; }catch(_e){}
-    }
-    return null;
-  }
-  function writeBulkUndoResult(o){ try{ if(o) localStorage.setItem(BULK_UNDO_RESULT_KEY, JSON.stringify(o)); else localStorage.removeItem(BULK_UNDO_RESULT_KEY); }catch(_e){} }
-  function clearBulkUndoResult(){
-    const keys=[BULK_UNDO_RESULT_KEY,'yx_operation_status_bulk_undo_result_v380','yx_operation_status_bulk_undo_result_v379','yx_operation_status_bulk_undo_result_v366','yx_operation_status_bulk_undo_result_v361'];
-    keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_e){} });
-    try{ toast('已清除復原結果提示','ok'); }catch(_e){}
-    try{ record({source:page()||'operation', status:'success', reason:'clear-bulk-undo-result', message:'已清除復原結果提示', success_at:now(), operation_id:'status-bulk-undo-result-clear-'+now()}); }catch(_e){}
-    render();
-  }
-  function undoResultText(o){ if(!o) return ''; const total=Number(o.total||0), pending=Number(o.pending||0), recent=Number(o.recent||0); const t=fmtTime(o.ts||0); return `上次復原 ${total} 筆｜待重送 ${pending}｜最近操作 ${recent}${t?'｜'+t:''}`; }
-  function currentViewedSnapshot(ids){
-    const current=readCurrentViewedStore();
-    const merged=readViewedMap();
-    const out={};
-    (Array.isArray(ids)?ids:[]).forEach(id=>{
-      id=clean(id); if(!id) return;
-      const v=current[id] || merged[id] || null;
-      out[id]=v && typeof v==='object' ? {...v} : null;
-    });
-    return out;
-  }
-  function restoreViewedSnapshot(snapshot){
-    snapshot=snapshot&&typeof snapshot==='object'?snapshot:{};
-    const map={...readCurrentViewedStore()};
-    Object.keys(snapshot).forEach(id=>{
-      const old=snapshot[id];
-      if(old && typeof old==='object') map[id]={...old};
-      else delete map[id];
-    });
-    writeViewedMap(map);
-    try{
-      for(let i=0;i<localStorage.length;i++){
-        const key=localStorage.key(i)||'';
-        if(!(key.startsWith('yx_warehouse_failed_saves_') || key.startsWith('yx_warehouse_failed_structure_ops_') || key.startsWith('yx_warehouse_consistency_pending_'))) continue;
-        const arr=readArr(key); let changed=false;
-        for(let idx=0; idx<arr.length; idx++){
-          const row=rowForPending(key,arr[idx],idx);
-          if(Object.prototype.hasOwnProperty.call(snapshot,row.id)){
-            const old=snapshot[row.id];
-            arr[idx]={...(arr[idx]||{})};
-            if(old && Number(old.viewed_at||0)){ arr[idx].viewed_at=Number(old.viewed_at||0); arr[idx].viewed_label=clean(old.viewed_label||'已跳轉查看'); delete arr[idx].unviewed_at; }
-            else if(old && Number(old.unviewed_at||0)){ arr[idx].viewed_at=0; arr[idx].viewed_label=''; arr[idx].unviewed_at=Number(old.unviewed_at||0); }
-            else { delete arr[idx].viewed_at; delete arr[idx].viewed_label; delete arr[idx].unviewed_at; }
-            changed=true;
-          }
-        }
-        if(changed) writeArr(key,arr);
-      }
-    }catch(_e){}
-  }
-  function bulkScopeBar(){
-    const selected=bulkScope();
-    const buttons=BULK_SCOPES.map(([k,label])=>`<button type="button" class="yx312-op-filter-chip yx361-op-bulk-scope-chip ${selected===k?'active':''}" data-yx282-op-action="bulk-scope" data-yx361-bulk-scope="${esc(k)}">${esc(label)}</button>`).join('');
-    const undo=readBulkUndo();
-    const undoBtn=undo&&undo.snapshot?`<button type="button" class="yx312-op-filter-chip yx366-op-undo-chip" data-yx282-op-action="undo-bulk-view">復原上一批標記<em>${Number(undo.total||0)}</em></button>`:'';
-    const undoResult=readBulkUndoResult();
-    const undoResultChip=undoResult?`<span class="yx371-op-undo-result yx376-op-undo-result">${esc(undoResultText(undoResult))}<button type="button" class="yx376-op-clear-result" data-yx282-op-action="clear-bulk-undo-result">清除提示</button></span>`:'';
-    return `<div class="yx312-op-filter yx361-op-bulk-scope yx366-op-bulk-undo yx371-op-bulk-undo-result" role="group" aria-label="批量標記範圍">${buttons}${undoBtn}${undoResultChip}</div>`;
-  }
-  function visibleRowsForBulk(){
-    const arr=read();
-    const details=pendingRecords();
-    const st=statusFilter();
-    const vf=viewFilter();
-    const q=searchQuery();
-    const pf=pendingFilter();
-    const scope=bulkScope();
-    let ops=st==='all'?arr:arr.filter(x=>opState(x)===st);
-    if(vf!=='all') ops=ops.filter(x=>matchesViewFilter(x,vf));
-    if(q) ops=ops.filter(x=>matchesSearch(x,q));
-    let pending=pf==='all'?details:details.filter(r=>pendingType(r)===pf);
-    if(st!=='all') pending=pending.filter(r=>opState(r)===st);
-    if(vf!=='all') pending=pending.filter(r=>matchesViewFilter(r,vf));
-    if(q) pending=pending.filter(r=>matchesSearch(r,q));
-    if(scope==='pending') ops=[];
-    if(scope==='recent') pending=[];
-    return {ops,pending,scope};
-  }
-  function bulkMarkVisible(viewed){
-    const rows=visibleRowsForBulk();
-    const ids=new Set();
-    rows.ops.forEach(r=>{ const id=clean(r.id); if(id) ids.add(id); });
-    rows.pending.forEach(r=>{ const id=clean(r.id); if(id) ids.add(id); });
-    const idList=Array.from(ids);
-    const before=currentViewedSnapshot(idList);
-    const label=viewed?'已一鍵標記查看':'已一鍵標記未查看';
-    idList.forEach(id=>{ setStoreViewedById(id, viewed, label); setPendingViewedById(id, viewed, label); });
-    const scopeLabel=bulkScopeName(rows.scope);
-    const affectedRecent=Number(rows.ops?.length||0);
-    const affectedPending=Number(rows.pending?.length||0);
-    const affectedTotal=Number(idList.length||0);
-    const affectedText=`${scopeLabel}｜待重送 ${affectedPending} 筆｜最近操作 ${affectedRecent} 筆｜實際影響 ${affectedTotal} 筆`;
-    const msg=viewed?'已標記目前篩選項目為已查看':'已標記目前篩選項目為未查看';
-    writeBulkUndo({ts:now(), viewed:!!viewed, scope:rows.scope, snapshot:before, ids:idList, total:affectedTotal, pending:affectedPending, recent:affectedRecent, text:affectedText});
-    try{ toast(`${msg}：${affectedText}（可復原上一批）`, affectedTotal?'ok':'warn'); }catch(_e){}
-    record({source:page()||'operation', status:'success', reason:viewed?'bulk-mark-viewed':'bulk-mark-unviewed', message:msg, detail_text:affectedText+'｜已建立上一批復原點', affected_total:affectedTotal, affected_pending:affectedPending, affected_recent:affectedRecent, success_at:now(), operation_id:'status-bulk-view-'+(viewed?'on':'off')+'-'+rows.scope+'-'+now()});
-    render();
-  }
-  function undoBulkVisible(){
-    const undo=readBulkUndo();
-    if(!undo || !undo.snapshot){ try{ toast('沒有可復原的上一批標記','warn'); }catch(_e){} return; }
-    restoreViewedSnapshot(undo.snapshot);
-    const restoredTotal=Number(undo.total||0), restoredPending=Number(undo.pending||0), restoredRecent=Number(undo.recent||0);
-    const text=`復原 ${restoredTotal} 筆｜待重送 ${restoredPending} 筆｜最近操作 ${restoredRecent} 筆`;
-    writeBulkUndo(null);
-    writeBulkUndoResult({ts:now(), total:restoredTotal, pending:restoredPending, recent:restoredRecent, source:page()||'operation'});
-    try{ toast('已復原上一批標記：'+text,'ok'); }catch(_e){}
-    record({source:page()||'operation', status:'success', reason:'bulk-view-undo', message:'已復原上一批標記', detail_text:text+'｜本次實際還原：待重送 '+restoredPending+' 筆｜最近操作 '+restoredRecent+' 筆', affected_total:restoredTotal, affected_pending:restoredPending, affected_recent:restoredRecent, success_at:now(), operation_id:'status-bulk-view-undo-'+now()});
-    render();
   }
   function itemQty(it){
     const text=clean(it?.product_text||it?.product||'');
@@ -2087,9 +1928,10 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return clean(details.map(d=>clean(d?.source_id||d?.id||d?.origin_source_id||'')).filter(Boolean).join('|'));
   }
   function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), materialOf(it), sourceOf(it), itemSourceIdKey(it), clean(it?.zone||it?.location||'')].join('::'); }
+  function cellItemMergeKey(it){ return itemStableKey(it)+'::'+clean(it?.placement_label || it?.layer_label || '前排'); }
 
 
-  const CONSISTENCY_PENDING_KEY = 'yx_warehouse_consistency_pending_v307_status_time_lock';
+  const CONSISTENCY_PENDING_KEY = 'yx_warehouse_consistency_pending_v406_order_warehouse_realign';
   function warehouseCompareItemKey(it){
     try{
       const src=clean(it?.source_id||it?.id||it?.row_id||'');
@@ -2135,7 +1977,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const c=Number(detail?.column_index || detail?.col || detail?.cell?.column_index || state.current?.col || 0);
     const s=Number(detail?.slot_number || detail?.slot || detail?.cell?.slot_number || state.current?.slot || 0);
     const op=clean(detail?.operation_id || detail?.request_key || yxOperationId('warehouse-final-check'));
-    return {id:[op,z,c,s].join('|'), operation_id:op, zone:z, column_index:c, slot_number:s, action:clean(detail?.action||detail?.reason||'warehouse-final-check'), client_cell_signature:(z&&c&&s)?localCellCompareSignature(z,c,s):'', client_available_signature:localAvailableSignature(), version:'v403'};
+    return {id:[op,z,c,s].join('|'), operation_id:op, zone:z, column_index:c, slot_number:s, action:clean(detail?.action||detail?.reason||'warehouse-final-check'), client_cell_signature:(z&&c&&s)?localCellCompareSignature(z,c,s):'', client_available_signature:localAvailableSignature(), version:'v406'};
+  }
+  function isAbortLikeError(e){
+    const msg=String(e?.message || e || '').toLowerCase();
+    return e?.name === 'AbortError' || msg.includes('aborted') || msg.includes('signal is aborted');
   }
   async function runWarehouseConsistencyCheck(detail, opts={}){
     const payload=buildConsistencyPayload(detail||{});
@@ -2170,10 +2016,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       }
       return d;
     }catch(e){
-      rememberConsistencyPending(payload, e.message||'network-delay');
+      const abortLike=isAbortLikeError(e);
+      rememberConsistencyPending(payload, abortLike ? 'request-aborted-retry-later' : (e.message||'network-delay'));
       const now=Date.now();
-      if(opts.toast || now-Number(state.consistencyNoticeAt||0)>4000){ state.consistencyNoticeAt=now; toast('倉庫最終一致性檢查延遲，已保留稍後重試，不影響繼續操作','warn'); }
-      return {success:false, queued:true, error:e.message||String(e)};
+      if(!abortLike && (opts.toast || now-Number(state.consistencyNoticeAt||0)>4000)){ state.consistencyNoticeAt=now; toast('倉庫最終一致性檢查延遲，已保留稍後重試，不影響繼續操作','warn'); }
+      return {success:false, queued:true, silent:abortLike, error:e.message||String(e)};
     }finally{ state.consistencyCheckInFlight=false; }
   }
   function scheduleWarehouseConsistencyCheck(detail, delay=900){
@@ -2204,6 +2051,42 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return [cleanCustomer(it?.customer_name||''), sourceOf(it), itemSourceIdKey(it), materialOf(it), productBaseText(it), clean(it?.zone||'')].join('::');
   }
   function availableMutationItemKey(it){ return [availableGroupKey(it), clean(productSupportText(it)||''), itemQty(it)].join('::'); }
+  function expandAvailableMutationItems(items, fallbackZone){
+    // V409: grouped dropdown rows may represent multiple source_details/source_id rows.
+    // Local optimistic A/B unplaced counts must remove/return those same source rows immediately,
+    // not only the first source_id, otherwise the dropdown can keep stale rows until the server reply.
+    const out=[];
+    (Array.isArray(items)?items:[]).forEach(raw=>{
+      const requested=Math.max(0, Math.floor(Number(itemQty(raw)||0)));
+      if(requested<=0) return;
+      let details=raw?.source_details;
+      if(typeof details==='string'){ try{ details=JSON.parse(details); }catch(_e){ details=[]; } }
+      if(!Array.isArray(details) || !details.length){ out.push(raw); return; }
+      const selectedExact=warehouseExactKey(productText(raw));
+      const selectedSupport=clean(productSupportText(raw)).toLowerCase();
+      const rows=details.filter(d=>d && typeof d==='object').sort((a,b)=>{
+        const ax=warehouseExactKey(productText(a)), bx=warehouseExactKey(productText(b));
+        const as=clean(productSupportText(a)).toLowerCase(), bs=clean(productSupportText(b)).toLowerCase();
+        const ar=(selectedExact && ax===selectedExact)?0:((selectedSupport && as===selectedSupport)?1:2);
+        const br=(selectedExact && bx===selectedExact)?0:((selectedSupport && bs===selectedSupport)?1:2);
+        return ar-br;
+      });
+      let remaining=requested;
+      rows.forEach(d=>{
+        if(remaining<=0) return;
+        const dq=Math.max(0, Math.floor(Number(itemQty(d)||0)));
+        if(dq<=0) return;
+        const take=Math.min(dq, remaining);
+        const detailRow={...d, qty:take, unplaced_qty:take, available_qty:take, remaining_qty:take};
+        const row={...raw, ...d, product_text:productText(d)||productText(raw), product:productText(d)||productText(raw), support_text:productSupportText(d)||productSupportText(raw), source:d.source||d.source_table||raw.source||raw.source_table, source_table:d.source_table||d.source||raw.source_table||raw.source, source_id:clean(d.source_id||d.id||d.origin_source_id||raw.source_id||''), id:clean(d.id||d.source_id||raw.id||''), source_details:[detailRow], qty:take, unplaced_qty:take, available_qty:take, remaining_qty:take};
+        const bucket=availableZoneBucket(row, fallbackZone); row.zone=row.zone||bucket; row.warehouse_zone=row.warehouse_zone||bucket;
+        out.push(row);
+        remaining-=take;
+      });
+      if(remaining>0) out.push({...raw, qty:remaining, unplaced_qty:remaining, available_qty:remaining, remaining_qty:remaining});
+    });
+    return out;
+  }
   function rememberAvailableMutation(action, items, sign, zone, opId){
     try{
       state.appliedAvailableOps = state.appliedAvailableOps || new Map();
@@ -2218,7 +2101,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }catch(_e){ return true; }
   }
   function mutateAvailableLocked(items, sign, fallbackZone, action, opId){
-    const safe=(Array.isArray(items)?items:[]).map(it=>cloneWithQty(withWarehouseZone([it], fallbackZone)[0]||it, itemQty(it))).filter(it=>itemQty(it)>0);
+    const expanded=expandAvailableMutationItems(items, fallbackZone);
+    const safe=(Array.isArray(expanded)?expanded:[]).map(it=>cloneWithQty(withWarehouseZone([it], fallbackZone)[0]||it, itemQty(it))).filter(it=>itemQty(it)>0);
     if(!safe.length) return false;
     if(!rememberAvailableMutation(action, safe, sign, fallbackZone, opId)) return false;
     mutateAvailableByItems(safe, sign, fallbackZone);
@@ -2674,13 +2558,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       qty=Math.min(qty, max);
       if(qty <= 0) return;
       const seed={...group.it, zone:state.current?.zone||group.it.zone||group.it.warehouse_zone||'', warehouse_zone:state.current?.zone||group.it.warehouse_zone||group.it.zone||'', product_text:product, product, support_text:support, exact_key:support?`${warehouseSizeKey(base)}=${support}`:warehouseSizeKey(base), source_id:clean(group.it.source_id||group.it.id||''), source_details:(group.it.source_details||[])};
-      const stable=itemStableKey(seed);
+      const placement=placementForBatch(Number(row.dataset.batchIndex||collected.size));
+      const stable=cellItemMergeKey({...seed, placement_label:placement, layer_label:placement});
       const alreadyNew=collected.get(stable)?.qty || 0;
       const remaining=Math.max(0, max - alreadyNew);
       if(remaining <= 0) return;
       const finalQty=Math.min(qty, remaining);
       if(finalQty <= 0) return;
-      collected.set(stable, normalizedItem(seed, (alreadyNew + finalQty), placementForBatch(Number(row.dataset.batchIndex||collected.size))));
+      collected.set(stable, normalizedItem(seed, (alreadyNew + finalQty), placement));
     });
     return Array.from(collected.values());
   }
@@ -2709,13 +2594,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     // V177: 舊背景保存回來時，如果使用者已經在同一格做了新修改，不可用舊 DB 回應覆蓋前端新狀態。
     return currentCellRevision(z,c,s) === Number(revAtSend||0);
   }
-  function commitCurrentEditToFrontend(reason, beforeItems){
+  function commitCurrentEditToFrontend(reason, beforeItems, opts={}){
     if(!state.current) return null;
+    opts=opts||{};
     const z=clean(state.current.zone).toUpperCase(), c=Number(state.current.col), s=Number(state.current.slot);
     const note=$('warehouse-note')?.value||'';
-    // V180: use the real current local cell as the availability baseline.
-    // A stale timer snapshot can be older than the optimistic UI; using it again may double-return/double-consume dropdown quantities.
-    const oldItems=JSON.parse(JSON.stringify(cellItems(z,c,s)));
+    // V411: normal autosaves still use the real local cell baseline to avoid stale timer double-deltas.
+    // Delete-current-item calls pass useProvidedBefore=true, because the removed row must not be resurrected from the old DOM and its quantity must return to unplaced immediately.
+    const oldItems=(opts.useProvidedBefore && Array.isArray(beforeItems)) ? JSON.parse(JSON.stringify(beforeItems)) : JSON.parse(JSON.stringify(cellItems(z,c,s)));
     applyCurrentItemInputs();
     const nextItems=JSON.parse(JSON.stringify(state.current.items||[]));
     const delta=cellAvailabilityDelta(withWarehouseZone(oldItems, z), withWarehouseZone(nextItems, z));
@@ -2815,9 +2701,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(waits.length) await Promise.allSettled(waits);
     }catch(_e){}
   }
-  function autoSaveCurrentCell(reason, beforeItems){
+  function autoSaveCurrentCell(reason, beforeItems, opts={}){
     const beforeColumn = state.current ? snapshotColumn(state.current.zone,state.current.col) : null;
-    const payload=commitCurrentEditToFrontend(reason, beforeItems);
+    const payload=commitCurrentEditToFrontend(reason, beforeItems, opts);
     if(!payload) return;
     const pendingMerged=mergePendingShipDeductIntoCellSave(payload.z,payload.c,payload.s,payload.items,payload.note||'');
     if(pendingMerged.merged) payload.items=pendingMerged.items;
@@ -2918,7 +2804,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v403', sync_version:'v403-status-cleanup-sync', cache_bust:'v403-status-cleanup-sync'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v414', sync_version:'v414-customer-count-source-sync', cache_bust:'v414-customer-count-source-sync'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2926,7 +2812,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function notifyWarehouseChanged(detail){
     detail = detail || {};
     const customerNames = affectedWarehouseCustomers(detail);
-    const enriched = {...detail, source:'warehouse', reason:detail.action||'warehouse-changed', version:'v403', customer_names:customerNames};
+    const enriched = {...detail, source:'warehouse', reason:detail.action||'warehouse-changed', version:'v406', customer_names:customerNames};
     if(!enriched.customer_name && customerNames.length) enriched.customer_name = customerNames[0];
     try{ yx215EmitOnce('yx:warehouse-changed', enriched, 1000); }catch(_e){}
     try{ yx215EmitOnce('yx:today-changes-refresh', enriched, 1000); }catch(_e){}
@@ -2941,7 +2827,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       window.YX?.cache?.clearGroup?.('customer_blocks_');
     }catch(_e){}
   }
-  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v403-status-cleanup-sync'}; }
+  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v414-customer-count-source-sync'}; }
   function handleWarehouseBackgroundSaveStatus(ev){
     try{
       const item=ev?.detail?.item || {};
@@ -2971,15 +2857,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
           try{ scheduleWarehouseConsistencyCheck({action:'bg-save-success',zone:payload.zone||payload.to?.zone||payload.from?.zone,column_index:payload.column_index||payload.to?.column_index||payload.from?.column_index,slot_number:payload.slot_number||payload.to?.slot_number||payload.from?.slot_number||1,operation_id:payload.operation_id||''}, 900); }catch(_e){}
         }
         try{ loadAvailable().catch(()=>{}); }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'success',reason:response?'warehouse-bg-save-success-snapshot':'warehouse-bg-save-success',message:response?'倉庫背景保存完成，已套用後端回傳':'倉庫背景保存已完成',operation_id:payload.operation_id||'',version:'v403',has_snapshot:!!response}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'success',reason:response?'warehouse-bg-save-success-snapshot':'warehouse-bg-save-success',message:response?'倉庫背景保存完成，已套用後端回傳':'倉庫背景保存已完成',operation_id:payload.operation_id||'',version:'v406',has_snapshot:!!response}})); }catch(_e){}
       }else if(ev.type === 'yx:bg-save-failed'){
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-save-retry',message:'倉庫背景保存尚未完成，已保留待重試',operation_id:payload.operation_id||'',version:'v403'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-save-retry',message:'倉庫背景保存尚未完成，已保留待重試',operation_id:payload.operation_id||'',version:'v406'}})); }catch(_e){}
       }
     }catch(_e){}
   }
   try{
-    if(!window.__YX_V403_WAREHOUSE_BG_STATUS_BOUND__){
-      window.__YX_V403_WAREHOUSE_BG_STATUS_BOUND__ = true;
+    if(!window.__YX_V406_WAREHOUSE_BG_STATUS_BOUND__){
+      window.__YX_V406_WAREHOUSE_BG_STATUS_BOUND__ = true;
       window.addEventListener('yx:bg-save-success', handleWarehouseBackgroundSaveStatus, {passive:true});
       window.addEventListener('yx:bg-save-failed', handleWarehouseBackgroundSaveStatus, {passive:true});
     }
@@ -3047,7 +2933,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const added=collectBatchItems();
     if(!added.length && !editedChanged){ try{ state.saveLocks.delete(saveKey); state.saveLockStarted?.delete?.(saveKey); state.saveAgainAfterLock?.delete?.(saveKey); }catch(_e){} toast('沒有新增或修改；已錄入商品不會出現在下拉選單，請直接在「目前此格商品」修改尺寸/支數/件數後儲存','warn'); return; }
     const merged = new Map();
-    [...(state.current.items||[]),...added].forEach(it=>{ const k=itemStableKey(it); const old=merged.get(k); if(old){ old.qty = itemQty(old) + itemQty(it); } else merged.set(k, {...it, qty:itemQty(it)}); });
+    [...(state.current.items||[]),...added].forEach(it=>{ const k=cellItemMergeKey(it); const old=merged.get(k); if(old){ old.qty = itemQty(old) + itemQty(it); } else merged.set(k, {...it, qty:itemQty(it)}); });
     let items=Array.from(merged.values());
     const pendingMerged=mergePendingShipDeductIntoCellSave(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
     if(pendingMerged.merged) items=pendingMerged.items;
@@ -3110,7 +2996,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       // The optimistic draft remains in localStorage, so the user can save again without reopening/reloading.
       try{ state.savePromises?.delete?.(saveKey); state.saveLocks?.delete?.(saveKey); state.saveLockStarted?.delete?.(saveKey); }catch(_e){}
       try{ persistWarehouseDraft(); }catch(_e){}
-      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v403',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
+      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v406',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
       toast(e.message||'儲存格位失敗，草稿已保留可直接再存','error');
       throw e;
     }
@@ -3135,6 +3021,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       let srcCell=cellFromData(f.zone,f.col,f.slot); if(srcCell){ srcCell.items=[]; srcCell.items_json='[]'; }
       let dstCell=cellFromData(t.zone,t.col,t.slot); if(!dstCell){ dstCell={zone:t.zone,column_index:t.col,slot_type:'direct',slot_number:t.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(dstCell); }
       dstCell.items=dstAfter; dstCell.items_json=JSON.stringify(dstAfter);
+      clearWarehouseDraft(f.zone,f.col,f.slot); clearWarehouseDraft(t.zone,t.col,t.slot);
       cacheWarehouseNow(); updateSlotUI(f.zone,f.col,f.slot); updateSlotUI(t.zone,t.col,t.slot); highlightWarehouseCell(t.zone,t.col,t.slot);
       toast(placement==='前排'?'已先移動到前排，背景儲存':'已先移動到後排，背景儲存','ok');
       const fromToken=beginColumnOp(f.zone,f.col);
@@ -3143,7 +3030,10 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(toToken!==fromToken) state.lastGoodColumns.set(toToken.key, toSnap);
       queuedWarehouseMovePost({
         operation_id:yxOperationId('warehouse-move-cell'),
-        client_stability:'v403-status-cleanup-sync',
+        client_stability:'v414-customer-count-source-sync',
+        strict_validate:0,
+        source_cell_items:src.items,
+        target_cell_items_before:dst.items,
         from:{zone:f.zone,column_index:f.col,slot_number:f.slot,note:src.note},
         to:{zone:t.zone,column_index:t.col,slot_number:t.slot,note:dst.note},
         items:dstAfter
@@ -3151,6 +3041,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(!d || d.success===false){ rollbackMoveColumns(fromToken,toToken,fromSnap,toSnap,'拖拉移動沒有確實存入資料庫，已還原'); return; }
         applyMoveWarehouseResponse(d, fromLatest?fromToken:null, toLatest?toToken:null, f, t);
         state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton();
+        clearWarehouseDraft(f.zone,f.col,f.slot); clearWarehouseDraft(t.zone,t.col,t.slot);
         notifyWarehouseChanged({action:'move',from:f,to:t,moved_items:moved,items:dstAfter,customer_names:affectedWarehouseCustomers({items:[moved,dstAfter]}),operation_id:d?.operation_id||''}); loadAvailable().catch(()=>{}); updateAllSlots(); highlightWarehouseCell(t.zone,t.col,t.slot); scheduleWarehouseConsistencyCheck({action:'move-from',zone:f.zone,column_index:f.col,slot_number:f.slot,operation_id:d?.operation_id||''}, 900); scheduleWarehouseConsistencyCheck({action:'move-to',zone:t.zone,column_index:t.col,slot_number:t.slot,operation_id:d?.operation_id||''}, 900); toast('拖拉移動已永久存入資料庫','ok');
       }, '拖拉移動', fromToken, toToken, ()=>rollbackMoveColumns(fromToken,toToken,fromSnap,toSnap,'拖拉移動保存失敗，已還原'));
     } catch(e){ rollbackMoveColumns(null,null,fromSnap,toSnap,e.message||'拖拉移動失敗'); }
@@ -3190,6 +3081,35 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     markColumnStructureEpoch(z,c,'delete-slot');
     cacheWarehouseNow();
   }
+  function nextVisibleSlotAfterStructure(z,c,s){
+    try{
+      z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
+      const nums=visibleSlotNumbers(z,c).filter(n=>Number(n)>0);
+      if(!nums.length) return 1;
+      const exact=nums.find(n=>Number(n)>=s);
+      return Number(exact || nums[nums.length-1] || 1);
+    }catch(_e){ return Math.max(1, Number(s)||1); }
+  }
+  function finalizeWarehouseStructureSuccess(d,z,c,token,opts={}){
+    try{
+      const action=clean(opts.action||'structure');
+      const slot=Number(opts.slot || opts.highlightSlot || 1);
+      const opid=clean(d?.operation_id || opts.operation_id || '');
+      applyWarehouseResponse(d,z,c, token);
+      clearWarehouseColumnDrafts(z,c);
+      normalizeColumnSlots(z,c);
+      cacheWarehouseNow();
+      updateAllSlots();
+      const hs=Number(opts.afterDelete ? nextVisibleSlotAfterStructure(z,c,slot) : (opts.highlightSlot || slot || 1));
+      if(hs>0) highlightWarehouseCell(z,c,hs);
+      scheduleWarehouseConsistencyCheck({action,zone:z,column_index:c,slot_number:hs||slot||1,operation_id:opid}, 900);
+      notifyWarehouseChanged({action,zone:z,column_index:c,slot_number:hs||slot||1,operation_id:opid});
+      if(opts.message) toast(opts.message,'ok');
+    }catch(e){
+      try{ cacheWarehouseNow(); updateAllSlots(); }catch(_e){}
+    }
+  }
+
   async function batchInsertWarehouseCells(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     await drainColumnAutoSavesBeforeStructure(z,c,'批量新增格前已先保存同欄格位修改');
@@ -3197,12 +3117,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(!count) return;
     const columnBefore=snapshotColumn(z,c);
     for(let i=0;i<count;i++) localInsertSlot(z,c,s+i);
+    clearWarehouseColumnDrafts(z,c);
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v403-status-cleanup-sync',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
-      applyWarehouseResponse(d,z,c, token);
-      updateAllSlots(); highlightWarehouseCell(z,c,Number(d?.first_slot||s+1)); scheduleWarehouseConsistencyCheck({action:'batch-insert',zone:z,column_index:c,slot_number:Number(d?.first_slot||s+1),operation_id:d?.operation_id||''}, 900); toast(`批量新增 ${count} 格已永久存入資料庫`,'ok');
+    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v414-customer-count-source-sync',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
+      finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-insert',slot:Number(d?.first_slot||s+1),highlightSlot:Number(d?.first_slot||s+1),operation_id:d?.operation_id||'',message:`批量新增 ${count} 格已永久存入資料庫`});
     }, '批量新增格子', {token});
   }
   async function batchDeleteWarehouseCells(z,c,s){
@@ -3222,23 +3142,21 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const columnBefore=snapshotColumn(z,c);
     // 從大到小刪，避免前面刪除後格號位移影響後面目標。
     emptySlots.slice().sort((a,b)=>b-a).forEach(n=>localDeleteSlot(z,c,n));
+    clearWarehouseColumnDrafts(z,c);
     normalizeColumnSlots(z,c);
     cacheWarehouseNow();
     updateAllSlots();
+    highlightWarehouseCell(z,c,nextVisibleSlotAfterStructure(z,c,s));
     toast(`已先批量刪除 ${emptySlots.length} 個空格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
-      client_stability:'v403-status-cleanup-sync',
+      client_stability:'v414-customer-count-source-sync',
       zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, (d, token)=>{
-      applyWarehouseResponse(d,z,c, token);
-      cacheWarehouseNow();
-      updateAllSlots();
-      scheduleWarehouseConsistencyCheck({action:'batch-delete',zone:z,column_index:c,slot_number:s,operation_id:d?.operation_id||''}, 900);
-      toast(`批量刪除 ${Number(d?.removed||emptySlots.length)} 個空格已永久存入資料庫`,'ok');
+      finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:`批量刪除 ${Number(d?.removed||emptySlots.length)} 個空格已永久存入資料庫`});
     }, '批量刪除空格', {token});
   }
 
@@ -3246,11 +3164,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s||0);
     await drainColumnAutoSavesBeforeStructure(z,c,'新增格前已先保存同欄格位修改');
     const columnBefore=snapshotColumn(z,c);
-    const localSlot=localInsertSlot(z,c,s); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
+    const localSlot=localInsertSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v403-status-cleanup-sync',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
-      applyWarehouseResponse(d,z,c, token); cacheWarehouseNow(); updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||localSlot)); scheduleWarehouseConsistencyCheck({action:'insert',zone:z,column_index:c,slot_number:Number(d.slot_number||localSlot),operation_id:d?.operation_id||''}, 900); toast('新增格子已永久存入資料庫','ok');
+    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v414-customer-count-source-sync',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
+      finalizeWarehouseStructureSuccess(d,z,c,token,{action:'insert',slot:Number(d?.slot_number||localSlot),highlightSlot:Number(d?.slot_number||localSlot),operation_id:d?.operation_id||'',message:'新增格子已永久存入資料庫'});
     }, '新增格子', {token});
   }
   async function deleteWarehouseCell(z,c,s){
@@ -3259,11 +3177,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(cellItems(z,c,s).length) return toast('格子內還有商品，請先退回該格或移除商品後再刪除','warn');
     // V127：單格刪除不再跳確認，點選後立即前端刪除並背景保存。
     const columnBefore=snapshotColumn(z,c);
-    localDeleteSlot(z,c,s); normalizeColumnSlots(z,c); updateAllSlots(); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
+    localDeleteSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,nextVisibleSlotAfterStructure(z,c,s)); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v403-status-cleanup-sync',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
-      applyWarehouseResponse(d,z,c, token); cacheWarehouseNow(); updateAllSlots(); scheduleWarehouseConsistencyCheck({action:'delete',zone:z,column_index:c,slot_number:s,operation_id:d?.operation_id||''}, 900); toast('刪除空格已永久存入資料庫','ok');
+    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v414-customer-count-source-sync',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
+      finalizeWarehouseStructureSuccess(d,z,c,token,{action:'delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:'刪除空格已永久存入資料庫'});
     }, '刪除空格', {token});
   }
   async function returnWarehouseCell(z,c,s){
@@ -3277,20 +3195,17 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const cell=cellFromData(z,c,s);
     if(cell){ cell.items=[]; cell.items_json='[]'; }
     mutateAvailableLocked(oldItems, +1, z, 'return-unplaced', key(z,c,s)+'-'+Date.now());
+    clearWarehouseDraft(z,c,s);
     cacheWarehouseNow();
     updateSlotUI(z,c,s);
     if(state.current && state.current.zone===z && Number(state.current.col)===c && Number(state.current.slot)===s){ state.current.items=[]; renderCellItems(true); markCurrentCellDirty(); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v403-status-cleanup-sync',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
-      applyWarehouseResponse(d,z,c, token);
-      notifyWarehouseChanged({action:'return-unplaced',zone:z,column_index:c,slot_number:s,items:oldItems,customer_name:(oldItems||[]).map(it=>it.customer_name).filter(Boolean)[0]||''});
+    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v414-customer-count-source-sync',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
+      finalizeWarehouseStructureSuccess(d,z,c,token,{action:'return-unplaced',slot:s,highlightSlot:s,operation_id:d?.operation_id||'',message:'退回該格已永久存入資料庫'});
+      notifyWarehouseChanged({action:'return-unplaced',zone:z,column_index:c,slot_number:s,items:oldItems,customer_name:(oldItems||[]).map(it=>it.customer_name).filter(Boolean)[0]||'',operation_id:d?.operation_id||''});
       loadAvailable().catch(()=>{});
-      updateAllSlots();
-      highlightWarehouseCell(z,c,s);
-      scheduleWarehouseConsistencyCheck({action:'return-unplaced',zone:z,column_index:c,slot_number:s,operation_id:d?.operation_id||''}, 900);
-      toast('退回該格已永久存入資料庫','ok');
     }, '退回該格', {token});
   }
   async function executeWarehouseMenuAction(action){
@@ -3313,7 +3228,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       else if(action==='batch-insert') await batchInsertWarehouseCells(z,c,s);
       else if(action==='delete') await deleteWarehouseCell(z,c,s);
       else if(action==='batch-delete') await batchDeleteWarehouseCells(z,c,s);
-    }catch(e){ toast(e.message||'格位操作失敗','error'); }
+    }catch(e){
+      if(e?.abort_like || isAbortLikeError(e)){
+        toast('倉庫操作已保留，網路稍慢會自動重試，不影響繼續操作','warn');
+      }else{
+        toast(e.message||'格位操作失敗','error');
+      }
+    }
     finally{ state.menuBusy=false; }
   }
   function menu(){
@@ -3329,6 +3250,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
     const mk=`${z}-${c}-${s}`;
     const now=Date.now();
+    const existing=menu();
+    if(existing.classList.contains('hidden') || existing.dataset.open!=='1') state.activeMenuKey='';
     if(state.activeMenuKey===mk && now-Number(state.menuOpenedAt||0)<250) return;
     if(!yxMenuGuard()) return;
     const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s;
@@ -3372,6 +3295,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     ['pointercancel','pointerleave'].forEach(t=>slot.addEventListener(t,()=>{ if(press){ clearTimeout(press.timer); press=null; } if(t==='pointercancel'){ state.drag=null; state.dragOver=null; } }));
     slot.addEventListener('pointerenter',()=>{ if(state.drag) slot.classList.add('yx121-warehouse-drop-target'); }); slot.addEventListener('pointerleave',()=>slot.classList.remove('yx121-warehouse-drop-target'));
     slot.addEventListener('contextmenu',ev=>{ ev.preventDefault(); if(Date.now()<Number(slot.dataset.blockClickUntil||0)) return; const d=data(); showMenu(d.zone,d.col,d.slot,ev.clientX,ev.clientY); slot.dataset.blockClickUntil=String(Date.now()+500); });
+    // V406: desktop/mobile fallback for environments where pointer long-press is cancelled before 650ms.
+    slot.addEventListener('mousedown',ev=>{ if(ev.button!==0) return; const d=data(); let cancelled=false; const timer=setTimeout(()=>{ if(cancelled) return; slot.dataset.blockClickUntil=String(Date.now()+1000); showMenu(d.zone,d.col,d.slot,ev.clientX,ev.clientY); },720); const clear=()=>{ cancelled=true; clearTimeout(timer); window.removeEventListener('mouseup',clear,true); window.removeEventListener('mousemove',move,true); }; const move=me=>{ if(Math.abs(me.clientX-ev.clientX)>8||Math.abs(me.clientY-ev.clientY)>8) clear(); }; window.addEventListener('mouseup',clear,true); window.addEventListener('mousemove',move,true); }, {passive:true});
     // Mobile fallback: some Android/WebView builds cancel pointer long-press when the page starts to scroll.
     slot.addEventListener('touchstart',ev=>{ if(ev.touches?.length!==1) return; const t=ev.touches[0]; const d=data(); if(touchPress?.timer) clearTimeout(touchPress.timer); touchPress={x:t.clientX,y:t.clientY,timer:setTimeout(()=>{ try{ev.preventDefault();ev.stopPropagation();}catch(_e){} slot.dataset.blockClickUntil=String(Date.now()+1100); showMenu(d.zone,d.col,d.slot,t.clientX,t.clientY); touchPress=null; },700)}; }, {passive:false});
     slot.addEventListener('touchmove',ev=>{ if(!touchPress||!ev.touches?.length) return; const t=ev.touches[0]; if(Math.abs(t.clientX-touchPress.x)>12||Math.abs(t.clientY-touchPress.y)>12){ clearTimeout(touchPress.timer); touchPress=null; } }, {passive:true});
@@ -3381,6 +3306,28 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function bindSlots(){ document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot]').forEach(bindSlot); }
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
+    // V406: delegated long-press fallback. Some rebuilt slot DOM may miss per-slot handlers after fast render;
+    // this single pointerdown path keeps the original menu functions available without adding a renderer/click listener.
+    if(!window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V406__){
+      window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V406__=true;
+      let dgTimer=null, dgStart=null;
+      const clear=()=>{ if(dgTimer){ clearTimeout(dgTimer); dgTimer=null; } dgStart=null; };
+      document.addEventListener('pointerdown', ev=>{
+        const slot=ev.target?.closest?.('#warehouse-root [data-zone][data-column][data-slot]');
+        if(!slot || (ev.button && ev.button!==0)) return;
+        dgStart={x:ev.clientX,y:ev.clientY,slot};
+        clearTimeout(dgTimer);
+        dgTimer=setTimeout(()=>{
+          try{
+            const d=dgStart; if(!d || d.slot!==slot) return;
+            slot.dataset.blockClickUntil=String(Date.now()+1100);
+            showMenu(slot.dataset.zone, Number(slot.dataset.column), Number(slot.dataset.slot), ev.clientX, ev.clientY);
+          }catch(_e){} finally{ clear(); }
+        }, 620);
+      }, {capture:true, passive:true});
+      document.addEventListener('pointermove', ev=>{ if(!dgStart) return; if(Math.abs(ev.clientX-dgStart.x)>12 || Math.abs(ev.clientY-dgStart.y)>12) clear(); }, {capture:true, passive:true});
+      ['pointerup','pointercancel','scroll'].forEach(t=>document.addEventListener(t, clear, {capture:true, passive:true}));
+    }
     const unplacedPill=$('warehouse-unplaced-pill');
     if(unplacedPill && unplacedPill.dataset.yxLongRefresh!=='1'){
       unplacedPill.dataset.yxLongRefresh='1';
@@ -3415,16 +3362,21 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) { if(Date.now()-Number(state.menuOpenedAt||0)>650) { const _m=menu(); _m.classList.add('hidden'); _m.dataset.open='0'; _m.setAttribute('aria-hidden','true'); } }
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); markCurrentCellDirty(); return; }
       if(ev.target?.id==='yx121-retry-failed-saves'){ ev.preventDefault(); await retryAllFailedWarehouseOps({toast:true}); return; }
-      if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v403',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
+      if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v406',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
       toast(e.message||'儲存格位失敗，草稿已保留可直接再存','error'); } return; }
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){
         ev.preventDefault();
         if(!state.current) return;
-        const before=JSON.parse(JSON.stringify(cellItems(state.current.zone,state.current.col,state.current.slot)));
+        const z=state.current.zone, c=state.current.col, s=state.current.slot;
+        const before=JSON.parse(JSON.stringify(cellItems(z,c,s)));
         applyCurrentItemInputs();
         const idx=Number(rm.dataset.removeCellItem);
+        if(!Number.isFinite(idx) || idx<0 || idx>=(state.current.items||[]).length) return;
         state.current.items.splice(idx,1);
-        autoSaveCurrentCell('已先刪除該筆商品並退回下拉選單，背景儲存中', before);
+        // V411: redraw first. autoSaveCurrentCell reads the live editor DOM; without this, the deleted row can be read back and saved again.
+        renderCellItems(false);
+        persistWarehouseDraft();
+        autoSaveCurrentCell('已先刪除該筆商品並退回下拉選單，背景儲存中', before, {useProvidedBefore:true});
         return;
       }
       const curProd=ev.target?.closest?.('[data-current-product]'); if(curProd){ setTimeout(()=>syncCurrentRowQtyFromProduct(curProd.closest('.yx-direct-current-item')),0); return; }
@@ -3484,7 +3436,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ protectActiveWarehouseEdit(''); const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=resolveSearchHitCell(hit); highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }
-  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v403-status-cleanup-sync'; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
+  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v414-customer-count-source-sync'; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
   window.searchWarehouse=searchWarehouse;
@@ -3558,7 +3510,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(highlightCell && highlightCell.zone && highlightCell.column_index && highlightCell.slot_number) highlightWarehouseCell(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number);
         const refreshTarget=clean(refreshTargets.join('、') || (highlightCell ? refreshLabel(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number) : '倉庫格位'));
         try{ ctx._yx_refresh_target=refreshTarget; }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v403-status-cleanup-sync'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v414-customer-count-source-sync'}})); }catch(_e){}
         return true;
       }
     }catch(e){
@@ -3566,7 +3518,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     return false;
   }
-  window.YXFinalWarehouse={version:'v403-status-cleanup-sync',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
+  window.YXFinalWarehouse={version:'v414-customer-count-source-sync',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
   if(YX.register) YX.register('warehouse',{install,render:renderWarehouse,cleanup:()=>{}});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
 })();
@@ -3741,16 +3693,16 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   'use strict';
   if(window.__YX_V342_OPERATION_STATUS_CARD__) return;
   window.__YX_V342_OPERATION_STATUS_CARD__ = true;
-  const VERSION='v403-status-cleanup-sync';
-  const STORE_KEY='yx_operation_status_card_v403';
-  const FILTER_KEY='yx_operation_status_type_filter_v403';
-  const STATUS_FILTER_KEY='yx_operation_status_state_filter_v403';
-  const SEARCH_KEY='yx_operation_status_search_v403';
-  const VIEW_FILTER_KEY='yx_operation_status_view_filter_v403';
-  const VIEWED_KEY='yx_operation_status_viewed_v403';
-  const BULK_SCOPE_KEY='yx_operation_status_bulk_scope_v403';
+  const VERSION='v414-customer-count-source-sync';
+  const STORE_KEY='yx_operation_status_card_v406';
+  const FILTER_KEY='yx_operation_status_type_filter_v406';
+  const STATUS_FILTER_KEY='yx_operation_status_state_filter_v406';
+  const SEARCH_KEY='yx_operation_status_search_v406';
+  const VIEW_FILTER_KEY='yx_operation_status_view_filter_v406';
+  const VIEWED_KEY='yx_operation_status_viewed_v406';
+  const BULK_SCOPE_KEY='yx_operation_status_bulk_scope_v406';
   const BULK_UNDO_KEY='yx_operation_status_bulk_undo_v377';
-  const BULK_UNDO_RESULT_KEY='yx_operation_status_bulk_undo_result_v403';
+  const BULK_UNDO_RESULT_KEY='yx_operation_status_bulk_undo_result_v406';
   const LEGACY_VIEWED_KEYS=['yx_operation_status_viewed_v402','yx_operation_status_viewed_v401','yx_operation_status_viewed_v348','yx_operation_status_viewed_v342','yx_operation_status_viewed_v337','yx_operation_status_viewed_v332','yx_operation_status_viewed_v327'];
   const LEGACY_FILTER_KEY='yx_operation_status_filter_v312';
   const LEGACY_STORE_KEYS=['yx_operation_status_card_v402','yx_operation_status_card_v401','yx_operation_status_card_v400','yx_operation_status_card_v399','yx_operation_status_card_v398','yx_operation_status_card_v348','yx_operation_status_card_v342','yx_operation_status_card_v337','yx_operation_status_card_v332','yx_operation_status_card_v327','yx_operation_status_card_v322','yx_operation_status_card_v317','yx_operation_status_card_v312','yx_operation_status_card_v307','yx_operation_status_card_v302','yx_operation_status_card_v297','yx_operation_status_card_v292','yx_operation_status_card_v287','yx_operation_status_card_v282'];
@@ -3824,6 +3776,183 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(keys.length>120) keys.slice(120).forEach(k=>delete map[k]);
     writeViewedMap(map);
     return t;
+  }
+  // V407: move bulk viewed/unviewed helpers into operation-status scope; warehouse renderer stays single.
+  function forgetViewedMeta(id){
+    id=clean(id); if(!id) return 0;
+    const t=now();
+    const map={...readCurrentViewedStore()};
+    map[id]={viewed_at:0, viewed_label:'', unviewed_at:t};
+    const keys=Object.keys(map).sort((a,b)=>Number((map[b]&& (map[b].viewed_at||map[b].unviewed_at))||0)-Number((map[a]&&(map[a].viewed_at||map[a].unviewed_at))||0));
+    if(keys.length>160) keys.slice(160).forEach(k=>delete map[k]);
+    writeViewedMap(map);
+    return t;
+  }
+  function setPendingViewedById(id, viewed, label){
+    id=clean(id); if(!id) return false;
+    let updated=false;
+    const t=viewed?rememberViewedMeta(id,label):forgetViewedMeta(id);
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const key=localStorage.key(i)||'';
+        if(!(key.startsWith('yx_warehouse_failed_saves_') || key.startsWith('yx_warehouse_failed_structure_ops_') || key.startsWith('yx_warehouse_consistency_pending_'))) continue;
+        const arr=readArr(key); let changed=false;
+        for(let idx=0; idx<arr.length; idx++){
+          const row=rowForPending(key,arr[idx],idx);
+          if(row.id===id){
+            arr[idx]={...(arr[idx]||{})};
+            if(viewed){ arr[idx].viewed_at=t; arr[idx].viewed_label=clean(label||'已標記查看'); delete arr[idx].unviewed_at; }
+            else { arr[idx].viewed_at=0; arr[idx].viewed_label=''; arr[idx].unviewed_at=t; }
+            changed=true; updated=true;
+          }
+        }
+        if(changed) writeArr(key,arr);
+      }
+    }catch(_e){}
+    return updated;
+  }
+  function setStoreViewedById(id, viewed, label){
+    id=clean(id); if(!id) return false;
+    let changed=false;
+    const t=viewed?rememberViewedMeta(id,label):forgetViewedMeta(id);
+    const arr=read().map(r=>{
+      if(clean(r.id)!==id) return r;
+      changed=true;
+      const next={...r};
+      if(viewed){ next.viewed_at=t; next.viewed_label=clean(label||'已標記查看'); delete next.unviewed_at; }
+      else { next.viewed_at=0; next.viewed_label=''; next.unviewed_at=t; }
+      return next;
+    });
+    if(changed) write(arr);
+    return changed;
+  }
+  const BULK_SCOPES=[['all','全部項目'],['pending','只套用待重送'],['recent','只套用最近操作']];
+  function bulkScope(){
+    try{ const v=clean(localStorage.getItem(BULK_SCOPE_KEY)||'all'); return BULK_SCOPES.some(x=>x[0]===v)?v:'all'; }catch(_e){ return 'all'; }
+  }
+  function setBulkScope(v){
+    v=clean(v||'all'); if(!BULK_SCOPES.some(x=>x[0]===v)) v='all';
+    try{ localStorage.setItem(BULK_SCOPE_KEY,v); }catch(_e){}
+    return v;
+  }
+  function bulkScopeName(v){ const hit=BULK_SCOPES.find(x=>x[0]===v); return hit?hit[1]:'全部項目'; }
+  function readBulkUndo(){ try{ const o=JSON.parse(localStorage.getItem(BULK_UNDO_KEY)||'null'); return o&&typeof o==='object'?o:null; }catch(_e){ return null; } }
+  function writeBulkUndo(o){ try{ if(o) localStorage.setItem(BULK_UNDO_KEY, JSON.stringify(o)); else localStorage.removeItem(BULK_UNDO_KEY); }catch(_e){} }
+  function readBulkUndoResult(){
+    const keys=[BULK_UNDO_RESULT_KEY,'yx_operation_status_bulk_undo_result_v380','yx_operation_status_bulk_undo_result_v379','yx_operation_status_bulk_undo_result_v366','yx_operation_status_bulk_undo_result_v361'];
+    for(const key of keys){
+      try{ const o=JSON.parse(localStorage.getItem(key)||'null'); if(o&&typeof o==='object') return {...o, __key:key}; }catch(_e){}
+    }
+    return null;
+  }
+  function writeBulkUndoResult(o){ try{ if(o) localStorage.setItem(BULK_UNDO_RESULT_KEY, JSON.stringify(o)); else localStorage.removeItem(BULK_UNDO_RESULT_KEY); }catch(_e){} }
+  function clearBulkUndoResult(){
+    const keys=[BULK_UNDO_RESULT_KEY,'yx_operation_status_bulk_undo_result_v380','yx_operation_status_bulk_undo_result_v379','yx_operation_status_bulk_undo_result_v366','yx_operation_status_bulk_undo_result_v361'];
+    keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_e){} });
+    try{ toast('已清除復原結果提示','ok'); }catch(_e){}
+    try{ record({source:page()||'operation', status:'success', reason:'clear-bulk-undo-result', message:'已清除復原結果提示', success_at:now(), operation_id:'status-bulk-undo-result-clear-'+now()}); }catch(_e){}
+    render();
+  }
+  function undoResultText(o){ if(!o) return ''; const total=Number(o.total||0), pending=Number(o.pending||0), recent=Number(o.recent||0); const t=fmtTime(o.ts||0); return `上次復原 ${total} 筆｜待重送 ${pending}｜最近操作 ${recent}${t?'｜'+t:''}`; }
+  function currentViewedSnapshot(ids){
+    const current=readCurrentViewedStore();
+    const merged=readViewedMap();
+    const out={};
+    (Array.isArray(ids)?ids:[]).forEach(id=>{
+      id=clean(id); if(!id) return;
+      const v=current[id] || merged[id] || null;
+      out[id]=v && typeof v==='object' ? {...v} : null;
+    });
+    return out;
+  }
+  function restoreViewedSnapshot(snapshot){
+    snapshot=snapshot&&typeof snapshot==='object'?snapshot:{};
+    const map={...readCurrentViewedStore()};
+    Object.keys(snapshot).forEach(id=>{
+      const old=snapshot[id];
+      if(old && typeof old==='object') map[id]={...old};
+      else delete map[id];
+    });
+    writeViewedMap(map);
+    try{
+      for(let i=0;i<localStorage.length;i++){
+        const key=localStorage.key(i)||'';
+        if(!(key.startsWith('yx_warehouse_failed_saves_') || key.startsWith('yx_warehouse_failed_structure_ops_') || key.startsWith('yx_warehouse_consistency_pending_'))) continue;
+        const arr=readArr(key); let changed=false;
+        for(let idx=0; idx<arr.length; idx++){
+          const row=rowForPending(key,arr[idx],idx);
+          if(Object.prototype.hasOwnProperty.call(snapshot,row.id)){
+            const old=snapshot[row.id];
+            arr[idx]={...(arr[idx]||{})};
+            if(old && Number(old.viewed_at||0)){ arr[idx].viewed_at=Number(old.viewed_at||0); arr[idx].viewed_label=clean(old.viewed_label||'已跳轉查看'); delete arr[idx].unviewed_at; }
+            else if(old && Number(old.unviewed_at||0)){ arr[idx].viewed_at=0; arr[idx].viewed_label=''; arr[idx].unviewed_at=Number(old.unviewed_at||0); }
+            else { delete arr[idx].viewed_at; delete arr[idx].viewed_label; delete arr[idx].unviewed_at; }
+            changed=true;
+          }
+        }
+        if(changed) writeArr(key,arr);
+      }
+    }catch(_e){}
+  }
+  function bulkScopeBar(){
+    const selected=bulkScope();
+    const buttons=BULK_SCOPES.map(([k,label])=>`<button type="button" class="yx312-op-filter-chip yx361-op-bulk-scope-chip ${selected===k?'active':''}" data-yx282-op-action="bulk-scope" data-yx361-bulk-scope="${esc(k)}">${esc(label)}</button>`).join('');
+    const undo=readBulkUndo();
+    const undoBtn=undo&&undo.snapshot?`<button type="button" class="yx312-op-filter-chip yx366-op-undo-chip" data-yx282-op-action="undo-bulk-view">復原上一批標記<em>${Number(undo.total||0)}</em></button>`:'';
+    const undoResult=readBulkUndoResult();
+    const undoResultChip=undoResult?`<span class="yx371-op-undo-result yx376-op-undo-result">${esc(undoResultText(undoResult))}<button type="button" class="yx376-op-clear-result" data-yx282-op-action="clear-bulk-undo-result">清除提示</button></span>`:'';
+    return `<div class="yx312-op-filter yx361-op-bulk-scope yx366-op-bulk-undo yx371-op-bulk-undo-result" role="group" aria-label="批量標記範圍">${buttons}${undoBtn}${undoResultChip}</div>`;
+  }
+  function visibleRowsForBulk(){
+    const arr=read();
+    const details=pendingRecords();
+    const st=statusFilter();
+    const vf=viewFilter();
+    const q=searchQuery();
+    const pf=pendingFilter();
+    const scope=bulkScope();
+    let ops=st==='all'?arr:arr.filter(x=>opState(x)===st);
+    if(vf!=='all') ops=ops.filter(x=>matchesViewFilter(x,vf));
+    if(q) ops=ops.filter(x=>matchesSearch(x,q));
+    let pending=pf==='all'?details:details.filter(r=>pendingType(r)===pf);
+    if(st!=='all') pending=pending.filter(r=>opState(r)===st);
+    if(vf!=='all') pending=pending.filter(r=>matchesViewFilter(r,vf));
+    if(q) pending=pending.filter(r=>matchesSearch(r,q));
+    if(scope==='pending') ops=[];
+    if(scope==='recent') pending=[];
+    return {ops,pending,scope};
+  }
+  function bulkMarkVisible(viewed){
+    const rows=visibleRowsForBulk();
+    const ids=new Set();
+    rows.ops.forEach(r=>{ const id=clean(r.id); if(id) ids.add(id); });
+    rows.pending.forEach(r=>{ const id=clean(r.id); if(id) ids.add(id); });
+    const idList=Array.from(ids);
+    const before=currentViewedSnapshot(idList);
+    const label=viewed?'已一鍵標記查看':'已一鍵標記未查看';
+    idList.forEach(id=>{ setStoreViewedById(id, viewed, label); setPendingViewedById(id, viewed, label); });
+    const scopeLabel=bulkScopeName(rows.scope);
+    const affectedRecent=Number(rows.ops?.length||0);
+    const affectedPending=Number(rows.pending?.length||0);
+    const affectedTotal=Number(idList.length||0);
+    const affectedText=`${scopeLabel}｜待重送 ${affectedPending} 筆｜最近操作 ${affectedRecent} 筆｜實際影響 ${affectedTotal} 筆`;
+    const msg=viewed?'已標記目前篩選項目為已查看':'已標記目前篩選項目為未查看';
+    writeBulkUndo({ts:now(), viewed:!!viewed, scope:rows.scope, snapshot:before, ids:idList, total:affectedTotal, pending:affectedPending, recent:affectedRecent, text:affectedText});
+    try{ toast(`${msg}：${affectedText}（可復原上一批）`, affectedTotal?'ok':'warn'); }catch(_e){}
+    record({source:page()||'operation', status:'success', reason:viewed?'bulk-mark-viewed':'bulk-mark-unviewed', message:msg, detail_text:affectedText+'｜已建立上一批復原點', affected_total:affectedTotal, affected_pending:affectedPending, affected_recent:affectedRecent, success_at:now(), operation_id:'status-bulk-view-'+(viewed?'on':'off')+'-'+rows.scope+'-'+now()});
+    render();
+  }
+  function undoBulkVisible(){
+    const undo=readBulkUndo();
+    if(!undo || !undo.snapshot){ try{ toast('沒有可復原的上一批標記','warn'); }catch(_e){} return; }
+    restoreViewedSnapshot(undo.snapshot);
+    const restoredTotal=Number(undo.total||0), restoredPending=Number(undo.pending||0), restoredRecent=Number(undo.recent||0);
+    const text=`復原 ${restoredTotal} 筆｜待重送 ${restoredPending} 筆｜最近操作 ${restoredRecent} 筆`;
+    writeBulkUndo(null);
+    writeBulkUndoResult({ts:now(), total:restoredTotal, pending:restoredPending, recent:restoredRecent, source:page()||'operation'});
+    try{ toast('已復原上一批標記：'+text,'ok'); }catch(_e){}
+    record({source:page()||'operation', status:'success', reason:'bulk-view-undo', message:'已復原上一批標記', detail_text:text+'｜本次實際還原：待重送 '+restoredPending+' 筆｜最近操作 '+restoredRecent+' 筆', affected_total:restoredTotal, affected_pending:restoredPending, affected_recent:restoredRecent, success_at:now(), operation_id:'status-bulk-view-undo-'+now()});
+    render();
   }
   function viewedMetaFor(id){ const m=readViewedMap()[clean(id)]; return m&&typeof m==='object'?m:null; }
   function applyViewedMeta(row){
@@ -4161,7 +4290,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     zone=clean(zone).toUpperCase(); col=Number(col||0); slot=Number(slot||0);
     if(!zone||!col||!slot) return toastShortcut('缺少格位資訊，無法跳格','warn');
     if(page()!=='warehouse'){
-      try{ localStorage.setItem('yx_status_jump_warehouse_cell_v403', JSON.stringify({zone,col,slot,ts:now()})); }catch(_e){}
+      try{ localStorage.setItem('yx_status_jump_warehouse_cell_v406', JSON.stringify({zone,col,slot,ts:now()})); }catch(_e){}
       location.href='/warehouse'; return;
     }
     try{ window.setWarehouseZone?.(zone,false); }catch(_e){}
@@ -4178,7 +4307,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const cur=page();
     if(dest==='ship'){
       if(cur!=='ship'){
-        try{ localStorage.setItem('yx_status_open_customer_v403', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
+        try{ localStorage.setItem('yx_status_open_customer_v406', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
         location.href='/ship'; return;
       }
       try{ const input=document.getElementById('customer-name'); if(input){ input.value=customer; input.dispatchEvent(new Event('input',{bubbles:true})); } }catch(_e){}
@@ -4188,7 +4317,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     const targetPath=dest==='master_order'?'/master-order':'/orders';
     if(cur!=='orders' && cur!=='master_order'){
-      try{ localStorage.setItem('yx_status_open_customer_v403', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
+      try{ localStorage.setItem('yx_status_open_customer_v406', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
       location.href=targetPath; return;
     }
     try{ window.YX113CustomerRegions?.selectCustomer?.(customer); }catch(_e){}
@@ -4199,14 +4328,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function openShipRecordTarget(q, recordId){
     q=clean(q); recordId=clean(recordId);
-    try{ localStorage.setItem('yx_status_open_shipping_query_v403', JSON.stringify({q,record_id:recordId,ts:now()})); }catch(_e){}
+    try{ localStorage.setItem('yx_status_open_shipping_query_v406', JSON.stringify({q,record_id:recordId,ts:now()})); }catch(_e){}
     location.href='/shipping-query';
   }
   function readShortcutIntent(key, legacyKey){
     try{
       let raw=localStorage.getItem(key); let used=key;
       if(!raw){
-        const variants=[String(key||'').replace('_v403','_v402'), String(key||'').replace('_v403','_v401'), String(key||'').replace('_v403','_v398'), String(key||'').replace('_v403','_v397'), String(key||'').replace('_v403','_v337'), String(key||'').replace('_v403','_v332')].filter(Boolean);
+        const variants=[String(key||'').replace('_v406','_v402'), String(key||'').replace('_v406','_v401'), String(key||'').replace('_v406','_v398'), String(key||'').replace('_v406','_v397'), String(key||'').replace('_v406','_v337'), String(key||'').replace('_v406','_v332')].filter(Boolean);
         for(const k of variants){ if(k && k!==key){ raw=localStorage.getItem(k); used=k; if(raw) break; } }
       }
       if(!raw && legacyKey){ raw=localStorage.getItem(legacyKey); used=legacyKey; }
@@ -4218,16 +4347,16 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function consumeShortcutTargets(){
     try{ consumeShortcutSnapshot(); }catch(_e){}
     try{
-      const d=readShortcutIntent('yx_status_jump_warehouse_cell_v403','yx_status_jump_warehouse_cell_v327');
+      const d=readShortcutIntent('yx_status_jump_warehouse_cell_v406','yx_status_jump_warehouse_cell_v327');
       if(d && page()==='warehouse') setTimeout(()=>openWarehouseTarget(d.zone,d.col,d.slot), 900);
-      else if(d) localStorage.setItem('yx_status_jump_warehouse_cell_v403', JSON.stringify(d));
+      else if(d) localStorage.setItem('yx_status_jump_warehouse_cell_v406', JSON.stringify(d));
     }catch(_e){}
     try{
-      const d=readShortcutIntent('yx_status_open_customer_v403','yx_status_open_customer_v327');
+      const d=readShortcutIntent('yx_status_open_customer_v406','yx_status_open_customer_v327');
       if(d){
         if((d.dest==='ship' && page()==='ship') || (d.dest!=='ship' && (page()==='orders'||page()==='master_order'))){
           setTimeout(()=>openCustomerTarget(d.customer,d.dest), 650);
-        }else localStorage.setItem('yx_status_open_customer_v403', JSON.stringify(d));
+        }else localStorage.setItem('yx_status_open_customer_v406', JSON.stringify(d));
       }
     }catch(_e){}
   }
@@ -4268,7 +4397,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const light={ctx:{row:ctx.row||{},payload:ctx.payload||{},result:ctx.result||{},response:ctx.result||{},data:ctx.result||{},url:ctx.url||'',key:ctx.key||'',source:ctx.source||''},ts:now(),version:VERSION};
       const text=JSON.stringify(light);
       if(text.length>700000) return false;
-      localStorage.setItem('yx_status_target_snapshot_v403', text);
+      localStorage.setItem('yx_status_target_snapshot_v406', text);
       return true;
     }catch(_e){ return false; }
   }
@@ -4302,12 +4431,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function consumeShortcutSnapshot(){
     try{
-      const raw=localStorage.getItem('yx_status_target_snapshot_v403') || localStorage.getItem('yx_status_target_snapshot_v402') || localStorage.getItem('yx_status_target_snapshot_v401') || localStorage.getItem('yx_status_target_snapshot_v398');
+      const raw=localStorage.getItem('yx_status_target_snapshot_v406') || localStorage.getItem('yx_status_target_snapshot_v402') || localStorage.getItem('yx_status_target_snapshot_v401') || localStorage.getItem('yx_status_target_snapshot_v398');
       if(!raw) return false;
       const pack=JSON.parse(raw||'{}');
       if(!pack || !pack.ctx) return false;
-      if(Number(pack.ts||0) && now()-Number(pack.ts||0)>5*60*1000){ localStorage.removeItem('yx_status_target_snapshot_v403'); return false; }
-      localStorage.removeItem('yx_status_target_snapshot_v403');
+      if(Number(pack.ts||0) && now()-Number(pack.ts||0)>5*60*1000){ localStorage.removeItem('yx_status_target_snapshot_v406'); return false; }
+      localStorage.removeItem('yx_status_target_snapshot_v406');
       localStorage.removeItem('yx_status_target_snapshot_v398');
       scheduleApplyShortcutSnapshot(pack.ctx, '跳轉後已套用後端資料');
       return true;
@@ -4652,7 +4781,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   'use strict';
   if(window.__YX_V332_TARGETED_RETRY_REFRESH__) return;
   window.__YX_V332_TARGETED_RETRY_REFRESH__=true;
-  const VERSION='v403-status-cleanup-sync';
+  const VERSION='v414-customer-count-source-sync';
   function clean(v){ return String(v == null ? '' : v).replace(/\s+/g,' ').trim(); }
   function page(){ return clean(document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || ''); }
   function customersFrom(ctx){
@@ -4731,3 +4860,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   window.YXTargetedRetryRefresh={apply, version:VERSION};
 })();
+
+// warehouse_v408_drag_cache_sync: move-cell clears server/derived caches and slot-compacting operations clear unsafe per-slot drafts. No renderer/setInterval/MutationObserver added.
+// warehouse_v409_unplaced_source_sync: grouped dropdown/source_details optimistic mutations now deduct/return each source_id immediately, and A/B available API treats a source row as placed once it exists anywhere in the warehouse. No renderer/setInterval/MutationObserver added.
+// warehouse_v411_cell_edit_save_sync: delete/current-item edits redraw before autosave so removed products cannot be resurrected from stale DOM; explicit delete baseline returns quantities to unplaced correctly; same product in different placements is preserved. No renderer/setInterval/MutationObserver added.

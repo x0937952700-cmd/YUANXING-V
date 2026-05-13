@@ -459,8 +459,8 @@
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refreshTodayBadge, {once:true});
   else refreshTodayBadge();
-  if(!window.__YX_HOME_BADGE_SYNC_V403__){
-    window.__YX_HOME_BADGE_SYNC_V403__ = true;
+  if(!window.__YX_HOME_BADGE_SYNC_V406__){
+    window.__YX_HOME_BADGE_SYNC_V406__ = true;
     ['yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed','yx:today-changes-refresh','yx:customer-profile-changed'].forEach(ev=>{
       try{ window.addEventListener(ev, refreshTodayBadgeSoon, {passive:true}); }catch(_e){}
     });

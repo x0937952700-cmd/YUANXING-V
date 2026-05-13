@@ -570,7 +570,7 @@
     return state.rows[source] || window.__YX112_ROWS__[source] || window.__yx63Rows[source] || [];
   }
   function cloneRows(rows){ try{return JSON.parse(JSON.stringify(rows||[]));}catch(_e){return Array.isArray(rows)?rows.slice():[];} }
-  function cacheVersionToken(){ return String(window.__YX_STATIC_VERSION__ || window.YX?.version || 'v403-status-cleanup-sync').replace(/[^A-Za-z0-9_-]/g,'_'); }
+  function cacheVersionToken(){ return String(window.__YX_STATIC_VERSION__ || window.YX?.version || 'v406-warehouse-order-drag-longpress-fix').replace(/[^A-Za-z0-9_-]/g,'_'); }
   function versionedCacheName(prefix, source){ return String(prefix || '') + String(source || sourceFromModule() || 'unknown') + '_' + cacheVersionToken(); }
   function cacheName(source){ return versionedCacheName('products_', source); }
   function cacheRows(source, rows){ try{ window.YX?.cache?.write(cacheName(source), {rows:Array.isArray(rows)?rows:[], selectedCustomer:selectedCustomer()||'', saved_at:Date.now()}); }catch(_e){} }
@@ -597,6 +597,8 @@
 
   function filteredRows(source){
     let rows = [...rowsStore(source)];
+    // V414: 訂單/總單主表只顯示仍有有效件數的商品，避免出貨扣到 0 的殘留 row 讓客戶卡和清單不一致。
+    if (source === 'orders' || source === 'master_order') rows = rows.filter(r => qtyOf(r) > 0);
     const cust = selectedCustomer();
     if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => matchesSelectedCustomer(r.customer_name || ''));
     if (source === 'master_order' && !cust) rows = [];
@@ -962,7 +964,7 @@
     }).join('');
     panel.innerHTML = `<strong>商品位置</strong><div class="small-note">勾選 ${selectedRows.length} 筆，共找到 ${found.length} 個位置。</div><div class="yx-product-location-list">${html}</div>`;
     panel.querySelectorAll('[data-hit]').forEach(btn=>btn.addEventListener('click',()=>{ const item=all[Number(btn.dataset.hit||0)]; if(!item?.hit) return; const c=(item.hit.cell||item.hit); if (typeof window.highlightWarehouseCell === 'function') window.highlightWarehouseCell(c.zone,c.column_index,c.slot_number); else window.location.href = `/warehouse?highlight=${encodeURIComponent(`${c.zone}-${c.column_index}-${c.slot_number}`)}`; }));
-    panel.scrollIntoView?.({behavior:'smooth', bstable:'nearest'});
+    panel.scrollIntoView?.({behavior:'smooth', block:'nearest'});
   }
 
   async function showProductLocations(source, id){
@@ -993,7 +995,7 @@
       }
       panel.innerHTML = `<strong>商品位置</strong><div class="small-note">共 ${hits.length} 個位置；點位置可在倉庫頁高亮。</div><div class="yx-product-location-list">${hits.map((h,i)=>{ const c=h.cell||h; const it=h.item||h; const qty=Number(it.qty||it.unplaced_qty||0)||''; return `<button type="button" class="deduct-card yx-location-hit" data-hit="${i}"><b>${YX.esc(c.zone)}區 第${Number(c.column_index)}欄 第${Number(c.slot_number)}格</b><span>${YX.esc(it.customer_name||customer||'庫存')}</span><span>${YX.esc(it.material||it.product_code||'')} ${YX.esc(it.product_text||it.product||product)}</span><em>${qty ? qty + '件' : ''}</em></button>`; }).join('')}</div>`;
       panel.querySelectorAll('[data-hit]').forEach((btn,i)=>btn.addEventListener('click',()=>{ const c=(hits[i].cell||hits[i]); if (typeof window.highlightWarehouseCell === 'function') window.highlightWarehouseCell(c.zone,c.column_index,c.slot_number); else window.location.href = `/warehouse?highlight=${encodeURIComponent(`${c.zone}-${c.column_index}-${c.slot_number}`)}`; }));
-      panel.scrollIntoView?.({behavior:'smooth', bstable:'nearest'});
+      panel.scrollIntoView?.({behavior:'smooth', block:'nearest'});
     } catch(e) {
       panel.innerHTML = `<strong style="color:#b91c1c">商品位置查詢失敗</strong><div class="small-note">${YX.esc(e.message || '請稍後再試')}</div>`;
     }
@@ -1094,7 +1096,7 @@
       const selector = '.yx113-summary-row,.yx113-product-card,.yx112-product-card';
       let marked = 0;
       if(!ids.size){
-        window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source,customer_name:customer||selectedCustomer(),reason:reason||'background-save-failed',error:msg,version:'v403',target_ids:[],marked_count:0,scope_key:'product-new-optimistic'}}));
+        window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source,customer_name:customer||selectedCustomer(),reason:reason||'background-save-failed',error:msg,version:'v406',target_ids:[],marked_count:0,scope_key:'product-new-optimistic'}}));
         return;
       }
       document.querySelectorAll(selector).forEach(el=>{
@@ -1103,9 +1105,9 @@
         if(ids.size && !ids.has(eid)) return;
         el.dataset.yxPendingSave='1'; el.dataset.yxPendingReason=reason||'background-save-failed'; el.dataset.yxPendingScope=[source,eid].filter(Boolean).join(':'); el.classList.add('yx-pending-save'); marked++;
       });
-      // V403: when the failed request is a newly added optimistic item and no row id exists yet,
+      // V406: when the failed request is a newly added optimistic item and no row id exists yet,
       // do not mark the whole source page; keep the operation card/payload pending only.
-      window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source,customer_name:customer||selectedCustomer(),reason:reason||'background-save-failed',error:msg,version:'v403',target_ids:Array.from(ids),marked_count:marked}}));
+      window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source,customer_name:customer||selectedCustomer(),reason:reason||'background-save-failed',error:msg,version:'v406',target_ids:Array.from(ids),marked_count:marked}}));
     }catch(_e){}
   }
   function yx216SoftSuccess(source, targets){
@@ -1119,7 +1121,7 @@
         delete el.dataset.yxPendingSave; delete el.dataset.yxPendingReason; delete el.dataset.yxPendingScope; el.classList.remove('yx-pending-save');
       });
     }catch(_e){}
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source, status:'success', reason:'product-background-save-success', customer_name:selectedCustomer ? selectedCustomer() : '', product_label:'', message:'商品背景儲存完成', version:'v403', target_ids:Array.isArray(targets)?targets:[]}})); }catch(_e){}
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source, status:'success', reason:'product-background-save-success', customer_name:selectedCustomer ? selectedCustomer() : '', product_label:'', message:'商品背景儲存完成', version:'v406', target_ids:Array.isArray(targets)?targets:[]}})); }catch(_e){}
   }
   function backgroundRequest(url, payload, opt={}){
     if (window.YXBackgroundSave && typeof window.YXBackgroundSave.request === 'function') {
@@ -1189,8 +1191,8 @@
     }catch(_e){}
   }
   function bindProductPendingScopeEvents(){
-    if(window.__YX_V403_PRODUCT_PENDING_SCOPE_BOUND__) return;
-    window.__YX_V403_PRODUCT_PENDING_SCOPE_BOUND__=true;
+    if(window.__YX_V406_PRODUCT_PENDING_SCOPE_BOUND__) return;
+    window.__YX_V406_PRODUCT_PENDING_SCOPE_BOUND__=true;
     const productSource=d=>{
       const s=clean(d?.source || d?.module || d?.payload?.source || d?.payload?.source_table || '');
       if(s==='master_orders'||s==='master') return 'master_order';
@@ -1216,15 +1218,15 @@
       if(applied){
         try{ clearCrossFunctionCaches(source, customer, reason || 'background-snapshot-success'); }catch(_e){}
         try{ if((source==='orders'||source==='master_order') && customer) refreshCustomerBoards(customer).catch(()=>{}); }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:product-data-changed',{detail:{source, customer_name:customer, reason:reason||'background-snapshot-success', has_snapshot:true, sync_version:'v403-status-cleanup-sync', cache_bust:'v403-status-cleanup-sync'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:product-data-changed',{detail:{source, customer_name:customer, reason:reason||'background-snapshot-success', has_snapshot:true, sync_version:'v406-warehouse-order-drag-longpress-fix', cache_bust:'v406-warehouse-order-drag-longpress-fix'}})); }catch(_e){}
       }
       return applied;
     }catch(_e){ return false; }
   }
   function bindProductBgSnapshotListener(){
     try{
-      if(window.__YX_V403_PRODUCT_BG_SNAPSHOT_BOUND__) return;
-      window.__YX_V403_PRODUCT_BG_SNAPSHOT_BOUND__ = true;
+      if(window.__YX_V406_PRODUCT_BG_SNAPSHOT_BOUND__) return;
+      window.__YX_V406_PRODUCT_BG_SNAPSHOT_BOUND__ = true;
       const seen = new Map();
       window.addEventListener('yx:bg-save-success', ev=>{
         try{
@@ -1242,7 +1244,7 @@
           const source = sourceFromBgPayload(payload, url, data);
           const customer = clean(payload.customer_name || data.customer_name || (Array.isArray(payload.items)&&payload.items[0]?.customer_name) || selectedCustomer() || '');
           if(applyProductBgSnapshot(data, source, customer, 'queue-success-snapshot')){
-            try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source, status:'success', reason:'product-bg-snapshot-applied', customer_name:customer, message:'商品背景保存完成，已套用後端清單', operation_id:item.operation_id||data.operation_id||'', version:'v403'}})); }catch(_e){}
+            try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source, status:'success', reason:'product-bg-snapshot-applied', customer_name:customer, message:'商品背景保存完成，已套用後端清單', operation_id:item.operation_id||data.operation_id||'', version:'v406'}})); }catch(_e){}
           }
         }catch(_e){}
       }, {passive:true});
@@ -1346,7 +1348,7 @@
         try { clearCrossFunctionCaches(source, selectedCustomer(), 'batch-edit-success'); } catch(_e) {}
         try { if (source === 'orders' || source === 'master_order') refreshCustomerBoards(selectedCustomer()).catch(()=>{}); } catch(_e) {}
         try { if (window.YX116ShipPicker && selectedCustomer()) window.YX116ShipPicker.load(selectedCustomer(),{force:true}).catch(()=>{}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:selectedCustomer(), count:d.count||items.length, reason:'batch-edit-success', cache_bust:'v403-status-cleanup-sync'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:selectedCustomer(), count:d.count||items.length, reason:'batch-edit-success', cache_bust:'v406-warehouse-order-drag-longpress-fix'}})); } catch(_e) {}
       })
       .catch(e => {
         try { window.YXBackgroundSave?.drain?.(); } catch(_retryErr) {}
@@ -1375,7 +1377,7 @@
       clearSelected(source);
       if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
       try { if (source === 'orders' || source === 'master_order') await refreshCustomerBoards(selectedCustomer()); } catch(_e) {}
-      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:selectedCustomer(), count:d.count||items.length, reason:'bulk-material-success', cache_bust:'v403-status-cleanup-sync'}})); } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:selectedCustomer(), count:d.count||items.length, reason:'bulk-material-success', cache_bust:'v406-warehouse-order-drag-longpress-fix'}})); } catch(_e) {}
     }catch(e){
       await loadSource(source);
       YX.toast(e.message || '批量材質失敗，請確認材質是否在下拉選單內', 'error');
@@ -1423,7 +1425,7 @@
       if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
       const cust = selectedCustomer();
       if (cust || source === 'orders' || source === 'master_order') await refreshCustomerBoards(cust);
-      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, count:d.count||items.length, reason:'bulk-delete-success', cache_bust:'v403-status-cleanup-sync'}})); } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, count:d.count||items.length, reason:'bulk-delete-success', cache_bust:'v406-warehouse-order-drag-longpress-fix'}})); } catch(_e) {}
     }catch(e){
       await loadSource(source);
       YX.toast(e.message || '批量刪除失敗', 'error');
@@ -1584,9 +1586,14 @@
     if (!state.shipCompletedBound) {
       state.shipCompletedBound = true;
       window.addEventListener('yx:ship-completed', async (e)=>{
-        try { clearCrossFunctionCaches(sourceFromModule() || 'ship', e.detail?.customer_name || selectedCustomer(), 'ship-completed-v403'); } catch(_e) {}
         const detail = e && e.detail ? e.detail : {};
         const result = detail.result && typeof detail.result === 'object' ? detail.result : {};
+        const affectedCustomers = Array.isArray(detail.affected_customer_names) ? detail.affected_customer_names : (Array.isArray(detail.customer_names) ? detail.customer_names : (Array.isArray(result.affected_customer_names) ? result.affected_customer_names : []));
+        const selected = selectedCustomer();
+        try {
+          const names = Array.from(new Set([detail.customer_name, selected, ...affectedCustomers].filter(Boolean)));
+          names.forEach(n=>clearCrossFunctionCaches(sourceFromModule() || 'ship', n, 'ship-completed-v414'));
+        } catch(_e) {}
         const payload = Object.assign({}, result, detail, {snapshots: detail.snapshots || result.snapshots || {}, customers: detail.customers || result.customers || []});
         const affected = Array.isArray(detail.affected_sources) ? detail.affected_sources : (Array.isArray(result.affected_sources) ? result.affected_sources : ['orders','master_order','inventory']);
         const current = sourceFromModule();
@@ -1597,11 +1604,11 @@
             if (!applied) applied = !!mergeSnapshotQuiet(payload, current);
           }
         } catch(_e) {}
-        try { if (!applied && current && affected.includes(current)) await loadSource(current, {force:true, full:true, reason:'ship-completed-v403'}); } catch(_e) {}
+        try { if (!applied && current && affected.includes(current)) await loadSource(current, {force:true, full:true, reason:'ship-completed-v414'}); } catch(_e) {}
         try { if (Array.isArray(payload.customers) && window.YX113CustomerRegions?.renderBoards) window.YX113CustomerRegions.renderBoards(payload.customers); } catch(_e) {}
         try { if (window.YX113CustomerRegions?.loadCustomerBlocks && !Array.isArray(payload.customers)) await window.YX113CustomerRegions.loadCustomerBlocks(true); } catch(_e) {}
-        try { const c = detail.customer_name || selectedCustomer(); if (c && window.YX113CustomerRegions?.selectCustomer) await window.YX113CustomerRegions.selectCustomer(c); } catch(_e) {}
-        try { const c = detail.customer_name || selectedCustomer(); if (c) window.dispatchEvent(new CustomEvent('yx:customer-selected',{detail:{name:c,force:true,source:'ship',reason:'ship-completed-product-v403',snapshots_applied:applied}})); } catch(_e) {}
+        try { const c = (affectedCustomers.includes(selected) ? selected : (detail.customer_name || selected)); if (c && window.YX113CustomerRegions?.selectCustomer) await window.YX113CustomerRegions.selectCustomer(c); } catch(_e) {}
+        try { const c = (affectedCustomers.includes(selected) ? selected : (detail.customer_name || selected)); if (c) window.dispatchEvent(new CustomEvent('yx:customer-selected',{detail:{name:c,force:true,source:'ship',reason:'ship-completed-product-v414',snapshots_applied:applied,affected_customer_names:affectedCustomers}})); } catch(_e) {}
       }, false);
     }
     if (!state.warehouseChangedBound) {
@@ -1721,7 +1728,7 @@
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v403', sync_version:'v403-status-cleanup-sync', cache_bust:'v403-status-cleanup-sync'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v406', sync_version:'v406-warehouse-order-drag-longpress-fix', cache_bust:'v406-warehouse-order-drag-longpress-fix'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -1729,7 +1736,7 @@
   function clearCrossFunctionCaches(source, customer, reason){
     source = clean(source || page() || ''); customer = clean(customer || selectedCustomer() || window.__YX_SELECTED_CUSTOMER__ || '');
     try {
-      ['ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224','ship_customers_v223','ship_customers_v222','ship_customers_v221','ship_customers_v216','ship_customers_v215','ship_customers_v214','ship_customers_v210','ship_customers_v208','ship_customers_v207','ship_customers_v199','ship_customers_v198','ship_customers_v197','today_changes_v287','today_changes_v282','today_changes_v267','today_changes_v252','today_changes_v228','today_changes_v227','today_changes_v226','today_changes_v225','today_changes_v224','today_changes_v223','today_changes_v222','today_changes_v221','today_changes_v215','today_changes_v214','today_changes_v210','today_changes_v208','today_changes_v207','today_changes_v199','today_changes_v198','today_changes_v197','today_changes_light_v287','today_changes_light_v282','today_changes_light_v267','today_changes_light_v252','today_changes_light_v228','today_changes_light_v227','today_changes_light_v226','today_changes_light_v225','today_changes_light_v224','today_changes_light_v223','today_changes_light_v222','today_changes_light_v221','today_changes_light_v215','today_changes_light_v214','today_changes_light_v210','today_changes_light_v208','today_changes_light_v207','today_changes_light_v199','today_changes_light_v198','warehouse_available_v287','warehouse_available_v282','warehouse_available_v267','warehouse_available_v257','warehouse_available_v252','warehouse_available_v228','warehouse_available_v227','warehouse_available_v226','warehouse_available_v225','warehouse_available_v224','warehouse_available_v223','warehouse_available_v222','warehouse_available_v221','warehouse_available_v215','warehouse_available_v214','warehouse_available_v210','warehouse_available_v208','warehouse_available_v207','warehouse_available_v199','warehouse_available_v198','warehouse_available_v197','warehouse_source_qty_map_v287','warehouse_source_qty_map_v282','warehouse_source_qty_map_v267','warehouse_source_qty_map_v257','warehouse_source_qty_map_v252','warehouse_source_qty_map_v228','warehouse_source_qty_map_v227','warehouse_source_qty_map_v226','warehouse_source_qty_map_v225','warehouse_source_qty_map_v224','warehouse_source_qty_map_v223','warehouse_source_qty_map_v222','warehouse_source_qty_map_v221','warehouse_source_qty_map_v215','warehouse_source_qty_map_v214','warehouse_source_qty_map_v210','warehouse_source_qty_map_v208','warehouse_source_qty_map_v207','warehouse_source_qty_map_v199','warehouse_source_qty_map_v198','warehouse_source_qty_map_v197'].forEach(k=>window.YX?.cache?.remove?.(k));
+      ['ship_customers_v414','ship_customers_v413','ship_customers_v412','ship_customers_v406','ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224','ship_customers_v223','ship_customers_v222','ship_customers_v221','ship_customers_v216','ship_customers_v215','ship_customers_v214','ship_customers_v210','ship_customers_v208','ship_customers_v207','ship_customers_v199','ship_customers_v198','ship_customers_v197','today_changes_v287','today_changes_v282','today_changes_v267','today_changes_v252','today_changes_v228','today_changes_v227','today_changes_v226','today_changes_v225','today_changes_v224','today_changes_v223','today_changes_v222','today_changes_v221','today_changes_v215','today_changes_v214','today_changes_v210','today_changes_v208','today_changes_v207','today_changes_v199','today_changes_v198','today_changes_v197','today_changes_light_v287','today_changes_light_v282','today_changes_light_v267','today_changes_light_v252','today_changes_light_v228','today_changes_light_v227','today_changes_light_v226','today_changes_light_v225','today_changes_light_v224','today_changes_light_v223','today_changes_light_v222','today_changes_light_v221','today_changes_light_v215','today_changes_light_v214','today_changes_light_v210','today_changes_light_v208','today_changes_light_v207','today_changes_light_v199','today_changes_light_v198','warehouse_available_v287','warehouse_available_v282','warehouse_available_v267','warehouse_available_v257','warehouse_available_v252','warehouse_available_v228','warehouse_available_v227','warehouse_available_v226','warehouse_available_v225','warehouse_available_v224','warehouse_available_v223','warehouse_available_v222','warehouse_available_v221','warehouse_available_v215','warehouse_available_v214','warehouse_available_v210','warehouse_available_v208','warehouse_available_v207','warehouse_available_v199','warehouse_available_v198','warehouse_available_v197','warehouse_source_qty_map_v287','warehouse_source_qty_map_v282','warehouse_source_qty_map_v267','warehouse_source_qty_map_v257','warehouse_source_qty_map_v252','warehouse_source_qty_map_v228','warehouse_source_qty_map_v227','warehouse_source_qty_map_v226','warehouse_source_qty_map_v225','warehouse_source_qty_map_v224','warehouse_source_qty_map_v223','warehouse_source_qty_map_v222','warehouse_source_qty_map_v221','warehouse_source_qty_map_v215','warehouse_source_qty_map_v214','warehouse_source_qty_map_v210','warehouse_source_qty_map_v208','warehouse_source_qty_map_v207','warehouse_source_qty_map_v199','warehouse_source_qty_map_v198','warehouse_source_qty_map_v197'].forEach(k=>window.YX?.cache?.remove?.(k));
       window.YX?.cache?.clearGroup?.('ship_customers_'); window.YX?.cache?.clearGroup?.('ship_items_');
       window.YX?.cache?.clearGroup?.('customer_blocks_');
       window.YX?.cache?.clearGroup?.('products_');
@@ -1738,8 +1745,8 @@
       window.YX?.cache?.clearGroup?.('today_changes_');
       window.YX?.cache?.clearGroup?.('today_changes_light_');
     } catch(_e) {}
-    try { yx215EmitOnce('yx:product-data-changed', {source, customer_name:customer, reason:reason||'product-write', version:'v403'}, 900); } catch(_e) {}
-    try { if(source === 'orders' || source === 'master_order') yx215EmitOnce('yx:order-master-changed', {source, customer_name:customer, reason:reason||'product-write', version:'v403'}, 900); } catch(_e) {}
+    try { yx215EmitOnce('yx:product-data-changed', {source, customer_name:customer, reason:reason||'product-write', version:'v406'}, 900); } catch(_e) {}
+    try { if(source === 'orders' || source === 'master_order') yx215EmitOnce('yx:order-master-changed', {source, customer_name:customer, reason:reason||'product-write', version:'v406'}, 900); } catch(_e) {}
     try { if(customer) yx215EmitOnce('yx:customer-selected', {name:customer, force:true, source, reason:'product-write-v282'}, 650); } catch(_e) {}
   }
   function activeZoneForSource(m){
@@ -2097,8 +2104,10 @@
     const masterRows = num(r.master_rows, c.master_rows, c.master_order_rows, c.master_orders_rows, mode === 'master_order' ? c.row_count : 0, mode === 'master_order' ? c.total_rows : 0);
     const invQty = num(r.inventory_qty, c.inventory_qty);
     const invRows = num(r.inventory_rows, c.inventory_rows);
-    if (mode === 'orders') return {qty:orderQty || num(c.item_count, c.active_qty_total), rows:orderRows || num(c.row_count, c.active_rows)};
-    if (mode === 'master_order') return {qty:masterQty || num(c.item_count, c.active_qty_total), rows:masterRows || num(c.row_count, c.active_rows)};
+    // V406: 訂單頁北/中/南只能顯示「真的有訂單」的客戶，不能用總單/庫存的通用 item_count 回補。
+    // 件數/筆數也必須只用 orders 對應欄位，避免總單客戶被帶進訂單頁。
+    if (mode === 'orders') return {qty:orderQty, rows:orderRows};
+    if (mode === 'master_order') return {qty:masterQty, rows:masterRows};
     if (mode === 'ship') {
       const qty = orderQty + masterQty + invQty;
       const rows = orderRows + masterRows + invRows;
@@ -2165,8 +2174,10 @@
     const panel = $('selected-customer-items');
     if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return;
     panel.classList.remove('hidden');
-    const total = (items || []).reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
-    panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${(items||[]).length}筆商品</div></div></div><div class="card-list">${(items||[]).length ? items.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
+    panel.classList.toggle('yx66-active', moduleKey() === 'orders');
+    const activeItems = (items || []).filter(it => qtyFromProduct(it.product_text, it.qty) > 0);
+    const total = activeItems.reduce((sum,it)=>sum + qtyFromProduct(it.product_text, it.qty), 0);
+    panel.innerHTML = `<div class="customer-detail-card yx121-selected-customer-products"><div class="customer-detail-header"><div><div class="section-title">${YX.esc(name)}</div><div class="muted">${total}件 / ${activeItems.length}筆商品</div></div></div><div class="card-list">${activeItems.length ? activeItems.map(it=>{ const raw=String(it.product_text||''); const ps=raw.split('='); return `<div class="deduct-card yx112-product-card"><div class="yx113-product-head"><strong class="material-text">${YX.esc(it.material || it.product_code || '未填材質')}</strong><strong>${qtyFromProduct(raw,it.qty)}件</strong></div><div class="yx113-product-main"><span>${YX.esc(ps[0]||raw)}</span><span>${YX.esc(ps.slice(1).join('=') || it.qty || '')}</span></div><div class="small-note">${YX.esc(it.source || '')}</div></div>`; }).join('') : '<div class="empty-state-card compact-empty">此客戶目前沒有商品</div>'}</div></div>`;
   }
 
   function shouldShow(c, mode){
@@ -2199,7 +2210,10 @@
     panel.classList.remove('hidden');
     if (!renderCachedSelectedPanel(name)) panel.innerHTML = '<div class="empty-state-card compact-empty">客戶商品載入中…</div>';
     try {
-      const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&fast=1&force=1&v287=1${variantsQuery(name)}`, {method:'GET'});
+      const pageSource = moduleKey() === 'orders' ? 'orders' : (moduleKey() === 'master_order' ? 'master_order' : '');
+      // V406: 訂單頁點客戶後，商品明細也只顯示訂單；總單頁只顯示總單。
+      const sourceQuery = pageSource ? '&source=' + encodeURIComponent(pageSource) : '';
+      const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&fast=1&force=1&v414=1${sourceQuery}${variantsQuery(name)}`, {method:'GET'});
       const items = Array.isArray(d.items) ? d.items : [];
       state.itemCache.set(mergeKey(name) || name, {items, at:Date.now()});
       renderSelectedCustomerItems(name, items);
@@ -2292,9 +2306,9 @@
   function emitCustomerCacheSync(detail){
     detail = detail || {};
     try { clearCrossFunctionCaches(detail.source || 'customers', detail.new_customer_name || detail.customer_name || detail.old_customer_name || '', detail.reason || 'customer-cache-sync-v228'); } catch(_e) {}
-    try { yx215EmitOnce('yx:customer-profile-changed', Object.assign({version:'v403'}, detail), 1000); } catch(_e) {}
-    try { yx215EmitOnce('yx:warehouse-changed', Object.assign({version:'v403'}, detail), 1000); } catch(_e) {}
-    try { yx215EmitOnce('yx:order-master-changed', Object.assign({version:'v403'}, detail), 1000); } catch(_e) {}
+    try { yx215EmitOnce('yx:customer-profile-changed', Object.assign({version:'v406'}, detail), 1000); } catch(_e) {}
+    try { yx215EmitOnce('yx:warehouse-changed', Object.assign({version:'v406'}, detail), 1000); } catch(_e) {}
+    try { yx215EmitOnce('yx:order-master-changed', Object.assign({version:'v406'}, detail), 1000); } catch(_e) {}
   }
 
   function applyCustomerWritePayload(d, fallbackName){
@@ -2373,6 +2387,8 @@
       const region = normRegion(old.region || row.region || row.customer_region || savedRegion || '北區');
       const rc = Object.assign({}, oldRc);
       const qty = qtyFromProduct(row.product_text || '', row.qty);
+      // V414: rowsStore 裡出貨扣到 0 的殘留列不能補回客戶卡。
+      if ((source === 'orders' || source === 'master_order') && qty <= 0) return;
       if (source === 'orders') { rc.order_rows = Number(rc.order_rows || 0) + 1; rc.order_qty = Number(rc.order_qty || 0) + qty; }
       else if (source === 'master_order') { rc.master_rows = Number(rc.master_rows || 0) + 1; rc.master_qty = Number(rc.master_qty || 0) + qty; }
       else if (source === 'inventory') { rc.inventory_rows = Number(rc.inventory_rows || 0) + 1; rc.inventory_qty = Number(rc.inventory_qty || 0) + qty; }
@@ -2382,7 +2398,11 @@
     };
     try {
       const stores = (window.__YX112_ROWS__ || window.__yx63Rows || {});
-      ['orders','master_order','inventory'].forEach(source => {
+      const pageMode = moduleKey();
+      // V406: 訂單頁北/中/南只能由 orders rows 補客戶；總單頁只能由 master_order rows 補客戶。
+      // 不再把三個來源全部混進 relationCustomersFromRows，避免總單客戶被帶到訂單區。
+      const sources = pageMode === 'orders' ? ['orders'] : (pageMode === 'master_order' ? ['master_order'] : ['orders','master_order','inventory']);
+      sources.forEach(source => {
         const arr = Array.isArray(stores[source]) ? stores[source] : [];
         arr.forEach(r => add(r.customer_name || r.customer || '', source, r));
       });
@@ -2405,12 +2425,19 @@
         const src = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
         if (force && src && window.YX113ProductActions?.loadSource) await window.YX113ProductActions.loadSource(src, {force:true, customer_blocks:true});
       } catch(_e) {}
-      const d = await YX.api('/api/customers?yx114=1&fast=1&force=1&v287=1&ts=' + Date.now(), {method:'GET'});
+      const pageSource = moduleKey() === 'orders' ? 'orders' : (moduleKey() === 'master_order' ? 'master_order' : '');
+      const d = await YX.api('/api/customers?yx114=1&fast=1&force=1&strict_source=1&source=' + encodeURIComponent(pageSource) + '&v414=1&ts=' + Date.now(), {method:'GET'});
       // v17：客戶區不能只看 /api/customers；重新整理後若後端客戶檔尚未同步，仍要從目前訂單/總單 rowsStore 立刻補出客戶卡。
       state.items = relationCustomersFromRows(Array.isArray(d.items) ? d.items : []).filter(c => !archivedCustomerSet().has(YX.clean(c.name || c.customer_name || '')));
       try { window.YX?.cache?.write(customerBlocksCacheName(), {items:state.items}); } catch(_e) {}
       renderBoards(state.items);
-      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}
+      try {
+        const activeName = YX.clean(window.__YX_SELECTED_CUSTOMER__ || '');
+        if (activeName && ['orders','master_order'].includes(moduleKey()) && state.items.some(c => (c.name || c.customer_name || '') === activeName)) {
+          renderSelectedCustomerPanel(activeName).catch(()=>{});
+        }
+      } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items, source:moduleKey(), version:'v414-customer-count-source-sync'}})); } catch(_e) {}
       return state.items;
     } catch(e) {
       YX.toast(e.message || '客戶名單載入失敗', 'error');
@@ -2460,7 +2487,7 @@
       const saveResp = await YX.api('/api/customers', {method:'POST', body:JSON.stringify({name:cleanName, phone:item.phone || '', address:item.address || '', notes:item.notes || '', common_materials:item.common_materials || '', common_sizes:item.common_sizes || '', region:finalRegion, preserve_existing:false})});
       applyCustomerWritePayload(renameResp || saveResp, cleanName);
       applyCustomerWritePayload(saveResp, cleanName);
-      try { emitCustomerCacheSync({source:'customers', reason:'customer-edit-v403', old_customer_name:name, new_customer_name:cleanName, customer_name:cleanName, region:finalRegion}); } catch(_e) {}
+      try { emitCustomerCacheSync({source:'customers', reason:'customer-edit-v406', old_customer_name:name, new_customer_name:cleanName, customer_name:cleanName, region:finalRegion}); } catch(_e) {}
       YX.toast('客戶編輯已保存', 'ok');
       selectCustomer(cleanName).catch(()=>{});
     } catch(e) {
@@ -2521,7 +2548,7 @@
         YX.toast(`${name} 區域已保存`, 'ok');
         moveCustomerCardNow(name, region);
         applyCustomerWritePayload(d, name);
-        try { emitCustomerCacheSync({source:'customers', reason:'customer-move-v403', customer_name:name, region}); } catch(_e) {}
+        try { emitCustomerCacheSync({source:'customers', reason:'customer-move-v406', customer_name:name, region}); } catch(_e) {}
       }).catch(e=>YX.toast(e.message || '區域保存失敗','error'));
       return;
     } catch(e) {
@@ -2541,7 +2568,7 @@
       YX.toast(d.message || '客戶刪除 / 封存已保存', 'ok');
       removeCustomerLocalRegion(name);
       applyCustomerWritePayload(d, name);
-      try { emitCustomerCacheSync({source:'customers', reason:'customer-delete-archive-v403', customer_name:name, mode:d.mode || 'archived'}); } catch(_e) {}
+      try { emitCustomerCacheSync({source:'customers', reason:'customer-delete-archive-v406', customer_name:name, mode:d.mode || 'archived'}); } catch(_e) {}
       loadCustomerBlocks(true).catch(()=>{});
       try { if (window.YX113ProductActions) window.YX113ProductActions.refreshCurrent?.().catch(()=>{}); } catch(_e) {}
     } catch(e) {
@@ -2962,7 +2989,7 @@
       if(last && now-last<ttl) return false;
       box.set(key, now);
       if(box.size>240){ for(const [k,t] of Array.from(box.entries())) if(now-Number(t||0)>6000) box.delete(k); }
-      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v403', sync_version:'v403-status-cleanup-sync', cache_bust:'v403-status-cleanup-sync'}}));
+      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v406', sync_version:'v406-warehouse-order-drag-longpress-fix', cache_bust:'v406-warehouse-order-drag-longpress-fix'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2970,7 +2997,7 @@
     try{
       const c=window.YX?.cache;
       c?.clearGroup?.('ship_customers_'); c?.clearGroup?.('ship_items_'); c?.clearGroup?.('customer_blocks_'); c?.clearGroup?.('products_'); c?.clearGroup?.('warehouse_available_'); c?.clearGroup?.('warehouse_source_qty_map_'); c?.clearGroup?.('today_changes_'); c?.clearGroup?.('today_changes_light_');
-      ['ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224','ship_customers_v223','ship_customers_v222','ship_customers_v221','ship_customers_v216','ship_customers_v215','ship_customers_v214','ship_customers_v212','ship_customers_v211','ship_customers_v210','ship_customers_v208','customer_blocks_v228_orders','customer_blocks_v227_orders','customer_blocks_v226_orders','customer_blocks_v228_master_order','customer_blocks_v227_master_order','customer_blocks_v226_master_order','customer_blocks_v212_orders','customer_blocks_v212_master_order','products_inventory','products_orders','products_master_order'].forEach(k=>c?.remove?.(k));
+      ['ship_customers_v414','ship_customers_v413','ship_customers_v412','ship_customers_v406','ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224','ship_customers_v223','ship_customers_v222','ship_customers_v221','ship_customers_v216','ship_customers_v215','ship_customers_v214','ship_customers_v212','ship_customers_v211','ship_customers_v210','ship_customers_v208','customer_blocks_v228_orders','customer_blocks_v227_orders','customer_blocks_v226_orders','customer_blocks_v228_master_order','customer_blocks_v227_master_order','customer_blocks_v226_master_order','customer_blocks_v212_orders','customer_blocks_v212_master_order','products_inventory','products_orders','products_master_order'].forEach(k=>c?.remove?.(k));
     }catch(_e){}
   }
   function currentCustomer(){
@@ -2999,13 +3026,13 @@
   'use strict';
   if(window.__YX_V342_OPERATION_STATUS_CARD__) return;
   window.__YX_V342_OPERATION_STATUS_CARD__ = true;
-  const VERSION='v403-status-cleanup-sync';
-  const STORE_KEY='yx_operation_status_card_v403';
-  const FILTER_KEY='yx_operation_status_type_filter_v403';
-  const STATUS_FILTER_KEY='yx_operation_status_state_filter_v403';
-  const SEARCH_KEY='yx_operation_status_search_v403';
-  const VIEW_FILTER_KEY='yx_operation_status_view_filter_v403';
-  const VIEWED_KEY='yx_operation_status_viewed_v403';
+  const VERSION='v406-warehouse-order-drag-longpress-fix';
+  const STORE_KEY='yx_operation_status_card_v406';
+  const FILTER_KEY='yx_operation_status_type_filter_v406';
+  const STATUS_FILTER_KEY='yx_operation_status_state_filter_v406';
+  const SEARCH_KEY='yx_operation_status_search_v406';
+  const VIEW_FILTER_KEY='yx_operation_status_view_filter_v406';
+  const VIEWED_KEY='yx_operation_status_viewed_v406';
   const BULK_SCOPE_KEY='yx_operation_status_bulk_scope_v386';
   const BULK_UNDO_KEY='yx_operation_status_bulk_undo_v377';
   const BULK_UNDO_RESULT_KEY='yx_operation_status_bulk_undo_result_v386';
@@ -3595,7 +3622,7 @@
     zone=clean(zone).toUpperCase(); col=Number(col||0); slot=Number(slot||0);
     if(!zone||!col||!slot) return toastShortcut('缺少格位資訊，無法跳格','warn');
     if(page()!=='warehouse'){
-      try{ localStorage.setItem('yx_status_jump_warehouse_cell_v403', JSON.stringify({zone,col,slot,ts:now()})); }catch(_e){}
+      try{ localStorage.setItem('yx_status_jump_warehouse_cell_v406', JSON.stringify({zone,col,slot,ts:now()})); }catch(_e){}
       location.href='/warehouse'; return;
     }
     try{ window.setWarehouseZone?.(zone,false); }catch(_e){}
@@ -3612,7 +3639,7 @@
     const cur=page();
     if(dest==='ship'){
       if(cur!=='ship'){
-        try{ localStorage.setItem('yx_status_open_customer_v403', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
+        try{ localStorage.setItem('yx_status_open_customer_v406', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
         location.href='/ship'; return;
       }
       try{ const input=document.getElementById('customer-name'); if(input){ input.value=customer; input.dispatchEvent(new Event('input',{bubbles:true})); } }catch(_e){}
@@ -3622,7 +3649,7 @@
     }
     const targetPath=dest==='master_order'?'/master-order':'/orders';
     if(cur!=='orders' && cur!=='master_order'){
-      try{ localStorage.setItem('yx_status_open_customer_v403', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
+      try{ localStorage.setItem('yx_status_open_customer_v406', JSON.stringify({customer,dest,ts:now()})); }catch(_e){}
       location.href=targetPath; return;
     }
     try{ window.YX113CustomerRegions?.selectCustomer?.(customer); }catch(_e){}
@@ -3633,14 +3660,14 @@
   }
   function openShipRecordTarget(q, recordId){
     q=clean(q); recordId=clean(recordId);
-    try{ localStorage.setItem('yx_status_open_shipping_query_v403', JSON.stringify({q,record_id:recordId,ts:now()})); }catch(_e){}
+    try{ localStorage.setItem('yx_status_open_shipping_query_v406', JSON.stringify({q,record_id:recordId,ts:now()})); }catch(_e){}
     location.href='/shipping-query';
   }
   function readShortcutIntent(key, legacyKey){
     try{
       let raw=localStorage.getItem(key); let used=key;
       if(!raw){
-        const variants=[String(key||'').replace('_v403','_v402'), String(key||'').replace('_v403','_v401'), String(key||'').replace('_v403','_v398'), String(key||'').replace('_v403','_v397'), String(key||'').replace('_v403','_v337'), String(key||'').replace('_v403','_v332')].filter(Boolean);
+        const variants=[String(key||'').replace('_v406','_v402'), String(key||'').replace('_v406','_v401'), String(key||'').replace('_v406','_v398'), String(key||'').replace('_v406','_v397'), String(key||'').replace('_v406','_v337'), String(key||'').replace('_v406','_v332')].filter(Boolean);
         for(const k of variants){ if(k && k!==key){ raw=localStorage.getItem(k); used=k; if(raw) break; } }
       }
       if(!raw && legacyKey){ raw=localStorage.getItem(legacyKey); used=legacyKey; }
@@ -3652,16 +3679,16 @@
   function consumeShortcutTargets(){
     try{ consumeShortcutSnapshot(); }catch(_e){}
     try{
-      const d=readShortcutIntent('yx_status_jump_warehouse_cell_v403','yx_status_jump_warehouse_cell_v327');
+      const d=readShortcutIntent('yx_status_jump_warehouse_cell_v406','yx_status_jump_warehouse_cell_v327');
       if(d && page()==='warehouse') setTimeout(()=>openWarehouseTarget(d.zone,d.col,d.slot), 900);
-      else if(d) localStorage.setItem('yx_status_jump_warehouse_cell_v403', JSON.stringify(d));
+      else if(d) localStorage.setItem('yx_status_jump_warehouse_cell_v406', JSON.stringify(d));
     }catch(_e){}
     try{
-      const d=readShortcutIntent('yx_status_open_customer_v403','yx_status_open_customer_v327');
+      const d=readShortcutIntent('yx_status_open_customer_v406','yx_status_open_customer_v327');
       if(d){
         if((d.dest==='ship' && page()==='ship') || (d.dest!=='ship' && (page()==='orders'||page()==='master_order'))){
           setTimeout(()=>openCustomerTarget(d.customer,d.dest), 650);
-        }else localStorage.setItem('yx_status_open_customer_v403', JSON.stringify(d));
+        }else localStorage.setItem('yx_status_open_customer_v406', JSON.stringify(d));
       }
     }catch(_e){}
   }
@@ -3702,7 +3729,7 @@
       const light={ctx:{row:ctx.row||{},payload:ctx.payload||{},result:ctx.result||{},response:ctx.result||{},data:ctx.result||{},url:ctx.url||'',key:ctx.key||'',source:ctx.source||''},ts:now(),version:VERSION};
       const text=JSON.stringify(light);
       if(text.length>700000) return false;
-      localStorage.setItem('yx_status_target_snapshot_v403', text);
+      localStorage.setItem('yx_status_target_snapshot_v406', text);
       return true;
     }catch(_e){ return false; }
   }
@@ -3736,12 +3763,12 @@
   }
   function consumeShortcutSnapshot(){
     try{
-      const raw=localStorage.getItem('yx_status_target_snapshot_v403') || localStorage.getItem('yx_status_target_snapshot_v402') || localStorage.getItem('yx_status_target_snapshot_v401') || localStorage.getItem('yx_status_target_snapshot_v398');
+      const raw=localStorage.getItem('yx_status_target_snapshot_v406') || localStorage.getItem('yx_status_target_snapshot_v402') || localStorage.getItem('yx_status_target_snapshot_v401') || localStorage.getItem('yx_status_target_snapshot_v398');
       if(!raw) return false;
       const pack=JSON.parse(raw||'{}');
       if(!pack || !pack.ctx) return false;
-      if(Number(pack.ts||0) && now()-Number(pack.ts||0)>5*60*1000){ localStorage.removeItem('yx_status_target_snapshot_v403'); return false; }
-      localStorage.removeItem('yx_status_target_snapshot_v403');
+      if(Number(pack.ts||0) && now()-Number(pack.ts||0)>5*60*1000){ localStorage.removeItem('yx_status_target_snapshot_v406'); return false; }
+      localStorage.removeItem('yx_status_target_snapshot_v406');
       localStorage.removeItem('yx_status_target_snapshot_v398');
       scheduleApplyShortcutSnapshot(pack.ctx, '跳轉後已套用後端資料');
       return true;
@@ -4087,7 +4114,7 @@
   'use strict';
   if(window.__YX_V332_TARGETED_RETRY_REFRESH__) return;
   window.__YX_V332_TARGETED_RETRY_REFRESH__=true;
-  const VERSION='v403-status-cleanup-sync';
+  const VERSION='v406-warehouse-order-drag-longpress-fix';
   function clean(v){ return String(v == null ? '' : v).replace(/\s+/g,' ').trim(); }
   function page(){ return clean(document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || ''); }
   function customersFrom(ctx){

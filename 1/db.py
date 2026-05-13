@@ -2497,6 +2497,26 @@ def _sum_inventory_size_material(cur, product_text, material=''):
     return int(sum(int(r.get('qty') or 0) for r in _fetch_shipping_match_rows(cur, 'inventory', product_text, material, customer_name=None)))
 
 
+def _shipping_source_plan_lock_key(table, customer_name, row_id, before_qty, product_text='', material=''):
+    """Stable, compact fingerprint for a preview source row.
+
+    V413: preview/confirm already lock source table + row ids; this fingerprint
+    also records the row quantity/product/material that was shown at preview time.
+    It is only a consistency token for shipping source locking and does not touch
+    cache, queues, renderers, polling, or database writes.
+    """
+    try:
+        source = str(table or '').strip()
+        customer = '' if source == 'inventory' else str(customer_name or '').strip()
+        exact_product = format_product_text_height2(product_text or '')
+        size = _merge_size_key(exact_product)
+        mat = _merge_material_key(material or '', product_text or '')
+        raw = f'{source}|{customer}|{int(row_id or 0)}|{int(before_qty or 0)}|{size}|{exact_product}|{mat}'
+        return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]
+    except Exception:
+        return ''
+
+
 def _shipping_deduct_plan(cur, table, customer_name, product_text, material='', qty_target=0):
     """Build the exact row deduction plan used by preview and confirm.
 
@@ -2504,6 +2524,10 @@ def _shipping_deduct_plan(cur, table, customer_name, product_text, material='', 
     also agree on which same-size rows will be deducted when the product is
     split across multiple orders/master rows/inventory rows.  This helper is
     read-only and deterministic, so it does not touch the cache/queue layer.
+
+    V413: every plan row carries source_table/source_customer_name/row_lock_key
+    so the final confirm can prove it is deducting the exact rows shown in the
+    preview, including borrowed customer rows and inventory fallback rows.
     """
     qty_target = int(qty_target or 0)
     if qty_target <= 0:
@@ -2520,13 +2544,19 @@ def _shipping_deduct_plan(cur, table, customer_name, product_text, material='', 
         take = min(available, remain)
         if take <= 0:
             continue
+        rid = int(row.get('id') or 0)
+        row_product = row.get('product_text') or ''
+        row_material = row.get('material') or row.get('product_code') or ''
         plan.append({
-            'id': int(row.get('id') or 0),
+            'id': rid,
             'qty': int(take),
             'before_qty': available,
             'after_qty': max(0, available - take),
-            'product_text': row.get('product_text') or '',
-            'material': row.get('material') or row.get('product_code') or '',
+            'product_text': row_product,
+            'material': row_material,
+            'source_table': table,
+            'source_customer_name': '' if table == 'inventory' else (customer_name or ''),
+            'row_lock_key': _shipping_source_plan_lock_key(table, customer_name, rid, available, row_product, row_material),
         })
         remain -= take
     return plan
@@ -2547,7 +2577,7 @@ def _normalize_locked_source_plan(plan):
                     item['before_qty'] = int((row or {}).get('before_qty') or 0)
             except Exception:
                 pass
-            for k in ('product_text', 'material'):
+            for k in ('product_text', 'material', 'source_table', 'source_customer_name', 'row_lock_key'):
                 v = (row or {}).get(k)
                 if v is not None:
                     item[k] = v
@@ -2571,9 +2601,17 @@ def _validate_locked_source_plan_current(cur, table, customer_name, product_text
     rows = _fetch_shipping_match_rows(cur, table, product_text, material, customer_name=customer_name)
     row_by_id = {int(r.get('id') or 0): r for r in rows}
     checked = []
+    expected_table = str(table or '').strip()
+    expected_customer = '' if expected_table == 'inventory' else str(customer_name or '').strip()
     for plan_row in locked_plan:
         rid = int(plan_row.get('id') or 0)
         take = int(plan_row.get('qty') or 0)
+        plan_table = str(plan_row.get('source_table') or expected_table).strip()
+        plan_customer = str(plan_row.get('source_customer_name') or expected_customer).strip()
+        if plan_table and plan_table != expected_table:
+            return False, f"預覽來源表已從 {plan_table} 變成 {expected_table}，請重新預覽", checked
+        if expected_table != 'inventory' and plan_customer and plan_customer != expected_customer:
+            return False, f"預覽來源客戶已從 {plan_customer} 變成 {expected_customer}，請重新預覽", checked
         row = row_by_id.get(rid)
         if not row:
             return False, f"預覽中的來源資料 #{rid} 已不存在或尺寸/材質已變更，請重新預覽", checked
@@ -2586,9 +2624,14 @@ def _validate_locked_source_plan_current(cur, table, customer_name, product_text
                     return False, f"來源資料 #{rid} 數量已從 {preview_before} 變成 {current_qty}，請重新預覽", checked
             except Exception:
                 pass
+        expected_lock_key = str(plan_row.get('row_lock_key') or '').strip()
+        if expected_lock_key:
+            current_lock_key = _shipping_source_plan_lock_key(table, customer_name, rid, current_qty, row.get('product_text') or '', row.get('material') or row.get('product_code') or '')
+            if current_lock_key != expected_lock_key:
+                return False, f"來源資料 #{rid} 已被修改，請重新預覽", checked
         if current_qty < take:
             return False, f"來源資料 #{rid} 數量不足 {current_qty}/{take}，請重新預覽", checked
-        checked.append({'id': rid, 'qty': take, 'current_qty': current_qty, 'before_qty': preview_before if preview_before is not None else current_qty})
+        checked.append({'id': rid, 'qty': take, 'current_qty': current_qty, 'before_qty': preview_before if preview_before is not None else current_qty, 'source_table': table, 'source_customer_name': expected_customer, 'row_lock_key': plan_row.get('row_lock_key') or ''})
     return True, '', checked
 
 

@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V403-STATUS-CLEANUP-SYNC'
-STATIC_VERSION = '119-v403-status-cleanup-sync'
-API_SCHEMA_VERSION = 'v403-status-cleanup-sync'
+APP_VERSION = 'V119-V414-CUSTOMER-COUNT-SOURCE-SYNC'
+STATIC_VERSION = '119-v414-customer-count-source-sync'
+API_SCHEMA_VERSION = 'v414-customer-count-source-sync'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -478,7 +478,20 @@ def product_service_exact_customer_rows(table_name, customer_name=''):
     if customer_name:
         variants = set(customer_name_variants_safe(customer_name) or [customer_name])
         rows = [r for r in rows if (r.get('customer_name') or '').strip() in variants]
-    return rows
+    # V414: 訂單/總單讀回給前端時，只回傳仍有有效件數的列。
+    # 出貨扣到 0 的列若仍留在資料表，不能再撐住客戶卡件數或下方明細。
+    active = []
+    for r in rows or []:
+        try:
+            q = int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
+        except Exception:
+            try:
+                q = int(float(r.get('qty') or 0))
+            except Exception:
+                q = 0
+        if q > 0:
+            active.append(r)
+    return active
 
 
 
@@ -601,7 +614,7 @@ def add_cache_headers(response):
     response.headers['Vary'] = 'Cookie'
     _v153_merge_vary(response, 'Accept-Encoding')
     response.headers['X-Yuanxing-Version'] = APP_VERSION
-    response.headers['X-Yuanxing-Mainfile'] = '119-v403-mainfile-stable'
+    response.headers['X-Yuanxing-Mainfile'] = '119-v411-mainfile-stable'
     if path == '/sw.js' or path.endswith('service-worker.js') or path.endswith('manifest.webmanifest'):
         response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
@@ -927,6 +940,9 @@ def aggregate_customer_items(items):
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
         size = product_display_size(product_text)
         qty = normalize_item_quantity(product_text, row.get('qty') or 0)
+        # V414: 客戶商品明細 / 出貨下拉都不能顯示已扣到 0 的殘留列。
+        if int(qty or 0) <= 0:
+            continue
         support = product_support_text(product_text)
         # If the right side is only 支數, append x件數 for display. 括號備註會保留。
         if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
@@ -2380,7 +2396,7 @@ def shipping_service_warehouse_snapshot_payload(result):
                 'readback_count': len(enriched),
                 'column_revision': int(time.time() * 1000),
                 'db_readback': True,
-                'reason': 'ship-completed-v403',
+                'reason': 'ship-completed-v413',
             })
             flat_cells.extend(enriched)
         except Exception as e:
@@ -2393,8 +2409,101 @@ def shipping_service_warehouse_snapshot_payload(result):
         'warehouse_snapshot_version': API_SCHEMA_VERSION,
     }
 
+
+def shipping_service_affected_customers(customer_name, result):
+    """V412: collect every customer whose visible counts can change after shipping.
+    Normal shipping affects the ship customer; borrowed/source-customer shipping also affects
+    the source customer, so front-end customer cards and product lists must refresh both.
+    """
+    names = []
+    def add(v):
+        v = (v or '').strip()
+        if v and v not in names:
+            names.append(v)
+    add(customer_name)
+    try:
+        for b in (result or {}).get('breakdown') or []:
+            add(b.get('ship_customer_name') or b.get('customer_name') or customer_name)
+            src_table = str(b.get('source_table') or '').strip()
+            src_customer = (b.get('source_customer_name') or '').strip()
+            if src_table != 'inventory':
+                add(src_customer)
+            if b.get('is_borrowed'):
+                add(src_customer)
+    except Exception as e:
+        try: log_error('ship_affected_customers_v412', str(e))
+        except Exception: pass
+    return names
+
+
+def shipping_service_affected_customer_payloads(names):
+    """V412: compact per-customer readback for order/master/customer-card refresh."""
+    out = {}
+    for name in names or []:
+        name = (name or '').strip()
+        if not name:
+            continue
+        try:
+            payload = build_customer_payload_snapshot(name)
+            payload['orders'] = product_service_exact_customer_rows('orders', name)
+            payload['master_order'] = product_service_exact_customer_rows('master_orders', name)
+            payload['master_orders'] = payload['master_order']
+            out[name] = payload
+        except Exception as e:
+            try: log_error('ship_affected_customer_payload_v412', f'{name}: {e}')
+            except Exception: pass
+    return out
+
 def shipping_service_snapshot_key(token):
     return 'ship_preview_snapshot_' + str(token or '').strip()
+
+def shipping_service_source_plan_signature(row):
+    """Compact signature of preview source rows for confirm-time verification.
+
+    V413: source_plan already contains the exact row ids; this signature makes
+    the preview token reject if the selected source row id/qty/before_qty/source
+    table/customer changes before final confirm.
+    """
+    try:
+        plan = []
+        for p in ((row or {}).get('source_plan') or []):
+            if not isinstance(p, dict):
+                continue
+            plan.append({
+                'id': int(p.get('id') or 0),
+                'qty': int(p.get('qty') or 0),
+                'before_qty': int(p.get('before_qty') or 0),
+                'source_table': str(p.get('source_table') or (row or {}).get('source_preference') or (row or {}).get('source_table') or '').strip(),
+                'source_customer_name': str(p.get('source_customer_name') or (row or {}).get('source_customer_name') or '').strip(),
+                'row_lock_key': str(p.get('row_lock_key') or '').strip(),
+            })
+        return json.dumps(plan, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return ''
+
+
+def shipping_service_preview_source_lock_summary(preview):
+    rows = []
+    try:
+        for idx, row in enumerate((preview or {}).get('items') or []):
+            if not isinstance(row, dict):
+                continue
+            rows.append({
+                'index': idx,
+                'product_text': row.get('product_text') or '',
+                'material': row.get('material') or row.get('product_code') or '',
+                'qty': int(row.get('qty') or 0),
+                'source_table': row.get('source_preference') or row.get('source_table') or '',
+                'source_label': row.get('source_label') or '',
+                'source_customer_name': row.get('source_customer_name') or '',
+                'source_plan_ids': [p.get('id') for p in (row.get('source_plan') or []) if isinstance(p, dict)],
+                'source_plan_signature': shipping_service_source_plan_signature(row),
+            })
+    except Exception as e:
+        try: log_error('ship_preview_source_lock_summary_v413', str(e))
+        except Exception: pass
+    return rows
+
 
 def shipping_service_make_preview_token(customer_name, items, preview):
     token = uuid.uuid4().hex
@@ -2403,6 +2512,7 @@ def shipping_service_make_preview_token(customer_name, items, preview):
         'customer_name': customer_name,
         'items': items,
         'preview': preview,
+        'preview_source_lock_summary': shipping_service_preview_source_lock_summary(preview),
         'created_at': now(),
         'operator': current_username(),
         'source_lock_version': API_SCHEMA_VERSION,
@@ -2429,6 +2539,8 @@ def shipping_service_read_preview_snapshot(token):
         return None, '出貨預覽資料損壞，請重新預覽'
     if saved.get('consumed_at'):
         return None, '這次出貨預覽已完成扣除，請重新預覽後再送出'
+    if (saved.get('source_lock_version') or '') != API_SCHEMA_VERSION:
+        return None, '出貨預覽鎖定版本已更新，請重新預覽'
     try:
         created = datetime.strptime(str(saved.get('created_at') or ''), '%Y-%m-%d %H:%M:%S')
         if (datetime.now() - created).total_seconds() > 1800:
@@ -2534,6 +2646,26 @@ def shipping_service_validate_preview_token(token, customer_name, items):
     if bad:
         first = bad[0]
         return False, first.get('recommendation') or '目前數量不足，請重新預覽'
+    # V413: even when the source still has enough total qty, the exact rows shown
+    # in preview must remain the same. This prevents same-size rows from silently
+    # shifting between preview and confirm.
+    try:
+        saved_rows = ((saved.get('preview') or {}).get('items') or [])
+        fresh_rows = fresh.get('items') or []
+        if len(saved_rows) != len(fresh_rows):
+            return False, '出貨來源明細已變更，請重新預覽'
+        for idx, saved_row in enumerate(saved_rows):
+            fresh_row = fresh_rows[idx] if idx < len(fresh_rows) else {}
+            if shipping_service_source_plan_signature(saved_row) != shipping_service_source_plan_signature(fresh_row):
+                return False, '出貨來源資料已變更，請重新預覽'
+            if (saved_row.get('source_preference') or saved_row.get('source_table') or '') != (fresh_row.get('source_preference') or fresh_row.get('source_table') or ''):
+                return False, '出貨扣除來源已變更，請重新預覽'
+            if (saved_row.get('source_customer_name') or '') != (fresh_row.get('source_customer_name') or ''):
+                return False, '出貨來源客戶已變更，請重新預覽'
+    except Exception as e:
+        try: log_error('ship_preview_source_signature_v413', str(e))
+        except Exception: pass
+        return False, '出貨來源鎖定檢查失敗，請重新預覽'
     return True, ''
 
 def shipping_service_preview_error_code(message):
@@ -2547,6 +2679,8 @@ def shipping_service_preview_error_code(message):
         return 'preview_customer_changed'
     if '商品已變更' in msg:
         return 'preview_items_changed'
+    if '來源' in msg or '鎖定' in msg:
+        return 'preview_source_changed'
     if '數量不足' in msg or '不可扣' in msg or '數量已變更' in msg:
         return 'preview_qty_changed'
     return 'preview_changed'
@@ -2601,6 +2735,21 @@ def api_ship():
         items = shipping_service_preview_locked_items(data.get('preview_token'), customer_name, items)
         allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
+        _preview_snapshot_for_result = None
+        try:
+            _preview_snapshot_for_result, _ = shipping_service_read_preview_snapshot(data.get('preview_token'))
+        except Exception:
+            _preview_snapshot_for_result = None
+        affected_customer_names = []
+        if isinstance(result, dict):
+            try:
+                affected_customer_names = shipping_service_affected_customers(customer_name, result)
+                result['affected_customer_names'] = affected_customer_names
+                result['customer_names'] = affected_customer_names
+                result['affected_customer_payloads'] = shipping_service_affected_customer_payloads(affected_customer_names)
+            except Exception as _affected_err:
+                try: log_error('ship_v413_affected_customer_payloads', str(_affected_err))
+                except Exception: pass
         if result.get("success"):
             shipping_service_consume_preview_token(data.get('preview_token'), operation_id)
             _clear_product_fast_cache()
@@ -2612,7 +2761,7 @@ def api_ship():
             audit_service_safe_side_effect('ship_audit', add_audit_trail, current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
             # V196: 出貨扣除後同時刷新出貨、訂單、總單、倉庫圖、今日異動；避免只修出貨卻讓其他頁仍吃舊資料。
             for _m in ('ship', 'orders', 'master_order', 'warehouse', 'today_changes', 'customers'):
-                audit_service_safe_side_effect('ship_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items), 'operation_id': operation_id, 'cache_bust': API_SCHEMA_VERSION})
+                audit_service_safe_side_effect('ship_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='出貨已更新', extra={'customer_name': customer_name, 'customer_names': affected_customer_names or [customer_name], 'count': len(items), 'operation_id': operation_id, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION})
         # V196: 前端送 skip_snapshot 也仍要帶回客戶真實商品與 counts，讓出貨後訂單/總單/客戶卡立即同步。
         if isinstance(result, dict) and customer_name:
             try:
@@ -2632,6 +2781,9 @@ def api_ship():
                     if int(_b.get('inventory_deduct') or 0) > 0:
                         affected_sources.add('inventory')
                 result['affected_sources'] = sorted(affected_sources)
+                if affected_customer_names:
+                    result['affected_customer_names'] = affected_customer_names
+                    result['customer_names'] = affected_customer_names
                 result['sync_version'] = API_SCHEMA_VERSION
                 result['source_consistency'] = [{'product_text': b.get('product_text'), 'source_table': b.get('source_table'), 'source_label': b.get('source_label'), 'source_customer_name': b.get('source_customer_name'), 'source_plan': b.get('source_plan') or [], 'warehouse_deduct': b.get('warehouse_deduct') or []} for b in (result.get('breakdown') or [])]
                 # V214: frontend uses these server-confirmed values to override stale cross-page caches after shipping.
@@ -2641,6 +2793,11 @@ def api_ship():
                 result['preview_source_locked'] = True
                 result['preview_token_consumed'] = bool(data.get('preview_token')) and bool(result.get('success'))
                 result['source_lock_version'] = API_SCHEMA_VERSION
+                try:
+                    if _preview_snapshot_for_result:
+                        result['preview_source_lock_summary'] = _preview_snapshot_for_result.get('preview_source_lock_summary') or shipping_service_preview_source_lock_summary(_preview_snapshot_for_result.get('preview') or {})
+                except Exception:
+                    pass
                 # V396: include server-confirmed warehouse columns touched by this shipment,
                 # so warehouse page can apply DB readback immediately without waiting for a full reload.
                 try:
@@ -2713,6 +2870,7 @@ def api_ship_preview():
         preview = preview_ship_order(customer_name, items)
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
+        preview['preview_source_lock_summary'] = shipping_service_preview_source_lock_summary(preview)
         preview['preview_token'] = shipping_service_make_preview_token(customer_name, items, preview)
         preview['operation_id'] = data.get('operation_id') or data.get('request_key') or uuid.uuid4().hex
         preview['preview_required'] = True
@@ -2737,12 +2895,83 @@ def api_customers():
         except Exception: pass
     try:
         if request.method == "GET":
-            cache_key = _fast_cache_key('customers', version=API_SCHEMA_VERSION, user=current_username(), light=request.args.get('light') or '', ship=request.args.get('ship_single') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
+            source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
+            cache_key = _fast_cache_key('customers', version=API_SCHEMA_VERSION, user=current_username(), source=source_filter, light=request.args.get('light') or '', ship=request.args.get('ship_single') or '', qv=request.args.get('v') or request.args.get('v406') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or '')
             use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
             if cached:
                 return jsonify(cached)
-            payload = dict(success=True, items=get_customers(), server_cache=API_SCHEMA_VERSION)
+            items = get_customers()
+            def _yx_count_num(v):
+                try: return int(float(v or 0))
+                except Exception: return 0
+            def _yx_source_counts_from_rows(source):
+                counts = {}
+                try:
+                    rows = get_orders() if source == 'orders' else get_master_orders()
+                    for r in rows or []:
+                        name = (r.get('customer_name') or '').strip()
+                        if not name:
+                            continue
+                        q = 0
+                        try:
+                            q = int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
+                        except Exception:
+                            q = _yx_count_num(r.get('qty'))
+                        # V414: 只統計仍有有效件數的商品列。
+                        # 出貨扣到 0 但尚未實體刪除的 row 不可以讓北/中/南客戶卡繼續顯示。
+                        if q <= 0:
+                            continue
+                        d = counts.setdefault(name, {'rows': 0, 'qty': 0, 'region': ''})
+                        d['rows'] += 1
+                        d['qty'] += max(0, q)
+                        if not d.get('region'):
+                            d['region'] = (r.get('region') or r.get('customer_region') or r.get('zone') or '').strip()
+                except Exception as e:
+                    try: log_error('api_customers_source_counts_v408_' + source, str(e))
+                    except Exception: pass
+                return counts
+            def _yx_apply_exact_source_counts(items, source):
+                # V407: 訂單/總單客戶列表以實際商品列為準。
+                # 如果商品列有客戶，但 customer_profiles 尚未建立，也要回傳；避免北/中/南只靠舊客戶表而漏客戶。
+                exact = _yx_source_counts_from_rows(source)
+                out = []
+                used = set()
+                def _fill_source_counts(c, name, ct):
+                    rc = dict((c or {}).get('relation_counts') or {})
+                    cnt = dict((c or {}).get('counts') or {})
+                    if source == 'orders':
+                        rc['order_rows'] = ct['rows']; rc['order_qty'] = ct['qty']; cnt['orders'] = {'rows': ct['rows'], 'qty': ct['qty']}
+                    else:
+                        rc['master_rows'] = ct['rows']; rc['master_qty'] = ct['qty']; cnt['master_order'] = {'rows': ct['rows'], 'qty': ct['qty']}
+                    row = dict(c or {})
+                    row['name'] = row.get('name') or name
+                    row['customer_name'] = row.get('customer_name') or name
+                    row['region'] = resolve_customer_region(name, row.get('region') or ct.get('region') or '北區')
+                    row['relation_counts'] = rc
+                    row['counts'] = cnt
+                    row['row_count'] = ct['rows']
+                    row['item_count'] = ct['rows']
+                    row['total_qty'] = ct['qty']
+                    return row
+                for c in items or []:
+                    name = (c.get('name') or c.get('customer_name') or '').strip()
+                    ct = exact.get(name)
+                    if not ct:
+                        continue
+                    used.add(name)
+                    out.append(_fill_source_counts(c, name, ct))
+                for name, ct in exact.items():
+                    if name in used:
+                        continue
+                    out.append(_fill_source_counts({'name': name, 'customer_name': name}, name, ct))
+                return out
+            # V406: source=orders 時只回傳真的有訂單的客戶；直接用 orders 資料重算件數/筆數。
+            if source_filter in ('orders', 'order'):
+                items = _yx_apply_exact_source_counts(items, 'orders')
+            elif source_filter in ('master_order', 'master_orders', 'master'):
+                items = _yx_apply_exact_source_counts(items, 'master_order')
+            payload = dict(success=True, items=items, source_filter=source_filter, server_cache=API_SCHEMA_VERSION)
             if (request.args.get('fast') == '1' or request.args.get('light') == '1'):
                 _fast_cache_set(cache_key, payload)
             return jsonify(payload)
@@ -3348,11 +3577,50 @@ def api_warehouse_move_cell():
                 _yx_operation_finish(operation_id, 'warehouse_move_cell', {'success': False, 'error': msg}, error=msg)
                 return error_response(msg)
         result = warehouse_move_cell_contents(from_cell, to_cell, items, from_cell.get('note') or '', to_cell.get('note') or '')
+        if result and result.get('success') is False:
+            msg = result.get('error') or '拖拉移動失敗'
+            _yx_operation_finish(operation_id, 'warehouse_move_cell', {'success': False, 'error': msg, 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=msg)
+            return error_response(msg)
+        # V408: drag/move is a real warehouse write. Clear derived caches immediately,
+        # otherwise the next page open/refresh may read the old 120s warehouse or unplaced cache
+        # and look like the drag was not permanently saved.
+        _warehouse_cache_clear()
         try:
-            log_action(current_username(), f"倉庫整格拖拉 {from_cell.get('zone')}{from_cell.get('column_index')}-{from_cell.get('slot_number')} → {to_cell.get('zone')}{to_cell.get('column_index')}-{to_cell.get('slot_number')}")
+            _fast_cache_clear('warehouse_available|'); _fast_cache_clear('warehouse_source_qty_map|')
+            _fast_cache_clear('customer_items|'); _fast_cache_clear('customers|'); _fast_cache_clear('ship_items|')
+            _fast_cache_clear('today_changes|'); _fast_cache_clear('today_unplaced|')
         except Exception:
             pass
-        payload = {'success': True, 'operation_id': operation_id, 'partial': True, 'from_column_cells': warehouse_get_column_cells(from_cell.get('zone'), from_cell.get('column_index') or from_cell.get('col')), 'to_column_cells': warehouse_get_column_cells(to_cell.get('zone'), to_cell.get('column_index') or to_cell.get('col'))}
+        try:
+            log_action(current_username(), f"倉庫整格拖拉 {from_cell.get('zone')}{from_cell.get('column_index') or from_cell.get('col')}-{from_cell.get('slot_number') or from_cell.get('slot')} → {to_cell.get('zone')}{to_cell.get('column_index') or to_cell.get('col')}-{to_cell.get('slot_number') or to_cell.get('slot')}")
+        except Exception:
+            pass
+        moved_customers = []
+        try:
+            seen = set()
+            for it in (data.get('source_cell_items') or []) + (items or []):
+                name = str((it or {}).get('customer_name') or (it or {}).get('customer') or '').strip()
+                if name and name not in seen:
+                    seen.add(name); moved_customers.append(name)
+        except Exception:
+            moved_customers = []
+        audit_service_safe_side_effect('warehouse_move_audit', add_audit_trail, current_username(), 'move', 'warehouse_cells', operation_id, before_json={'from': from_cell, 'source_items': data.get('source_cell_items') or []}, after_json={'to': to_cell, 'items': items})
+        sync_extra = {'from': from_cell, 'to': to_cell, 'customers': moved_customers, 'count': len(items or []), 'operation_id': operation_id, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
+        for _m in ('warehouse','ship','orders','master_order','today_changes'):
+            audit_service_safe_side_effect('warehouse_move_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='倉庫拖拉移動已更新', extra=sync_extra)
+        payload = {
+            'success': True,
+            'operation_id': operation_id,
+            'partial': True,
+            'from': from_cell,
+            'to': to_cell,
+            'from_column_cells': [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(from_cell.get('zone'), from_cell.get('column_index') or from_cell.get('col'))],
+            'to_column_cells': [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(to_cell.get('zone'), to_cell.get('column_index') or to_cell.get('col'))],
+            'moved_customers': moved_customers,
+            'cache_bust': API_SCHEMA_VERSION,
+            'sync_version': API_SCHEMA_VERSION,
+            'warehouse_stability': API_SCHEMA_VERSION,
+        }
         _yx_operation_finish(operation_id, 'warehouse_move_cell', payload)
         return jsonify(payload)
     except Exception as e:
@@ -3488,9 +3756,17 @@ def _warehouse_unplaced_snapshot(zone_filter=''):
         if zone_filter:
             details_for_item = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
             total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
-            placed_qty = int(placed_detail_by_zone.get((exact, customer, source_label, str(source_id), zone_filter), 0) or 0)
+            # V409: A/B dropdown shows the source rows that belong to that zone,
+            # but a source row is considered "already placed" once it exists in ANY warehouse zone.
+            # Previous zone-only subtraction made an A-zone item reappear in A dropdown after it was
+            # placed or dragged to B, which caused stale unplaced counts and duplicate selection.
+            placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
             if placed_qty <= 0 and size_key_for_placed:
-                placed_qty = int(placed_size_detail_by_zone.get((size_key_for_placed, customer, source_label, str(source_id), zone_filter), 0) or 0)
+                placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
+            if placed_qty <= 0 and size_key_for_placed:
+                placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
+            if placed_qty <= 0:
+                placed_qty = int(placed_all.get((exact, customer), 0) or 0)
         else:
             details_for_item = details_all
             total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
@@ -3666,9 +3942,18 @@ def api_customer_items():
                 items.append(r)
 
         try:
-            pull('orders', '訂單')
-            pull('master_orders', '總單')
-            pull('inventory', '庫存')
+            source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
+            # V406: 訂單頁/總單頁點客戶時，明細與件數只能使用目前來源；出貨頁未帶 source 才合併三來源。
+            if source_filter in ('orders', 'order'):
+                pull('orders', '訂單')
+            elif source_filter in ('master_order', 'master_orders', 'master'):
+                pull('master_orders', '總單')
+            elif source_filter in ('inventory', 'stock'):
+                pull('inventory', '庫存')
+            else:
+                pull('orders', '訂單')
+                pull('master_orders', '總單')
+                pull('inventory', '庫存')
         finally:
             try: conn.close()
             except Exception: pass
