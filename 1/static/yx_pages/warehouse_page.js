@@ -808,8 +808,18 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false, modalSeq:0, loadSeq:0,
     columnChains:new Map(), columnSeq:new Map(), pendingColumns:new Set(), pendingCells:new Set(), columnStartedAt:new Map(), lastGoodColumns:new Map(), menuActionAt:new Map(), sourceQtyMap:{}, activeMenuKey:'', menuOpenedAt:0, availableSeq:0, autoSaveTimers:new Map(), autoSaveInFlight:new Set(), saveLocks:new Set(), pendingManualSaveTimers:new Map(), savePromises:new Map(), saveAgainAfterLock:new Set(), saveLockStarted:new Map(), cellEditRevision:new Map(), cellSaveSignatures:new Map(), appliedShipOps:new Set(), shipDeductProtected:new Map(), pendingShipDeductByCell:new Map(), conflictNotifiedCells:new Map(), appliedAvailableOps:new Map(), availableMutationSeq:0, failedSaveSeq:0, failedSaveNoticeAt:0, slotRedirects:new Map(), slotRedirectSeen:new Map(), structureEpochByColumn:new Map(), slotIndexSyncNoticeAt:0, consistencyQueue:new Map(), consistencySeq:0, consistencyNoticeAt:0, consistencyCheckInFlight:false, queuedColumnOps:new Map(), columnLocalRevision:new Map(), columnLocalRevisionReason:new Map()
   };
-  const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
-  const columnKey = (z,c)=>`${clean(z).toUpperCase()}-${Number(c)}`;
+  function sanitizeWarehouseSlotNumber(v){
+    const m=String(v == null ? '' : v).trim().match(/\d+/);
+    const n=m ? Number(m[0]) : Number(v||0);
+    return Number.isFinite(n) && n>0 ? Math.floor(n) : 1;
+  }
+  function sanitizeWarehouseColumnNumber(v){
+    const m=String(v == null ? '' : v).trim().match(/\d+/);
+    const n=m ? Number(m[0]) : Number(v||0);
+    return Number.isFinite(n) && n>0 ? Math.floor(n) : 1;
+  }
+  const key = (z,c,s)=>`${clean(z).toUpperCase()}-${sanitizeWarehouseColumnNumber(c)}-${sanitizeWarehouseSlotNumber(s)}`;
+  const columnKey = (z,c)=>`${clean(z).toUpperCase()}-${sanitizeWarehouseColumnNumber(c)}`;
   function currentColumnLocalRevision(z,c){
     try{ return Number(state.columnLocalRevision?.get?.(columnKey(z,c)) || 0); }catch(_e){ return 0; }
   }
@@ -877,7 +887,22 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const protectedCellsByKey=protectedCellKeySet();
     const normalized=(Array.isArray(incomingCells)?incomingCells:[]).map(cell=>normalizeServerCell(cell));
     if(!protectedCols.size && !protectedCellsByKey.size){
-      state.data={cells:normalized, zones:zonesData||{A:{},B:{}}};
+      const incomingTotal=warehouseCellItemTotalFromCells(normalized);
+      const localTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
+      // V425: avoid whole-page blanking when a stale/empty warehouse response races after local/cache data.
+      if(incomingTotal<=0 && localTotal>0){
+        state.data={cells:state.data.cells||[], zones:(state.data&&state.data.zones)||zonesData||{A:{},B:{}}};
+        return;
+      }
+      // V425: if a same-slot server row is empty but local/cache row has products, keep the non-empty row.
+      const localByKey=new Map((state.data.cells||[]).map(cell=>[key(cell.zone,cell.column_index,cell.slot_number), cell]));
+      const guarded=normalized.map(cell=>{
+        const lk=key(cell.zone,cell.column_index,cell.slot_number);
+        const local=localByKey.get(lk);
+        if(local && cellItemsFromRow(cell).length<=0 && cellItemsFromRow(local).length>0) return local;
+        return cell;
+      });
+      state.data={cells:guarded, zones:zonesData||{A:{},B:{}}};
       return;
     }
     const localProtected=(state.data.cells||[]).filter(cell=>
@@ -1024,7 +1049,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v423-warehouse-fresh-reload-unplaced-sync';
+  const CACHE_VERSION = 'v425-warehouse-visible-items-hard-repair';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
@@ -1076,15 +1101,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       let it = raw;
       if(typeof it === 'string' || typeof it === 'number') it = {product_text:String(it||'')};
       if(!it || typeof it !== 'object') return null;
-      const product = clean(it.product_text || it.product || it.product_size || it.display_product_size || it.base_product_size || it.size || it.size_text || it.dimension || it.dimensions || it.product_label || it.name || '');
+      const product = clean(it.product_text || it.product || it.product_size || it.display_product_size || it.base_product_size || it.size || it.size_text || it.dimension || it.dimensions || it.product_label || it.name || it.raw_text || it.label || it.title || it.detail || it.description || '');
       const qtyRaw = it.qty ?? it.quantity ?? it.pieces ?? it.count ?? it.piece_count ?? it.total_qty ?? it.件數;
       let qty = Math.floor(Number(qtyRaw || 0));
       if((!qty || qty < 0) && product){
         try{ qty = Math.floor(Number(window.YX30EffectiveQty ? window.YX30EffectiveQty(product, 1) : 1)); }catch(_e){ qty = 1; }
       }
-      if(!qty || qty < 0) qty = 1;
+      if(!qty || qty < 0) qty = product ? 1 : 0;
       const out = {...it};
-      if(product){ out.product_text = clean(out.product_text || product); out.product = clean(out.product || product); }
+      if(product){ out.product_text = clean(out.product_text || product); out.product = clean(out.product || product); out.raw_text = clean(out.raw_text || product); }
       out.customer_name = cleanCustomer(out.customer_name || out.customer || '庫存');
       out.material = materialOf(out);
       out.qty = qty;
@@ -1094,7 +1119,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }catch(_e){ return null; }
   }
   function normalizeCellItemsForDisplay(arr){
-    return (Array.isArray(arr)?arr:[]).map(normalizeCellItemForDisplay).filter(it=>it && itemQty(it)>0);
+    return (Array.isArray(arr)?arr:[]).map(normalizeCellItemForDisplay).filter(it=>it && (productText(it) || clean(it.raw_text||'')) && itemQty(it)>0);
   }
   function parseCellItemsPayload(raw){
     try{
@@ -1108,18 +1133,31 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(value && typeof value === 'object' && !Array.isArray(value)){
         if(Array.isArray(value.items)) value = value.items;
         else if(Array.isArray(value.rows)) value = value.rows;
-        else if(value.product_text || value.product || value.size || value.dimension) value = [value];
+        else if(typeof value.items_json === 'string' && value.items_json.trim()) value = parseCellItemsPayload(value.items_json);
+        else if(value.product_text || value.product || value.product_size || value.size || value.dimension || value.raw_text || value.label || value.name || value.title) value = [value];
         else value = [];
       }
       return Array.isArray(value) ? value : [];
-    }catch(_e){ return []; }
+    }catch(_e){ return raw ? [{raw_text:String(raw), product_text:String(raw), qty:1, customer_name:'庫存'}] : []; }
   }
   function cellItemsFromRow(cell){
     const raw = Array.isArray(cell?.items) ? cell.items : parseCellItemsPayload(cell?.items_json || cell?.items || []);
     return normalizeCellItemsForDisplay(raw);
   }
+  function warehouseCellItemTotalFromCells(cells){
+    try{ return (Array.isArray(cells)?cells:[]).reduce((sum,cell)=>sum + cellItemsFromRow(cell).reduce((a,it)=>a+Math.max(0,itemQty(it)||0),0),0); }catch(_e){ return 0; }
+  }
   function cacheWarehouseNow(){
-    try{ normalizeWarehouseCellsBeforeCache(); cacheSet(WAREHOUSE_CACHE_KEY, {cells:state.data.cells||[], zones:state.data.zones||{A:{},B:{}}, source_qty_map:state.sourceQtyMap||{}}); }catch(_e){}
+    try{
+      normalizeWarehouseCellsBeforeCache();
+      const next={cells:state.data.cells||[], zones:state.data.zones||{A:{},B:{}}, source_qty_map:state.sourceQtyMap||{}};
+      const nextTotal=warehouseCellItemTotalFromCells(next.cells);
+      const old=cacheGet(WAREHOUSE_CACHE_KEY, 1000*60*60*24*30);
+      const oldTotal=warehouseCellItemTotalFromCells(old && old.cells);
+      // V424: 不刪快取，只加保護：空白 API/舊回讀不可覆蓋已有商品的正常倉庫快取。
+      if(nextTotal<=0 && oldTotal>0 && !(state && state.allowEmptyWarehouseCacheWrite)) return;
+      cacheSet(WAREHOUSE_CACHE_KEY, next);
+    }catch(_e){}
   }
   function cacheAvailableNow(){
     try{ cacheSet(AVAILABLE_CACHE_KEY, {available:state.available||[], availableByZone:state.availableByZone||{A:[],B:[]}}); }catch(_e){}
@@ -1128,9 +1166,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const row={...(cell||{})};
     row.zone=clean(forceZone || row.zone || 'A').toUpperCase();
     if(!['A','B'].includes(row.zone)) row.zone='A';
-    row.column_index=Number(forceColumn || row.column_index || row.column || 1);
-    row.slot_number=Number(row.slot_number || row.slot || 1);
-    row.slot_type=row.slot_type||'direct';
+    row.column_index=sanitizeWarehouseColumnNumber(forceColumn || row.column_index || row.column || 1);
+    row.slot_number=sanitizeWarehouseSlotNumber(row.slot_number || row.slot || row.name || 1);
+    row.slot_type=clean(row.slot_type || 'direct') || 'direct';
     row.items=cellItemsFromRow(row);
     row.items_json=JSON.stringify(row.items||[]);
     row.is_deleted=row.is_deleted||0;
@@ -1351,7 +1389,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       try{ state.availableCache={}; state.availableSeq++; }catch(_e){}
       try{ updateAllSlots(); }catch(_e){}
       try{ updateUnplacedPillLocal(); }catch(_e){}
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v423-warehouse-fresh-reload-unplaced-sync'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v425-warehouse-visible-items-hard-repair'}})); }catch(_e){}
     }
     return changed;
   }
@@ -1612,12 +1650,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return {...it, product_text:product, product, customer_name:cleanCustomer(it?.customer_name||it?.customer||''), material:materialOf(it), qty:q, unplaced_qty:q, available_qty:q, remaining_qty:q, __warehouseCellItem:true, source:sourceOf(it), source_table:it?.source_table || it?.source || sourceOf(it), source_id:it?.source_id || it?.id || '', placement_label:placement || it?.placement_label || it?.layer_label || '前排', layer_label:placement || it?.placement_label || it?.layer_label || '前排'};
   }
   function cellFromData(z,c,s){
-    z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
+    z=clean(z).toUpperCase(); c=sanitizeWarehouseColumnNumber(c); s=sanitizeWarehouseSlotNumber(s);
     return (state.data.cells||[]).find(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c && Number(x.slot_number)===s && !isDeletedCell(x)) || null;
   }
   function isDeletedCell(cell){ return ['1','true','yes','deleted',1,true].includes(cell?.is_deleted); }
   function activeColumnCells(z,c){
-    z=clean(z).toUpperCase(); c=Number(c);
+    z=clean(z).toUpperCase(); c=sanitizeWarehouseColumnNumber(c);
     return (state.data.cells||[]).filter(x=>clean(x.zone).toUpperCase()===z && Number(x.column_index)===c && !isDeletedCell(x)).sort((a,b)=>Number(a.slot_number)-Number(b.slot_number));
   }
 
@@ -1877,7 +1915,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const d = await api('/api/warehouse?fast=1&lite=1&yx166_stability=1' + (force ? '&force=1&cache_bust=' + encodeURIComponent(CACHE_VERSION + '-' + Date.now()) : ''));
       if (seq !== state.loadSeq && !force) return state.data; // stale DB response must not overwrite user edits.
       const freshCells=Array.isArray(d.cells)?d.cells:[];
-      mergeCellsPreservingLocalProtected(freshCells, d.zones||{A:{},B:{}});
+      const beforeTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
+      const incomingTotal=warehouseCellItemTotalFromCells(freshCells.map(cell=>normalizeServerCell(cell)));
+      const serverConfirmedEmpty = !!(d && (d.warehouse_confirmed_empty === true || d.confirmed_empty === true));
+      if(incomingTotal<=0 && beforeTotal>0 && !serverConfirmedEmpty){
+        // V425: even force/manual reload must not repaint an empty/stale API payload over visible products.
+        // The backend can explicitly mark a real empty warehouse with warehouse_confirmed_empty=true.
+      }else{
+        mergeCellsPreservingLocalProtected(freshCells, d.zones||{A:{},B:{}});
+      }
       if(d.source_qty_map || d.source_totals) state.sourceQtyMap=d.source_qty_map||d.source_totals||{};
       cacheWarehouseNow();
       window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available};
@@ -2956,7 +3002,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v423', sync_version:'v423-warehouse-fresh-reload-unplaced-sync', cache_bust:'v423-warehouse-fresh-reload-unplaced-sync'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v423', sync_version:'v425-warehouse-visible-items-hard-repair', cache_bust:'v425-warehouse-visible-items-hard-repair'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2979,7 +3025,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       window.YX?.cache?.clearGroup?.('customer_blocks_');
     }catch(_e){}
   }
-  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v423-warehouse-fresh-reload-unplaced-sync'}; }
+  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v425-warehouse-visible-items-hard-repair'}; }
   function handleWarehouseBackgroundSaveStatus(ev){
     try{
       const item=ev?.detail?.item || {};
@@ -3205,7 +3251,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(toToken!==fromToken) state.lastGoodColumns.set(toToken.key, toSnap);
       queuedWarehouseMovePost({
         operation_id:yxOperationId('warehouse-move-cell'),
-        client_stability:'v423-warehouse-fresh-reload-unplaced-sync',
+        client_stability:'v425-warehouse-visible-items-hard-repair',
         strict_validate:0,
         source_cell_items:src.items,
         target_cell_items_before:dst.items,
@@ -3343,7 +3389,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v425-warehouse-visible-items-hard-repair',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-insert',slot:Number(d?.first_slot||s+1),highlightSlot:Number(d?.first_slot||s+1),operation_id:d?.operation_id||'',message:`批量新增 ${count} 格已永久存入資料庫`});
     }, '批量新增格子', {token});
   }
@@ -3374,7 +3420,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
-      client_stability:'v423-warehouse-fresh-reload-unplaced-sync',
+      client_stability:'v425-warehouse-visible-items-hard-repair',
       zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, (d, token)=>{
@@ -3389,7 +3435,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const localSlot=localInsertSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v425-warehouse-visible-items-hard-repair',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'insert',slot:Number(d?.slot_number||localSlot),highlightSlot:Number(d?.slot_number||localSlot),operation_id:d?.operation_id||'',message:'新增格子已永久存入資料庫'});
     }, '新增格子', {token});
   }
@@ -3402,7 +3448,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     localDeleteSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,nextVisibleSlotAfterStructure(z,c,s)); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v425-warehouse-visible-items-hard-repair',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:'刪除空格已永久存入資料庫'});
     }, '刪除空格', {token});
   }
@@ -3425,7 +3471,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
+    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v425-warehouse-visible-items-hard-repair',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'return-unplaced',slot:s,highlightSlot:s,operation_id:d?.operation_id||'',message:'退回該格已永久存入資料庫'});
       notifyWarehouseChanged({action:'return-unplaced',zone:z,column_index:c,slot_number:s,items:oldItems,customer_name:(oldItems||[]).map(it=>it.customer_name).filter(Boolean)[0]||'',operation_id:d?.operation_id||''});
       loadAvailable(true).catch(()=>{});
@@ -3752,7 +3798,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(highlightCell && highlightCell.zone && highlightCell.column_index && highlightCell.slot_number) highlightWarehouseCell(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number);
         const refreshTarget=clean(refreshTargets.join('、') || (highlightCell ? refreshLabel(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number) : '倉庫格位'));
         try{ ctx._yx_refresh_target=refreshTarget; }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v423-warehouse-fresh-reload-unplaced-sync'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v425-warehouse-visible-items-hard-repair'}})); }catch(_e){}
         return true;
       }
     }catch(e){
@@ -3760,7 +3806,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     return false;
   }
-  window.YXFinalWarehouse={version:'v423-warehouse-fresh-reload-unplaced-sync',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
+  window.YXFinalWarehouse={version:'v425-warehouse-visible-items-hard-repair',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
   if(YX.register) YX.register('warehouse',{install,render:renderWarehouse,cleanup:()=>{}});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
 })();
@@ -4055,3 +4101,5 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v423_fresh_reload_unplaced_sync: DB column readbacks now require the latest column operation token/local revision, preventing older drag/insert/delete/return responses from overwriting newer continuous warehouse changes. No renderer/setInterval/MutationObserver added.
 
 // warehouse_v423_fresh_reload_unplaced_sync: force/manual warehouse reload and unplaced dropdown refresh bypass local/server fast cache; normal entry still uses cache for speed. No renderer/setInterval/MutationObserver added; removed operation status panel stays removed.
+
+// V424 warehouse_visible_items_cache_guard: preserves existing cache architecture while preventing empty warehouse readbacks/cache writes from hiding saved products; normalize now keeps legacy/raw item fields. No renderer/setInterval/MutationObserver added.

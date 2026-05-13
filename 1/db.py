@@ -3552,13 +3552,15 @@ def _normalize_warehouse_items(items):
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
-        product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or '').strip())
+        product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or raw.get('product_size') or raw.get('display_product_size') or raw.get('base_product_size') or raw.get('size') or raw.get('size_text') or raw.get('dimension') or raw.get('dimensions') or raw.get('raw_text') or raw.get('label') or '').strip())
         if not product_text:
             continue
         try:
-            qty = int(raw.get('qty') or 0)
+            qty = int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or 0)
         except Exception:
             qty = 0
+        if qty <= 0 and product_text:
+            qty = 1
         # V133: DB canonical save also trusts product_text quantity, so 63x30x125=240x49 cannot be stored as 1.
         try:
             if '=' in product_text:
@@ -3567,7 +3569,7 @@ def _normalize_warehouse_items(items):
             pass
         if qty <= 0:
             continue
-        customer_name = str(raw.get('customer_name') or '').strip()
+        customer_name = str(raw.get('customer_name') or raw.get('customer') or '').strip()
         # service-line retained: database migration behavior consolidated into formal services.
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
         material = clean_material_value(raw.get('material') or raw.get('product_code') or '', product_text)
@@ -5042,9 +5044,11 @@ def _yx_v79_ensure_warehouse_columns(cur):
 def _yx_v79_items_len(value):
     try:
         arr=json.loads(value or '[]')
-        return len(arr) if isinstance(arr, list) else 0
+        if not isinstance(arr, list):
+            return 0
+        return sum(1 for it in arr if isinstance(it, dict) and str(it.get('product_text') or it.get('product') or it.get('size') or it.get('dimension') or it.get('raw_text') or it.get('label') or '').strip())
     except Exception:
-        return 0
+        return 1 if _yx_v425_json_has_items(value) else 0
 
 
 def _yx_v79_merge_json_values(values):
@@ -5079,6 +5083,43 @@ def _yx_v79_merge_json_values(values):
     except Exception:
         return json.dumps(merged, ensure_ascii=False)
 
+
+
+def _yx_v425_json_has_items(value):
+    try:
+        arr = json.loads(value or '[]')
+        if not isinstance(arr, list):
+            return False
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('dimension') or it.get('raw_text') or it.get('label') or '').strip()
+            if product:
+                return True
+        return False
+    except Exception:
+        return bool(str(value or '').strip() and str(value or '').strip() not in ('[]', '{}', 'null', 'None'))
+
+def _yx_v425_rescue_legacy_slot_type_items(cur):
+    """Make old front/back/blank slot_type rows visible without clearing warehouse data.
+    Rows with product JSON must be treated as direct cells, otherwise warehouse_get_cells hides them.
+    """
+    try:
+        _yx_v79_ensure_warehouse_columns(cur)
+        cur.execute(sql("""
+            SELECT id, items_json, slot_type
+            FROM warehouse_cells
+            WHERE COALESCE(is_deleted,0)=0
+              AND COALESCE(NULLIF(TRIM(slot_type),''),'direct') <> 'direct'
+        """))
+        rows = rows_to_dict(cur)
+        ids = [r.get('id') for r in rows if _yx_v425_json_has_items(r.get('items_json'))]
+        if ids:
+            q = ','.join(['?'] * len(ids))
+            cur.execute(sql(f"UPDATE warehouse_cells SET slot_type='direct', updated_at=? WHERE id IN ({q})"), (now(), *tuple(ids)))
+    except Exception as e:
+        try: log_error('v425_rescue_legacy_slot_type_items', str(e))
+        except Exception: pass
 
 def _yx_v79_merge_duplicate_slots_all(cur):
     _yx_v79_ensure_warehouse_columns(cur)
@@ -5171,6 +5212,7 @@ def warehouse_get_cells():
     try:
         # Minimal, non-destructive schema/slot preparation only.
         _yx_v79_ensure_warehouse_columns(cur)
+        _yx_v425_rescue_legacy_slot_type_items(cur)
         _yx_v79_merge_duplicate_slots_all(cur)  # hides merged duplicate rows; does not delete product data
         _yx_v79_ensure_min_visible_slots(cur, default_slots=25)
         conn.commit()
@@ -5207,6 +5249,7 @@ def warehouse_summary():
 
 def _warehouse_ensure_column_slots(cur, zone, column_index, upto=25):
     _yx_v79_ensure_warehouse_columns(cur)
+    _yx_v425_rescue_legacy_slot_type_items(cur)
     _yx_v79_merge_duplicate_slots_all(cur)
     _yx_v79_ensure_min_visible_slots(cur, zone, int(column_index or 1), default_slots=max(25, int(upto or 25)))
 
@@ -5546,6 +5589,43 @@ def _yx_v87_normalize_direct_duplicates(cur, zone=None, column_index=None):
                 WHERE id=?
             """), (hidden_type, now(), rid))
 
+
+
+def _yx_v425_json_has_items(value):
+    try:
+        arr = json.loads(value or '[]')
+        if not isinstance(arr, list):
+            return False
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('dimension') or it.get('raw_text') or it.get('label') or '').strip()
+            if product:
+                return True
+        return False
+    except Exception:
+        return bool(str(value or '').strip() and str(value or '').strip() not in ('[]', '{}', 'null', 'None'))
+
+def _yx_v425_rescue_legacy_slot_type_items(cur):
+    """Make old front/back/blank slot_type rows visible without clearing warehouse data.
+    Rows with product JSON must be treated as direct cells, otherwise warehouse_get_cells hides them.
+    """
+    try:
+        _yx_v79_ensure_warehouse_columns(cur)
+        cur.execute(sql("""
+            SELECT id, items_json, slot_type
+            FROM warehouse_cells
+            WHERE COALESCE(is_deleted,0)=0
+              AND COALESCE(NULLIF(TRIM(slot_type),''),'direct') <> 'direct'
+        """))
+        rows = rows_to_dict(cur)
+        ids = [r.get('id') for r in rows if _yx_v425_json_has_items(r.get('items_json'))]
+        if ids:
+            q = ','.join(['?'] * len(ids))
+            cur.execute(sql(f"UPDATE warehouse_cells SET slot_type='direct', updated_at=? WHERE id IN ({q})"), (now(), *tuple(ids)))
+    except Exception as e:
+        try: log_error('v425_rescue_legacy_slot_type_items', str(e))
+        except Exception: pass
 
 def _yx_v79_merge_duplicate_slots_all(cur):
     # Keep compatibility: any old caller now uses the safe duplicate normalizer.

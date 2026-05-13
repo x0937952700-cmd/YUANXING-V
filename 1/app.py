@@ -37,8 +37,8 @@ from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
 APP_VERSION = 'V119-V423-WAREHOUSE-FRESH-RELOAD-UNPLACED-SYNC'
-STATIC_VERSION = '119-v423-warehouse-fresh-reload-unplaced-sync'
-API_SCHEMA_VERSION = 'v423-warehouse-fresh-reload-unplaced-sync'
+STATIC_VERSION = '119-v425-warehouse-visible-items-hard-repair'
+API_SCHEMA_VERSION = 'v425-warehouse-visible-items-hard-repair'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -1413,13 +1413,18 @@ def normalize_warehouse_payload_items(items):
     for it in items or []:
         if not isinstance(it, dict):
             continue
-        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
         if not product:
             continue
         try:
-            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or 1)
         except Exception:
             qty = 1
+        try:
+            if '=' in product:
+                qty = int(effective_product_qty(product, qty))
+        except Exception:
+            pass
         qty = max(1, qty)
         customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
         material = (it.get('material') or it.get('wood_type') or '').strip()
@@ -1427,7 +1432,7 @@ def normalize_warehouse_payload_items(items):
         source_id = str(it.get('source_id') or it.get('id') or '').strip()
         placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
         # service-line retained: mainfile behavior consolidated into formal services.
-        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id, placement_label)
         row = out_map.get(key)
         if row:
             row['qty'] = int(row.get('qty') or 0) + qty
@@ -3293,19 +3298,80 @@ def _warehouse_source_qty_map_for_client():
         return {}
 
 
+
+def _warehouse_cell_items_for_count(cell):
+    try:
+        raw = []
+        if isinstance(cell, dict):
+            if isinstance(cell.get('items'), list):
+                raw = cell.get('items') or []
+            else:
+                txt = cell.get('items_json') or '[]'
+                raw = json.loads(txt) if isinstance(txt, str) else (txt or [])
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for it in raw:
+            if not isinstance(it, dict):
+                continue
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
+            if not product:
+                continue
+            try:
+                q = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or effective_product_qty(product, 1) or 1)
+            except Exception:
+                q = 1
+            if q > 0:
+                out.append(it)
+        return out
+    except Exception:
+        return []
+
+def _warehouse_payload_item_total(cells):
+    total = 0
+    nonempty = 0
+    for cell in cells or []:
+        arr = _warehouse_cell_items_for_count(cell)
+        if arr:
+            nonempty += 1
+            for it in arr:
+                product = str(it.get('product_text') or it.get('product') or it.get('size') or '').strip()
+                try:
+                    total += max(1, int(it.get('qty') or it.get('quantity') or it.get('pieces') or effective_product_qty(product, 1) or 1))
+                except Exception:
+                    total += 1
+    return int(total), int(nonempty)
+
 def _warehouse_payload_from_cells(cells, include_source_qty=False):
     zones = {"A": {}, "B": {}}
+    safe_cells = []
     for cell in cells or []:
         try:
-            z = (cell.get('zone') or 'A').strip().upper()
+            row = dict(cell or {})
+            # V425: API display safety. If DB row has legacy items_json, always expose parsed items.
+            parsed_items = _warehouse_cell_items_for_count(row)
+            if parsed_items and not isinstance(row.get('items'), list):
+                try:
+                    raw_items = json.loads(row.get('items_json') or '[]')
+                    row['items'] = raw_items if isinstance(raw_items, list) else parsed_items
+                except Exception:
+                    row['items'] = parsed_items
+            z = (row.get('zone') or 'A').strip().upper()
             if z not in ('A','B'):
                 z = 'A'
-            c = int(cell.get('column_index') or 1)
-            n = int(cell.get('slot_number') or 1)
-            zones.setdefault(z, {}).setdefault(c, {})[n] = cell
+            row['zone'] = z
+            c = int(row.get('column_index') or 1)
+            n = int(row.get('slot_number') or 1)
+            row['column_index'] = c
+            row['slot_number'] = n
+            safe_cells.append(row)
+            zones.setdefault(z, {}).setdefault(c, {})[n] = row
         except Exception:
             pass
-    payload = dict(success=True, zones=zones, cells=cells or [], cache_version=API_SCHEMA_VERSION, cache_policy=API_SCHEMA_VERSION)
+    item_total, nonempty_count = _warehouse_payload_item_total(safe_cells)
+    payload = dict(success=True, zones=zones, cells=safe_cells, cache_version=API_SCHEMA_VERSION, cache_policy=API_SCHEMA_VERSION,
+                   warehouse_item_total=item_total, warehouse_nonempty_cell_count=nonempty_count,
+                   warehouse_confirmed_empty=(item_total == 0 and nonempty_count == 0))
     if include_source_qty:
         payload['source_qty_map'] = _warehouse_source_qty_map_for_client()
     return payload
@@ -3441,10 +3507,17 @@ def api_warehouse():
         if not include_source and not force_fresh:
             cached = _warehouse_cache_get()
             if cached:
-                cached['server_cache'] = True
-                cached['cache_bust'] = API_SCHEMA_VERSION
-                cached['sync_version'] = API_SCHEMA_VERSION
-                return jsonify(cached)
+                try:
+                    cached_total = int(cached.get('warehouse_item_total') or _warehouse_payload_item_total(cached.get('cells') or [])[0] or 0)
+                except Exception:
+                    cached_total = 0
+                # V425: keep server cache, but never serve a cached empty warehouse if a readback is needed.
+                # This prevents an old empty payload from hiding real DB items for 120 seconds.
+                if cached_total > 0:
+                    cached['server_cache'] = True
+                    cached['cache_bust'] = API_SCHEMA_VERSION
+                    cached['sync_version'] = API_SCHEMA_VERSION
+                    return jsonify(cached)
         cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_cells()]
         payload = _warehouse_payload_from_cells(cells, include_source_qty=include_source)
         payload['force_fresh'] = bool(force_fresh)
@@ -3583,6 +3656,8 @@ def api_warehouse_cell():
             saved_items = json.loads(saved_after.get('items_json') or '[]')
         except Exception:
             saved_items = []
+        if items and not saved_items:
+            return _yx_operation_error_response(operation_id, 'warehouse_cell_save', '格位商品寫入後讀回為空，已阻止空資料覆蓋前端')
         # service-line retained: mainfile behavior consolidated into formal services.
         # The important check is that the exact cell can be read back from DB and the saved payload is returned.
         saved_cell_payload = dict(saved_after or {})
@@ -6150,13 +6225,18 @@ def normalize_warehouse_payload_items(items):
     for it in items or []:
         if not isinstance(it, dict):
             continue
-        product = (it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
         if not product:
             continue
         try:
-            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 1)
+            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or 1)
         except Exception:
             qty = 1
+        try:
+            if '=' in product:
+                qty = int(effective_product_qty(product, qty))
+        except Exception:
+            pass
         if '=' in product:
             qty = warehouse_service_qty_from_product_text(product, qty)
         qty = max(1, qty)
@@ -6165,7 +6245,7 @@ def normalize_warehouse_payload_items(items):
         source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
         source_id = str(it.get('source_id') or it.get('id') or '').strip()
         placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
-        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id)
+        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id, placement_label)
         row = out_map.get(key)
         if row:
             row['qty'] = int(row.get('qty') or 0) + qty
