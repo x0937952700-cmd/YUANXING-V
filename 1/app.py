@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V417-REMOVE-OPSTATUS-WAREHOUSE-VISIBLE-LONGPRESS'
-STATIC_VERSION = '119-v417-remove-opstatus-warehouse-visible-longpress'
-API_SCHEMA_VERSION = 'v417-remove-opstatus-warehouse-visible-longpress'
+APP_VERSION = 'V119-V423-WAREHOUSE-FRESH-RELOAD-UNPLACED-SYNC'
+STATIC_VERSION = '119-v423-warehouse-fresh-reload-unplaced-sync'
+API_SCHEMA_VERSION = 'v423-warehouse-fresh-reload-unplaced-sync'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -3405,14 +3405,29 @@ def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
             }
     except Exception:
         slot_identity_map = {}
+    try:
+        column_signature = hashlib.sha1(json.dumps([
+            {
+                'slot_number': int((cell or {}).get('slot_number') or 0),
+                'cell_id': (cell or {}).get('cell_id') or (cell or {}).get('id') or '',
+                'client_signature': (cell or {}).get('client_signature') or _warehouse_client_cell_signature(cell),
+            }
+            for cell in col_cells
+        ], ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:20]
+    except Exception:
+        column_signature = ''
     # V272: every warehouse structure write returns DB readback metadata and stable slot identities.
     # Frontend uses this to resolve old slot numbers after insert/delete compaction without a full renderer.
     payload = dict(
         success=True, operation_id=operation_id, partial=True, zone=z, column_index=c,
         column_cells=col_cells, db_readback=True, readback_count=len(col_cells),
-        slot_identity_map=slot_identity_map, column_revision=int(time.time()*1000),
-        warehouse_stability=API_SCHEMA_VERSION
+        slot_identity_map=slot_identity_map, column_revision=int(time.time()*1000), column_signature=column_signature,
+        warehouse_stability=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION
     )
+    try:
+        payload['available_summary'] = _warehouse_available_light_summary()
+    except Exception:
+        pass
     payload.update(extra or {})
     return payload
 
@@ -3422,14 +3437,20 @@ def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
 def api_warehouse():
     try:
         include_source = request.args.get('include_source_qty') == '1'
-        if not include_source:
+        force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
+        if not include_source and not force_fresh:
             cached = _warehouse_cache_get()
             if cached:
                 cached['server_cache'] = True
+                cached['cache_bust'] = API_SCHEMA_VERSION
+                cached['sync_version'] = API_SCHEMA_VERSION
                 return jsonify(cached)
         cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_cells()]
         payload = _warehouse_payload_from_cells(cells, include_source_qty=include_source)
-        if not include_source:
+        payload['force_fresh'] = bool(force_fresh)
+        payload['cache_bust'] = API_SCHEMA_VERSION
+        payload['sync_version'] = API_SCHEMA_VERSION
+        if not include_source and not force_fresh:
             _warehouse_cache_set(payload)
         return jsonify(payload)
     except Exception as e:
@@ -3554,7 +3575,7 @@ def api_warehouse_cell():
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
         _warehouse_cache_clear()
-        column_after = warehouse_get_column_cells(zone, column_index)
+        column_after = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(zone, column_index)]
         saved_after = next((c for c in column_after if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
         if not saved_after:
             return _yx_operation_error_response(operation_id, 'warehouse_cell_save', "格位沒有確實寫入資料庫")
@@ -3581,12 +3602,12 @@ def api_warehouse_cell():
     audit_service_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
     try:
         # service-line retained: mainfile behavior consolidated into formal services.
-        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload, 'column_cells': column_after if 'column_after' in locals() else warehouse_get_column_cells(zone, column_index)}
+        payload = _warehouse_column_payload(zone, column_index, operation_id, saved_cell=saved_cell_payload, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
         _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
         return jsonify(payload)
     except Exception as e:
         log_error('warehouse_cell_response_v40', str(e))
-        payload = {'success': True, 'partial': True, 'operation_id': operation_id, 'saved_cell': saved_cell_payload, 'column_cells': column_after if 'column_after' in locals() else warehouse_get_column_cells(zone, column_index)}
+        payload = _warehouse_column_payload(zone, column_index, operation_id, saved_cell=saved_cell_payload, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
         _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
         return jsonify(payload)
 
@@ -3901,19 +3922,34 @@ def _warehouse_unplaced_snapshot(zone_filter=''):
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    """列出尚未放入倉庫圖的商品；V396 與今日異動共用同一套 source-aware 統計。"""
+    """列出尚未放入倉庫圖的商品；V423 force=1 bypasses server fast cache for manual reload/readback checks."""
     try:
         zone_filter = (request.args.get("zone") or "").strip().upper()
         if zone_filter not in ("A", "B"):
             zone_filter = ""
-        if request.args.get('fast') == '1':
-            cached = _fast_cache_get(_fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=zone_filter or 'ALL', user=current_username()), 120.0)
+        force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
+        cache_key = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=zone_filter or 'ALL', user=current_username())
+        if request.args.get('fast') == '1' and not force_fresh:
+            cached = _fast_cache_get(cache_key, 120.0)
             if cached:
+                cached['server_cache'] = True
+                cached['cache_bust'] = API_SCHEMA_VERSION
+                cached['sync_version'] = API_SCHEMA_VERSION
                 return jsonify(cached)
         items, zone_summary = _warehouse_unplaced_snapshot(zone_filter)
-        payload = dict(success=True, items=items, zone=zone_filter, zone_summary=zone_summary, cache_version=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION)
-        if request.args.get('fast') == '1':
-            _fast_cache_set(_fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=zone_filter or 'ALL', user=current_username()), payload)
+        # If a caller asks for only A/B rows, still return the full A/B/unassigned summary
+        # so the pill and 今日異動 use the same total numbers after a reload.
+        if zone_filter:
+            try:
+                _all_items, full_summary = _warehouse_unplaced_snapshot('')
+                if isinstance(full_summary, dict) and full_summary.get('total') is not None:
+                    zone_summary = full_summary
+            except Exception as _summary_err:
+                try: log_error('warehouse_available_full_summary_v423', str(_summary_err))
+                except Exception: pass
+        payload = dict(success=True, items=items, zone=zone_filter, zone_summary=zone_summary, cache_version=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, force_fresh=bool(force_fresh))
+        if request.args.get('fast') == '1' and not force_fresh:
+            _fast_cache_set(cache_key, payload)
         return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
@@ -7086,3 +7122,5 @@ def api_health_event_flow_v386():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
+# V423: warehouse force reload/available-items force=1 bypass server fast cache for manual refresh/readback checks; column payload carries cache_bust/sync_version and light available summary. No renderer/setInterval/MutationObserver added.

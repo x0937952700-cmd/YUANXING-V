@@ -176,7 +176,56 @@ body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"] button{poi
 [data-zone][data-column][data-slot].yx-consistency-pending{ outline: 2px dashed rgba(245,158,11,.85); outline-offset: 2px; }
 
 
-/* V417: warehouse slot product/long-press rescue; no new renderer. */
+/* V419: warehouse batch/support return sync + V418 slot product/long-press rescue; no new renderer. */
 body[data-module="warehouse"] #warehouse-root .yx108-slot-product:not(.empty),
 body[data-module="warehouse"] #warehouse-root .yx-slot-product-line{display:block!important;visibility:visible!important;opacity:1!important;}
 body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}
+
+
+/* V419: 倉庫商品行持續可視；批量支數同步只修資料，不新增畫面 renderer。 */
+body[data-module="warehouse"] #warehouse-root .yx-final-slot[data-has-items="1"],
+body[data-module="warehouse"] #warehouse-root .vertical-slot[data-has-items="1"]{
+  content-visibility: visible !important;
+  contain: layout paint style;
+}
+body[data-module="warehouse"] #warehouse-root .yx-final-slot[data-has-items="1"] .yx108-slot-product,
+body[data-module="warehouse"] #warehouse-root .vertical-slot[data-has-items="1"] .yx108-slot-product{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  min-height:18px!important;
+  max-height:38px!important;
+  color:#0f766e!important;
+  font-weight:900!important;
+  white-space:normal!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  pointer-events:none!important;
+}
+body[data-module="warehouse"] #warehouse-root .yx-final-slot[data-has-items="1"] .yx108-slot-product.empty,
+body[data-module="warehouse"] #warehouse-root .vertical-slot[data-has-items="1"] .yx108-slot-product.empty{
+  visibility:visible!important;
+  display:block!important;
+}
+body[data-module="warehouse"] #warehouse-root .yx-slot-product-line{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  line-height:1.12!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden),
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{
+  display:flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  z-index:2147483647!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden) button,
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"] button{
+  pointer-events:auto!important;
+  touch-action:manipulation!important;
+}

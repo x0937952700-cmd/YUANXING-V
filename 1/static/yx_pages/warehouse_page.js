@@ -436,6 +436,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
    原則：倉庫頁只吃 templates/module.html 內唯一 HTML；本檔只更新資料、事件、API，不再整頁 render / 不再吃舊 render。 */
 (function(){
   'use strict';
+  // V420 warehouse cell save/reopen sync: committed batch rows are cleared from drafts, and close/switch flushes live edits into the existing autosave queue. No renderer/timer loop added.
+  // V420 warehouse batch/support return sync: batch rows with different 支數 no longer merge into one wrong line, and returned/consumed dropdown deltas keep combined support text. No renderer/timer loop added.
+  // V418 warehouse visible/longpress regression: slot item normalization + delegated menu repair; no renderer/timer loop added.
   // V411 warehouse cell-edit stability: remove-current-item redraws before autosave, baseline delta is explicit for deletes, and batch same item keeps placement; no renderer/timer loop added.
   // V219 warehouse stability: live editor inputs are flushed to local cell + draft before switching/closing, and input debounced autosave protects quick cell changes; no renderer/timer loop added.
   // V188 warehouse stability: delayed same-cell saves are key-checked before running, so a queued save can never write into the wrong cell after the user switches cells; no renderer/timer loop added.
@@ -444,6 +447,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   // Prevent duplicate document click/change/input listeners when the module script is loaded twice.
   if (window.__YX_WAREHOUSE_MAIN_SINGLETON__) return;
   window.__YX_WAREHOUSE_MAIN_SINGLETON__ = true;
+  window.__YX_WAREHOUSE_MAIN_SINGLETON_V420__ = true;
   window.__YX_WAREHOUSE_MAIN_SINGLETON_V219__ = true;
   window.__YX_WAREHOUSE_MAIN_SINGLETON_V187__ = true;
   window.__YX_WAREHOUSE_MAIN_SINGLETON_V186__ = true;
@@ -590,8 +594,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       }
     }
     writeFailedSaves(keep);
-    if(ok){ try{ clearWarehouseCaches(); cacheWarehouseNow(); notifyWarehouseChanged({action:'cell-save-retry',version:'v406',count:ok}); await loadAvailable().catch(()=>{}); updateAllSlots(); }catch(_e){} }
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-cell-save-retry',message:fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆`,count:ok,failed:fail,version:'v406',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
+    if(ok){ try{ clearWarehouseCaches(); cacheWarehouseNow(); notifyWarehouseChanged({action:'cell-save-retry',version:'v423',count:ok}); await loadAvailable(true).catch(()=>{}); updateAllSlots(); }catch(_e){} }
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-cell-save-retry',message:fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆`,count:ok,failed:fail,version:'v423',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
     if(opts.toast || ok || fail){ toast(fail?`倉庫保存已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫保存已重送 ${ok} 筆` , fail?'warn':'ok'); }
     return {success:fail===0,count:ok,failed:fail};
   }
@@ -674,11 +678,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       try{
         clearWarehouseCaches();
         await renderWarehouse(true);
-        await loadAvailable().catch(()=>{});
-        notifyWarehouseChanged({action:'structure-op-retry',version:'v406',count:ok});
+        await loadAvailable(true).catch(()=>{});
+        notifyWarehouseChanged({action:'structure-op-retry',version:'v423',count:ok});
       }catch(_e){}
     }
-    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-structure-retry',message:fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`,count:ok,failed:fail,version:'v406',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
+    try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:fail?'pending':'success',reason:'warehouse-structure-retry',message:fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`,count:ok,failed:fail,version:'v423',detail_text:arr.slice(0,3).map(r=>r.label||r.id).filter(Boolean).join('、')}})); }catch(_e){}
     if(opts.toast || ok || fail){ toast(fail?`倉庫結構操作已重送 ${ok} 筆，仍有 ${fail} 筆待重試`:`倉庫結構操作已重送 ${ok} 筆`, fail?'warn':'ok'); }
     return {success:fail===0,count:ok,failed:fail};
   }
@@ -711,7 +715,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const isStructureRetry=shouldRememberWarehouseStructureOp(url,payload) && !(result && result.permanent===true);
       if(isStructureRetry) rememberFailedWarehouseStructureOp(url,payload,label,result?.error||'background-save-failed');
       else forgetFailedWarehouseStructureOp(url,payload);
-      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'warehouse-background-failed',error:result?.error||'請稍後確認',version:'v406',retry_saved:isStructureRetry,url,payload,label,cell_label:[clean(payload?.zone||payload?.from?.zone||''), payload?.column_index||payload?.from?.column_index||'', payload?.slot_number||payload?.from?.slot_number||''].filter(Boolean).join('-')}}));}catch(_e){}
+      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'warehouse-background-failed',error:result?.error||'請稍後確認',version:'v423',retry_saved:isStructureRetry,url,payload,label,cell_label:[clean(payload?.zone||payload?.from?.zone||''), payload?.column_index||payload?.from?.column_index||'', payload?.slot_number||payload?.from?.slot_number||''].filter(Boolean).join('-')}}));}catch(_e){}
       toast(isStructureRetry ? `${label||'操作'}保存延遲，畫面已保留並加入結構重送` : `${label||'操作'}沒有確實存入資料庫，已還原該欄：${result?.error||'請稍後確認'}`, isStructureRetry?'warn':'error');
       if(isStructureRetry) return {success:true, queued:true, retry_saved:true, structure_retry:true, error:result?.error||'background-save-failed'};
       return {success:false, retry_saved:false, error:result?.error||'background-save-failed'};
@@ -802,10 +806,35 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   const state = {
     data:{cells:[], zones:{A:{},B:{}}}, available:[], availableByZone:{A:[],B:[]}, activeZone:null, searchKeys:new Set(), undoStack:[],
     current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false, modalSeq:0, loadSeq:0,
-    columnChains:new Map(), columnSeq:new Map(), pendingColumns:new Set(), pendingCells:new Set(), columnStartedAt:new Map(), lastGoodColumns:new Map(), menuActionAt:new Map(), sourceQtyMap:{}, activeMenuKey:'', menuOpenedAt:0, availableSeq:0, autoSaveTimers:new Map(), autoSaveInFlight:new Set(), saveLocks:new Set(), pendingManualSaveTimers:new Map(), savePromises:new Map(), saveAgainAfterLock:new Set(), saveLockStarted:new Map(), cellEditRevision:new Map(), cellSaveSignatures:new Map(), appliedShipOps:new Set(), shipDeductProtected:new Map(), pendingShipDeductByCell:new Map(), conflictNotifiedCells:new Map(), appliedAvailableOps:new Map(), availableMutationSeq:0, failedSaveSeq:0, failedSaveNoticeAt:0, slotRedirects:new Map(), slotRedirectSeen:new Map(), structureEpochByColumn:new Map(), slotIndexSyncNoticeAt:0, consistencyQueue:new Map(), consistencySeq:0, consistencyNoticeAt:0, consistencyCheckInFlight:false, queuedColumnOps:new Map()
+    columnChains:new Map(), columnSeq:new Map(), pendingColumns:new Set(), pendingCells:new Set(), columnStartedAt:new Map(), lastGoodColumns:new Map(), menuActionAt:new Map(), sourceQtyMap:{}, activeMenuKey:'', menuOpenedAt:0, availableSeq:0, autoSaveTimers:new Map(), autoSaveInFlight:new Set(), saveLocks:new Set(), pendingManualSaveTimers:new Map(), savePromises:new Map(), saveAgainAfterLock:new Set(), saveLockStarted:new Map(), cellEditRevision:new Map(), cellSaveSignatures:new Map(), appliedShipOps:new Set(), shipDeductProtected:new Map(), pendingShipDeductByCell:new Map(), conflictNotifiedCells:new Map(), appliedAvailableOps:new Map(), availableMutationSeq:0, failedSaveSeq:0, failedSaveNoticeAt:0, slotRedirects:new Map(), slotRedirectSeen:new Map(), structureEpochByColumn:new Map(), slotIndexSyncNoticeAt:0, consistencyQueue:new Map(), consistencySeq:0, consistencyNoticeAt:0, consistencyCheckInFlight:false, queuedColumnOps:new Map(), columnLocalRevision:new Map(), columnLocalRevisionReason:new Map()
   };
   const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
   const columnKey = (z,c)=>`${clean(z).toUpperCase()}-${Number(c)}`;
+  function currentColumnLocalRevision(z,c){
+    try{ return Number(state.columnLocalRevision?.get?.(columnKey(z,c)) || 0); }catch(_e){ return 0; }
+  }
+  function bumpColumnLocalRevision(z,c,reason){
+    try{
+      if(!state.columnLocalRevision || typeof state.columnLocalRevision.set !== 'function') state.columnLocalRevision = new Map();
+      const k=columnKey(z,c);
+      const next=Number(state.columnLocalRevision.get(k)||0)+1;
+      state.columnLocalRevision.set(k,next);
+      state.columnLocalRevisionReason = state.columnLocalRevisionReason || new Map();
+      state.columnLocalRevisionReason.set(k,{reason:reason||'local-change',at:Date.now()});
+      return next;
+    }catch(_e){ return 0; }
+  }
+  function mayApplyColumnReadback(z,c,token,reason){
+    try{
+      z=clean(z).toUpperCase(); c=Number(c);
+      if(!z || !c) return false;
+      const k=columnKey(z,c);
+      if(token && !isLatestColumnOp(token)) return false;
+      if((state.pendingColumns||new Set()).has(k) && !(token && token.key===k)) return false;
+      if(token && Number(token.localRevision||0) && currentColumnLocalRevision(z,c) > Number(token.localRevision||0)) return false;
+      return true;
+    }catch(_e){ return false; }
+  }
   function isCellLocallyProtected(z,c,s){
     try{
       const k=key(z,c,s);
@@ -899,7 +928,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.columnStartedAt.set(k, Date.now());
     state.lastGoodColumns.set(k, snapshotColumn(z,c));
     markColumnPending(z,c,true);
-    return {key:k, seq};
+    return {key:k, seq, localRevision:currentColumnLocalRevision(z,c), startedAt:Date.now()};
   }
   function isLatestColumnOp(token){ return !!token && Number(state.columnSeq.get(token.key)||0)===Number(token.seq); }
   function finishColumnOp(token, ok=true){
@@ -929,7 +958,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       markColumnPending(z,c,true);
       markCellsPendingFromPayload(payload,true);
       cacheWarehouseNow();
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-queued-protected',message:`${label||'倉庫操作'}已進背景佇列，畫面先保留，不會被舊資料覆蓋`,operation_id:op,zone:z,column_index:Number(c),version:'v406'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-queued-protected',message:`${label||'倉庫操作'}已進背景佇列，畫面先保留，不會被舊資料覆蓋`,operation_id:op,zone:z,column_index:Number(c),version:'v423'}})); }catch(_e){}
     }catch(_e){}
   }
   function payloadFromBgItem(item){
@@ -995,14 +1024,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v417-remove-opstatus-warehouse-visible-longpress';
+  const CACHE_VERSION = 'v423-warehouse-fresh-reload-unplaced-sync';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
     try{
       let raw=localStorage.getItem(k);
       if(!raw){
-        const versions=['v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
+        const versions=['v422-warehouse-readback-guard-sync','v421-warehouse-continuous-structure-return-sync','v420-warehouse-cell-save-reopen-sync','v419-warehouse-batch-support-return-sync','v418-warehouse-visible-longpress-regression','v417-remove-opstatus-warehouse-visible-longpress','v416-inventory-source-move-sync','v415-product-write-refresh-sync','v414-customer-count-source-sync','v413-shipping-preview-source-lock','v412-shipping-source-deduct-sync','v411-warehouse-cell-edit-save-sync','v410-warehouse-structure-longpress-sync','v409-warehouse-unplaced-source-sync','v408-warehouse-drag-cache-sync','v407-source-panel-opstatus-scope','v406-warehouse-order-drag-longpress-fix','v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
         for(const v of versions){
           const alt=String(k).replace(CACHE_VERSION, v).replace('v143-warehouse-dom-cache', v);
           raw=localStorage.getItem(alt);
@@ -1040,9 +1069,54 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       state.data.cells=out.sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
     }catch(_e){}
   }
+  function normalizeCellItemForDisplay(raw){
+    // V418: 格位商品顯示容錯。舊資料/後端快取有時只帶 size、dimension，甚至是純字串；
+    // 這裡只補齊顯示必要欄位，不改 renderer、不改保存架構。
+    try{
+      let it = raw;
+      if(typeof it === 'string' || typeof it === 'number') it = {product_text:String(it||'')};
+      if(!it || typeof it !== 'object') return null;
+      const product = clean(it.product_text || it.product || it.product_size || it.display_product_size || it.base_product_size || it.size || it.size_text || it.dimension || it.dimensions || it.product_label || it.name || '');
+      const qtyRaw = it.qty ?? it.quantity ?? it.pieces ?? it.count ?? it.piece_count ?? it.total_qty ?? it.件數;
+      let qty = Math.floor(Number(qtyRaw || 0));
+      if((!qty || qty < 0) && product){
+        try{ qty = Math.floor(Number(window.YX30EffectiveQty ? window.YX30EffectiveQty(product, 1) : 1)); }catch(_e){ qty = 1; }
+      }
+      if(!qty || qty < 0) qty = 1;
+      const out = {...it};
+      if(product){ out.product_text = clean(out.product_text || product); out.product = clean(out.product || product); }
+      out.customer_name = cleanCustomer(out.customer_name || out.customer || '庫存');
+      out.material = materialOf(out);
+      out.qty = qty;
+      if(!out.placement_label && out.layer_label) out.placement_label = out.layer_label;
+      if(!out.layer_label && out.placement_label) out.layer_label = out.placement_label;
+      return out;
+    }catch(_e){ return null; }
+  }
+  function normalizeCellItemsForDisplay(arr){
+    return (Array.isArray(arr)?arr:[]).map(normalizeCellItemForDisplay).filter(it=>it && itemQty(it)>0);
+  }
+  function parseCellItemsPayload(raw){
+    try{
+      let value = raw;
+      if(typeof value === 'string'){
+        const trimmed=value.trim();
+        if(!trimmed) return [];
+        try{ value = JSON.parse(trimmed); }
+        catch(_e){ return [{product_text:trimmed, qty:1, customer_name:'庫存'}]; }
+      }
+      if(value && typeof value === 'object' && !Array.isArray(value)){
+        if(Array.isArray(value.items)) value = value.items;
+        else if(Array.isArray(value.rows)) value = value.rows;
+        else if(value.product_text || value.product || value.size || value.dimension) value = [value];
+        else value = [];
+      }
+      return Array.isArray(value) ? value : [];
+    }catch(_e){ return []; }
+  }
   function cellItemsFromRow(cell){
-    if(Array.isArray(cell?.items)) return cell.items;
-    try{ const arr=JSON.parse(cell?.items_json||'[]'); return Array.isArray(arr)?arr:[]; }catch(_e){ return []; }
+    const raw = Array.isArray(cell?.items) ? cell.items : parseCellItemsPayload(cell?.items_json || cell?.items || []);
+    return normalizeCellItemsForDisplay(raw);
   }
   function cacheWarehouseNow(){
     try{ normalizeWarehouseCellsBeforeCache(); cacheSet(WAREHOUSE_CACHE_KEY, {cells:state.data.cells||[], zones:state.data.zones||{A:{},B:{}}, source_qty_map:state.sourceQtyMap||{}}); }catch(_e){}
@@ -1057,15 +1131,16 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     row.column_index=Number(forceColumn || row.column_index || row.column || 1);
     row.slot_number=Number(row.slot_number || row.slot || 1);
     row.slot_type=row.slot_type||'direct';
-    if(Array.isArray(row.items)) row.items=row.items;
-    else { try{ const arr=JSON.parse(row.items_json||'[]'); row.items=Array.isArray(arr)?arr:[]; }catch(_e){ row.items=[]; } }
+    row.items=cellItemsFromRow(row);
     row.items_json=JSON.stringify(row.items||[]);
     row.is_deleted=row.is_deleted||0;
     return row;
   }
-  function applyColumnCells(z,c,columnCells){
+  function applyColumnCells(z,c,columnCells,opts={}){
     if(!Array.isArray(columnCells)) return false;
     z=clean(z).toUpperCase(); c=Number(c);
+    opts=opts||{};
+    if(!opts.force && !mayApplyColumnReadback(z,c,opts.token||null,opts.reason||'column-readback')) return false;
     const currentCells=(state.data.cells||[]).filter(cell=>clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c);
     const others=(state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c));
     const existingBySlot=new Map(currentCells.map(cell=>[Number(cell.slot_number)||0, cell]));
@@ -1276,7 +1351,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       try{ state.availableCache={}; state.availableSeq++; }catch(_e){}
       try{ updateAllSlots(); }catch(_e){}
       try{ updateUnplacedPillLocal(); }catch(_e){}
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v417-remove-opstatus-warehouse-visible-longpress'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v423-warehouse-fresh-reload-unplaced-sync'}})); }catch(_e){}
     }
     return changed;
   }
@@ -1352,17 +1427,17 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     let changed=false;
     if(Array.isArray(d.from_column_cells)){
       const z=d.from?.zone || d.from_zone || fallbackZ, c=d.from?.column_index || d.from?.col || fallbackC;
-      if(!state.pendingColumns.has(columnKey(z,c)) || (token && columnKey(z,c)===token.key)) changed = applyColumnCells(z,c,d.from_column_cells) || changed;
+      if(!state.pendingColumns.has(columnKey(z,c)) || (token && columnKey(z,c)===token.key)) changed = applyColumnCells(z,c,d.from_column_cells,{token,reason:'from-column-readback'}) || changed;
     }
     if(Array.isArray(d.to_column_cells)){
       const z=d.to?.zone || d.to_zone || fallbackZ, c=d.to?.column_index || d.to?.col || fallbackC;
-      if(!state.pendingColumns.has(columnKey(z,c)) || (token && columnKey(z,c)===token.key)) changed = applyColumnCells(z,c,d.to_column_cells) || changed;
+      if(!state.pendingColumns.has(columnKey(z,c)) || (token && columnKey(z,c)===token.key)) changed = applyColumnCells(z,c,d.to_column_cells,{token,reason:'to-column-readback'}) || changed;
     }
     if(changed) return true;
     if(Array.isArray(d.column_cells)){
       const z=d.zone || fallbackZ; const c=d.column_index || fallbackC;
       if(state.pendingColumns.has(columnKey(z,c)) && !(token && columnKey(z,c)===token.key)) return false;
-      return applyColumnCells(z,c,d.column_cells);
+      return applyColumnCells(z,c,d.column_cells,{token,reason:'column-readback'});
     }
     if(Array.isArray(d.cells)){
       // V182: full warehouse DB/cache responses must not overwrite cells being edited, saving, or queued for retry.
@@ -1376,15 +1451,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(!d || d.success === false) return false;
     let changed=false;
     if(Array.isArray(d.from_column_cells) && (!fromToken || isLatestColumnOp(fromToken))){
-      changed = applyColumnCells(f.zone, f.col, d.from_column_cells) || changed;
+      changed = applyColumnCells(f.zone, f.col, d.from_column_cells,{token:fromToken,reason:'move-from-readback'}) || changed;
     }
     if(Array.isArray(d.to_column_cells) && (!toToken || isLatestColumnOp(toToken))){
-      changed = applyColumnCells(t.zone, t.col, d.to_column_cells) || changed;
+      changed = applyColumnCells(t.zone, t.col, d.to_column_cells,{token:toToken,reason:'move-to-readback'}) || changed;
     }
     if(!changed && Array.isArray(d.column_cells)){
       const z=d.zone || t.zone, c=Number(d.column_index || t.col);
       if((fromToken && columnKey(z,c)===fromToken.key && isLatestColumnOp(fromToken)) || (toToken && columnKey(z,c)===toToken.key && isLatestColumnOp(toToken))){
-        changed = applyColumnCells(z,c,d.column_cells) || changed;
+        changed = applyColumnCells(z,c,d.column_cells,{token:(fromToken&&columnKey(z,c)===fromToken.key)?fromToken:toToken,reason:'move-column-readback'}) || changed;
       }
     }
     if(changed) cacheWarehouseNow();
@@ -1653,8 +1728,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function cellItems(z,c,s){
     const cell=cellFromData(z,c,s);
     if(!cell) return [];
-    if(Array.isArray(cell.items)) return cell.items;
-    try { const arr=JSON.parse(cell.items_json||'[]'); return Array.isArray(arr)?arr:[]; } catch(_e){ return []; }
+    return cellItemsFromRow(cell);
   }
   function cellNote(z,c,s){ return clean(cellFromData(z,c,s)?.note || ''); }
   function maxSlot(z,c){
@@ -1725,7 +1799,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     el.dataset.hasItems=items.length?'1':'0';
     if(!items.length){
       customers && (customers.textContent='空格', customers.classList.add('yx108-slot-empty'));
-      productLine && (productLine.textContent='', productLine.classList.add('empty'));
+      if(productLine){ productLine.textContent=''; productLine.classList.add('empty'); productLine.dataset.yxProductVisible='0'; }
+      delete el.dataset.yxProductLines;
       sum && (sum.textContent='0'); total && (total.textContent='0件');
       return;
     }
@@ -1736,11 +1811,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(productLine){
       let lines = String(slotProductSummary(items) || '').split('\n').filter(Boolean);
       if(!lines.length){
-        lines = [...new Set(items.map(it=>clean([materialOf(it), productText(it) || it?.display_product_size || it?.base_product_size || it?.size || it?.size_text].filter(Boolean).join(' '))).filter(Boolean))];
+        lines = [...new Set(items.map(it=>clean([materialOf(it), productText(it) || it?.display_product_size || it?.base_product_size || it?.size || it?.size_text || it?.dimension || it?.dimensions || it?.product_label || '商品資料'].filter(Boolean).join(' '))).filter(Boolean))];
       }
       productLine.innerHTML = lines.length ? lines.map(x=>`<div class="yx-slot-product-line">${esc(x)}</div>`).join('') : '<div class="yx-slot-product-line">商品資料</div>';
       productLine.classList.remove('empty');
-      try{ productLine.style.display='block'; productLine.style.visibility='visible'; productLine.style.opacity='1'; }catch(_e){}
+      productLine.dataset.yxProductVisible='1';
+      el.dataset.yxProductLines=String(lines.length||1);
+      try{ productLine.style.display='block'; productLine.style.visibility='visible'; productLine.style.opacity='1'; productLine.style.minHeight='18px'; }catch(_e){}
     }
     sum && (sum.textContent=qtys.join('+') || String(totalQty));
     total && (total.textContent=`${totalQty}件`);
@@ -1755,11 +1832,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function updateNotes(){
     for(const z of zones){ const n=$(z==='A'?'zone-A-count-note':'zone-B-count-note'); if(n) n.textContent='6 欄｜每欄預設 20 格'; }
   }
-  async function loadAvailable(){
-    hydrateAvailableFromCache();
+  async function loadAvailable(force=false){
+    if(!force) hydrateAvailableFromCache();
     const seq=++state.availableSeq;
     try{
-      const all=await api('/api/warehouse/available-items?fast=1');
+      const all=await api('/api/warehouse/available-items?fast=1' + (force ? '&force=1&cache_bust=' + encodeURIComponent(CACHE_VERSION + '-' + Date.now()) : ''));
       if(seq !== state.availableSeq) return state.available;
       const items=Array.isArray(all.items)?all.items:[];
       state.available=items;
@@ -1776,7 +1853,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const pill=$('warehouse-unplaced-pill'); if(pill) pill.textContent=`A區 ${aCount} 件 / B區 ${bCount} 件 / 未分區 ${unassigned} 件 / 總計 ${total} 件`;
       cacheAvailableNow();
       return state.available;
-    }catch(_e){ state.available=state.available||[]; state.availableByZone=state.availableByZone||{A:[],B:[]}; updateUnplacedPillLocal(); return state.available; }
+    }catch(_e){ if(!force) hydrateAvailableFromCache(); state.available=state.available||[]; state.availableByZone=state.availableByZone||{A:[],B:[]}; updateUnplacedPillLocal(); return state.available; }
   }
   async function loadWarehouseSourceQtyMap(){
     try{
@@ -1791,11 +1868,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
     if(force) protectActiveWarehouseEdit('');
-    const hadCached = hydrateWarehouseFromCache();
-    hydrateAvailableFromCache();
+    // V423: force refresh/manual readback must not repaint stale local cache first.
+    // Normal page entry still uses cache for speed; forced reload goes straight to DB with force=1.
+    const hadCached = force ? false : hydrateWarehouseFromCache();
+    if(!force) hydrateAvailableFromCache();
     const seq = ++state.loadSeq;
     const fetchFresh = async()=>{ try{
-      const d = await api('/api/warehouse?fast=1&lite=1&yx166_stability=1');
+      const d = await api('/api/warehouse?fast=1&lite=1&yx166_stability=1' + (force ? '&force=1&cache_bust=' + encodeURIComponent(CACHE_VERSION + '-' + Date.now()) : ''));
       if (seq !== state.loadSeq && !force) return state.data; // stale DB response must not overwrite user edits.
       const freshCells=Array.isArray(d.cells)?d.cells:[];
       mergeCellsPreservingLocalProtected(freshCells, d.zones||{A:{},B:{}});
@@ -1807,7 +1886,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         const idle = window.requestIdleCallback || function(fn){ return setTimeout(fn, 120); };
         // V142: 開倉庫圖先顯示格子；未錄入與超量比對改成閒置背景，絕不阻塞首屏。
         idle(()=>{ loadWarehouseSourceQtyMap().catch(()=>{}); }, {timeout:2400});
-        idle(()=>{ loadAvailable().then(()=>{ window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; try{ syncBatchSelectLimits?.(); }catch(_e){} }).catch(()=>{}); }, {timeout:3200});
+        idle(()=>{ loadAvailable(false).then(()=>{ window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; try{ syncBatchSelectLimits?.(); }catch(_e){} }).catch(()=>{}); }, {timeout:3200});
         idle(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, {timeout:3600});
       }catch(_e){}
       return state.data;
@@ -1848,7 +1927,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.searchKeys.clear(); (state.data.cells||[]).forEach(c=>{ cellItems(c.zone,c.column_index,c.slot_number).forEach(it=>{ const cn=cleanCustomer(it.customer_name); if(cn.includes(name)||name.includes(cn)) state.searchKeys.add(key(c.zone,c.column_index,c.slot_number)); }); }); updateAllSlots();
   }
   async function toggleWarehouseUnplacedHighlight(){
-    await loadAvailable(); const box=$('warehouse-unplaced-list-inline'); if(!box) return; state.unplacedOpen=!state.unplacedOpen;
+    await loadAvailable(true); const box=$('warehouse-unplaced-list-inline'); if(!box) return; state.unplacedOpen=!state.unplacedOpen;
     if(!state.unplacedOpen){ box.classList.add('hidden'); return; }
     const list=(state.activeZone==='B'?state.availableByZone.B:(state.activeZone==='A'?state.availableByZone.A:state.available)); box.classList.remove('hidden'); box.innerHTML=list.length?list.map((it,i)=>`<div class="deduct-card"><strong>${esc(cleanCustomer(it.customer_name||''))}</strong><div>${esc(productText(it))}</div><div class="small-note">${itemQty(it)}件｜${esc(sourceOf(it))}｜${esc(state.activeZone==='ALL'?(it.zone||''):state.activeZone+'區')}</div></div>`).join(''):'<div class="empty-state-card compact-empty">目前沒有未錄入倉庫圖商品</div>';
   }
@@ -1934,10 +2013,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return clean(details.map(d=>clean(d?.source_id||d?.id||d?.origin_source_id||'')).filter(Boolean).join('|'));
   }
   function itemStableKey(it){ return [cleanCustomer(it?.customer_name||''), warehouseSizeKey(productText(it)), materialOf(it), sourceOf(it), itemSourceIdKey(it), clean(it?.zone||it?.location||'')].join('::'); }
-  function cellItemMergeKey(it){ return itemStableKey(it)+'::'+clean(it?.placement_label || it?.layer_label || '前排'); }
+  function cellItemMergeKey(it){
+    // V420: do not merge different 支數 lines just because the base size/source is the same.
+    // Same exact product/support + same position still merges; different support stays as a separate editable row.
+    return [cleanCustomer(it?.customer_name||''), warehouseExactKey(productText(it)) || warehouseSizeKey(productText(it)), materialOf(it), sourceOf(it), itemSourceIdKey(it), clean(it?.zone||it?.location||''), clean(it?.placement_label || it?.layer_label || '前排')].join('::');
+  }
 
 
-  const CONSISTENCY_PENDING_KEY = 'yx_warehouse_consistency_pending_v406_order_warehouse_realign';
+  const CONSISTENCY_PENDING_KEY = 'yx_warehouse_consistency_pending_v423_fresh_reload_unplaced_sync';
   function warehouseCompareItemKey(it){
     try{
       const src=clean(it?.source_id||it?.id||it?.row_id||'');
@@ -1983,7 +2066,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const c=Number(detail?.column_index || detail?.col || detail?.cell?.column_index || state.current?.col || 0);
     const s=Number(detail?.slot_number || detail?.slot || detail?.cell?.slot_number || state.current?.slot || 0);
     const op=clean(detail?.operation_id || detail?.request_key || yxOperationId('warehouse-final-check'));
-    return {id:[op,z,c,s].join('|'), operation_id:op, zone:z, column_index:c, slot_number:s, action:clean(detail?.action||detail?.reason||'warehouse-final-check'), client_cell_signature:(z&&c&&s)?localCellCompareSignature(z,c,s):'', client_available_signature:localAvailableSignature(), version:'v406'};
+    return {id:[op,z,c,s].join('|'), operation_id:op, zone:z, column_index:c, slot_number:s, action:clean(detail?.action||detail?.reason||'warehouse-final-check'), client_cell_signature:(z&&c&&s)?localCellCompareSignature(z,c,s):'', client_available_signature:localAvailableSignature(), version:'v423'};
   }
   function isAbortLikeError(e){
     const msg=String(e?.message || e || '').toLowerCase();
@@ -2238,14 +2321,29 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return z && z.startsWith('B') ? 'B' : 'A';
   }
   function summarizeByStable(items){
+    // V420: delta calculation must keep support chunks when several rows share the same size/source.
+    // Without this, batch adding 858x4 + 792x2 could deduct only the first support from the unplaced dropdown,
+    // and deleting a merged cell row could return the wrong support text.
     const map=new Map();
     (items||[]).forEach(it=>{
       const k=itemStableKey(it);
       const q=itemQty(it);
       if(!k || q<=0) return;
       const old=map.get(k);
-      if(old) old.qty += q;
-      else map.set(k,{item:it, qty:q});
+      if(old){
+        old.qty += q;
+        const support=combineSupportText(productSupportText(old.item), productSupportText(it));
+        const base=productBaseText(old.item) || productBaseText(it) || productText(old.item) || productText(it);
+        old.item={...old.item, qty:old.qty, unplaced_qty:old.qty, available_qty:old.qty, remaining_qty:old.qty};
+        if(support){ old.item.support_text=support; old.item.product_text=productWithSupport(base, support); old.item.product=old.item.product_text; }
+        const details=[];
+        [old.item, it].forEach(src=>{
+          if(Array.isArray(src?.source_details)) details.push(...src.source_details);
+          else if(src && typeof src==='object') details.push(src);
+        });
+        old.item.source_details=details;
+      }
+      else map.set(k,{item:{...it}, qty:q});
     });
     return map;
   }
@@ -2328,6 +2426,24 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     });
     syncBatchSelectLimits(false);
   }
+  function clearCommittedBatchRowsDom(){
+    // V420: after batch rows are merged into current items and sent to the background save queue,
+    // do not keep those same selected rows in the recoverable draft. Otherwise reopening the cell
+    // before DB confirmation can show the same batch rows again and let the user duplicate-save them.
+    try{
+      document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{
+        const sel=row.querySelector('.yx121-batch-select');
+        const qty=row.querySelector('.yx121-batch-qty');
+        const sup=row.querySelector('.yx121-batch-support');
+        if(sel) sel.value='';
+        if(qty){ qty.value=''; qty.disabled=false; qty.removeAttribute('max'); qty.dataset.yx121Max=''; }
+        if(sup) sup.value='';
+      });
+      state.pendingDraftBatchRows=null;
+      state.batchCount=3;
+      syncBatchSelectLimits?.(false);
+    }catch(_e){}
+  }
   function hasUnsavedBatchDraft(){
     try{ return snapshotBatchRows().some(r=>r && (r.value || r.key || r.qty || r.support)); }catch(_e){ return false; }
   }
@@ -2390,6 +2506,26 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       persistWarehouseDraft();
       updateSlotUI(z,c,s);
       if(reason) toast(reason,'warn');
+      return true;
+    }catch(_e){ return false; }
+  }
+  function queueLiveEditorAutosave(reason, beforeItems, delay){
+    // V420: close/switch must not only keep a local draft. If the user typed and immediately
+    // taps another cell/close, push that live edit into the existing background save queue too.
+    // Uses existing scheduleAutoSaveCurrentCell; no new renderer, interval, observer, or extra listener.
+    try{
+      if(!state.current) return false;
+      const z=clean(state.current.zone).toUpperCase(), c=Number(state.current.col), s=Number(state.current.slot);
+      const k=key(z,c,s);
+      const baseline=beforeItems || JSON.parse(JSON.stringify(cellItems(z,c,s)));
+      const changed=flushLiveEditorToLocalDraft('');
+      if(!changed) return false;
+      if(state.saveLocks?.has?.(k) || state.savePromises?.has?.(k)){
+        scheduleManualSaveAfterLock(k);
+        persistWarehouseDraft();
+        return true;
+      }
+      scheduleAutoSaveCurrentCell(reason || '格位修改已先顯示並排入背景儲存', baseline, Math.max(60, Number(delay)||90));
       return true;
     }catch(_e){ return false; }
   }
@@ -2464,9 +2600,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
   }
   async function openWarehouseModal(z,c,s){
-    // V219/V185: before switching cells, keep live edits and unsubmitted batch rows as a recoverable draft.
-    // This does not create a renderer or auto-save unconfirmed additions; it only prevents accidental loss.
-    try{ if(state.current) flushLiveEditorToLocalDraft('切換格位前已保留目前格位草稿'); }catch(_e){}
+    // V420/V219/V185: before switching cells, keep live edits and push confirmed current-item edits into the existing autosave queue.
+    // Unsubmitted batch rows are still only saved as draft until the user presses 儲存格位.
+    try{ if(state.current) queueLiveEditorAutosave('切換格位前已先保存目前格位，背景儲存中', null, 80); }catch(_e){}
     try{ if(state.current && hasUnsavedBatchDraft()) persistWarehouseDraft(); }catch(_e){}
     flushPendingAutoSaveForCurrent('切換格位前已先保存目前格位，背景儲存中');
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -2489,7 +2625,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function closeWarehouseModal(opts={}){
     // V184: manual save already committed the current cell and started its background request.
     // Closing the modal after that must not trigger a second autosave with the same payload.
-    if(!opts || opts.skipFlush !== true) flushLiveEditorToLocalDraft('關閉格位前已保留目前格位草稿');
+    if(!opts || opts.skipFlush !== true) queueLiveEditorAutosave('關閉格位前已先保存目前格位，背景儲存中', null, 80);
     if(!opts || opts.skipFlush !== true) flushPendingAutoSaveForCurrent('關閉格位前已先保存目前格位，背景儲存中');
     // V185: incomplete batch additions are not DB-saved until the user presses save, but keep them as a local draft.
     try{ if(!opts?.skipFlush && state.current && hasUnsavedBatchDraft()) persistWarehouseDraft(); }catch(_e){}
@@ -2566,12 +2702,22 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const seed={...group.it, zone:state.current?.zone||group.it.zone||group.it.warehouse_zone||'', warehouse_zone:state.current?.zone||group.it.warehouse_zone||group.it.zone||'', product_text:product, product, support_text:support, exact_key:support?`${warehouseSizeKey(base)}=${support}`:warehouseSizeKey(base), source_id:clean(group.it.source_id||group.it.id||''), source_details:(group.it.source_details||[])};
       const placement=placementForBatch(Number(row.dataset.batchIndex||collected.size));
       const stable=cellItemMergeKey({...seed, placement_label:placement, layer_label:placement});
-      const alreadyNew=collected.get(stable)?.qty || 0;
+      const oldCollected=collected.get(stable);
+      const alreadyNew=oldCollected ? itemQty(oldCollected) : 0;
       const remaining=Math.max(0, max - alreadyNew);
       if(remaining <= 0) return;
       const finalQty=Math.min(qty, remaining);
       if(finalQty <= 0) return;
-      collected.set(stable, normalizedItem(seed, (alreadyNew + finalQty), placement));
+      if(oldCollected){
+        const nextQty=alreadyNew + finalQty;
+        const mergedSupport=combineSupportText(productSupportText(oldCollected), support);
+        const next={...oldCollected, qty:nextQty, unplaced_qty:nextQty, available_qty:nextQty, remaining_qty:nextQty};
+        if(mergedSupport){ next.support_text=mergedSupport; next.product_text=productWithSupport(base, mergedSupport); next.product=next.product_text; }
+        next.source_details=[...(oldCollected.source_details||[]), ...(seed.source_details||[])];
+        collected.set(stable, normalizedItem(next, nextQty, placement));
+      }else{
+        collected.set(stable, normalizedItem(seed, finalQty, placement));
+      }
     });
     return Array.from(collected.values());
   }
@@ -2735,7 +2881,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(sameCurrentCell(payload.z,payload.c,payload.s)){ state.current.items=JSON.parse(JSON.stringify(savedItems)); }
         clearWarehouseDraft(payload.z,payload.c,payload.s);
       }
-      notifyWarehouseChanged({action:'cell-autosaved',zone:payload.z,column_index:payload.c,slot_number:payload.s,customer_name:(payload.items||[]).map(it=>it.customer_name).filter(Boolean)[0]||''}); loadAvailable().catch(()=>{});
+      notifyWarehouseChanged({action:'cell-autosaved',zone:payload.z,column_index:payload.c,slot_number:payload.s,customer_name:(payload.items||[]).map(it=>it.customer_name).filter(Boolean)[0]||''}); loadAvailable(true).catch(()=>{});
       updateAllSlots();
       if(sameCurrentCell(payload.z,payload.c,payload.s)) renderCellItems(true);
       toast('格位修改已永久存入資料庫','ok');
@@ -2810,7 +2956,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v417', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v423', sync_version:'v423-warehouse-fresh-reload-unplaced-sync', cache_bust:'v423-warehouse-fresh-reload-unplaced-sync'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2818,13 +2964,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function notifyWarehouseChanged(detail){
     detail = detail || {};
     const customerNames = affectedWarehouseCustomers(detail);
-    const enriched = {...detail, source:'warehouse', reason:detail.action||'warehouse-changed', version:'v406', customer_names:customerNames};
+    const enriched = {...detail, source:'warehouse', reason:detail.action||'warehouse-changed', version:'v423', customer_names:customerNames};
     if(!enriched.customer_name && customerNames.length) enriched.customer_name = customerNames[0];
     try{ yx215EmitOnce('yx:warehouse-changed', enriched, 1000); }catch(_e){}
     try{ yx215EmitOnce('yx:today-changes-refresh', enriched, 1000); }catch(_e){}
     try{ yx215EmitOnce('yx:product-data-changed', enriched, 1000); }catch(_e){}
-    try{ customerNames.forEach(name=>yx215EmitOnce('yx:customer-selected',{name, force:true, source:'warehouse', reason:'warehouse-change-v282'}, 650)); }catch(_e){}
-    try{ customerNames.forEach(name=>yx215EmitOnce('yx:warehouse-customer-counts-refresh',{name, force:true, source:'warehouse', reason:'warehouse-count-sync-v282'}, 650)); }catch(_e){}
+    try{ customerNames.forEach(name=>yx215EmitOnce('yx:customer-selected',{name, force:true, source:'warehouse', reason:'warehouse-change-v423'}, 650)); }catch(_e){}
+    try{ customerNames.forEach(name=>yx215EmitOnce('yx:warehouse-customer-counts-refresh',{name, force:true, source:'warehouse', reason:'warehouse-count-sync-v423'}, 650)); }catch(_e){}
     try{ window.YX?.cache?.clearGroup?.('customer_blocks_'); window.YX?.cache?.clearGroup?.('ship_items_'); }catch(_e){}
     try{
       window.YX?.cache?.remove?.(AVAILABLE_CACHE_KEY);
@@ -2833,7 +2979,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       window.YX?.cache?.clearGroup?.('customer_blocks_');
     }catch(_e){}
   }
-  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v417-remove-opstatus-warehouse-visible-longpress'}; }
+  function saveCellPayload(z,c,s,items,note){ return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:sanitizeCellItemsForSave(items||[]),note:note||'',client_stability:'v423-warehouse-fresh-reload-unplaced-sync'}; }
   function handleWarehouseBackgroundSaveStatus(ev){
     try{
       const item=ev?.detail?.item || {};
@@ -2862,16 +3008,16 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
           releaseQueuedColumnProtectionByPayload(payload);
           try{ scheduleWarehouseConsistencyCheck({action:'bg-save-success',zone:payload.zone||payload.to?.zone||payload.from?.zone,column_index:payload.column_index||payload.to?.column_index||payload.from?.column_index,slot_number:payload.slot_number||payload.to?.slot_number||payload.from?.slot_number||1,operation_id:payload.operation_id||''}, 900); }catch(_e){}
         }
-        try{ loadAvailable().catch(()=>{}); }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'success',reason:response?'warehouse-bg-save-success-snapshot':'warehouse-bg-save-success',message:response?'倉庫背景保存完成，已套用後端回傳':'倉庫背景保存已完成',operation_id:payload.operation_id||'',version:'v406',has_snapshot:!!response}})); }catch(_e){}
+        try{ loadAvailable(true).catch(()=>{}); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'success',reason:response?'warehouse-bg-save-success-snapshot':'warehouse-bg-save-success',message:response?'倉庫背景保存完成，已套用後端回傳':'倉庫背景保存已完成',operation_id:payload.operation_id||'',version:'v423',has_snapshot:!!response}})); }catch(_e){}
       }else if(ev.type === 'yx:bg-save-failed'){
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-save-retry',message:'倉庫背景保存尚未完成，已保留待重試',operation_id:payload.operation_id||'',version:'v406'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-status',{detail:{source:'warehouse',status:'pending',reason:'warehouse-bg-save-retry',message:'倉庫背景保存尚未完成，已保留待重試',operation_id:payload.operation_id||'',version:'v423'}})); }catch(_e){}
       }
     }catch(_e){}
   }
   try{
-    if(!window.__YX_V406_WAREHOUSE_BG_STATUS_BOUND__){
-      window.__YX_V406_WAREHOUSE_BG_STATUS_BOUND__ = true;
+    if(!window.__YX_V420_WAREHOUSE_BG_STATUS_BOUND__){
+      window.__YX_V420_WAREHOUSE_BG_STATUS_BOUND__ = true;
       window.addEventListener('yx:bg-save-success', handleWarehouseBackgroundSaveStatus, {passive:true});
       window.addEventListener('yx:bg-save-failed', handleWarehouseBackgroundSaveStatus, {passive:true});
     }
@@ -2939,7 +3085,21 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const added=collectBatchItems();
     if(!added.length && !editedChanged){ try{ state.saveLocks.delete(saveKey); state.saveLockStarted?.delete?.(saveKey); state.saveAgainAfterLock?.delete?.(saveKey); }catch(_e){} toast('沒有新增或修改；已錄入商品不會出現在下拉選單，請直接在「目前此格商品」修改尺寸/支數/件數後儲存','warn'); return; }
     const merged = new Map();
-    [...(state.current.items||[]),...added].forEach(it=>{ const k=cellItemMergeKey(it); const old=merged.get(k); if(old){ old.qty = itemQty(old) + itemQty(it); } else merged.set(k, {...it, qty:itemQty(it)}); });
+    [...(state.current.items||[]),...added].forEach(it=>{
+      const k=cellItemMergeKey(it);
+      const old=merged.get(k);
+      if(old){
+        const nextQty=itemQty(old) + itemQty(it);
+        const support=combineSupportText(productSupportText(old), productSupportText(it));
+        const base=productBaseText(old) || productBaseText(it) || productText(old) || productText(it);
+        old.qty=nextQty; old.unplaced_qty=nextQty; old.available_qty=nextQty; old.remaining_qty=nextQty;
+        if(support){ old.support_text=support; old.product_text=productWithSupport(base, support); old.product=old.product_text; }
+        if(Array.isArray(it?.source_details)) old.source_details=[...(old.source_details||[]), ...it.source_details];
+      } else {
+        const q=itemQty(it);
+        merged.set(k, {...it, qty:q, unplaced_qty:q, available_qty:q, remaining_qty:q});
+      }
+    });
     let items=Array.from(merged.values());
     const pendingMerged=mergePendingShipDeductIntoCellSave(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||'');
     if(pendingMerged.merged) items=pendingMerged.items;
@@ -2951,6 +3111,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const columnBeforeSave=snapshotColumn(saveZone,saveCol);
       state.current.items=items;
       setLocalCellItems(saveZone,saveCol,saveSlot,items,saveNote);
+      bumpColumnLocalRevision(saveZone,saveCol,'cell-save-optimistic');
+      // V420: batch selections have now become real current items. Clear the selected batch rows before
+      // writing the recoverable draft, so reopening the cell while the background queue is still saving
+      // cannot display the same batch selection again and duplicate it.
+      if(added.length) clearCommittedBatchRowsDom();
       // V186: manual save closes the modal immediately for speed, but the DB write may be queued/retried.
       // Keep a recoverable draft with the exact optimistic cell state until the DB confirms and clears it.
       try{ persistWarehouseDraft(); }catch(_e){}
@@ -2971,12 +3136,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(saved && saved.saved_cell && mayApplySavedCell(saveZone,saveCol,saveSlot,revAtSend)){
           const sc=saved.saved_cell;
           setLocalCellItems(saveZone,saveCol,saveSlot,Array.isArray(sc.items)?sc.items:items,sc.note ?? saveNote);
-          if(Array.isArray(saved.column_cells) && isLatestColumnOp(token) && mayApplySavedCell(saveZone,saveCol,saveSlot,revAtSend)) applyColumnCells(saveZone,saveCol,saved.column_cells);
+          if(Array.isArray(saved.column_cells) && isLatestColumnOp(token) && mayApplySavedCell(saveZone,saveCol,saveSlot,revAtSend)) applyColumnCells(saveZone,saveCol,saved.column_cells,{token,reason:'cell-save-readback'});
           cacheWarehouseNow();
         }
         if(mayApplySavedCell(saveZone,saveCol,saveSlot,revAtSend)) clearWarehouseDraft(saveZone,saveCol,saveSlot);
         notifyWarehouseChanged({action:'cell-save',zone:saveZone,column_index:saveCol,slot_number:saveSlot,items,operation_id:saved?.operation_id||''});
-        await loadAvailable().catch(()=>{});
+        await loadAvailable(true).catch(()=>{});
         updateAllSlots();
         highlightWarehouseCell(saveZone,saveCol,saveSlot);
         scheduleWarehouseConsistencyCheck({action:'cell-save',zone:saveZone,column_index:saveCol,slot_number:saveSlot,operation_id:saved?.operation_id||''}, 650);
@@ -3002,7 +3167,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       // The optimistic draft remains in localStorage, so the user can save again without reopening/reloading.
       try{ state.savePromises?.delete?.(saveKey); state.saveLocks?.delete?.(saveKey); state.saveLockStarted?.delete?.(saveKey); }catch(_e){}
       try{ persistWarehouseDraft(); }catch(_e){}
-      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v406',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
+      try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v423',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
       toast(e.message||'儲存格位失敗，草稿已保留可直接再存','error');
       throw e;
     }
@@ -3024,10 +3189,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const placement = dst.items && dst.items.length ? '前排' : '後排';
     const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),placement)),...dst.items];
     try{
+      invalidateCellPendingWritesForStructure(f.zone,f.col,f.slot,'move-source');
+      invalidateCellPendingWritesForStructure(t.zone,t.col,t.slot,'move-target');
       let srcCell=cellFromData(f.zone,f.col,f.slot); if(srcCell){ srcCell.items=[]; srcCell.items_json='[]'; }
       let dstCell=cellFromData(t.zone,t.col,t.slot); if(!dstCell){ dstCell={zone:t.zone,column_index:t.col,slot_type:'direct',slot_number:t.slot,items:[],items_json:'[]',note:''}; state.data.cells.push(dstCell); }
       dstCell.items=dstAfter; dstCell.items_json=JSON.stringify(dstAfter);
       clearWarehouseDraft(f.zone,f.col,f.slot); clearWarehouseDraft(t.zone,t.col,t.slot);
+      bumpColumnLocalRevision(f.zone,f.col,'move-source-optimistic');
+      if(f.zone!==t.zone || f.col!==t.col) bumpColumnLocalRevision(t.zone,t.col,'move-target-optimistic');
       cacheWarehouseNow(); updateSlotUI(f.zone,f.col,f.slot); updateSlotUI(t.zone,t.col,t.slot); highlightWarehouseCell(t.zone,t.col,t.slot);
       toast(placement==='前排'?'已先移動到前排，背景儲存':'已先移動到後排，背景儲存','ok');
       const fromToken=beginColumnOp(f.zone,f.col);
@@ -3036,7 +3205,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(toToken!==fromToken) state.lastGoodColumns.set(toToken.key, toSnap);
       queuedWarehouseMovePost({
         operation_id:yxOperationId('warehouse-move-cell'),
-        client_stability:'v417-remove-opstatus-warehouse-visible-longpress',
+        client_stability:'v423-warehouse-fresh-reload-unplaced-sync',
         strict_validate:0,
         source_cell_items:src.items,
         target_cell_items_before:dst.items,
@@ -3048,11 +3217,52 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         applyMoveWarehouseResponse(d, fromLatest?fromToken:null, toLatest?toToken:null, f, t);
         state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton();
         clearWarehouseDraft(f.zone,f.col,f.slot); clearWarehouseDraft(t.zone,t.col,t.slot);
-        notifyWarehouseChanged({action:'move',from:f,to:t,moved_items:moved,items:dstAfter,customer_names:affectedWarehouseCustomers({items:[moved,dstAfter]}),operation_id:d?.operation_id||''}); loadAvailable().catch(()=>{}); updateAllSlots(); highlightWarehouseCell(t.zone,t.col,t.slot); scheduleWarehouseConsistencyCheck({action:'move-from',zone:f.zone,column_index:f.col,slot_number:f.slot,operation_id:d?.operation_id||''}, 900); scheduleWarehouseConsistencyCheck({action:'move-to',zone:t.zone,column_index:t.col,slot_number:t.slot,operation_id:d?.operation_id||''}, 900); toast('拖拉移動已永久存入資料庫','ok');
+        notifyWarehouseChanged({action:'move',from:f,to:t,moved_items:moved,items:dstAfter,customer_names:affectedWarehouseCustomers({items:[moved,dstAfter]}),operation_id:d?.operation_id||''}); loadAvailable(true).catch(()=>{}); updateAllSlots(); highlightWarehouseCell(t.zone,t.col,t.slot); scheduleWarehouseConsistencyCheck({action:'move-from',zone:f.zone,column_index:f.col,slot_number:f.slot,operation_id:d?.operation_id||''}, 900); scheduleWarehouseConsistencyCheck({action:'move-to',zone:t.zone,column_index:t.col,slot_number:t.slot,operation_id:d?.operation_id||''}, 900); toast('拖拉移動已永久存入資料庫','ok');
       }, '拖拉移動', fromToken, toToken, ()=>rollbackMoveColumns(fromToken,toToken,fromSnap,toSnap,'拖拉移動保存失敗，已還原'));
     } catch(e){ rollbackMoveColumns(null,null,fromSnap,toSnap,e.message||'拖拉移動失敗'); }
   }
   async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
+  function invalidateCellPendingWritesForStructure(z,c,s, reason){
+    // V422: structure/return operations must invalidate any old cell-save draft/timer for the affected slot.
+    // This prevents a delayed autosave from writing old items back after drag/delete/return continuous operations.
+    try{
+      z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
+      const k=key(z,c,s);
+      cancelPendingAutoSaveForCell(z,c,s);
+      state.saveAgainAfterLock?.delete?.(k);
+      state.pendingManualSaveTimers?.get?.(k) && clearTimeout(state.pendingManualSaveTimers.get(k));
+      state.pendingManualSaveTimers?.delete?.(k);
+      bumpCellRevision(z,c,s);
+      clearWarehouseDraft(z,c,s);
+    }catch(_e){}
+  }
+  function syncOpenModalAfterSlotStructure(z,c,slot,mode){
+    // V422: when insert/delete compacts slot numbers while the modal is open, keep state.current pointing
+    // to the same physical goods instead of the old number. If the open empty cell is deleted, close it.
+    try{
+      if(!state.current) return;
+      z=clean(z).toUpperCase(); c=Number(c); slot=Number(slot);
+      if(clean(state.current.zone).toUpperCase()!==z || Number(state.current.col)!==c) return;
+      const cur=Number(state.current.slot);
+      const modalOpen=!!document.querySelector('#warehouse-modal:not(.hidden)');
+      if(mode==='insert' && cur>slot){
+        state.current.slot=cur+1;
+      }else if(mode==='delete'){
+        if(cur===slot){
+          invalidateCellPendingWritesForStructure(z,c,slot,'delete-current-slot');
+          state.modalSeq++;
+          try{ document.getElementById('warehouse-modal')?.classList.add('hidden'); }catch(_e){}
+          state.current=null;
+          return;
+        }
+        if(cur>slot) state.current.slot=cur-1;
+      }
+      if(!state.current) return;
+      const meta=document.getElementById('warehouse-modal-meta');
+      if(meta && modalOpen) meta.textContent=`${state.current.zone} 區第 ${Number(state.current.col)} 欄 第 ${Number(state.current.slot)} 格`;
+      try{ persistWarehouseDraft(); }catch(_e){}
+    }catch(_e){}
+  }
   function localInsertSlot(z,c,after){
     z=clean(z).toUpperCase(); c=Number(c); after=Number(after||0);
     state.data.cells = Array.isArray(state.data.cells) ? state.data.cells : [];
@@ -3066,8 +3276,10 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     (state.data.cells||[])
       .filter(cell=>clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && !isDeletedCell(cell) && Number(cell.slot_number)>insertAfter)
       .sort((a,b)=>Number(b.slot_number)-Number(a.slot_number))
-      .forEach(cell=>{ const oldSlot=Number(cell.slot_number); registerSlotRedirect(z,c,oldSlot,oldSlot+1,'insert-slot',cell); cell.slot_number = oldSlot + 1; });
+      .forEach(cell=>{ const oldSlot=Number(cell.slot_number); registerSlotRedirect(z,c,oldSlot,oldSlot+1,'insert-slot',cell); invalidateCellPendingWritesForStructure(z,c,oldSlot,'insert-shift'); cell.slot_number = oldSlot + 1; });
+    syncOpenModalAfterSlotStructure(z,c,insertAfter,'insert');
     markColumnStructureEpoch(z,c,'insert-slot');
+    bumpColumnLocalRevision(z,c,'insert-slot-optimistic');
     state.data.cells.push({zone:z,column_index:c,slot_type:'direct',slot_number:newSlot,items:[],items_json:'[]',note:'',problem_flag:'',is_deleted:0});
     state.data.cells.sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
     cacheWarehouseNow();
@@ -3076,15 +3288,19 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function localDeleteSlot(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
     // 117：任何空格都可以隱藏；後面格號立即往前補，等後端永久寫入後再以 DB 回傳校準。
+    invalidateCellPendingWritesForStructure(z,c,s,'delete-slot');
+    syncOpenModalAfterSlotStructure(z,c,s,'delete');
     state.data.cells = (state.data.cells||[]).filter(cell=>!(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)===s));
     (state.data.cells||[]).forEach(cell=>{
       if(clean(cell.zone).toUpperCase()===z && Number(cell.column_index)===c && Number(cell.slot_number)>s){
         const oldSlot=Number(cell.slot_number);
         registerSlotRedirect(z,c,oldSlot,oldSlot-1,'delete-slot',cell);
+        invalidateCellPendingWritesForStructure(z,c,oldSlot,'delete-shift');
         cell.slot_number = oldSlot - 1;
       }
     });
     markColumnStructureEpoch(z,c,'delete-slot');
+    bumpColumnLocalRevision(z,c,'delete-slot-optimistic');
     cacheWarehouseNow();
   }
   function nextVisibleSlotAfterStructure(z,c,s){
@@ -3127,7 +3343,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v417-remove-opstatus-warehouse-visible-longpress',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-insert',slot:Number(d?.first_slot||s+1),highlightSlot:Number(d?.first_slot||s+1),operation_id:d?.operation_id||'',message:`批量新增 ${count} 格已永久存入資料庫`});
     }, '批量新增格子', {token});
   }
@@ -3158,7 +3374,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
-      client_stability:'v417-remove-opstatus-warehouse-visible-longpress',
+      client_stability:'v423-warehouse-fresh-reload-unplaced-sync',
       zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, (d, token)=>{
@@ -3173,7 +3389,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const localSlot=localInsertSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v417-remove-opstatus-warehouse-visible-longpress',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'insert',slot:Number(d?.slot_number||localSlot),highlightSlot:Number(d?.slot_number||localSlot),operation_id:d?.operation_id||'',message:'新增格子已永久存入資料庫'});
     }, '新增格子', {token});
   }
@@ -3186,7 +3402,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     localDeleteSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,nextVisibleSlotAfterStructure(z,c,s)); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v417-remove-opstatus-warehouse-visible-longpress',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:'刪除空格已永久存入資料庫'});
     }, '刪除空格', {token});
   }
@@ -3198,20 +3414,21 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     // V127：返回該格不再二次確認，立即前端退回下拉並背景保存。
     const oldItems=JSON.parse(JSON.stringify(items));
     const columnBefore=snapshotColumn(z,c);
-    const cell=cellFromData(z,c,s);
-    if(cell){ cell.items=[]; cell.items_json='[]'; }
+    invalidateCellPendingWritesForStructure(z,c,s,'return-unplaced');
+    setLocalCellItems(z,c,s,[],cellNote(z,c,s));
+    bumpColumnLocalRevision(z,c,'return-unplaced-optimistic');
     mutateAvailableLocked(oldItems, +1, z, 'return-unplaced', key(z,c,s)+'-'+Date.now());
     clearWarehouseDraft(z,c,s);
     cacheWarehouseNow();
     updateSlotUI(z,c,s);
-    if(state.current && state.current.zone===z && Number(state.current.col)===c && Number(state.current.slot)===s){ state.current.items=[]; renderCellItems(true); markCurrentCellDirty(); }
+    if(state.current && clean(state.current.zone).toUpperCase()===z && Number(state.current.col)===c && Number(state.current.slot)===s){ state.current.items=[]; try{ clearCommittedBatchRowsDom(); }catch(_e){} renderCellItems(true); markCurrentCellDirty(); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v417-remove-opstatus-warehouse-visible-longpress',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
+    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v423-warehouse-fresh-reload-unplaced-sync',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'return-unplaced',slot:s,highlightSlot:s,operation_id:d?.operation_id||'',message:'退回該格已永久存入資料庫'});
       notifyWarehouseChanged({action:'return-unplaced',zone:z,column_index:c,slot_number:s,items:oldItems,customer_name:(oldItems||[]).map(it=>it.customer_name).filter(Boolean)[0]||'',operation_id:d?.operation_id||''});
-      loadAvailable().catch(()=>{});
+      loadAvailable(true).catch(()=>{});
     }, '退回該格', {token});
   }
   async function executeWarehouseMenuAction(action){
@@ -3312,32 +3529,44 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function bindSlots(){ document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot]').forEach(bindSlot); }
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
-    // V406: delegated long-press fallback. Some rebuilt slot DOM may miss per-slot handlers after fast render;
-    // this single pointerdown path keeps the original menu functions available without adding a renderer/click listener.
-    if(!window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V406__){
-      window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V406__=true;
-      let dgTimer=null, dgStart=null;
+    // V418: delegated warehouse long-press repair. Keep one original menu path only; no renderer, no repeated click binding.
+    if(!window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V420__){
+      window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V420__=true;
+      let dgTimer=null, dgStart=null, suppressClickUntil=0;
+      const findSlot=(target)=>target?.closest?.('#warehouse-root [data-zone][data-column][data-slot]');
       const clear=()=>{ if(dgTimer){ clearTimeout(dgTimer); dgTimer=null; } dgStart=null; };
+      const openFromSlot=(slot,x,y)=>{
+        if(!slot) return;
+        try{
+          slot.dataset.blockClickUntil=String(Date.now()+1200);
+          suppressClickUntil=Date.now()+1200;
+          showMenu(slot.dataset.zone, Number(slot.dataset.column), Number(slot.dataset.slot), x, y);
+        }catch(_e){}
+      };
       document.addEventListener('pointerdown', ev=>{
-        const slot=ev.target?.closest?.('#warehouse-root [data-zone][data-column][data-slot]');
+        const slot=findSlot(ev.target);
         if(!slot || (ev.button && ev.button!==0)) return;
-        dgStart={x:ev.clientX,y:ev.clientY,slot};
-        clearTimeout(dgTimer);
-        dgTimer=setTimeout(()=>{
-          try{
-            const d=dgStart; if(!d || d.slot!==slot) return;
-            slot.dataset.blockClickUntil=String(Date.now()+1100);
-            showMenu(slot.dataset.zone, Number(slot.dataset.column), Number(slot.dataset.slot), ev.clientX, ev.clientY);
-          }catch(_e){} finally{ clear(); }
-        }, 620);
+        clear();
+        dgStart={x:ev.clientX,y:ev.clientY,slot,pointerId:ev.pointerId};
+        dgTimer=setTimeout(()=>{ const d=dgStart; if(!d || d.slot!==slot) return; openFromSlot(slot, d.x, d.y); clear(); }, 520);
       }, {capture:true, passive:true});
-      document.addEventListener('pointermove', ev=>{ if(!dgStart) return; if(Math.abs(ev.clientX-dgStart.x)>12 || Math.abs(ev.clientY-dgStart.y)>12) clear(); }, {capture:true, passive:true});
-      ['pointerup','pointercancel','scroll'].forEach(t=>document.addEventListener(t, clear, {capture:true, passive:true}));
+      document.addEventListener('pointermove', ev=>{ if(!dgStart) return; if(Math.abs(ev.clientX-dgStart.x)>14 || Math.abs(ev.clientY-dgStart.y)>14) clear(); }, {capture:true, passive:true});
+      ['pointerup','pointercancel'].forEach(t=>document.addEventListener(t, clear, {capture:true, passive:true}));
+      document.addEventListener('touchstart', ev=>{
+        const t=ev.touches&&ev.touches[0]; const slot=findSlot(ev.target);
+        if(!t || !slot) return;
+        clear();
+        dgStart={x:t.clientX,y:t.clientY,slot,touch:true};
+        dgTimer=setTimeout(()=>{ const d=dgStart; if(!d || d.slot!==slot) return; try{ ev.preventDefault(); }catch(_e){} openFromSlot(slot, d.x, d.y); clear(); }, 560);
+      }, {capture:true, passive:false});
+      document.addEventListener('touchmove', ev=>{ if(!dgStart || !ev.touches?.length) return; const t=ev.touches[0]; if(Math.abs(t.clientX-dgStart.x)>14 || Math.abs(t.clientY-dgStart.y)>14) clear(); }, {capture:true, passive:true});
+      ['touchend','touchcancel'].forEach(t=>document.addEventListener(t, clear, {capture:true, passive:true}));
+      document.addEventListener('click', ev=>{ if(Date.now()<suppressClickUntil && findSlot(ev.target)){ ev.preventDefault(); ev.stopPropagation(); } }, {capture:true, passive:false});
       document.addEventListener('contextmenu', ev=>{
-        const slot=ev.target?.closest?.('#warehouse-root [data-zone][data-column][data-slot]');
+        const slot=findSlot(ev.target);
         if(!slot) return;
         ev.preventDefault(); ev.stopPropagation();
-        showMenu(slot.dataset.zone, Number(slot.dataset.column), Number(slot.dataset.slot), ev.clientX, ev.clientY);
+        openFromSlot(slot, ev.clientX || (window.innerWidth/2), ev.clientY || (window.innerHeight/2));
       }, {capture:true, passive:false});
     }
     const unplacedPill=$('warehouse-unplaced-pill');
@@ -3345,7 +3574,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       unplacedPill.dataset.yxLongRefresh='1';
       let lpTimer=null, sx=0, sy=0;
       const clear=()=>{ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } };
-      unplacedPill.addEventListener('pointerdown',ev=>{ sx=ev.clientX; sy=ev.clientY; clear(); lpTimer=setTimeout(async()=>{ lpTimer=null; try{ await loadAvailable(); toast('已長按刷新未錄入倉庫圖件數','ok'); }catch(e){ toast(e.message||'刷新失敗','error'); } },650); });
+      unplacedPill.addEventListener('pointerdown',ev=>{ sx=ev.clientX; sy=ev.clientY; clear(); lpTimer=setTimeout(async()=>{ lpTimer=null; try{ await loadAvailable(true); toast('已長按刷新未錄入倉庫圖件數','ok'); }catch(e){ toast(e.message||'刷新失敗','error'); } },650); });
       unplacedPill.addEventListener('pointermove',ev=>{ if(Math.abs(ev.clientX-sx)>10 || Math.abs(ev.clientY-sy)>10) clear(); });
       ['pointerup','pointercancel','pointerleave'].forEach(t=>unplacedPill.addEventListener(t,clear));
     }
@@ -3374,7 +3603,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) { if(Date.now()-Number(state.menuOpenedAt||0)>650) { const _m=menu(); _m.classList.add('hidden'); _m.dataset.open='0'; _m.setAttribute('aria-hidden','true'); } }
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); markCurrentCellDirty(); return; }
       if(ev.target?.id==='yx121-retry-failed-saves'){ ev.preventDefault(); await retryAllFailedWarehouseOps({toast:true}); return; }
-      if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v406',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
+      if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ try{window.dispatchEvent(new CustomEvent('yx:operation-soft-failed',{detail:{source:'warehouse',reason:'cell-save-failed',error:e.message||'儲存格位失敗',version:'v423',zone:state.current?.zone,column_index:state.current?.col,slot_number:state.current?.slot,payload:saveCellPayload(state.current?.zone,state.current?.col,state.current?.slot,state.current?.items||[],($('warehouse-note')?.value||''))}}));}catch(_e){}
       toast(e.message||'儲存格位失敗，草稿已保留可直接再存','error'); } return; }
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){
         ev.preventDefault();
@@ -3448,7 +3677,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ protectActiveWarehouseEdit(''); const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=resolveSearchHitCell(hit); highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }
-  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v417-remove-opstatus-warehouse-visible-longpress'; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
+  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v423-warehouse-fresh-reload-unplaced-sync'; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
   window.searchWarehouse=searchWarehouse;
@@ -3482,6 +3711,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const applyCell=(cell)=>{
       if(!cell) return false;
       const nc=normalizeServerCell(cell, cell.zone || payload.zone, cell.column_index || payload.column_index || payload.col);
+      if(!mayApplyColumnReadback(nc.zone,nc.column_index,null,'targeted-cell-readback')) return false;
       const items=Array.isArray(nc.items)?nc.items:cellItemsFromRow(nc);
       setLocalCellItems(nc.zone,nc.column_index,nc.slot_number,items,nc.note||'');
       updateSlotUI(nc.zone,nc.column_index,nc.slot_number);
@@ -3522,7 +3752,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(highlightCell && highlightCell.zone && highlightCell.column_index && highlightCell.slot_number) highlightWarehouseCell(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number);
         const refreshTarget=clean(refreshTargets.join('、') || (highlightCell ? refreshLabel(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number) : '倉庫格位'));
         try{ ctx._yx_refresh_target=refreshTarget; }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v417-remove-opstatus-warehouse-visible-longpress'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v423-warehouse-fresh-reload-unplaced-sync'}})); }catch(_e){}
         return true;
       }
     }catch(e){
@@ -3530,7 +3760,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     return false;
   }
-  window.YXFinalWarehouse={version:'v417-remove-opstatus-warehouse-visible-longpress',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
+  window.YXFinalWarehouse={version:'v423-warehouse-fresh-reload-unplaced-sync',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
   if(YX.register) YX.register('warehouse',{install,render:renderWarehouse,cleanup:()=>{}});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
 })();
@@ -3705,7 +3935,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 (function(){
   'use strict';
   window.__YX_V342_OPERATION_STATUS_CARD__ = true;
-  const VERSION='v417-remove-opstatus-warehouse-visible-longpress';
+  const VERSION='v423-warehouse-fresh-reload-unplaced-sync';
   const STORAGE_PREFIXES=['yx_operation_status_'];
   function removePanel(){
     try{ document.getElementById('yx282-operation-status-card')?.remove(); }catch(_e){}
@@ -3739,7 +3969,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   'use strict';
   if(window.__YX_V332_TARGETED_RETRY_REFRESH__) return;
   window.__YX_V332_TARGETED_RETRY_REFRESH__=true;
-  const VERSION='v417-remove-opstatus-warehouse-visible-longpress';
+  const VERSION='v423-warehouse-fresh-reload-unplaced-sync';
   function clean(v){ return String(v == null ? '' : v).replace(/\s+/g,' ').trim(); }
   function page(){ return clean(document.body?.dataset?.module || document.querySelector('.module-screen[data-module]')?.dataset?.module || ''); }
   function customersFrom(ctx){
@@ -3822,3 +4052,6 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v408_drag_cache_sync: move-cell clears server/derived caches and slot-compacting operations clear unsafe per-slot drafts. No renderer/setInterval/MutationObserver added.
 // warehouse_v409_unplaced_source_sync: grouped dropdown/source_details optimistic mutations now deduct/return each source_id immediately, and A/B available API treats a source row as placed once it exists anywhere in the warehouse. No renderer/setInterval/MutationObserver added.
 // warehouse_v411_cell_edit_save_sync: delete/current-item edits redraw before autosave so removed products cannot be resurrected from stale DOM; explicit delete baseline returns quantities to unplaced correctly; same product in different placements is preserved. No renderer/setInterval/MutationObserver added.
+// warehouse_v423_fresh_reload_unplaced_sync: DB column readbacks now require the latest column operation token/local revision, preventing older drag/insert/delete/return responses from overwriting newer continuous warehouse changes. No renderer/setInterval/MutationObserver added.
+
+// warehouse_v423_fresh_reload_unplaced_sync: force/manual warehouse reload and unplaced dropdown refresh bypass local/server fast cache; normal entry still uses cache for speed. No renderer/setInterval/MutationObserver added; removed operation status panel stays removed.
