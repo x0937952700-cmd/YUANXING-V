@@ -1088,7 +1088,7 @@
       state.loading = source;
       try {
         const limit = opts.full ? 0 : 360;
-        const d = await YX.api(endpoint(source) + '?yx143_final=1&fast=1&v287=1&local_first=1' + '&limit=' + encodeURIComponent(limit), {method:'GET'});
+        const d = await YX.api(endpoint(source) + '?yx143_final=1&fast=1&v485_db_hydrate=1' + '&limit=' + encodeURIComponent(limit), {method:'GET', yxDbOnly: !!(opts.yxDbOnly || (hadDataStore && !rowsStore(source).length))});
         if (seq !== window[seqKey] && !opts.force) return rowsStore(source);
         const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
         const oldRows = rowsStore(source) || [];
@@ -1109,9 +1109,8 @@
         return rowsStore(source);
       } finally { if (state.loading === source) state.loading = null; }
     };
-    if ((hadCached && !opts.full) || (hadDataStore && !opts.full && !opts.beforeEditSave && !opts.yxDbOnly)) {
-      // V467: 有同步權威資料時，包含舊事件傳來的 force:false，也先直接顯示本機資料；避免客戶卡/商品明細又卡回 DB。
-      // 真正需要 DB 校正請由同步按鈕或明確 yxDbOnly 觸發。
+    if ((hadCached && !opts.full && rowsStore(source).length) || (hadDataStore && rowsStore(source).length && !opts.full && !opts.beforeEditSave && !opts.yxDbOnly)) {
+      // V485: 有同步權威資料且真的有 rows 時先顯示；若同步快取是空但 DB 其實有資料，必須 hydrates DB，避免訂單/總單/出貨區空白。
       return rowsStore(source);
     }
     return fetchFresh();
@@ -2635,11 +2634,12 @@
   }
   function renderFromCurrentRows(){
     if (!isRegionPage()) return;
-    // v17：每次商品清單載入 / 新增 / 刪除後，直接用目前 rowsStore 產生北中南客戶，避免重新整理後客戶卡消失。
-    state.items = relationCustomersFromRows(state.items || []).filter(c => !archivedCustomerSet().has(YX.clean(c.name || c.customer_name || '')));
+    // V485: 訂單/總單客戶區只以目前 rowsStore / DataStore 為準；不讓舊 customers 空資料蓋掉。
+    state.items = relationCustomersFromRows([]).filter(c => !archivedCustomerSet().has(YX.clean(c.name || c.customer_name || '')));
     renderBoards(state.items);
     const selected = YX.clean(window.__YX_SELECTED_CUSTOMER__ || $('customer-name')?.value || '');
     if (selected) {
+      try { forceCustomerCardVisible(selected, moduleKey()); } catch(_e) {}
       const card = findCustomerCard(selected);
       if (card) card.classList.add('is-active');
       else if (['orders','master_order'].includes(moduleKey())) { try { renderSelectedCustomerItems(selected, []); } catch(_e) {} }

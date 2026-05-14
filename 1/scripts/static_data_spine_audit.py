@@ -28,9 +28,9 @@ if (root/'static/yx_v452_max_repair.js').exists():
     fail.append('old static/yx_v452_max_repair.js still exists')
 
 app=read('app.py')
-if 'V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH' not in app:
+if 'V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH' not in app:
     fail.append('APP_VERSION is not v483')
-if '119-v484_speed_persist_diag_final_patch' not in app:
+if '119-v485_restore_buttons_realtime_ship_wh' not in app:
     fail.append('STATIC_VERSION is not v483')
 
 # PWA / service worker must not cache API and must use current cache token.
@@ -46,11 +46,11 @@ if 'event.respondWith' in sw:
     if api_pos < 0 or api_pos > rw_pos:
         fail.append('service-worker API bypass is after respondWith')
 manifest=read('static/manifest.webmanifest')
-if '119-v484-speed-persist-diag-final-patch' not in manifest:
+if '119-v485-restore-buttons-realtime-ship-wh' not in manifest:
     fail.append('manifest start/id version is not v483')
 
 data=read('static/yx_data_store.js')
-for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v484-speed-persist-diag-final-patch']:
+for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v485-restore-buttons-realtime-ship-wh']:
     if token not in data:
         fail.append(f'yx_data_store.js missing {token}')
 for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH_CLEANUP__','__yxDataSpineFetchV472','__yxDataSpineV472','__YX_V472_REFRESH_CLEANUP__']:
@@ -58,7 +58,7 @@ for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH
         fail.append(f'yx_data_store.js still has old flag {old_flag}')
 
 mut=read('static/yx_mutation_bus.js')
-for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v484-speed-persist-diag-final-patch']:
+for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v485-restore-buttons-realtime-ship-wh']:
     if token not in mut:
         fail.append(f'yx_mutation_bus.js missing {token}')
 for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
@@ -66,7 +66,7 @@ for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
         fail.append(f'yx_mutation_bus.js still has old flag {old_flag}')
 
 sync=read('static/yx_device_sync.js')
-for token in ['v484-speed-persist-diag-final-patch','yx_warehouse_cache_v484-speed-persist-diag-final-patch','yx_warehouse_available_cache_v484-speed-persist-diag-final-patch']:
+for token in ['v485-restore-buttons-realtime-ship-wh','yx_warehouse_cache_v485-restore-buttons-realtime-ship-wh','yx_warehouse_available_cache_v485-restore-buttons-realtime-ship-wh']:
     if token not in sync:
         fail.append(f'yx_device_sync.js missing {token}')
 

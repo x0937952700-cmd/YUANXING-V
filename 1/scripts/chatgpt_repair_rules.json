@@ -13,7 +13,9 @@
     "Empty API responses, timeouts, and errors must not overwrite existing local data or visible UI.",
     "Order/master customer counts must be calculated from current rows, not stale /api/customers relation counts.",
     "Warehouse placed/unplaced items must share the same unique item key to prevent duplicates or wrong slots.",
-    "Run audits and syntax checks before claiming completion."
+    "Run audits and syntax checks before claiming completion.",
+    "V485: When user references 圖一/圖二/圖三, change only that shown area; never globally hide/remove same-name buttons elsewhere.",
+    "V485: Before removing a button, verify page/module/container/selector and ensure unrelated pages still keep their buttons."
   ],
   "required_audits": [
     "python scripts/static_data_spine_audit.py",
@@ -31,5 +33,8 @@
     "Shipping preview must show progress or an error card, never silently do nothing.",
     "Warehouse must not become blank after timeout and must not show duplicate items in wrong slots.",
     "No old version should override the new UI causing page jumps."
+  ],
+  "must_check_after_repair": [
+    "V485: Check inventory/orders/master_order batch delete and batch edit buttons still exist unless the user explicitly asked to remove them from that exact page."
   ]
 }

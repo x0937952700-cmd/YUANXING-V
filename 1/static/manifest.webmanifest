@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/?v=119-v484-speed-persist-diag-final-patch",
-  "start_url": "/?v=119-v484-speed-persist-diag-final-patch",
+  "id": "/?v=119-v485-restore-buttons-realtime-ship-wh",
+  "start_url": "/?v=119-v485-restore-buttons-realtime-ship-wh",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "v484-speed-persist-diag-final-patch"
+  "version": "v485-restore-buttons-realtime-ship-wh"
 }

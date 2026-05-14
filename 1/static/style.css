@@ -192,3 +192,21 @@ select.yx332-status-target-highlight::after{display:none;}
 .yx403-op-page-sync{display:block;margin-top:4px;color:#166534;font-weight:800;line-height:1.35;}
 .yx282-op-row.pending .yx403-op-page-sync,.yx287-op-pending-row .yx403-op-page-sync{color:#92400e;}
 .yx282-op-row.bad .yx403-op-page-sync{color:#991b1b;}
+
+
+/* V485: 只還原使用者截圖指出的庫存/訂單/總單批量刪除、批量編輯按鈕。
+   不得再因為某一張圖的需求，全域刪除其他頁按鈕。 */
+body[data-module="inventory"] [data-yx113-batch-delete="inventory"],
+body[data-module="inventory"] [data-yx128-edit-all="inventory"],
+body[data-module="orders"] [data-yx113-batch-delete="orders"],
+body[data-module="orders"] [data-yx128-edit-all="orders"],
+body[data-module="master_order"] [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] [data-yx128-edit-all="master_order"],
+.yx-v65-master-summary-actions [data-yx113-batch-delete],
+.yx-v65-master-summary-actions [data-yx128-edit-all],
+.yx-v65-orders-summary-actions [data-yx113-batch-delete],
+.yx-v65-orders-summary-actions [data-yx128-edit-all],
+.yx-v68-inventory-actions [data-yx113-batch-delete],
+.yx-v68-inventory-actions [data-yx128-edit-all]{display:inline-flex!important;visibility:visible!important;}
+/* V485b: 恢復庫存/訂單/總單批量刪除與批量編輯按鈕；不得全域誤刪。 */
+body[data-module="inventory"] [data-yx113-batch-delete="inventory"],body[data-module="inventory"] [data-yx128-edit-all="inventory"],body[data-module="orders"] [data-yx113-batch-delete="orders"],body[data-module="orders"] [data-yx128-edit-all="orders"],body[data-module="master_order"] [data-yx113-batch-delete="master_order"],body[data-module="master_order"] [data-yx128-edit-all="master_order"]{display:inline-flex!important;visibility:visible!important;pointer-events:auto!important;}

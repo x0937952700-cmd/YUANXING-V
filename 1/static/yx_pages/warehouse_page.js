@@ -760,6 +760,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       return result;
     }).catch(err=>{
       if(opts.rollback !== false) rollbackColumnOp(token, `${label||'操作'}保存失敗，已還原該欄`);
+      else { keepQueuedColumnProtected(token, payload, label); cacheWarehouseNow(); finishColumnOp(token,false); }
       throw err;
     }).finally(()=>{ if(state.columnChains.get(key)===chainTask) state.columnChains.delete(key); });
     state.columnChains.set(key, chainTask);
@@ -3606,7 +3607,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-insert',slot:Number(d?.first_slot||s+1),highlightSlot:Number(d?.first_slot||s+1),operation_id:d?.operation_id||'',message:`批量新增 ${count} 格已永久存入資料庫`});
-    }, '批量新增格子', {token});
+    }, '批量新增格子', {token, rollback:false});
   }
   async function batchDeleteWarehouseCells(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -3640,7 +3641,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       mode:'empty_from_here'
     }, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:`批量刪除 ${Number(d?.removed||emptySlots.length)} 個空格已永久存入資料庫`});
-    }, '批量刪除空格', {token});
+    }, '批量刪除空格', {token, rollback:false});
   }
 
   async function insertWarehouseCell(z,c,s){
@@ -3652,7 +3653,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'insert',slot:Number(d?.slot_number||localSlot),highlightSlot:Number(d?.slot_number||localSlot),operation_id:d?.operation_id||'',message:'新增格子已永久存入資料庫'});
-    }, '新增格子', {token});
+    }, '新增格子', {token, rollback:false});
   }
   async function deleteWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -3665,7 +3666,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:'刪除空格已永久存入資料庫'});
-    }, '刪除空格', {token});
+    }, '刪除空格', {token, rollback:false});
   }
   async function returnWarehouseCell(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -3725,11 +3726,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         toast(e.message||'格位操作失敗','error');
       }
     }
-    finally{ state.menuBusy=false; }
+    finally{ try{ hideWarehouseMenu(); }catch(_e){} state.menuBusy=false; }
   }
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
-    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu yx-v483-centered-action-sheet hidden';
+    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu yx-v485-centered-action-sheet hidden';
     m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button><button type="button" data-wh-close="1" class="yx-wh-menu-close">關閉選單</button>';
     // V126：只保留 document click 單一路徑執行選單動作；避免 pointerup+click 雙重觸發造成後端操作被鎖或重複。
     const stopMenuBubble=(ev)=>{ if(ev.target?.closest?.('[data-wh-act]')){ try{ ev.stopPropagation(); }catch(_e){} } };

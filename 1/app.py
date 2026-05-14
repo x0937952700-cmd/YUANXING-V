@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH'
-STATIC_VERSION = '119-v484_speed_persist_diag_final_patch'
-API_SCHEMA_VERSION = 'v484-speed-persist-diag-final-patch'
+APP_VERSION = 'V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH'
+STATIC_VERSION = '119-v485_restore_buttons_realtime_ship_wh'
+API_SCHEMA_VERSION = 'v485-restore-buttons-realtime-ship-wh'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())

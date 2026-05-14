@@ -12,9 +12,9 @@ def read(rel):
     return p.read_text(encoding='utf-8', errors='ignore')
 
 app=read('app.py')
-if 'V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH' not in app:
+if 'V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH' not in app:
     fail.append('app.py APP_VERSION is not v483')
-if '119-v484_speed_persist_diag_final_patch' not in app:
+if '119-v485_restore_buttons_realtime_ship_wh' not in app:
     fail.append('app.py STATIC_VERSION is not v483')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
@@ -31,7 +31,7 @@ if 'yx_v452_max_repair.js' in base:
     fail.append('base.html still loads old yx_v452_max_repair.js')
 
 rg=read('static/yx_regression_guard.js')
-for token in ['v484-speed-persist-diag-final-patch','patchDataStore','empty_overwrite_blocked','empty_response_rows_blocked','today_unplaced_guard','shipping_preview_guard','warehouse_timeout_guard','runSelfCheck','YXRegressionGuard']:
+for token in ['v485-restore-buttons-realtime-ship-wh','patchDataStore','empty_overwrite_blocked','empty_response_rows_blocked','today_unplaced_guard','shipping_preview_guard','warehouse_timeout_guard','runSelfCheck','YXRegressionGuard']:
     if token not in rg:
         fail.append(f'yx_regression_guard.js missing {token}')
 if 'setInterval(' in rg or 'new MutationObserver' in rg:

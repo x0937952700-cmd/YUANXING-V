@@ -7337,3 +7337,32 @@ body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden){
 body[data-module="warehouse"] #yx-final-warehouse-menu::before{content:'格位操作';display:block;font-weight:950;font-size:18px;color:#0f172a;padding:6px 8px 10px;text-align:center;}
 body[data-module="warehouse"] #yx-final-warehouse-menu button{width:100%!important;border-radius:16px!important;background:rgba(248,250,252,.96)!important;border:1px solid rgba(148,163,184,.35)!important;color:#0f172a!important;font-size:15px!important;font-weight:900!important;}
 body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-close="1"]{color:#b91c1c!important;background:rgba(254,242,242,.96)!important;}
+
+
+/* V485: 只還原使用者截圖指出的庫存/訂單/總單批量刪除、批量編輯按鈕。
+   不得再因為某一張圖的需求，全域刪除其他頁按鈕。 */
+body[data-module="inventory"] [data-yx113-batch-delete="inventory"],
+body[data-module="inventory"] [data-yx128-edit-all="inventory"],
+body[data-module="orders"] [data-yx113-batch-delete="orders"],
+body[data-module="orders"] [data-yx128-edit-all="orders"],
+body[data-module="master_order"] [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] [data-yx128-edit-all="master_order"],
+.yx-v65-master-summary-actions [data-yx113-batch-delete],
+.yx-v65-master-summary-actions [data-yx128-edit-all],
+.yx-v65-orders-summary-actions [data-yx113-batch-delete],
+.yx-v65-orders-summary-actions [data-yx128-edit-all],
+.yx-v68-inventory-actions [data-yx113-batch-delete],
+.yx-v68-inventory-actions [data-yx128-edit-all]{display:inline-flex!important;visibility:visible!important;}
+/* V485b: 同時恢復可點擊，覆蓋 v484 hidden 的 pointer-events:none。 */
+body[data-module="inventory"] [data-yx113-batch-delete="inventory"],
+body[data-module="inventory"] [data-yx128-edit-all="inventory"],
+body[data-module="orders"] [data-yx113-batch-delete="orders"],
+body[data-module="orders"] [data-yx128-edit-all="orders"],
+body[data-module="master_order"] [data-yx113-batch-delete="master_order"],
+body[data-module="master_order"] [data-yx128-edit-all="master_order"],
+.yx-v65-master-summary-actions [data-yx113-batch-delete],
+.yx-v65-master-summary-actions [data-yx128-edit-all],
+.yx-v65-orders-summary-actions [data-yx113-batch-delete],
+.yx-v65-orders-summary-actions [data-yx128-edit-all],
+.yx-v68-inventory-actions [data-yx113-batch-delete],
+.yx-v68-inventory-actions [data-yx128-edit-all]{pointer-events:auto!important;}

@@ -984,9 +984,9 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   const $=(id)=>document.getElementById(id);
   const state={customer:'',items:[],selected:[],customers:[],loadingName:'',itemCache:new Map(),bound:false,itemsForCustomer:''};
   const shipRuntime={previewBusy:false,confirmBusy:false,inflight:new Set(),completed:new Set(),lastPreview:null};
-  const SHIP_SYNC_VERSION='v467-mutation-consistency-pass4';
-  const SHIP_CACHE_VERSION='v466';
-  const SHIP_QUERY_VERSION='119-v467_mutation_consistency_pass4';
+  const SHIP_SYNC_VERSION='v485-restore-buttons-realtime-ship-wh';
+  const SHIP_CACHE_VERSION='v485';
+  const SHIP_QUERY_VERSION='119-v485_restore_buttons_realtime_ship_wh';
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean=(v)=>String(v??'').replace(/\s+/g,' ').trim();
   function safeErrorMessage(v,status){let s=clean(v||'');if(!s)return status?`請求失敗 ${status}`:'請求失敗';if(/^<!doctype|<html|<h1>|internal server error/i.test(s))return status===500?'伺服器出貨資料讀取錯誤，已保留畫面，請重新點一次客戶':'伺服器回應格式錯誤';return s.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,160)||'請求失敗';}
@@ -1074,6 +1074,22 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   function setCustomer(name){const next=clean(name); if(next!==state.customer){state.items=[]; state.itemsForCustomer=''; state.loadingName=next;} state.customer=next; const a=$('customer-name');if(a&&a.value!==state.customer)a.value=state.customer;const b=$('ship-customer-search');if(b&&b.value!==state.customer)b.value=state.customer;}
   function setCount(text){const el=$('ship-customer-item-count');if(el)el.textContent=text;}
   function syncHiddenSelect(){const select=$('ship-customer-item-select');if(!select)return;select.hidden=true;select.setAttribute('hidden','hidden');select.setAttribute('aria-hidden','true');select.style.display='none';select.innerHTML='<option value="">商品標籤清單已顯示在下方</option>';}
+  async function hydrateShipRowsFromDb(reason){
+    // V485: 出貨頁若本機同步資料是空的，直接用 DB rows 補進 YXDataStore，避免北中南客戶與商品空白。
+    const out={orders:[], master_order:[]};
+    for(const pair of [['orders','/api/orders'],['master_order','/api/master_orders']]){
+      const src=pair[0], url=pair[1];
+      try{
+        const d=await api(url+'?ship_hydrate=1&light=1&ts='+Date.now(), {method:'GET', yxDbOnly:true, timeout:12000});
+        const rows=Array.isArray(d.items)?d.items:(Array.isArray(d.rows)?d.rows:[]);
+        if(rows.length){
+          out[src]=rows;
+          try{ window.YXDataStore?.setRows?.(src, rows, {reason:reason||'ship-hydrate-db-v485'}); }catch(_e){}
+        }
+      }catch(e){ console.warn('[YX ship hydrate db]', src, e); }
+    }
+    return out;
+  }
   function localSyncedCustomers(){
     const map=new Map();
     const add=(row,src)=>{
@@ -1103,9 +1119,14 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
         local = localSyncedCustomers();
       }
     } catch(_e) {}
+    if (!local.length) {
+      await hydrateShipRowsFromDb('ship-load-customers-empty-local-v485');
+      local = localSyncedCustomers();
+    }
     if (local.length) {
       state.customers = local;
       renderCustomers();
+      try{window.YX?.cache?.write?.('ship_customers_'+SHIP_CACHE_VERSION,{items:state.customers,at:Date.now(),from_rows:true});}catch(_e){}
       return state.customers;
     }
     const currentKey='ship_customers_'+SHIP_CACHE_VERSION;
@@ -1143,7 +1164,11 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       renderItems();
     }
     if(!hadCached){
-      const synced=localSyncedItemsForCustomer(key);
+      let synced=localSyncedItemsForCustomer(key);
+      if(!synced.length){
+        await hydrateShipRowsFromDb('ship-load-items-empty-local-v485');
+        synced=localSyncedItemsForCustomer(key);
+      }
       if(synced.length){
         hadCached=true;
         state.items=synced;

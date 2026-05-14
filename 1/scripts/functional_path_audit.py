@@ -11,9 +11,9 @@ import ast, re, sys
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH'
-VERSION_STATIC='119-v484_speed_persist_diag_final_patch'
-VERSION_JS='v484-speed-persist-diag-final-patch'
+VERSION_APP='V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH'
+VERSION_STATIC='119-v485_restore_buttons_realtime_ship_wh'
+VERSION_JS='v485-restore-buttons-realtime-ship-wh'
 
 def read(rel):
     p=root/rel

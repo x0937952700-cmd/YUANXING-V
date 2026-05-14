@@ -17,8 +17,8 @@ from collections import defaultdict
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH"
-EXPECTED_STATIC_VERSION = "119-v484_speed_persist_diag_final_patch"
+EXPECTED_APP_VERSION = "V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH"
+EXPECTED_STATIC_VERSION = "119-v485_restore_buttons_realtime_ship_wh"
 
 READ_ENDPOINTS = {
     "inventory": "/api/inventory?sync_full=1&verify=1",

@@ -1,8 +1,8 @@
 /* V483 predeploy final check pass9: one data spine, API/fetch local-first bridge, old refresh cleanup. No renderer, no timer, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if (window.YXDataStore && window.YXDataStore.version === 'v484-speed-persist-diag-final-patch') return;
-  const VERSION = 'v484-speed-persist-diag-final-patch';
+  if (window.YXDataStore && window.YXDataStore.version === 'v485-restore-buttons-realtime-ship-wh') return;
+  const VERSION = 'v485-restore-buttons-realtime-ship-wh';
   const PRODUCT_KEY = {inventory:'inventory', orders:'orders', master_order:'master_order'};
   const clean = v => String(v == null ? '' : v).replace(/[\u3000\s]+/g,' ').trim();
   const clone = v => { try { return JSON.parse(JSON.stringify(v)); } catch(_e) { return v; } };
