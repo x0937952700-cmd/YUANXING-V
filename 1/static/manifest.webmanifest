@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/?v=119-v425-warehouse-visible-items-hard-repair",
-  "start_url": "/?v=119-v425-warehouse-visible-items-hard-repair",
+  "id": "/?v=119-v448-warehouse-longpress-true-single-engine-action-proof",
+  "start_url": "/?v=119-v448-warehouse-longpress-true-single-engine-action-proof",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "v425-warehouse-visible-items-hard-repair"
+  "version": "v443-warehouse-longpress-maximum-final-input-shield"
 }

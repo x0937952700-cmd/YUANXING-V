@@ -7235,3 +7235,63 @@ body[data-module="warehouse"] #warehouse-root .yx-final-slot .yx-slot-product-li
 body[data-module="warehouse"] #warehouse-root .yx-final-slot[data-has-items="1"] .yx108-slot-product{min-height:18px!important;max-height:34px!important;}
 body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden),
 body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}
+
+/* V440 warehouse longpress compatibility: scoped, no cache/renderer change. */
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx442-longpress-active{outline:2px solid rgba(37,99,235,.55)!important;outline-offset:-2px!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}
+
+/* V442 warehouse longpress bridge fallback; scoped only, no cache/renderer change. */
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx442-longpress-active{outline:2px solid rgba(37,99,235,.62)!important;outline-offset:-2px!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"]{display:flex!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;z-index:2147483647!important;}
+
+
+/* V442 warehouse longpress maximum gesture/action proof; scoped only, no cache or renderer change. */
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot]{
+  touch-action:none!important;
+  -ms-touch-action:none!important;
+  -webkit-touch-callout:none!important;
+  -webkit-user-select:none!important;
+  user-select:none!important;
+  -webkit-user-drag:none!important;
+  -webkit-tap-highlight-color:transparent!important;
+  cursor:pointer!important;
+}
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot] *{
+  -webkit-touch-callout:none!important;
+  -webkit-user-select:none!important;
+  user-select:none!important;
+  -webkit-user-drag:none!important;
+}
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx442-longpress-active,
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx441-longpress-active,
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx440-longpress-active{
+  outline:2px solid rgba(37,99,235,.62)!important;
+  outline-offset:-2px!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-open="1"],
+body[data-module="warehouse"] #yx-final-warehouse-menu:not(.hidden){
+  position:fixed!important;
+  display:flex!important;
+  flex-direction:column!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  z-index:2147483647!important;
+  overscroll-behavior:contain!important;
+  max-width:min(310px,calc(100vw - 16px))!important;
+  max-height:min(460px,calc(100vh - 16px))!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu button{
+  min-height:56px!important;
+  pointer-events:auto!important;
+  touch-action:manipulation!important;
+  -webkit-touch-callout:none!important;
+  -webkit-user-select:none!important;
+  user-select:none!important;
+}

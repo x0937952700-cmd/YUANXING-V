@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V423-WAREHOUSE-FRESH-RELOAD-UNPLACED-SYNC'
-STATIC_VERSION = '119-v425-warehouse-visible-items-hard-repair'
-API_SCHEMA_VERSION = 'v425-warehouse-visible-items-hard-repair'
+APP_VERSION = 'V119-V448-WAREHOUSE-LONGPRESS-TRUE-SINGLE-ENGINE-ACTION-PROOF'
+STATIC_VERSION = '119-v448-warehouse_longpress_true_single_engine_action_proof'
+API_SCHEMA_VERSION = 'v448-warehouse_longpress_true_single_engine_action_proof'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -1408,37 +1408,48 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
     return placed
 
 def normalize_warehouse_payload_items(items):
-    # service-line retained: mainfile behavior consolidated into formal services.
+    # V435: save-boundary normalization must never drop visible legacy warehouse items.
+    # It accepts arrays, dict wrappers, plain strings and every product text alias used by old packages.
+    try:
+        if '_warehouse_v432_parse_items' in globals():
+            parsed = _warehouse_v432_parse_items(items)
+            if parsed:
+                items = parsed
+    except Exception:
+        pass
     out_map = {}
-    for it in items or []:
-        if not isinstance(it, dict):
+    for raw in items or []:
+        if isinstance(raw, str):
+            it = {'product_text': raw, 'product': raw, 'raw_text': raw, 'qty': 1, 'customer_name': '庫存'}
+        elif isinstance(raw, dict):
+            it = dict(raw)
+        else:
             continue
-        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
+        product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('product_label') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '').strip()
         if not product:
             continue
         try:
-            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or 1)
+            qty = int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or it.get('total_qty') or it.get('件數') or 0))
         except Exception:
-            qty = 1
-        try:
-            if '=' in product:
-                qty = int(effective_product_qty(product, qty))
-        except Exception:
-            pass
+            qty = 0
+        if qty <= 0:
+            try:
+                qty = int(effective_product_qty(product, 1))
+            except Exception:
+                qty = 1
         qty = max(1, qty)
-        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
-        material = (it.get('material') or it.get('wood_type') or '').strip()
-        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
-        source_id = str(it.get('source_id') or it.get('id') or '').strip()
-        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
-        # service-line retained: mainfile behavior consolidated into formal services.
-        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id, placement_label)
+        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or it.get('client_name') or '')
+        material = str(it.get('material') or it.get('wood_type') or it.get('product_code') or '').strip()
+        source_table = str(it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
+        source_id = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
+        placement_label = str(it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
+        key = (warehouse_item_exact_key(product) or product, customer, material, source_table, source_id, placement_label)
         row = out_map.get(key)
         if row:
             row['qty'] = int(row.get('qty') or 0) + qty
         else:
             row = dict(it)
-            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
+            row.update({'product_text': product, 'product': product, 'raw_text': row.get('raw_text') or product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label, '__warehouseCellItem': True})
             out_map[key] = row
     return list(out_map.values())
 
@@ -3250,6 +3261,14 @@ def _warehouse_cache_get(max_age=120.0):
 
 def _warehouse_cache_set(payload):
     try:
+        # V426: keep the server in-memory cache, but never replace a non-empty
+        # warehouse cache with an empty readback.  This prevents a transient DB/read
+        # issue from making every cell look empty for the next 120 seconds.
+        old = _WAREHOUSE_API_CACHE.get('payload')
+        old_total = _warehouse_payload_item_total((old or {}).get('cells') or [])[0] if isinstance(old, dict) else 0
+        next_total = _warehouse_payload_item_total((payload or {}).get('cells') or [])[0] if isinstance(payload, dict) else 0
+        if int(next_total or 0) <= 0 and int(old_total or 0) > 0:
+            return
         _WAREHOUSE_API_CACHE['payload'] = json.loads(json.dumps(payload, ensure_ascii=False))
         _WAREHOUSE_API_CACHE['at'] = time.time()
     except Exception:
@@ -3314,7 +3333,7 @@ def _warehouse_cell_items_for_count(cell):
         for it in raw:
             if not isinstance(it, dict):
                 continue
-            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             if not product:
                 continue
             try:
@@ -3335,7 +3354,7 @@ def _warehouse_payload_item_total(cells):
         if arr:
             nonempty += 1
             for it in arr:
-                product = str(it.get('product_text') or it.get('product') or it.get('size') or '').strip()
+                product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
                 try:
                     total += max(1, int(it.get('qty') or it.get('quantity') or it.get('pieces') or effective_product_qty(product, 1) or 1))
                 except Exception:
@@ -3381,7 +3400,7 @@ def _warehouse_client_item_key(item):
         it = item or {}
         src = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
         customer = str(it.get('customer_name') or it.get('customer') or '').strip()
-        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or '')).strip()
+        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '')).strip()
         material = str(it.get('material') or it.get('product_code') or '').strip()
         return '|'.join([src, customer, material, product])
     except Exception:
@@ -3410,7 +3429,7 @@ def _warehouse_consistency_item_compare_key(item):
         it = item or {}
         customer = warehouse_customer_key(str(it.get('customer_name') or it.get('customer') or '庫存'))
         material = str(it.get('material') or it.get('product_code') or '').strip().upper()
-        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or '')).strip()
+        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '')).strip()
         exact = warehouse_item_exact_key(product) or warehouse_item_display_size(product)
         source = str(it.get('source') or it.get('source_table') or '').strip()
         source_id = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
@@ -3497,6 +3516,127 @@ def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
     payload.update(extra or {})
     return payload
 
+
+
+# ============================================================
+# V432 warehouse max repair API readback guard
+# - Does not change yx_cache.js / yx_core.js / service worker / background queue.
+# - API display/count parser becomes tolerant to legacy item fields and Python-ish JSON.
+# - Empty server cache cannot hide DB readback; force=1 always returns direct DB-readback payload.
+# ============================================================
+def _warehouse_v432_text(v):
+    return str(v or '').strip()
+
+def _warehouse_v432_item_product(it):
+    if not isinstance(it, dict):
+        return ''
+    return _warehouse_v432_text(
+        it.get('product_text') or it.get('product') or it.get('product_size') or
+        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
+        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
+        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
+        it.get('description') or it.get('goods_text') or it.get('item_text') or
+        it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name')
+    )
+
+def _warehouse_v432_int(v, default=0):
+    try:
+        if isinstance(v, str):
+            m = re.search(r'-?\d+', v)
+            if m: return int(m.group(0))
+        return int(float(v))
+    except Exception:
+        return default
+
+def _warehouse_v432_qty(product, fallback=1):
+    try:
+        return max(1, int(effective_product_qty(product, fallback or 1)))
+    except Exception:
+        return max(1, _warehouse_v432_int(fallback, 1))
+
+def _warehouse_v432_normalize_items(items):
+    out=[]
+    for raw in items or []:
+        if isinstance(raw, (str,int,float)):
+            raw={'product_text':str(raw), 'product':str(raw), 'raw_text':str(raw), 'qty':1}
+        if not isinstance(raw, dict):
+            continue
+        product=_warehouse_v432_item_product(raw)
+        if not product:
+            continue
+        qty=_warehouse_v432_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty') or raw.get('件數'), 0)
+        if qty<=0:
+            qty=_warehouse_v432_qty(product, 1)
+        row=dict(raw)
+        row['product_text']=_warehouse_v432_text(row.get('product_text') or product)
+        row['product']=_warehouse_v432_text(row.get('product') or product)
+        row['raw_text']=_warehouse_v432_text(row.get('raw_text') or product)
+        row['customer_name']=warehouse_customer_key(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
+        row['material']=_warehouse_v432_text(row.get('material') or row.get('product_code') or row.get('wood_type') or '')
+        row['qty']=max(1, qty)
+        if not row.get('placement_label') and row.get('layer_label'):
+            row['placement_label']=row.get('layer_label')
+        if not row.get('layer_label') and row.get('placement_label'):
+            row['layer_label']=row.get('placement_label')
+        out.append(row)
+    try:
+        return normalize_warehouse_payload_items(out)
+    except Exception:
+        return out
+
+def _warehouse_v432_parse_items(raw):
+    if raw in (None, ''):
+        return []
+    obj=raw
+    if isinstance(raw, str):
+        s=raw.strip()
+        if not s or s.lower() in ('[]','null','none','undefined'):
+            return []
+        try:
+            obj=json.loads(s)
+        except Exception:
+            try:
+                obj=json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
+            except Exception:
+                return _warehouse_v432_normalize_items([{'product_text':s,'product':s,'raw_text':s,'qty':1}])
+    if isinstance(obj, dict):
+        for k in ('items','products','goods','rows','data','cell_items'):
+            if isinstance(obj.get(k), list):
+                return _warehouse_v432_normalize_items(obj.get(k))
+        return _warehouse_v432_normalize_items([obj])
+    if isinstance(obj, list):
+        return _warehouse_v432_normalize_items(obj)
+    return []
+
+def _warehouse_cell_items_for_count(cell):
+    try:
+        if not isinstance(cell, dict):
+            return []
+        from_items=_warehouse_v432_parse_items(cell.get('items') if isinstance(cell.get('items'), list) else [])
+        from_json=_warehouse_v432_parse_items(cell.get('items_json') or [])
+        combined=[]; seen=set()
+        for it in (from_json + from_items):
+            product=_warehouse_v432_item_product(it)
+            if not product:
+                continue
+            k='|'.join([
+                _warehouse_v432_text(it.get('source_table') or it.get('source') or ''),
+                _warehouse_v432_text(it.get('source_id') or it.get('id') or it.get('row_id') or ''),
+                warehouse_customer_key(it.get('customer_name') or it.get('customer') or ''),
+                _warehouse_v432_text(it.get('material') or it.get('product_code') or ''),
+                product,
+                _warehouse_v432_text(it.get('placement_label') or it.get('layer_label') or '')
+            ])
+            if k in seen:
+                continue
+            seen.add(k); combined.append(it)
+        return _warehouse_v432_normalize_items(combined)
+    except Exception:
+        return []
+
+def warehouse_v432_api_display_parser_lock_version():
+    return 'v448-warehouse_longpress_true_single_engine_action_proof'
+
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
 @login_required_json
@@ -3524,13 +3664,59 @@ def api_warehouse():
         payload['cache_bust'] = API_SCHEMA_VERSION
         payload['sync_version'] = API_SCHEMA_VERSION
         if not include_source and not force_fresh:
-            _warehouse_cache_set(payload)
+            # V432: keep server fast cache, but never write an empty warehouse payload over a potentially valid DB/client view.
+            try:
+                if int(payload.get('warehouse_item_total') or 0) > 0:
+                    _warehouse_cache_set(payload)
+            except Exception:
+                pass
         return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse", str(e))
-        return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], error=str(e))
+        return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], preserve_client_cache=True, error=str(e), cache_bust=API_SCHEMA_VERSION)
 
 
+
+
+@app.route("/api/warehouse/readback-diagnose", methods=["GET"])
+@login_required_json
+def api_warehouse_readback_diagnose():
+    """V431 one-shot readback diagnosis. No polling, no cache mutation.
+    Shows whether DB/API currently sees warehouse items so frontend cache is not blamed blindly.
+    """
+    try:
+        cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_cells()]
+        total, nonempty = _warehouse_payload_item_total(cells)
+        sample = []
+        for cell in cells:
+            arr = _warehouse_cell_items_for_count(cell)
+            if arr:
+                sample.append({
+                    'zone': cell.get('zone'), 'column_index': cell.get('column_index'),
+                    'slot_number': cell.get('slot_number'), 'items': arr[:3],
+                    'items_json_len': len(str(cell.get('items_json') or ''))
+                })
+            if len(sample) >= 12:
+                break
+        diag_extra = {}
+        try:
+            diag_extra['db_mode'] = database_mode_info()
+        except Exception:
+            pass
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql("SELECT COUNT(*) AS c FROM warehouse_cell_items"))
+            diag_extra['warehouse_cell_items_count'] = int((fetchone_dict(cur) or {}).get('c') or 0)
+            conn.close()
+        except Exception:
+            try: conn.close()
+            except Exception: pass
+        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, sync_version=API_SCHEMA_VERSION,
+                       warehouse_item_total=total, warehouse_nonempty_cell_count=nonempty,
+                       cell_count=len(cells), sample_nonempty_cells=sample, cache_mutated=False, **diag_extra)
+    except Exception as e:
+        log_error('warehouse_readback_diagnose_v431', str(e))
+        return jsonify(success=False, error=str(e), cache_mutated=False, sync_version=API_SCHEMA_VERSION), 500
 
 @app.route("/api/warehouse/consistency-check", methods=["POST"])
 @login_required_json
@@ -3570,8 +3756,10 @@ def api_warehouse_consistency_check():
                 except Exception:
                     continue
         if cell:
+            # V433: consistency-check uses the same tolerant warehouse parser as the main API.
+            # A raw json.loads('[]') must not hide valid cell.items or legacy fields.
             try:
-                items = json.loads(cell.get('items_json') or '[]')
+                items = _warehouse_cell_items_for_count(cell)
             except Exception:
                 items = []
             server_sig = _warehouse_cell_compare_signature(cell)
@@ -3579,6 +3767,7 @@ def api_warehouse_consistency_check():
             enriched['items'] = items if isinstance(items, list) else []
             enriched['items_json'] = json.dumps(enriched['items'], ensure_ascii=False)
             enriched['compare_signature'] = server_sig
+            enriched['explicit_empty_saved'] = bool((not enriched['items']) and str((cell or {}).get('note') or '').startswith('__YX_EMPTY_SAVED__'))
             payload.update({
                 'cell_found': True,
                 'cell_signature': server_sig,
@@ -3653,17 +3842,31 @@ def api_warehouse_cell():
         if not saved_after:
             return _yx_operation_error_response(operation_id, 'warehouse_cell_save', "格位沒有確實寫入資料庫")
         try:
-            saved_items = json.loads(saved_after.get('items_json') or '[]')
+            saved_items = _warehouse_cell_items_for_count(saved_after)
         except Exception:
-            saved_items = []
+            try:
+                saved_items = json.loads(saved_after.get('items_json') or '[]')
+            except Exception:
+                saved_items = []
         if items and not saved_items:
-            return _yx_operation_error_response(operation_id, 'warehouse_cell_save', '格位商品寫入後讀回為空，已阻止空資料覆蓋前端')
+            # V435: DB write succeeded but immediate readback can be stale.
+            # Keep the exact normalized payload in the response so the frontend never washes the visible cell empty.
+            saved_items = normalize_warehouse_payload_items(items)
+            saved_after = dict(saved_after or {})
+            saved_after.update({'zone': zone, 'column_index': column_index, 'slot_type': 'direct', 'slot_number': slot_number, 'items': saved_items, 'items_json': json.dumps(saved_items, ensure_ascii=False), 'readback_degraded': True, 'preserve_client_cache': True})
         # service-line retained: mainfile behavior consolidated into formal services.
         # The important check is that the exact cell can be read back from DB and the saved payload is returned.
         saved_cell_payload = dict(saved_after or {})
         saved_cell_payload['items'] = saved_items
         saved_cell_payload['items_json'] = json.dumps(saved_items, ensure_ascii=False)
         saved_cell_payload['operation_id'] = operation_id
+        # V431: response carries explicit saved counts so the frontend can reject
+        # accidental empty readback without touching yx_cache/background queue.
+        try:
+            saved_cell_payload['saved_item_count'] = len(saved_items or [])
+            saved_cell_payload['saved_item_total'] = int(sum(max(1, int((x or {}).get('qty') or 1)) for x in (saved_items or []) if isinstance(x, dict)))
+        except Exception:
+            saved_cell_payload['saved_item_count'] = len(saved_items or []) if isinstance(saved_items, list) else 0
     except Exception as e:
         log_error("warehouse_cell_main_save_v40", str(e))
         _yx_operation_finish(operation_id, 'warehouse_cell_save', {'success': False, 'error': '格位更新失敗：' + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
@@ -6225,7 +6428,7 @@ def normalize_warehouse_payload_items(items):
     for it in items or []:
         if not isinstance(it, dict):
             continue
-        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or '').strip()
+        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
         if not product:
             continue
         try:
@@ -7204,3 +7407,130 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=port)
 
 # V423: warehouse force reload/available-items force=1 bypass server fast cache for manual refresh/readback checks; column payload carries cache_bust/sync_version and light available summary. No renderer/setInterval/MutationObserver added.
+
+# ============================================================
+# V428 warehouse API display parser lock
+# - No frontend cache / service-worker / queue changes.
+# - API counting and readback now use the same tolerant legacy item fields as DB rescue.
+# ============================================================
+
+def _warehouse_v428_text(v):
+    return str(v or '').strip()
+
+
+def _warehouse_v428_product_from_item(it):
+    if not isinstance(it, dict):
+        return ''
+    return _warehouse_v428_text(
+        it.get('product_text') or it.get('product') or it.get('product_size') or
+        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
+        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
+        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
+        it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content')
+    )
+
+
+def _warehouse_v428_int(v, default=0):
+    try:
+        if isinstance(v, str):
+            m = re.search(r'-?\d+', v)
+            if m:
+                return int(m.group(0))
+        return int(float(v))
+    except Exception:
+        return default
+
+
+def _warehouse_v428_qty(product, fallback=1):
+    try:
+        return max(1, int(effective_product_qty(product, fallback or 1)))
+    except Exception:
+        return max(1, _warehouse_v428_int(fallback, 1))
+
+
+def _warehouse_v428_normalize_items(items):
+    out = []
+    for raw in items or []:
+        if isinstance(raw, str):
+            raw = {'product_text': raw, 'product': raw, 'raw_text': raw}
+        if not isinstance(raw, dict):
+            continue
+        product = _warehouse_v428_product_from_item(raw)
+        if not product:
+            continue
+        qty = _warehouse_v428_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty'), 0)
+        if qty <= 0:
+            qty = _warehouse_v428_qty(product, 1)
+        row = dict(raw)
+        row['product_text'] = _warehouse_v428_text(row.get('product_text') or product)
+        row['product'] = _warehouse_v428_text(row.get('product') or product)
+        row['raw_text'] = _warehouse_v428_text(row.get('raw_text') or product)
+        row['customer_name'] = _warehouse_v428_text(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
+        row['qty'] = max(1, qty)
+        if not row.get('placement_label') and row.get('layer_label'):
+            row['placement_label'] = row.get('layer_label')
+        if not row.get('layer_label') and row.get('placement_label'):
+            row['layer_label'] = row.get('placement_label')
+        out.append(row)
+    return out
+
+
+def _warehouse_v428_parse_items(raw):
+    if raw in (None, ''):
+        return []
+    obj = raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or s.lower() in ('[]','null','none','undefined'):
+            return []
+        try:
+            obj = json.loads(s)
+        except Exception:
+            try:
+                obj = json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
+            except Exception:
+                return _warehouse_v428_normalize_items([{'product_text': s, 'product': s, 'raw_text': s, 'qty': 1}])
+    if isinstance(obj, dict):
+        for key in ('items','products','goods','rows','data'):
+            if isinstance(obj.get(key), list):
+                return _warehouse_v428_normalize_items(obj.get(key))
+        return _warehouse_v428_normalize_items([obj])
+    if isinstance(obj, list):
+        return _warehouse_v428_normalize_items(obj)
+    return []
+
+
+def _warehouse_cell_items_for_count(cell):
+    try:
+        if not isinstance(cell, dict):
+            return []
+        from_items = _warehouse_v428_parse_items(cell.get('items') if isinstance(cell.get('items'), list) else [])
+        from_json = _warehouse_v428_parse_items(cell.get('items_json') or [])
+        if from_items and not from_json:
+            return from_items
+        if from_json and not from_items:
+            return from_json
+        if not from_items and not from_json:
+            return []
+        out = []
+        seen = set()
+        for it in (from_json + from_items):
+            k = '|'.join([
+                _warehouse_v428_text(it.get('source_table') or it.get('source') or ''),
+                _warehouse_v428_text(it.get('source_id') or it.get('id') or ''),
+                _warehouse_v428_text(it.get('customer_name') or ''),
+                _warehouse_v428_text(it.get('material') or it.get('product_code') or ''),
+                _warehouse_v428_product_from_item(it),
+                _warehouse_v428_text(it.get('placement_label') or it.get('layer_label') or '')
+            ])
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(it)
+        return _warehouse_v428_normalize_items(out)
+    except Exception:
+        return []
+
+
+def warehouse_v429_api_display_parser_lock_version():
+    return 'v448-warehouse_longpress_true_single_engine_action_proof'

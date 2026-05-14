@@ -3552,7 +3552,7 @@ def _normalize_warehouse_items(items):
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
-        product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or raw.get('product_size') or raw.get('display_product_size') or raw.get('base_product_size') or raw.get('size') or raw.get('size_text') or raw.get('dimension') or raw.get('dimensions') or raw.get('raw_text') or raw.get('label') or '').strip())
+        product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or raw.get('product_size') or raw.get('display_product_size') or raw.get('base_product_size') or raw.get('size') or raw.get('size_text') or raw.get('dimension') or raw.get('dimensions') or raw.get('raw_text') or raw.get('label') or raw.get('title') or raw.get('detail') or raw.get('description') or raw.get('goods_text') or raw.get('item_text') or raw.get('content') or '').strip())
         if not product_text:
             continue
         try:
@@ -4861,7 +4861,7 @@ def _yx_v77_empty_items_json(value):
         for it in arr:
             if not isinstance(it, dict):
                 continue
-            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             try:
                 qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
             except Exception:
@@ -5376,12 +5376,14 @@ def _yx_v87_is_empty_items(value):
         for it in arr:
             if not isinstance(it, dict):
                 continue
-            txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             try:
                 qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
             except Exception:
                 qty = 0
             if txt and qty > 0:
+                return False
+            if txt:
                 return False
         return True
     except Exception:
@@ -5686,7 +5688,7 @@ def _yx_v88_empty_items(value):
         for it in arr:
             if not isinstance(it, dict):
                 continue
-            txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             try:
                 qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0)
             except Exception:
@@ -6159,7 +6161,7 @@ def _yx_v92_empty_items(value):
         if not isinstance(arr,list) or not arr: return True
         for it in arr:
             if not isinstance(it,dict): continue
-            txt=str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            txt=str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             try: qty=int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or 0))
             except Exception: qty=0
             if txt and qty>0: return False
@@ -6428,7 +6430,7 @@ def _yx_v93_empty(value):
     for it in _yx_v93_items(value):
         if not isinstance(it, dict):
             continue
-        txt=str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        txt=str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
         try: qty=int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or 0))
         except Exception: qty=0
         if txt and qty>0:
@@ -6970,9 +6972,13 @@ def _yx_v116_parse_json_items(raw):
         try:
             obj = json.loads(s)
         except Exception:
-            if re.search(r'\d+\s*[x×ＸX✕＊*]\s*\d+', s):
-                return [{'product_text': s, 'product': s, 'qty': 1, 'customer_name': ''}]
-            return []
+            # V431: rescue Python-ish JSON and plain legacy text instead of returning empty.
+            try:
+                obj = json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
+            except Exception:
+                if s and s.lower() not in ('null','none','undefined','[]','{}'):
+                    return [{'product_text': s, 'product': s, 'raw_text': s, 'qty': 1, 'customer_name': ''}]
+                return []
     if isinstance(obj, dict):
         for key in ('items', 'products', 'goods', 'rows', 'data'):
             val = obj.get(key)
@@ -7021,7 +7027,7 @@ def _yx_v116_row_items(row):
     for it in items:
         if not isinstance(it, dict):
             continue
-        product = it.get('product_text') or it.get('product') or it.get('text') or it.get('size_text') or ''
+        product = it.get('product_text') or it.get('product') or it.get('text') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or ''
         customer = it.get('customer_name') or it.get('customer') or it.get('client_name') or ''
         material = it.get('material') or it.get('product_code') or it.get('wood_type') or ''
         q = _yx_v116_int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count'), 0)
@@ -7466,7 +7472,7 @@ def _yx_120_sync_cell_items_for_column(cur, zone, column_index):
         for i, it in enumerate(items):
             if not isinstance(it, dict):
                 continue
-            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
             if not product:
                 continue
             try:
@@ -7487,7 +7493,7 @@ def _yx_120_sync_cell_items_for_column(cur, zone, column_index):
                 cell_id, z, c, int(cell.get('slot_number') or 0),
                 str(it.get('source_table') or it.get('source') or '庫存'), str(it.get('source_id') or it.get('id') or ''),
                 warehouse_customer_key(it.get('customer_name') or it.get('customer') or ''), product,
-                str(it.get('material') or it.get('wood_type') or ''), max(0, qty),
+                str(it.get('material') or it.get('wood_type') or it.get('product_code') or ''), max(1, qty),
                 str(it.get('placement_label') or it.get('layer_label') or ''), i, now(), now()
             ))
 
@@ -7503,12 +7509,14 @@ def _yx_117_has_items(cell):
     for it in _yx_117_cell_items(cell):
         if not isinstance(it, dict):
             continue
-        txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or '').strip()
+        txt = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
         try:
             q = int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or 0))
         except Exception:
             q = 0
         if txt and q > 0:
+            return True
+        if txt:
             return True
     return False
 
@@ -7519,10 +7527,12 @@ def _yx_117_raw_logical_cells(cur):
     for raw in _yx_v116_load_raw_cells(cur):
         try:
             st = str(raw.get('slot_type') or '').strip()
-            # Rows hidden by 117 are backups of a compacted column. Do not show them again.
-            if st.startswith(WAREHOUSE_OLD_SLOT_PREFIX):
-                continue
             cell = _yx_v116_cell_from_row(raw)
+            # V426: old backup/hidden rows normally stay hidden, but if an older
+            # migration accidentally left product JSON there, rescue it instead
+            # of making the warehouse look empty.
+            if st.startswith(WAREHOUSE_OLD_SLOT_PREFIX) and not cell.get('items'):
+                continue
             z = cell.get('zone') or 'A'
             c = int(cell.get('column_index') or 1)
             s = int(cell.get('slot_number') or 1)
@@ -9038,3 +9048,1281 @@ def warehouse_move_cell_contents(from_cell, to_cell, dst_items, source_note='', 
 
 def warehouse_v159_auto_stability_version():
     return 'v159-warehouse-auto-stability-canonical-move'
+
+
+# ============================================================
+# V426 warehouse display readback shield marker
+# - no cache architecture removal
+# - rescues product rows hidden by legacy slot backups
+# - treats legacy item text without explicit qty as 1 item
+# ============================================================
+def warehouse_v426_display_readback_shield_version():
+    return 'v426-warehouse-display-readback-shield'
+
+# ============================================================
+# V427 warehouse mirror rescue / visible-items final guard
+# - Does not change cache architecture.
+# - Does not clear/rebuild warehouse tables globally.
+# - If items_json is empty but warehouse_cell_items mirror has products, API rows are rescued.
+# - Legacy/raw item fields are kept as visible 1-piece products instead of being filtered out.
+# ============================================================
+
+def _yx_v427_table_exists(cur, name):
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=%s LIMIT 1", (name,))
+            return cur.fetchone() is not None
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
+        return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+def _yx_v427_int(v, default=0):
+    try:
+        if isinstance(v, str):
+            m = re.search(r'-?\d+', v)
+            if m:
+                return int(m.group(0))
+        return int(float(v))
+    except Exception:
+        return default
+
+
+def _yx_v427_text(v):
+    return str(v or '').strip()
+
+
+def _yx_v427_product_from_item(it):
+    if not isinstance(it, dict):
+        return ''
+    return _yx_v427_text(
+        it.get('product_text') or it.get('product') or it.get('product_size') or
+        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
+        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
+        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
+        it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name')
+    )
+
+
+def _yx_v427_qty_from_text(text, fallback=1):
+    s = _yx_v427_text(text).replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('*','x').replace('＊','x').replace('＝','=').replace('＋','+')
+    if '=' in s:
+        right = s.split('=', 1)[1]
+        total = 0; hit = False
+        for part in [p.strip() for p in right.split('+') if p.strip()]:
+            part = re.sub(r'[\(（][^\)）]*[\)）]', '', part).strip()
+            m = re.search(r'x\s*(\d+)\s*$', part, re.I)
+            if m:
+                total += int(m.group(1)); hit = True
+            elif re.search(r'\d', part):
+                total += 1; hit = True
+        if hit and total > 0:
+            return total
+    # A plain dimension like TD 200x30x125 is one piece, not 125 pieces.
+    return max(1, _yx_v427_int(fallback, 1))
+
+
+def _yx_v427_normalize_items(items):
+    out = []
+    for raw in (items or []):
+        if isinstance(raw, str):
+            raw = {'product_text': raw, 'product': raw, 'raw_text': raw}
+        if not isinstance(raw, dict):
+            continue
+        product = _yx_v427_product_from_item(raw)
+        if not product:
+            continue
+        q = _yx_v427_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty'), 0)
+        if q <= 0:
+            q = _yx_v427_qty_from_text(product, 1)
+        row = dict(raw)
+        row['product_text'] = _yx_v427_text(row.get('product_text') or product)
+        row['product'] = _yx_v427_text(row.get('product') or product)
+        row['raw_text'] = _yx_v427_text(row.get('raw_text') or product)
+        row['customer_name'] = _yx_v427_text(row.get('customer_name') or row.get('customer') or row.get('client_name') or '')
+        row['material'] = _yx_v427_text(row.get('material') or row.get('product_code') or row.get('wood_type') or '')
+        row['qty'] = max(1, q)
+        if not row.get('placement_label') and row.get('layer_label'):
+            row['placement_label'] = row.get('layer_label')
+        if not row.get('layer_label') and row.get('placement_label'):
+            row['layer_label'] = row.get('placement_label')
+        out.append(row)
+    try:
+        return _normalize_warehouse_items(out)
+    except Exception:
+        return out
+
+
+def _yx_v427_parse_any_items(raw):
+    if raw in (None, ''):
+        return []
+    obj = raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s or s.lower() in ('[]','null','none','undefined'):
+            return []
+        try:
+            obj = json.loads(s)
+        except Exception:
+            try:
+                obj = json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
+            except Exception:
+                if re.search(r'\d+\s*[x×ＸX✕＊*]\s*\d+', s):
+                    return _yx_v427_normalize_items([{'product_text': s, 'product': s, 'raw_text': s, 'qty': 1}])
+                return []
+    if isinstance(obj, dict):
+        for key in ('items','products','goods','rows','data'):
+            val = obj.get(key)
+            if isinstance(val, list):
+                return _yx_v427_normalize_items(val)
+        return _yx_v427_normalize_items([obj])
+    if isinstance(obj, list):
+        return _yx_v427_normalize_items(obj)
+    return []
+
+
+# Override the old parser used by _yx_v116_cell_from_row / _yx_117_raw_logical_cells.
+def _yx_v116_parse_json_items(raw):
+    return _yx_v427_parse_any_items(raw)
+
+
+def _yx_v116_row_items(row):
+    items = []
+    for col in ('items_json', 'items', 'products_json', 'cell_items', 'goods_json', 'data_json', 'data', 'content', 'contents'):
+        if isinstance(row, dict) and col in row:
+            items = _yx_v427_parse_any_items(row.get(col))
+            if items:
+                break
+    if not items and isinstance(row, dict):
+        product = _yx_v116_pick(row, 'product_text', 'product', 'goods_text', 'item_text', 'size_text', 'dimensions', 'dimension', 'size', 'raw_text', 'label', 'title', default='')
+        customer = _yx_v116_pick(row, 'customer_name', 'customer', 'client_name', 'client', 'name', default='')
+        material = _yx_v116_pick(row, 'material', 'product_code', 'wood_type', default='')
+        qty = _yx_v116_pick(row, 'qty', 'quantity', 'pieces', 'piece_count', 'count', default=0)
+        if product or customer or material or _yx_v427_int(qty, 0) > 0:
+            items = [{'product_text': product or '', 'product': product or '', 'raw_text': product or '', 'customer_name': customer or '', 'material': material or '', 'product_code': material or '', 'qty': _yx_v427_qty_from_text(product, qty or 1)}]
+    return _yx_v427_normalize_items(items)
+
+
+def _yx_v427_mirror_items_by_cell(cur):
+    out = {}
+    if not _yx_v427_table_exists(cur, 'warehouse_cell_items'):
+        return out
+    try:
+        cur.execute(sql("""
+            SELECT zone, column_index, slot_number, source_table, source_id, customer_name,
+                   product_text, material, qty, placement_label, sort_order
+            FROM warehouse_cell_items
+            WHERE COALESCE(qty,0) > 0 AND COALESCE(product_text,'') <> ''
+            ORDER BY zone, column_index, slot_number, sort_order, id
+        """))
+        rows = rows_to_dict(cur)
+        for r in rows:
+            z = _yx_v116_zone(r.get('zone'))
+            c = _yx_v427_int(r.get('column_index'), 1)
+            s = _yx_v427_int(r.get('slot_number'), 1)
+            if z not in ('A','B') or c < 1 or s < 1:
+                continue
+            item = {
+                'source_table': r.get('source_table') or '',
+                'source': r.get('source_table') or '',
+                'source_id': r.get('source_id') or '',
+                'customer_name': r.get('customer_name') or '',
+                'product_text': r.get('product_text') or '',
+                'product': r.get('product_text') or '',
+                'material': r.get('material') or '',
+                'qty': max(1, _yx_v427_int(r.get('qty'), 1)),
+                'placement_label': r.get('placement_label') or '',
+                'layer_label': r.get('placement_label') or '',
+            }
+            out.setdefault((z,c,s), []).append(item)
+    except Exception as e:
+        try: log_error('v427_mirror_items_by_cell', str(e))
+        except Exception: pass
+    return out
+
+
+_yx_v427_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        # Use the existing latest warehouse reader first; it already preserves the user's compact grid logic.
+        try:
+            cells = _yx_v427_previous_warehouse_get_cells()
+        except Exception:
+            cells = []
+        mirror = _yx_v427_mirror_items_by_cell(cur)
+        by_key = {}
+        for cell in cells or []:
+            try:
+                z = _yx_v116_zone(cell.get('zone'))
+                c = _yx_v427_int(cell.get('column_index'), 1)
+                s = _yx_v427_int(cell.get('slot_number'), 1)
+            except Exception:
+                continue
+            row = dict(cell)
+            items = _yx_v427_parse_any_items(row.get('items_json') or row.get('items') or [])
+            if not items and mirror.get((z,c,s)):
+                items = _yx_v427_normalize_items(mirror.get((z,c,s)) or [])
+            row['zone'], row['column_index'], row['slot_type'], row['slot_number'] = z, c, 'direct', s
+            row['items_json'] = json.dumps(items or [], ensure_ascii=False)
+            row['is_deleted'] = 0
+            by_key[(z,c,s)] = row
+        # If mirror contains a product in a cell that the main reader did not return, add it.
+        for (z,c,s), items in mirror.items():
+            if (z,c,s) not in by_key:
+                by_key[(z,c,s)] = {
+                    'id': None, 'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': s,
+                    'items_json': json.dumps(_yx_v427_normalize_items(items), ensure_ascii=False),
+                    'note': '', 'updated_at': '', 'problem_flag': '', 'is_deleted': 0,
+                }
+        out = list(by_key.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v427_warehouse_get_cells', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v427_mirror_rescue_visible_items_version():
+    return 'v427-warehouse-mirror-rescue-visible-items'
+
+# ============================================================
+# V428 warehouse save/readback mirror lock
+# - Does not alter cache architecture, service worker, or background queue.
+# - Makes mirror rescue bidirectional: if main cell and mirror both have products,
+#   merge safely instead of only using mirror when main is empty.
+# - Makes warehouse_cell_items mirror sync preserve legacy product fields instead of
+#   dropping product-only rows.
+# ============================================================
+
+def _yx_v428_item_identity(item):
+    try:
+        it = item or {}
+        source_table = _yx_v427_text(it.get('source_table') or it.get('source') or '')
+        source_id = _yx_v427_text(it.get('source_id') or it.get('id') or it.get('row_id') or '')
+        customer = _yx_v427_text(it.get('customer_name') or it.get('customer') or it.get('client_name') or '')
+        product = _yx_v427_product_from_item(it)
+        material = _yx_v427_text(it.get('material') or it.get('product_code') or it.get('wood_type') or '')
+        placement = _yx_v427_text(it.get('placement_label') or it.get('layer_label') or '')
+        if source_id:
+            return '|'.join(['src', source_table, source_id, customer, product, placement])
+        return '|'.join(['txt', customer, material, product, placement])
+    except Exception:
+        return ''
+
+
+def _yx_v428_merge_items(primary, rescue):
+    out = []
+    seen = {}
+    def add_many(rows, prefer=False):
+        for raw in _yx_v427_normalize_items(rows or []):
+            k = _yx_v428_item_identity(raw)
+            if not k:
+                continue
+            if k not in seen:
+                seen[k] = len(out)
+                out.append(raw)
+                continue
+            idx = seen[k]
+            old = out[idx]
+            # Prefer the row that carries more display/source metadata; keep the larger qty if one side lost it.
+            oq = _yx_v427_int(old.get('qty'), 0)
+            nq = _yx_v427_int(raw.get('qty'), 0)
+            merged = dict(old)
+            for field in ('product_text','product','raw_text','customer_name','material','product_code','source_table','source','source_id','placement_label','layer_label','support_text'):
+                if not merged.get(field) and raw.get(field):
+                    merged[field] = raw.get(field)
+            if nq > oq:
+                merged['qty'] = nq
+            elif oq <= 0 and nq > 0:
+                merged['qty'] = nq
+            else:
+                merged['qty'] = max(1, oq)
+            out[idx] = merged
+    add_many(primary)
+    add_many(rescue)
+    return _yx_v427_normalize_items(out)
+
+
+_yx_v428_previous_sync_cell_items_for_column = _yx_120_sync_cell_items_for_column
+
+def _yx_120_sync_cell_items_for_column(cur, zone, column_index):
+    z = _yx_v116_zone(zone); c = int(column_index or 0)
+    if z not in ('A','B') or c < 1:
+        return
+    _yx_120_ensure_warehouse_operation_schema(cur)
+    cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0 ORDER BY slot_number ASC, id ASC"), (z, c))
+    rows = rows_to_dict(cur)
+    for cell in rows:
+        cell_id = cell.get('id')
+        if not cell_id:
+            continue
+        cur.execute(sql("DELETE FROM warehouse_cell_items WHERE cell_id=?"), (cell_id,))
+        items = _yx_v427_parse_any_items(cell.get('items_json') or cell.get('items') or [])
+        for i, it in enumerate(items or []):
+            if not isinstance(it, dict):
+                continue
+            product = _yx_v427_product_from_item(it)
+            if not product:
+                continue
+            qty = _yx_v427_int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count'), 0)
+            if qty <= 0:
+                qty = _yx_v427_qty_from_text(product, 1)
+            cur.execute(sql("""
+                INSERT INTO warehouse_cell_items(
+                    cell_id, zone, column_index, slot_number, source_table, source_id,
+                    customer_name, product_text, material, qty, placement_label, sort_order, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """), (
+                cell_id, z, c, int(cell.get('slot_number') or 0),
+                str(it.get('source_table') or it.get('source') or '庫存'), str(it.get('source_id') or it.get('id') or it.get('row_id') or ''),
+                _yx_v427_text(it.get('customer_name') or it.get('customer') or it.get('client_name') or '庫存'), product,
+                _yx_v427_text(it.get('material') or it.get('product_code') or it.get('wood_type') or ''), max(1, qty),
+                _yx_v427_text(it.get('placement_label') or it.get('layer_label') or ''), i, now(), now()
+            ))
+
+
+_yx_v428_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        try:
+            cells = _yx_v428_previous_warehouse_get_cells()
+        except Exception:
+            cells = []
+        mirror = _yx_v427_mirror_items_by_cell(cur)
+        by_key = {}
+        for cell in cells or []:
+            try:
+                z = _yx_v116_zone(cell.get('zone'))
+                c = _yx_v427_int(cell.get('column_index'), 1)
+                s = _yx_v427_int(cell.get('slot_number'), 1)
+            except Exception:
+                continue
+            row = dict(cell)
+            primary = _yx_v427_parse_any_items(row.get('items_json') or row.get('items') or [])
+            merged = _yx_v428_merge_items(primary, mirror.get((z,c,s)) or [])
+            row['zone'], row['column_index'], row['slot_type'], row['slot_number'] = z, c, 'direct', s
+            row['items_json'] = json.dumps(merged or [], ensure_ascii=False)
+            row['is_deleted'] = 0
+            by_key[(z,c,s)] = row
+        for (z,c,s), items in mirror.items():
+            if (z,c,s) not in by_key:
+                by_key[(z,c,s)] = {
+                    'id': None, 'zone': z, 'column_index': c, 'slot_type': 'direct', 'slot_number': s,
+                    'items_json': json.dumps(_yx_v427_normalize_items(items), ensure_ascii=False),
+                    'note': '', 'updated_at': '', 'problem_flag': '', 'is_deleted': 0,
+                }
+        out = list(by_key.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v428_warehouse_get_cells', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v428_save_readback_mirror_lock_version():
+    return 'v429-warehouse-nondirect-readback-guard'
+
+# ============================================================
+# V429 warehouse non-direct/readback guard
+# - Read-only rescue layer: does not touch yx_cache.js, fast cache, SW, queue, or timers.
+# - Some older data was saved with slot_type front/back/middle/legacy, so the direct-only
+#   reader could miss real items. Rescue those rows and merge them into the direct view.
+# ============================================================
+
+def _yx_v429_merge_cell_rows(existing, rescue):
+    try:
+        e = dict(existing or {})
+        r = dict(rescue or {})
+        primary = _yx_v427_parse_any_items(e.get('items_json') or e.get('items') or [])
+        secondary = _yx_v427_parse_any_items(r.get('items_json') or r.get('items') or [])
+        merged = _yx_v428_merge_items(primary, secondary)
+        # Prefer the visible/direct cell metadata, but keep notes/problem flags if direct row was blank.
+        out = e if e else r
+        out = dict(out)
+        out['zone'] = _yx_v116_zone(out.get('zone') or r.get('zone') or 'A')
+        out['column_index'] = _yx_v427_int(out.get('column_index') or r.get('column_index'), 1)
+        out['slot_type'] = 'direct'
+        out['slot_number'] = _yx_v427_int(out.get('slot_number') or r.get('slot_number'), 1)
+        out['items_json'] = json.dumps(merged or [], ensure_ascii=False)
+        if not out.get('note') and r.get('note'):
+            out['note'] = r.get('note')
+        out['is_deleted'] = 0
+        return out
+    except Exception:
+        return existing or rescue
+
+
+def _yx_v429_all_warehouse_rows_by_key(cur):
+    out = {}
+    try:
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0 ORDER BY zone, column_index, slot_number, id"))
+        rows = rows_to_dict(cur)
+    except Exception:
+        return out
+    for row in rows or []:
+        try:
+            z = _yx_v116_zone(row.get('zone'))
+            c = _yx_v427_int(row.get('column_index'), 1)
+            s = _yx_v427_int(row.get('slot_number'), 1)
+            items = _yx_v427_parse_any_items(row.get('items_json') or row.get('items') or [])
+            if not items:
+                continue
+            rr = dict(row)
+            rr['zone'], rr['column_index'], rr['slot_number'] = z, c, s
+            rr['items_json'] = json.dumps(_yx_v427_normalize_items(items), ensure_ascii=False)
+            k = (z,c,s)
+            out[k] = _yx_v429_merge_cell_rows(out.get(k), rr) if k in out else rr
+        except Exception:
+            continue
+    return out
+
+
+def _yx_v429_cell_total(cell):
+    try:
+        return sum(max(0, _yx_v427_int(it.get('qty'), 0)) for it in _yx_v427_parse_any_items((cell or {}).get('items_json') or (cell or {}).get('items') or []))
+    except Exception:
+        return 0
+
+_yx_v429_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        try:
+            cells = _yx_v429_previous_warehouse_get_cells()
+        except Exception:
+            cells = []
+        by_key = {}
+        for cell in cells or []:
+            try:
+                z = _yx_v116_zone(cell.get('zone'))
+                c = _yx_v427_int(cell.get('column_index'), 1)
+                s = _yx_v427_int(cell.get('slot_number'), 1)
+                row = dict(cell)
+                row['zone'], row['column_index'], row['slot_type'], row['slot_number'] = z, c, 'direct', s
+                row['items_json'] = json.dumps(_yx_v427_parse_any_items(row.get('items_json') or row.get('items') or []), ensure_ascii=False)
+                by_key[(z,c,s)] = row
+            except Exception:
+                continue
+        # Rescue any old non-direct row with products; merge with direct row if both exist.
+        all_rows = _yx_v429_all_warehouse_rows_by_key(cur)
+        for k, rescue in all_rows.items():
+            if k not in by_key:
+                r = dict(rescue)
+                r['zone'], r['column_index'], r['slot_type'], r['slot_number'] = k[0], k[1], 'direct', k[2]
+                r['is_deleted'] = 0
+                by_key[k] = r
+            elif _yx_v429_cell_total(rescue) > 0:
+                # If direct is empty, or both have different product metadata, merge instead of hiding the old row.
+                by_key[k] = _yx_v429_merge_cell_rows(by_key.get(k), rescue)
+        out = list(by_key.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v429_warehouse_get_cells', str(e))
+        except Exception: pass
+        try:
+            return _yx_v429_previous_warehouse_get_cells()
+        except Exception:
+            return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v429_nondirect_readback_guard_version():
+    return 'v429-warehouse-nondirect-readback-guard'
+
+# ============================================================
+# V430 warehouse deleted-row/readback proof rescue
+# - Read-only rescue layer; does not change yx_cache.js, fast cache, SW API policy, or queues.
+# - Older duplicate/compact cleanup could mark a row deleted while the row still kept real items_json.
+#   If the visible direct row is empty, rescue those deleted-but-nonempty rows for display/readback.
+# - Also repairs mixed items/items_json payloads at the DB read boundary so the frontend never receives
+#   a shell cell with hidden products.
+# ============================================================
+
+def _yx_v430_item_count_from_cell(cell):
+    try:
+        return sum(max(1, _yx_v427_int((it or {}).get('qty'), 1)) for it in _yx_v427_parse_any_items((cell or {}).get('items_json') or (cell or {}).get('items') or []))
+    except Exception:
+        return 0
+
+
+def _yx_v430_deleted_nonempty_rows_by_key(cur):
+    out = {}
+    try:
+        cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(is_deleted,0)=1 ORDER BY zone, column_index, slot_number, id"))
+        rows = rows_to_dict(cur)
+    except Exception:
+        return out
+    for row in rows or []:
+        try:
+            items = _yx_v427_parse_any_items(row.get('items_json') or row.get('items') or [])
+            if not items:
+                continue
+            z = _yx_v116_zone(row.get('zone'))
+            c = _yx_v427_int(row.get('column_index'), 1)
+            s = _yx_v427_int(row.get('slot_number'), 1)
+            if z not in ('A','B') or c < 1 or s < 1:
+                continue
+            rr = dict(row)
+            rr['zone'], rr['column_index'], rr['slot_type'], rr['slot_number'] = z, c, 'direct', s
+            rr['items_json'] = json.dumps(_yx_v427_normalize_items(items), ensure_ascii=False)
+            rr['is_deleted'] = 0
+            k = (z,c,s)
+            out[k] = _yx_v429_merge_cell_rows(out.get(k), rr) if k in out else rr
+        except Exception:
+            continue
+    return out
+
+
+_yx_v430_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        try:
+            cells = _yx_v430_previous_warehouse_get_cells()
+        except Exception:
+            cells = []
+        by_key = {}
+        for cell in cells or []:
+            try:
+                z = _yx_v116_zone(cell.get('zone'))
+                c = _yx_v427_int(cell.get('column_index'), 1)
+                s = _yx_v427_int(cell.get('slot_number'), 1)
+                row = dict(cell)
+                merged_items = _yx_v428_merge_items(_yx_v427_parse_any_items(row.get('items_json') or []), _yx_v427_parse_any_items(row.get('items') or []))
+                row['zone'], row['column_index'], row['slot_type'], row['slot_number'] = z, c, 'direct', s
+                row['items_json'] = json.dumps(merged_items or [], ensure_ascii=False)
+                row['is_deleted'] = 0
+                by_key[(z,c,s)] = row
+            except Exception:
+                continue
+        deleted_rows = _yx_v430_deleted_nonempty_rows_by_key(cur)
+        for k, rescue in deleted_rows.items():
+            current = by_key.get(k)
+            # Only rescue deleted/hidden rows when the visible readback has no products for that cell.
+            # This avoids bringing back intentionally removed items on top of a valid non-empty current cell.
+            if not current or _yx_v430_item_count_from_cell(current) <= 0:
+                by_key[k] = rescue
+        out = list(by_key.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v430_warehouse_get_cells', str(e))
+        except Exception: pass
+        try:
+            return _yx_v430_previous_warehouse_get_cells()
+        except Exception:
+            return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v430_deleted_row_rescue_readback_proof_version():
+    return 'v431-warehouse-full-item-key-readback-proof'
+
+
+# ============================================================
+# V432 warehouse max repair final readback layer
+# - No cache/core/queue/service-worker change.
+# - Final DB boundary only: make full and column reads use the same rescued cells.
+# - Handles direct/non-direct/deleted mirror rows, legacy item field names, and missing column readbacks.
+# ============================================================
+def _yx_v432_cell_key(cell):
+    try:
+        return (_yx_v116_zone((cell or {}).get('zone')), _yx_v427_int((cell or {}).get('column_index'), 1), _yx_v427_int((cell or {}).get('slot_number'), 1))
+    except Exception:
+        return ('A',1,1)
+
+def _yx_v432_product_from_item(it):
+    if not isinstance(it, dict):
+        return ''
+    return _yx_v427_text(
+        it.get('product_text') or it.get('product') or it.get('product_size') or
+        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
+        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
+        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
+        it.get('description') or it.get('goods_text') or it.get('item_text') or
+        it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name')
+    )
+
+def _yx_v432_normalize_items(items):
+    out=[]
+    for raw in items or []:
+        if isinstance(raw, (str,int,float)):
+            raw={'product_text':str(raw), 'product':str(raw), 'raw_text':str(raw), 'qty':1}
+        if not isinstance(raw, dict):
+            continue
+        product=_yx_v432_product_from_item(raw)
+        if not product:
+            continue
+        qty=_yx_v427_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty') or raw.get('件數'), 0)
+        if qty<=0:
+            qty=_yx_v427_qty_from_text(product, 1)
+        row=dict(raw)
+        row['product_text']=_yx_v427_text(row.get('product_text') or product)
+        row['product']=_yx_v427_text(row.get('product') or product)
+        row['raw_text']=_yx_v427_text(row.get('raw_text') or product)
+        row['customer_name']=_yx_v427_text(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
+        row['material']=_yx_v427_text(row.get('material') or row.get('product_code') or row.get('wood_type') or '')
+        row['qty']=max(1, qty)
+        if not row.get('placement_label') and row.get('layer_label'): row['placement_label']=row.get('layer_label')
+        if not row.get('layer_label') and row.get('placement_label'): row['layer_label']=row.get('placement_label')
+        out.append(row)
+    try:
+        return _normalize_warehouse_items(out)
+    except Exception:
+        return out
+
+def _yx_v432_parse_any_items(raw):
+    if raw in (None,''):
+        return []
+    obj=raw
+    if isinstance(raw, str):
+        st=raw.strip()
+        if not st or st.lower() in ('[]','null','none','undefined'):
+            return []
+        try:
+            obj=json.loads(st)
+        except Exception:
+            try:
+                obj=json.loads(st.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
+            except Exception:
+                return _yx_v432_normalize_items([{'product_text':st,'product':st,'raw_text':st,'qty':1}])
+    if isinstance(obj, dict):
+        for k in ('items','products','goods','rows','data','cell_items'):
+            if isinstance(obj.get(k), list): return _yx_v432_normalize_items(obj.get(k))
+        return _yx_v432_normalize_items([obj])
+    if isinstance(obj, list):
+        return _yx_v432_normalize_items(obj)
+    return []
+
+def _yx_v432_merge_items(a,b):
+    out=[]; seen={}
+    for raw in _yx_v432_normalize_items((a or []) + (b or [])):
+        product=_yx_v432_product_from_item(raw)
+        if not product: continue
+        k='|'.join([_yx_v427_text(raw.get('source_table') or raw.get('source') or ''), _yx_v427_text(raw.get('source_id') or raw.get('id') or raw.get('row_id') or ''), _yx_v427_text(raw.get('customer_name') or ''), _yx_v427_text(raw.get('material') or raw.get('product_code') or ''), product, _yx_v427_text(raw.get('placement_label') or raw.get('layer_label') or '')])
+        if k not in seen:
+            seen[k]=len(out); out.append(raw); continue
+        old=out[seen[k]]; oq=_yx_v427_int(old.get('qty'),1); nq=_yx_v427_int(raw.get('qty'),1)
+        merged=dict(old)
+        for f in ('product_text','product','raw_text','customer_name','material','product_code','source_table','source','source_id','placement_label','layer_label','support_text'):
+            if not merged.get(f) and raw.get(f): merged[f]=raw.get(f)
+        merged['qty']=max(1, oq, nq)
+        out[seen[k]]=merged
+    return _yx_v432_normalize_items(out)
+
+_yx_v432_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn=get_db(); cur=conn.cursor()
+    try:
+        try:
+            base=_yx_v432_previous_warehouse_get_cells()
+        except Exception:
+            base=[]
+        by={}
+        # existing rescued reader
+        for cell in base or []:
+            try:
+                k=_yx_v432_cell_key(cell)
+                row=dict(cell or {})
+                items=_yx_v432_merge_items(_yx_v432_parse_any_items(row.get('items_json') or []), _yx_v432_parse_any_items(row.get('items') or []))
+                row['zone'], row['column_index'], row['slot_type'], row['slot_number']=k[0],k[1],'direct',k[2]
+                row['items']=items; row['items_json']=json.dumps(items, ensure_ascii=False); row['is_deleted']=0
+                by[k]=row
+            except Exception:
+                continue
+        # last raw sweep: all rows, including non-direct/deleted, only if they contain real products
+        try:
+            cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number, id"))
+            for row in rows_to_dict(cur) or []:
+                items=_yx_v432_parse_any_items(row.get('items_json') or row.get('items') or [])
+                if not items: continue
+                k=_yx_v432_cell_key(row)
+                rr=dict(row); rr['zone'],rr['column_index'],rr['slot_type'],rr['slot_number']=k[0],k[1],'direct',k[2]
+                old=by.get(k)
+                merged=_yx_v432_merge_items(_yx_v432_parse_any_items((old or {}).get('items_json') or (old or {}).get('items') or []), items)
+                rr['items']=merged; rr['items_json']=json.dumps(merged, ensure_ascii=False); rr['is_deleted']=0
+                if old and old.get('note') and not rr.get('note'): rr['note']=old.get('note')
+                by[k]=rr if merged else (old or rr)
+        except Exception as e:
+            try: log_error('v432_raw_cell_sweep', str(e))
+            except Exception: pass
+        out=list(by.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v432_warehouse_get_cells', str(e))
+        except Exception: pass
+        try: return _yx_v432_previous_warehouse_get_cells()
+        except Exception: return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_get_column_cells(zone, column_index):
+    z=_yx_v116_zone(zone); c=_yx_v427_int(column_index,0)
+    if z not in ('A','B') or c<1:
+        return []
+    return [dict(x) for x in warehouse_get_cells() if _yx_v116_zone(x.get('zone'))==z and _yx_v427_int(x.get('column_index'),0)==c]
+
+def warehouse_v432_max_repair_no_cache_damage_version():
+    return 'v432-warehouse-max-repair-no-cache-damage'
+
+# ============================================================
+# V433 warehouse maximum readback/save proof
+# - Does not touch frontend cache files, service worker, timers, or queue.
+# - Fixes the remaining cases where an old rescued/hidden row can come back
+#   after the user explicitly cleared a cell.
+# - Makes save exact-cell based so one cell save cannot rewrite/wash the column.
+# ============================================================
+
+def _yx_v433_ts_text(v):
+    try:
+        return str(v or '').strip()
+    except Exception:
+        return ''
+
+
+def _yx_v433_row_items(row):
+    try:
+        return _yx_v432_parse_any_items((row or {}).get('items_json') or (row or {}).get('items') or [])
+    except Exception:
+        try:
+            return _yx_v427_parse_any_items((row or {}).get('items_json') or (row or {}).get('items') or [])
+        except Exception:
+            return []
+
+
+def _yx_v433_row_has_items(row):
+    try:
+        return len(_yx_v433_row_items(row)) > 0
+    except Exception:
+        return False
+
+
+def _yx_v433_is_direct_visible(row):
+    try:
+        st = str((row or {}).get('slot_type') or '').strip().lower()
+        return st in ('', 'direct') and int((row or {}).get('is_deleted') or 0) == 0
+    except Exception:
+        return False
+
+
+def _yx_v433_raw_rows(cur):
+    try:
+        cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number, id"))
+        return rows_to_dict(cur) or []
+    except Exception as e:
+        try: log_error('v433_raw_rows', str(e))
+        except Exception: pass
+        return []
+
+
+def _yx_v433_find_cell_ids(cur, z, c, s):
+    try:
+        return list(_yx_v116_matching_raw_ids(cur, z, c, s))
+    except Exception:
+        ids=[]
+        try:
+            cur.execute(sql("SELECT id FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=? ORDER BY CASE WHEN COALESCE(is_deleted,0)=0 THEN 0 ELSE 1 END, CASE WHEN COALESCE(slot_type,'direct')='direct' THEN 0 ELSE 1 END, id ASC"), (z,c,s))
+            ids=[r.get('id') for r in rows_to_dict(cur) if r.get('id')]
+        except Exception:
+            pass
+        return ids
+
+
+def _yx_v433_latest_empty_direct_guards(raw_rows):
+    guards={}
+    for row in raw_rows or []:
+        try:
+            if not _yx_v433_is_direct_visible(row):
+                continue
+            if _yx_v433_row_has_items(row):
+                continue
+            k=_yx_v432_cell_key(row)
+            ts=_yx_v433_ts_text(row.get('updated_at') or row.get('created_at') or '')
+            old=guards.get(k)
+            if not old or ts >= old.get('ts',''):
+                guards[k]={'ts':ts, 'row':row}
+        except Exception:
+            continue
+    return guards
+
+
+def _yx_v433_should_skip_rescue_by_empty_guard(row, empty_guards):
+    try:
+        k=_yx_v432_cell_key(row)
+        g=empty_guards.get(k)
+        if not g:
+            return False
+        # If the product row itself is the current direct visible row, it is not a rescue.
+        if _yx_v433_is_direct_visible(row):
+            return False
+        guard_ts=_yx_v433_ts_text(g.get('ts'))
+        row_ts=_yx_v433_ts_text((row or {}).get('updated_at') or (row or {}).get('created_at') or '')
+        # ISO-like DB timestamps compare correctly as text in this app. If a user cleared
+        # a cell after an older hidden/non-direct product row was created, do not rescue it.
+        return bool(guard_ts and (not row_ts or guard_ts >= row_ts))
+    except Exception:
+        return False
+
+
+_yx_v433_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn=get_db(); cur=conn.cursor()
+    try:
+        raw_rows=_yx_v433_raw_rows(cur)
+        empty_guards=_yx_v433_latest_empty_direct_guards(raw_rows)
+        try:
+            base=_yx_v433_previous_warehouse_get_cells()
+        except Exception:
+            base=[]
+        by={}
+        for cell in base or []:
+            try:
+                k=_yx_v432_cell_key(cell)
+                row=dict(cell or {})
+                items=_yx_v432_merge_items(_yx_v432_parse_any_items(row.get('items_json') or []), _yx_v432_parse_any_items(row.get('items') or []))
+                row['zone'], row['column_index'], row['slot_type'], row['slot_number']=k[0],k[1],'direct',k[2]
+                row['items']=items; row['items_json']=json.dumps(items, ensure_ascii=False); row['is_deleted']=0
+                if not items and k in empty_guards:
+                    row['explicit_empty_saved']=True
+                by[k]=row
+            except Exception:
+                continue
+        # Final raw sweep, but do not resurrect an older hidden/non-direct row after a newer empty direct save.
+        for row in raw_rows or []:
+            try:
+                items=_yx_v433_row_items(row)
+                if not items:
+                    continue
+                if _yx_v433_should_skip_rescue_by_empty_guard(row, empty_guards):
+                    continue
+                k=_yx_v432_cell_key(row)
+                rr=dict(row); rr['zone'],rr['column_index'],rr['slot_type'],rr['slot_number']=k[0],k[1],'direct',k[2]
+                old=by.get(k)
+                merged=_yx_v432_merge_items(_yx_v432_parse_any_items((old or {}).get('items_json') or (old or {}).get('items') or []), items)
+                rr['items']=merged; rr['items_json']=json.dumps(merged, ensure_ascii=False); rr['is_deleted']=0; rr['explicit_empty_saved']=False
+                if old and old.get('note') and not rr.get('note'): rr['note']=old.get('note')
+                by[k]=rr if merged else (old or rr)
+            except Exception:
+                continue
+        out=list(by.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v433_warehouse_get_cells', str(e))
+        except Exception: pass
+        try: return _yx_v433_previous_warehouse_get_cells()
+        except Exception: return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_get_column_cells(zone, column_index):
+    z=_yx_v116_zone(zone); c=_yx_v427_int(column_index,0)
+    if z not in ('A','B') or c<1:
+        return []
+    return [dict(x) for x in warehouse_get_cells() if _yx_v116_zone(x.get('zone'))==z and _yx_v427_int(x.get('column_index'),0)==c]
+
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=''):
+    z=_yx_v116_zone(zone); c=int(column_index or 0); s=int(slot_number or 0)
+    if z not in ('A','B') or c<1 or s<1:
+        raise ValueError('格位參數錯誤')
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur)
+        try: _yx_120_ensure_warehouse_operation_schema(cur)
+        except Exception: pass
+        data_items=_yx_v432_normalize_items(items or []) if '_yx_v432_normalize_items' in globals() else (_normalize_warehouse_items(items or []) if '_normalize_warehouse_items' in globals() else (items or []))
+        data=json.dumps(data_items, ensure_ascii=False)
+        safe_note='' if str(note or '').startswith('__USER_') else (note or '')
+        ids=_yx_v433_find_cell_ids(cur,z,c,s)
+        keep_id=ids[0] if ids else None
+        if keep_id:
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET zone=?, column_index=?, slot_type='direct', slot_number=?, items_json=?, note=?, is_deleted=0, updated_at=?
+                WHERE id=?
+            """), (z,c,s,data,safe_note,now(),keep_id))
+            # Do not delete product payloads from old duplicate rows here; v433 readback guard decides
+            # whether old hidden/non-direct rows should be rescued. Mark exact duplicates hidden only.
+            for extra_id in ids[1:]:
+                try:
+                    cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, updated_at=? WHERE id=?"), (now(), extra_id))
+                except Exception:
+                    pass
+        else:
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """), (z,c,'direct',s,data,safe_note,now(),0,''))
+        try:
+            _yx_120_sync_cell_items_for_column(cur,z,c)
+        except Exception as e:
+            try: log_error('v433_sync_cell_items_after_save', str(e))
+            except Exception: pass
+        conn.commit()
+        return {'success': True, 'zone': z, 'column_index': c, 'slot_number': s, 'saved_item_count': len(data_items), 'saved_item_total': sum(max(1, _yx_v427_int((it or {}).get('qty'),1)) for it in data_items if isinstance(it, dict))}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v433_maximum_readback_save_proof_version():
+    return 'v437-warehouse_longpress_tap_suppress_drag_guard'
+
+
+# ============================================================
+# V434 warehouse maximum DB/mirror/readback proof
+# - DB boundary only. Does not touch yx_cache.js, yx_core.js, fast cache, background queue,
+#   service worker, renderer count, setInterval, or MutationObserver.
+# - Fixes remaining invisible-product causes:
+#   1) mirror rows left behind after exact-cell save/delete;
+#   2) warehouse_cell_items has products while warehouse_cells.items_json is empty;
+#   3) old string/Python-ish JSON/memo-only product fields;
+#   4) exact cell readback after save must return the same normalized payload.
+# ============================================================
+
+def _yx_v434_product_from_item(it):
+    try:
+        if not isinstance(it, dict):
+            return str(it or '').strip()
+        return _yx_v427_text(
+            it.get('product_text') or it.get('product') or it.get('product_size') or
+            it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
+            it.get('size_text') or it.get('dimension') or it.get('dimensions') or
+            it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
+            it.get('description') or it.get('goods_text') or it.get('item_text') or
+            it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or
+            it.get('name') or it.get('text') or it.get('value')
+        )
+    except Exception:
+        return ''
+
+
+def _yx_v434_parse_items(raw):
+    try:
+        if '_yx_v432_parse_any_items' in globals():
+            arr = _yx_v432_parse_any_items(raw)
+            if arr:
+                return arr
+    except Exception:
+        pass
+    try:
+        if '_yx_v427_parse_any_items' in globals():
+            arr = _yx_v427_parse_any_items(raw)
+            if arr:
+                return arr
+    except Exception:
+        pass
+    if raw in (None, ''):
+        return []
+    if isinstance(raw, list):
+        src = raw
+    elif isinstance(raw, dict):
+        src = raw.get('items') or raw.get('rows') or raw.get('products') or raw.get('goods') or [raw]
+    elif isinstance(raw, str):
+        st = raw.strip()
+        if not st or st.lower() in ('[]','null','none','undefined'):
+            return []
+        try:
+            return _yx_v434_parse_items(json.loads(st))
+        except Exception:
+            try:
+                return _yx_v434_parse_items(json.loads(st.replace("'", '"').replace('None','null').replace('True','true').replace('False','false')))
+            except Exception:
+                src = [{'product_text': st, 'product': st, 'raw_text': st, 'qty': 1, 'customer_name': '庫存'}]
+    else:
+        src = [{'product_text': str(raw), 'product': str(raw), 'raw_text': str(raw), 'qty': 1, 'customer_name': '庫存'}]
+    out=[]
+    for raw_it in src or []:
+        it = raw_it if isinstance(raw_it, dict) else {'product_text': str(raw_it), 'product': str(raw_it), 'raw_text': str(raw_it)}
+        product = _yx_v434_product_from_item(it)
+        if not product:
+            continue
+        try:
+            qty = _yx_v427_int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or it.get('total_qty') or it.get('件數'), 0)
+        except Exception:
+            qty = 0
+        if qty <= 0:
+            try: qty = _yx_v427_qty_from_text(product, 1)
+            except Exception: qty = 1
+        row = dict(it)
+        row['product_text'] = _yx_v427_text(row.get('product_text') or product)
+        row['product'] = _yx_v427_text(row.get('product') or product)
+        row['raw_text'] = _yx_v427_text(row.get('raw_text') or product)
+        row['customer_name'] = warehouse_customer_key(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
+        row['material'] = _yx_v427_text(row.get('material') or row.get('product_code') or row.get('wood_type') or '')
+        row['qty'] = max(1, int(qty or 1))
+        if not row.get('placement_label') and row.get('layer_label'): row['placement_label']=row.get('layer_label')
+        if not row.get('layer_label') and row.get('placement_label'): row['layer_label']=row.get('placement_label')
+        out.append(row)
+    try:
+        return _yx_v432_merge_items(out, []) if '_yx_v432_merge_items' in globals() else out
+    except Exception:
+        return out
+
+
+def _yx_v434_merge_items(a, b):
+    try:
+        return _yx_v432_merge_items(_yx_v434_parse_items(a), _yx_v434_parse_items(b))
+    except Exception:
+        out=[]; seen=set()
+        for it in _yx_v434_parse_items(a) + _yx_v434_parse_items(b):
+            product=_yx_v434_product_from_item(it)
+            if not product: continue
+            k='|'.join([str(it.get('source_table') or it.get('source') or ''), str(it.get('source_id') or it.get('id') or it.get('row_id') or ''), warehouse_customer_key(it.get('customer_name') or ''), str(it.get('material') or ''), product, str(it.get('placement_label') or it.get('layer_label') or '')])
+            if k in seen: continue
+            seen.add(k); out.append(it)
+        return out
+
+
+
+def _yx_v435_mirror_items_by_coordinate(cur):
+    # Fallback mirror reader keyed by visible coordinate, not cell_id.
+    # Some earlier saves created mirror rows whose cell_id no longer matches the surviving direct row.
+    # This only reads and merges; it does not touch cache, renderer, timers or service worker.
+    out={}
+    try:
+        if not _yx_v427_table_exists(cur, 'warehouse_cell_items'):
+            return out
+        cur.execute(sql("SELECT * FROM warehouse_cell_items ORDER BY zone, column_index, slot_number, sort_order, id"))
+        for r in rows_to_dict(cur) or []:
+            product=_yx_v434_product_from_item(r)
+            if not product:
+                continue
+            z=_yx_v116_zone(r.get('zone'))
+            c=_yx_v427_int(r.get('column_index'),0)
+            s=_yx_v427_int(r.get('slot_number'),0)
+            if z not in ('A','B') or c<1 or s<1:
+                continue
+            it={
+                'product_text': product, 'product': product, 'raw_text': product,
+                'customer_name': warehouse_customer_key(r.get('customer_name') or '庫存'),
+                'material': _yx_v427_text(r.get('material') or ''),
+                'qty': max(1, _yx_v427_int(r.get('qty'), 1)),
+                'placement_label': _yx_v427_text(r.get('placement_label') or ''),
+                'source_table': _yx_v427_text(r.get('source_table') or r.get('source') or ''),
+                'source_id': _yx_v427_text(r.get('source_id') or ''),
+            }
+            out.setdefault((z,c,s), []).append(it)
+    except Exception as e:
+        try: log_error('v435_mirror_items_by_coordinate', str(e))
+        except Exception: pass
+    return out
+
+def _yx_v434_mirror_items_by_cell_ids(cur, cell_ids):
+    out={}
+    ids=[x for x in (cell_ids or []) if x]
+    if not ids:
+        return out
+    try:
+        ph=','.join(['?']*len(ids))
+        cur.execute(sql(f"SELECT * FROM warehouse_cell_items WHERE cell_id IN ({ph}) ORDER BY cell_id, sort_order, id"), tuple(ids))
+        for r in rows_to_dict(cur) or []:
+            cid=r.get('cell_id')
+            product=_yx_v434_product_from_item(r)
+            if not product: continue
+            it={
+                'product_text': product, 'product': product, 'raw_text': product,
+                'customer_name': warehouse_customer_key(r.get('customer_name') or '庫存'),
+                'material': _yx_v427_text(r.get('material') or ''),
+                'qty': max(1, _yx_v427_int(r.get('qty'), 1)),
+                'placement_label': _yx_v427_text(r.get('placement_label') or ''),
+                'source_table': _yx_v427_text(r.get('source_table') or r.get('source') or ''),
+                'source_id': _yx_v427_text(r.get('source_id') or ''),
+            }
+            out.setdefault(cid, []).append(it)
+    except Exception as e:
+        try: log_error('v434_mirror_items_by_cell_ids', str(e))
+        except Exception: pass
+    return out
+
+
+def _yx_v434_sync_cell_items_exact(cur, cell_id, z, c, s, items):
+    if not cell_id:
+        return
+    _yx_120_ensure_warehouse_operation_schema(cur)
+    data_items = _yx_v434_parse_items(items or [])
+    cur.execute(sql("DELETE FROM warehouse_cell_items WHERE cell_id=?"), (cell_id,))
+    try:
+        cur.execute(sql("DELETE FROM warehouse_cell_items WHERE zone=? AND column_index=? AND slot_number=? AND COALESCE(cell_id,0)<>?"), (z, c, s, cell_id))
+    except Exception:
+        pass
+    for i,it in enumerate(data_items):
+        product=_yx_v434_product_from_item(it)
+        if not product: continue
+        cur.execute(sql("""
+            INSERT INTO warehouse_cell_items(
+                cell_id, zone, column_index, slot_number, source_table, source_id,
+                customer_name, product_text, material, qty, placement_label, sort_order, created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """), (
+            cell_id, z, c, s,
+            str(it.get('source_table') or it.get('source') or '庫存'), str(it.get('source_id') or it.get('id') or it.get('row_id') or ''),
+            warehouse_customer_key(it.get('customer_name') or it.get('customer') or '庫存'), product,
+            str(it.get('material') or it.get('wood_type') or it.get('product_code') or ''), max(1, _yx_v427_int(it.get('qty'), 1)),
+            str(it.get('placement_label') or it.get('layer_label') or ''), i, now(), now()
+        ))
+
+
+def _yx_v434_read_raw_cells(cur):
+    try:
+        cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number, id"))
+        return rows_to_dict(cur) or []
+    except Exception as e:
+        try: log_error('v434_read_raw_cells', str(e))
+        except Exception: pass
+        return []
+
+
+_yx_v434_previous_warehouse_get_cells = warehouse_get_cells
+
+def warehouse_get_cells():
+    conn=get_db(); cur=conn.cursor()
+    try:
+        raw_rows=_yx_v434_read_raw_cells(cur)
+        raw_ids=[r.get('id') for r in raw_rows if r.get('id')]
+        mirror_by_id=_yx_v434_mirror_items_by_cell_ids(cur, raw_ids)
+        mirror_by_coord=_yx_v435_mirror_items_by_coordinate(cur) if '_yx_v435_mirror_items_by_coordinate' in globals() else {}
+        empty_guards=_yx_v433_latest_empty_direct_guards(raw_rows) if '_yx_v433_latest_empty_direct_guards' in globals() else {}
+        try:
+            base=_yx_v434_previous_warehouse_get_cells()
+        except Exception:
+            base=[]
+        by={}
+        # First keep previous final reader output, but merge its items with mirror rows belonging to the same cell id.
+        for cell in base or []:
+            try:
+                k=_yx_v432_cell_key(cell) if '_yx_v432_cell_key' in globals() else (_yx_v116_zone(cell.get('zone')), _yx_v427_int(cell.get('column_index'),1), _yx_v427_int(cell.get('slot_number'),1))
+                cid=cell.get('id') or cell.get('cell_id')
+                items=_yx_v434_merge_items(_yx_v434_merge_items(cell.get('items_json') or cell.get('items') or [], mirror_by_id.get(cid, [])), mirror_by_coord.get(k, []))
+                row=dict(cell); row['zone'],row['column_index'],row['slot_type'],row['slot_number']=k[0],k[1],'direct',k[2]
+                row['items']=items; row['items_json']=json.dumps(items or [], ensure_ascii=False); row['is_deleted']=0
+                if not items and k in empty_guards: row['explicit_empty_saved']=True
+                by[k]=row
+            except Exception:
+                continue
+        # Raw table sweep + mirror rescue. Empty guard prevents resurrecting an older hidden duplicate after user clears a cell.
+        for row in raw_rows or []:
+            try:
+                k=_yx_v432_cell_key(row) if '_yx_v432_cell_key' in globals() else (_yx_v116_zone(row.get('zone')), _yx_v427_int(row.get('column_index'),1), _yx_v427_int(row.get('slot_number'),1))
+                if '_yx_v433_should_skip_rescue_by_empty_guard' in globals() and _yx_v433_should_skip_rescue_by_empty_guard(row, empty_guards):
+                    continue
+                cid=row.get('id')
+                items=_yx_v434_merge_items(_yx_v434_merge_items(row.get('items_json') or row.get('items') or [], mirror_by_id.get(cid, [])), mirror_by_coord.get(k, []))
+                if not items:
+                    continue
+                old=by.get(k)
+                merged=_yx_v434_merge_items((old or {}).get('items_json') or (old or {}).get('items') or [], items)
+                rr=dict(row); rr['zone'],rr['column_index'],rr['slot_type'],rr['slot_number']=k[0],k[1],'direct',k[2]
+                rr['items']=merged; rr['items_json']=json.dumps(merged or [], ensure_ascii=False); rr['is_deleted']=0; rr['explicit_empty_saved']=False
+                if old and old.get('note') and not rr.get('note'): rr['note']=old.get('note')
+                by[k]=rr
+            except Exception:
+                continue
+        out=list(by.values())
+        out.sort(key=lambda r:(r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v434_warehouse_get_cells', str(e))
+        except Exception: pass
+        try: return _yx_v434_previous_warehouse_get_cells()
+        except Exception: return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_get_column_cells(zone, column_index):
+    z=_yx_v116_zone(zone); c=_yx_v427_int(column_index,0)
+    if z not in ('A','B') or c<1:
+        return []
+    return [dict(x) for x in warehouse_get_cells() if _yx_v116_zone(x.get('zone'))==z and _yx_v427_int(x.get('column_index'),0)==c]
+
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=''):
+    z=_yx_v116_zone(zone); c=int(column_index or 0); s=int(slot_number or 0)
+    if z not in ('A','B') or c<1 or s<1:
+        raise ValueError('格位參數錯誤')
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur)
+        _yx_120_ensure_warehouse_operation_schema(cur)
+        data_items=_yx_v434_parse_items(items or [])
+        data=json.dumps(data_items, ensure_ascii=False)
+        safe_note='' if str(note or '').startswith('__USER_') else (note or '')
+        ids=_yx_v433_find_cell_ids(cur,z,c,s) if '_yx_v433_find_cell_ids' in globals() else []
+        keep_id=ids[0] if ids else None
+        if keep_id:
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET zone=?, column_index=?, slot_type='direct', slot_number=?, items_json=?, note=?, is_deleted=0, updated_at=?
+                WHERE id=?
+            """), (z,c,s,data,safe_note,now(),keep_id))
+        else:
+            cur.execute(sql("""
+                INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """), (z,c,'direct',s,data,safe_note,now(),0,''))
+            keep_id = getattr(cur, 'lastrowid', None)
+            if not keep_id:
+                try:
+                    cur.execute(sql("SELECT id FROM warehouse_cells WHERE zone=? AND column_index=? AND slot_number=? AND COALESCE(is_deleted,0)=0 ORDER BY id DESC LIMIT 1"), (z,c,s))
+                    keep_id=(fetchone_dict(cur) or {}).get('id')
+                except Exception:
+                    keep_id=None
+        # Important v434: exact-cell mirror sync. Do not leave old duplicate mirror rows able to rescue deleted products.
+        try:
+            for extra_id in ids:
+                if extra_id != keep_id:
+                    try:
+                        cur.execute(sql("UPDATE warehouse_cells SET is_deleted=1, updated_at=? WHERE id=?"), (now(), extra_id))
+                        cur.execute(sql("DELETE FROM warehouse_cell_items WHERE cell_id=?"), (extra_id,))
+                    except Exception:
+                        pass
+            _yx_v434_sync_cell_items_exact(cur, keep_id, z, c, s, data_items)
+        except Exception as e:
+            try: log_error('v434_exact_mirror_sync_after_save', str(e))
+            except Exception: pass
+        conn.commit()
+        return {'success': True, 'zone': z, 'column_index': c, 'slot_number': s, 'saved_item_count': len(data_items), 'saved_item_total': sum(max(1, _yx_v427_int((it or {}).get('qty'),1)) for it in data_items if isinstance(it, dict))}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
+def warehouse_v434_maximum_db_mirror_readback_proof_version():
+    return 'v437-warehouse_longpress_tap_suppress_drag_guard'
