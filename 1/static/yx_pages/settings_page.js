@@ -163,7 +163,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -362,7 +362,7 @@
 (function(){
   'use strict';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  async function api(url,opt={}){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await res.text();let d={};try{d=txt?JSON.parse(txt):{}}catch{d={success:false,error:txt||'伺服器回應格式錯誤'}};if(!res.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗 ${res.status}`);return d;}
+  async function api(url,opt={}){const res=await window.YXDataStore.requestResponse(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await res.text();let d={};try{d=txt?JSON.parse(txt):{}}catch{d={success:false,error:txt||'伺服器回應格式錯誤'}};if(!res.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗 ${res.status}`);return d;}
   function msg(id,text,kind='ok'){const el=document.getElementById(id);if(!el)return;el.className='alert '+kind;el.textContent=text;el.classList.remove('hidden');}
   window.changePassword=async function(){const old_password=document.getElementById('old-password')?.value||'';const new_password=document.getElementById('new-password')?.value||'';const confirm=document.getElementById('confirm-password')?.value||'';if(!new_password||new_password!==confirm)return msg('settings-msg','新密碼與確認密碼不一致','error');try{await api('/api/change_password',{method:'POST',body:JSON.stringify({old_password,new_password})});msg('settings-msg','密碼已更新','ok');}catch(e){msg('settings-msg',e.message,'error');}};
   window.logout=async function(){try{await api('/api/logout',{method:'POST',body:'{}'});}catch(_){} location.href='/login';};

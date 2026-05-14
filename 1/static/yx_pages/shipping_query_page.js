@@ -163,7 +163,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -360,7 +360,7 @@
 /* formal page module */
 (function(){'use strict';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  async function api(url,opt={}){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}
+  async function api(url,opt={}){const r=await window.YXDataStore.requestResponse(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const t=await r.text();let d={};try{d=t?JSON.parse(t):{}}catch{d={success:false,error:t}};if(!r.ok||d.success===false)throw new Error(d.error||d.message||'查詢失敗');return d}
   function dateOf(r){return String(r.shipped_at||r.created_at||'').slice(0,10)||'未填日期'}
   function timeOf(r){return String(r.shipped_at||r.created_at||'').slice(0,19)}
   function qty(r){const n=Number(r.qty||r.effective_qty||0);return Number.isFinite(n)?Math.max(0,Math.floor(n)):0}

@@ -163,7 +163,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -496,7 +496,7 @@
   }
   async function loadTodos(){
     try {
-      const res = await fetch('/api/todos', {credentials:'same-origin', cache:'no-store'});
+      const res = await window.YXDataStore.requestResponse('/api/todos', {credentials:'same-origin', cache:'no-store'});
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '代辦事項載入失敗');
       renderTodos(data.items || []);
@@ -510,7 +510,7 @@
       state.files.forEach(f => fd.append('images', f));
       fd.append('note', clean($('todo-note')?.value || ''));
       fd.append('due_date', clean($('todo-date')?.value || ''));
-      const res = await fetch('/api/todos', {method:'POST', credentials:'same-origin', body:fd});
+      const res = await window.YXDataStore.requestResponse('/api/todos', {method:'POST', credentials:'same-origin', body:fd});
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '代辦事項儲存失敗');
       clearTodoForm();
@@ -530,7 +530,7 @@
         if (!confirm('確定刪除這筆代辦？')) return;
         opt.method = 'DELETE';
       } else return;
-      const res = await fetch(url, opt);
+      const res = await window.YXDataStore.requestResponse(url, opt);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '操作失敗');
       if (Array.isArray(data.items)) renderTodos(data.items); else await loadTodos();
@@ -543,7 +543,7 @@
       if (!group) return;
       const ids = Array.from(group.querySelectorAll('[data-todo-id]')).map(el => el.getAttribute('data-todo-id')).filter(Boolean);
       if (!ids.length) return;
-      const res = await fetch('/api/todos/reorder', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids, done_flag:Number(doneFlag)})});
+      const res = await window.YXDataStore.requestResponse('/api/todos/reorder', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids, done_flag:Number(doneFlag)})});
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || '排序失敗');
       if (Array.isArray(data.items)) renderTodos(data.items);

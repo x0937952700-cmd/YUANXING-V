@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/?v=119-v452-max-repair-no-cache-change",
-  "start_url": "/?v=119-v452-max-repair-no-cache-change",
+  "id": "/?v=119-v481-deploy-regression-verify-pass18",
+  "start_url": "/?v=119-v481-deploy-regression-verify-pass18",
   "scope": "/",
   "display": "standalone",
   "display_override": [

@@ -163,7 +163,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -355,7 +355,7 @@
     const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
     if(card) card.remove();
     for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
+    loadTodayChanges112({force:false});
   }
 
   function install(){
@@ -554,7 +554,7 @@
       }
     } catch(_e) {}
     try {
-      const versions = ['v459-full-audit-no-half-sync-visible','v457-final-verify-sync-speed-warehouse','v456-verified-instant-sync-ship-warehouse','v455-dirty-sync-cache-align','v454-instant-sync-data-align','v451-device-prefetch-indexeddb-progress','v450-warehouse-longpress-single-engine-cleanout-proof'];
+      const versions = ['v466-data-spine-fetch-bridge-pass3','v463-data-spine-100pct-pass1','v462-data-spine-real-fix','v460-final-sync-cache-realtime-align','v459-full-audit-no-half-sync-visible','v457-final-verify-sync-speed-warehouse','v456-verified-instant-sync-ship-warehouse','v455-dirty-sync-cache-align','v454-instant-sync-data-align','v451-device-prefetch-indexeddb-progress','v450-warehouse-longpress-single-engine-cleanout-proof'];
       for (const v of versions) {
         const raw = localStorage.getItem('yx_warehouse_available_cache_' + v);
         if (!raw) continue;
@@ -592,6 +592,26 @@
       data.summary.from_device_sync_unplaced = true;
       return data;
     } catch(_e) { return data; }
+  }
+
+  async function applySyncedUnplacedToTodayAsync(data){
+    try {
+      if (window.YXDeviceSync && typeof window.YXDeviceSync.readCachedPayload === 'function') {
+        const wz = await window.YXDeviceSync.readCachedPayload('warehouse_available', 1000*60*60*24*7);
+        if (wz && typeof wz === 'object') {
+          data = Object.assign({}, data || {});
+          data.summary = Object.assign({}, data.summary || {});
+          const items = Array.isArray(wz.items) ? wz.items : (Array.isArray(wz.available) ? wz.available : []);
+          const total = items.reduce((n,it)=>n+(Number(it.unplaced_qty||it.qty||1)||1),0);
+          data.unplaced_items = items;
+          data.summary.unplaced_row_count = items.length;
+          data.summary.unplaced_count = Number((wz.zone_summary||{}).total || total || 0);
+          data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
+          data.summary.from_device_sync_unplaced = true;
+        }
+      }
+    } catch(_e) {}
+    return applySyncedUnplacedToToday(data);
   }
   function normalizeTodayData(data){
     const d = (data && typeof data === 'object') ? data : {};
@@ -655,24 +675,40 @@
     if (!isToday()) return null;
     if (state.loading && !opts.force) return state.loading;
     const cacheKey = 'today_changes_light_v406';
-    const cached = !opts.force ? window.YX?.cache?.read(cacheKey, 1000*60*60*8) : null;
-    if (cached && !opts.force) {
-      try { cleanLegacyTodayDom(); render(normalizeTodayData(applySyncedUnplacedToToday(cached))); if ($('today-unread-badge')) $('today-unread-badge').textContent = String(cached.summary?.unread_count || 0); } catch(_e) {}
+    let cached = !opts.force ? window.YX?.cache?.read(cacheKey, 1000*60*60*8) : null;
+    // V464: 今日異動進頁先吃唯一資料層；就算 today_changes 沒同步到，也要用 warehouse_available 產生未錄入資料。
+    try {
+      if (window.YXDataStore?.getTodayWithUnplaced) {
+        const dsToday = await window.YXDataStore.getTodayWithUnplaced();
+        if (dsToday && typeof dsToday === 'object') cached = await applySyncedUnplacedToTodayAsync(dsToday);
+      } else if (window.YXDataStore?.getToday) {
+        const dsToday = await window.YXDataStore.getToday();
+        if (dsToday && typeof dsToday === 'object') cached = await applySyncedUnplacedToTodayAsync(dsToday);
+      }
+    } catch(_e) {}
+    if (cached) {
+      try { cleanLegacyTodayDom(); render(normalizeTodayData(await applySyncedUnplacedToTodayAsync(cached))); if ($('today-unread-badge')) $('today-unread-badge').textContent = String(cached.summary?.unread_count || 0); } catch(_e) {}
+      if (!opts.force) return cached;
     }
     const fetchFresh = async () => {
       try {
         cleanLegacyTodayDom();
-        const forceHeavy = !!(opts.force || state.forceNext);
-        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v406-warehouse-order-drag-longpress-fix&force=' + (forceHeavy ? '1' : '0') + (forceHeavy ? '&yx_device_network=1&ts=' + Date.now() : ''), {method:'GET', yxDeviceLocalFirst: !forceHeavy}); state.forceNext=false;
+        const forceHeavy = !!(opts.yxDbOnly || state.forceNext);
+        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v469-clean-refresh-force-glue-pass6&force=' + (forceHeavy ? '1' : '0') + (forceHeavy ? '&ts=' + Date.now() : ''), {method:'GET', yxDeviceLocalFirst: true}); state.forceNext=false;
         // V136: 不再每次開今日異動就另外打 warehouse/available-items；只有手動刷新(force)才補最新未入倉區域統計。
         if (forceHeavy) {
           try {
-            const wz = await YX.api('/api/warehouse/available-items?fast=1&force=1&yx_device_network=1&yx138_manual=1&v=119-v406-warehouse-order-drag-longpress-fix&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:false});
+            const wz = await YX.api('/api/warehouse/available-items?fast=1&local_first=1&yx138_manual=1&v=119-v469-clean-refresh-force-glue-pass6&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:true});
             data.summary = data.summary || {};
+            const wzItems = Array.isArray(wz.items) ? wz.items : (Array.isArray(wz.available) ? wz.available : []);
+            const wzTotal = wzItems.reduce((n,it)=>n+(Number(it.unplaced_qty||it.qty||1)||1),0);
+            data.unplaced_items = wzItems;
+            data.summary.unplaced_row_count = wzItems.length;
+            data.summary.unplaced_count = Number((wz.zone_summary||{}).total || wzTotal || 0);
             data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
           } catch(_e) {}
         }
-        data = normalizeTodayData(applySyncedUnplacedToToday(data));
+        data = normalizeTodayData(await applySyncedUnplacedToTodayAsync(data));
         try { window.YX?.cache?.write(cacheKey, data); } catch(_e) {}
         render(data);
         try { await YX.api('/api/today-changes/read', {method:'POST', body:JSON.stringify({})}); } catch(_e) {}
@@ -681,7 +717,7 @@
       } catch(e) {
         state.lastError = e;
         const fallback = cached || state.lastGood;
-        if (fallback) { try { render(fallback); renderTodaySoftError(e.message || '今日異動更新失敗，已保留上次資料', true); } catch(_e) {} return fallback; }
+        if (fallback) { try { const fixed = normalizeTodayData(await applySyncedUnplacedToTodayAsync(fallback)); render(fixed); renderTodaySoftError(e.message || '今日異動更新失敗，已保留上次資料', true); } catch(_e) {} return fallback; }
         renderTodaySoftError(e.message || '今日異動載入失敗', false);
         YX.toast(e.message || '今日異動載入失敗，請按重新整理', 'error');
         return null;
@@ -707,7 +743,7 @@
       state.longPress = {x, y, timer:setTimeout(async () => {
         state.blockClickUntil = Date.now() + 900;
         clearLongPress();
-        try { await loadTodayChanges112({force:true}); YX.toast('未錄入倉庫圖已刷新', 'ok'); }
+        try { await loadTodayChanges112({force:false}); YX.toast('未錄入倉庫圖已刷新', 'ok'); }
         catch(e) { YX.toast(e.message || '未錄入倉庫圖刷新失敗', 'error'); }
       }, 700)};
     }, true);
@@ -721,7 +757,7 @@
       if (Date.now() < state.blockClickUntil && ev.target?.closest?.('[data-today-filter="unplaced"],.yx114-unplaced-refresh-trigger,#today-unplaced-zone-pill,#yx112-refresh-today')) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); return; }
       if (ev.target && (ev.target.id === 'yx112-refresh-today' || ev.target.id === 'yx249-retry-today')) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
-        await loadTodayChanges112({force:true});
+        await loadTodayChanges112({force:false});
         YX.toast('今日異動已刷新', 'ok');
         return;
       }
@@ -729,7 +765,7 @@
       if (del) {
         ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.();
         const id = del.getAttribute('data-yx112-delete-today');
-        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); await loadTodayChanges112({force:true}); }
+        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); await loadTodayChanges112({force:false}); }
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
         return;
       }
@@ -764,7 +800,7 @@
       touch = null;
       if (dx < -80 && dy < 45) {
         const id = row.dataset.logId;
-        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); row.remove(); await loadTodayChanges112({force:true}); }
+        try { await YX.api('/api/today-changes/' + encodeURIComponent(id), {method:'DELETE'}); row.remove(); await loadTodayChanges112({force:false}); }
         catch(e) { YX.toast(e.message || '刪除失敗', 'error'); }
       }
     }, true);
@@ -784,7 +820,7 @@
     const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
     if(card) card.remove();
     for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
+    loadTodayChanges112({force:false});
   }
 
   function install(){
@@ -804,13 +840,13 @@
         try{
           ['today_changes_light_v406','today_changes_light_v402','today_changes_light_v396','today_changes_light_v380','today_changes_light_v379','today_changes_light_v350','today_changes_light_v337','today_changes_light_v332','today_changes_light_v307','today_changes_light_v287','today_changes_light_v282','today_changes_light_v252','today_changes_light_v215','today_changes_light_v210','today_changes_light_v208','today_changes_light_v207','today_changes_light_v198','today_changes_v215','today_changes_v210','today_changes_v208','today_changes_v207','today_changes_v198'].forEach(k=>window.YX?.cache?.remove?.(k));
         }catch(_e){}
-        loadTodayChanges112({force:true, silent:true});
+        loadTodayChanges112({force:false, silent:true});
       };
       ['yx:today-changes-refresh','yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed'].forEach(ev=>window.addEventListener(ev, refreshTodayV214, false));
       window.addEventListener('yx:device-sync-updated', ev=>{ try{ if(['today_changes','warehouse_available','warehouse','all'].includes((ev.detail||{}).key)) refreshTodayV214(); }catch(_e){} }, false);
     }
     cleanLegacyTodayDom();
-    loadTodayChanges112({force:true, silent:true});
+    loadTodayChanges112({force:false, silent:true});
   }
   YX.register('today_changes', {install, render, load:loadTodayChanges112});
 })();
@@ -857,7 +893,7 @@
     const card=document.querySelector(`[data-ship-record-ids="${CSS.escape(String(ids))}"]`);
     if(card) card.remove();
     for(const id of list){ try{ await YX.api('/api/shipping_records/'+encodeURIComponent(id), {method:'DELETE'}); }catch(e){ console.warn(e); } }
-    loadTodayChanges112({force:true});
+    loadTodayChanges112({force:false});
   }
 
   function install(){
@@ -905,4 +941,4 @@
 
 
 // V217 final today sync guard
-(function(){if(window.__YX_V217_TODAY_FINAL__)return;window.__YX_V217_TODAY_FINAL__=true;function r(e){try{window.YX?.cache?.clearGroup?.('today_changes_');window.YX?.cache?.clearGroup?.('today_changes_light_');}catch(_){}}['yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed'].forEach(x=>window.addEventListener(x,r,false));})();
+(function(){if(window.__YX_V467_TODAY_NO_CACHE_CLEAR__)return;window.__YX_V467_TODAY_NO_CACHE_CLEAR__=true;function r(e){try{window.dispatchEvent(new CustomEvent('yx:today-changes-refresh',{detail:{reason:'v467-local-mutation-refresh', local_first:true}}));}catch(_){}}['yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed','yx:local-mutation-applied'].forEach(x=>window.addEventListener(x,r,false));})();

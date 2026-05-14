@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="diagnostics-shell">
+  <div class="module-topbar">
+    <a class="back-btn" href="{{ url_for('home') }}">← 返回</a>
+    <div class="module-title">系統診斷</div>
+    <div class="spacer"></div>
+  </div>
+  <div class="glass panel" style="padding:14px;margin-top:12px">
+    <div class="section-head"><h3>同步 / 今日異動 / 倉庫圖 / 出貨診斷</h3></div>
+    <p class="muted">這頁只做讀取與錯誤收集，不會改庫存、訂單、總單、出貨或倉庫資料。</p>
+  </div>
+  <div id="diagnostics-root"></div>
+</div>
+{% endblock %}

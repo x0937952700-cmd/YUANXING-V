@@ -147,7 +147,7 @@
     }
     try{
       if(btn){ btn.disabled = true; btn.textContent = '登入中…'; }
-      const res = await fetch('/api/login', {
+      const res = await window.YXDataStore.requestResponse('/api/login', {
         method: 'POST',
         credentials: 'same-origin',
         headers: {'Content-Type':'application/json'},

@@ -163,7 +163,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -556,7 +556,7 @@
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
-      const d = await YX.api('/api/customers?yx114=1&force=1&v201=1&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/customers?yx114=1&local_first=1&v480=1&ts=' + Date.now(), {method:'GET'});
       state.items = Array.isArray(d.items) ? d.items : [];
       renderBoards(state.items);
       try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}
@@ -765,7 +765,7 @@
   const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const toast = (m,k='ok') => { try { (window.YXCore?.toast || window.alert)(m,k); } catch(_){ alert(m); } };
   async function api(url,opt={}){
-    const res = await fetch(`${url}${url.includes('?')?'&':'?'}_=${Date.now()}`, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
+    const res = await window.YXDataStore.requestResponse(`${url}${url.includes('?')?'&':'?'}_=${Date.now()}`, {credentials:'same-origin', cache:'no-store', ...opt, headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}});
     const text = await res.text(); let data={}; try{data=text?JSON.parse(text):{};}catch{data={success:false,error:text};}
     if(!res.ok || data.success===false) throw new Error(data.error || data.message || '請求失敗');
     return data;

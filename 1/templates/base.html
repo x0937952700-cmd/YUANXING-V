@@ -34,6 +34,10 @@
   <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v={{ static_version }}"></script>
   <script defer src="{{ url_for('static', filename='yx_core.js') }}?v={{ static_version }}"></script>
   <script defer src="{{ url_for('static', filename='yx_device_sync.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_data_store.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_mutation_bus.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_regression_guard.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_diagnostics_client.js') }}?v={{ static_version }}"></script>
   <script defer src="{{ url_for('static', filename='yx_mobile_zoom.js') }}?v={{ static_version }}"></script>
   <script>
     window.addEventListener('load', function(){
@@ -63,17 +67,18 @@
   <script defer src="{{ url_for('static', filename='yx_pages/settings_page.js') }}?v={{ static_version }}"></script>
   {% elif _ep == 'shipping_query_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/shipping_query_page.js') }}?v={{ static_version }}"></script>
+  {% elif _ep == 'diagnostics_page' %}
+  <script defer src="{{ url_for('static', filename='yx_pages/diagnostics_page.js') }}?v={{ static_version }}"></script>
   {% elif _ep == 'todos_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/todos_page.js') }}?v={{ static_version }}"></script>
   {% elif _ep == 'customers_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/customers_page.js') }}?v={{ static_version }}"></script>
   {% endif %}
-  <script defer src="{{ url_for('static', filename='yx_v452_max_repair.js') }}?v={{ static_version }}"></script>
 </head>
   {% set _yx_body_module = {
     'home':'home', 'login_page':'login', 'settings_page':'settings', 'today_changes_page':'today_changes',
     'inventory_page':'inventory', 'orders_page':'orders', 'master_order_page':'master_order', 'ship_page':'ship',
-    'warehouse_page':'warehouse', 'shipping_query_page':'shipping_query', 'customers_page':'customers', 'todos_page':'todos'
+    'warehouse_page':'warehouse', 'shipping_query_page':'shipping_query', 'customers_page':'customers', 'todos_page':'todos', 'diagnostics_page':'diagnostics'
   }.get(request.endpoint or '', module_key|default('')) %}
 <body data-module="{{ _yx_body_module }}" data-yx-dream-ui="156_warehouse_stability_from_v155">
   <div class="page-shell">

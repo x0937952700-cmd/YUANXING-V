@@ -3,3 +3,5 @@ web: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 12
 # V125 mobile zoom: start command unchanged.
 
 # V152 network payload compression pack: keep deployment config on mainline.
+
+# V477 predeploy check: Render start command verified against wsgi:app and PORT.

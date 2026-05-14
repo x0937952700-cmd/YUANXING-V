@@ -1,6 +1,6 @@
 # Yuanxing mainfile Render config.
 # V343 render requirements root fix: keep requirements.txt at repository root.
-# V125 mobile zoom: no extra build step; main static files are versioned ?v=145.
+# V125 mobile zoom: no extra build step; main static files are versioned by STATIC_VERSION.
 services:
   - type: web
     name: yuanxing
@@ -22,7 +22,7 @@ services:
       - key: DATABASE_URL
         sync: false
 
-# V152 network payload compression pack: keep deployment config on mainline.
+# V480 predeploy check: keep deployment config on mainline; healthCheckPath=/health; API not cached by service worker.
 
 # V155 DB request guard defaults
 # Set higher only if huge reports need longer queries.

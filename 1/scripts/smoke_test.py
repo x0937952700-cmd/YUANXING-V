@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
 """Yuanxing deploy smoke test.
-Run after deploy locally or on Render shell:
+Run after deploy:
   python scripts/smoke_test.py https://your-render-url
-It only reads endpoints; it does not mutate business data.
+For protected endpoint checks use:
+  python scripts/deploy_smoke_verify.py https://your-render-url --username USER --password PASS
+This script only reads public endpoints and never mutates data.
 """
-import json, sys, urllib.request, urllib.error
-
-base = (sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:10000').rstrip('/')
-paths = ['/health']
-# authenticated endpoints may return 401/302 when not logged in; route existence is still checked by status not being 404.
-paths += ['/api/health/extended', '/api/health/smoke', '/api/health/api-schema', '/api/health/event-flow', '/api/shipping', '/api/today', '/api/warehouse/cells', '/api/today-changes/badge']
-failed = []
+import json, sys, urllib.request, urllib.error, time
+EXPECTED='V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18'
+base=(sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:10000').rstrip('/')
+paths=['/health','/api/health']
+failed=[]
 for path in paths:
-    url = base + path
+    url=base+path
+    start=time.time()
     try:
-        with urllib.request.urlopen(url, timeout=12) as r:
-            body = r.read(800).decode('utf-8', errors='ignore')
-            print(f'OK {path}: {r.status} {body[:120]}')
+        with urllib.request.urlopen(url, timeout=15) as r:
+            raw=r.read(2000).decode('utf-8', errors='ignore')
+            elapsed=round((time.time()-start)*1000,1)
+            print(f'OK {path}: {r.status} {elapsed}ms {raw[:180]}')
+            try:
+                data=json.loads(raw)
+                ver=data.get('app_version') or data.get('version')
+                if ver and ver != EXPECTED:
+                    print(f'WARN {path}: version is {ver}, expected {EXPECTED}')
+            except Exception:
+                pass
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403, 302):
-            print(f'PROTECTED {path}: {e.code}')
-        else:
-            print(f'FAIL {path}: HTTP {e.code}')
-            failed.append(path)
+        print(f'FAIL {path}: HTTP {e.code}')
+        failed.append(path)
     except Exception as e:
         print(f'FAIL {path}: {e}')
         failed.append(path)
 if failed:
     raise SystemExit(1)
-print('Smoke test completed.')
+print('Smoke test completed. Use deploy_smoke_verify.py with login credentials for full protected checks.')

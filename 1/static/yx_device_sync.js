@@ -1,16 +1,16 @@
-/* V459 device sync: persistent last-sync time, instant page cache bridge, dirty-key invalidation after writes, warehouse/today cache alignment, no-empty-overwrite guards. No yx_cache/yx_core edits, no timers/observers. */
+/* V480 device sync predeploy final audit: full authoritative sync + datastore bridge + empty-overwrite guard. No yx_cache/yx_core edits, no timers/observers. */
 (function(){
   'use strict';
-  if (window.__YX_DEVICE_SYNC_V459__) return;
-  window.__YX_DEVICE_SYNC_V459__ = true;
+  if (window.__YX_DEVICE_SYNC_V480__) return;
+  window.__YX_DEVICE_SYNC_V480__ = true;
 
-  const VERSION = 'v459-full-audit-no-half-sync-visible';
+  const VERSION = 'v481-deploy-regression-verify-pass18';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
   const META_KEY = 'yx_device_sync_v452_meta';
   const SYNC_EVENT = 'yx:device-sync-updated';
-  const RUN_KEY = 'yx_device_sync_v459_running';
+  const RUN_KEY = 'yx_device_sync_v462_running';
   const DIRTY_PREFIX = 'yx_device_sync_dirty_';
   const AUTO_KEY = 'yx_device_sync_v453_auto';
   const LAST_SYNC_KEY = 'yx_device_sync_last_success_at';
@@ -38,14 +38,14 @@
   const safeJson = (res) => res.json().catch(() => ({}));
 
   const TASKS = [
-    {key:'inventory', label:'庫存資料', url:'/api/inventory?force=1&limit=0&yx_device_sync=1', productSource:'inventory'},
-    {key:'orders', label:'訂單資料', url:'/api/orders?force=1&limit=0&yx_device_sync=1', productSource:'orders'},
-    {key:'master_order', label:'總單資料', url:'/api/master_orders?force=1&limit=0&yx_device_sync=1', productSource:'master_order'},
-    {key:'customers', label:'客戶資料', url:'/api/customers?force=1&yx_device_sync=1'},
-    {key:'warehouse', label:'倉庫格位', url:'/api/warehouse?force=1&yx_device_sync=1', warehouse:true},
-    {key:'warehouse_available', label:'未錄入倉庫圖', url:'/api/warehouse/available-items?force=1&yx_device_sync=1', warehouseAvailable:true},
-    {key:'shipping_records', label:'出貨紀錄', url:'/api/shipping_records?force=1&yx_device_sync=1'},
-    {key:'today_changes', label:'今日異動', url:'/api/today-changes?force=1&yx_device_sync=1'},
+    {key:'inventory', label:'庫存資料', url:'/api/inventory?force=1&all=1&limit=0&yx_device_sync=1&sync_full=1', productSource:'inventory', fullAlways:true},
+    {key:'orders', label:'訂單資料', url:'/api/orders?force=1&all=1&limit=0&yx_device_sync=1&sync_full=1', productSource:'orders', fullAlways:true},
+    {key:'master_order', label:'總單資料', url:'/api/master_orders?force=1&all=1&limit=0&yx_device_sync=1&sync_full=1', productSource:'master_order', fullAlways:true},
+    {key:'customers', label:'客戶資料', url:'/api/customers?force=1&yx_device_sync=1&sync_full=1', fullAlways:true},
+    {key:'warehouse', label:'倉庫格位', url:'/api/warehouse?force=1&yx_device_sync=1&sync_full=1', warehouse:true, fullAlways:true},
+    {key:'warehouse_available', label:'未錄入倉庫圖', url:'/api/warehouse/available-items?force=1&yx_device_sync=1&sync_full=1', warehouseAvailable:true, fullAlways:true},
+    {key:'shipping_records', label:'出貨紀錄', url:'/api/shipping_records?force=1&yx_device_sync=1&sync_full=1', fullAlways:true},
+    {key:'today_changes', label:'今日異動', url:'/api/today-changes?force=1&yx_device_sync=1&sync_full=1', fullAlways:true},
     {key:'todos', label:'代辦事項', url:'/api/todos?yx_device_sync=1'}
   ];
   const ENDPOINT_TO_KEY = [
@@ -141,7 +141,12 @@
     try{
       if (!data || !Array.isArray(data.cells)) return;
       const keys = [
+        'yx_warehouse_cache_v481-deploy-regression-verify-pass18',
+        'yx_warehouse_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_cache_' + VERSION,
+        'yx_warehouse_cache_v463-data-spine-100pct-pass1',
+        'yx_warehouse_cache_v460-final-sync-cache-realtime-align',
+        'yx_warehouse_cache_v459-full-audit-no-half-sync-visible',
         'yx_warehouse_cache_v455-dirty-sync-cache-align',
         'yx_warehouse_cache_v451-device-prefetch-indexeddb-progress',
         'yx_warehouse_cache_v450-warehouse-longpress-single-engine-cleanout-proof'
@@ -158,7 +163,12 @@
     try{
       if (!data) return;
       const keys = [
+        'yx_warehouse_available_cache_v481-deploy-regression-verify-pass18',
+        'yx_warehouse_available_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_available_cache_' + VERSION,
+        'yx_warehouse_available_cache_v463-data-spine-100pct-pass1',
+        'yx_warehouse_available_cache_v460-final-sync-cache-realtime-align',
+        'yx_warehouse_available_cache_v459-full-audit-no-half-sync-visible',
         'yx_warehouse_available_cache_v455-dirty-sync-cache-align',
         'yx_warehouse_available_cache_v451-device-prefetch-indexeddb-progress',
         'yx_warehouse_available_cache_v450-warehouse-longpress-single-engine-cleanout-proof'
@@ -202,14 +212,17 @@
     }catch(_e){ return null; }
   }
   async function networkFetchJson(url, opt){
-    const res = await fetch(url, Object.assign({credentials:'same-origin', cache:'no-store'}, opt || {}, {headers:Object.assign({'Accept':'application/json'}, (opt && opt.headers) || {})}));
+    const res = await fetch(url, Object.assign({credentials:'same-origin', cache:'no-store', yxRawFetch:true}, opt || {}, {headers:Object.assign({'Accept':'application/json'}, (opt && opt.headers) || {})}));
     const data = await safeJson(res);
     if (!res.ok || data?.success === false) throw new Error(data?.error || data?.message || ('HTTP ' + res.status));
     return data;
   }
   function bridgeLocalCache(task, data){
     if (!task || !data) return;
-    if (task.productSource) writeLocalProductCache(task.productSource, data);
+    if (task.productSource) {
+      writeLocalProductCache(task.productSource, data);
+      try { const rows = rowsOf(data); if (window.YXDataStore?.setRows && Array.isArray(rows)) window.YXDataStore.setRows(task.productSource, rows, {reason:'device-sync-bridge'}); } catch(_e) {}
+    }
     if (task.warehouse) writeLocalWarehouseCache(data);
     if (task.warehouseAvailable) writeLocalWarehouseAvailableCache(data);
     if (task.key) clearDirty(task.key);
@@ -260,11 +273,12 @@
       try { const old = await readCachedPayload(task.key, 0); if (warehouseItemCount(old) > 0) { bridgeLocalCache(task, old); return; } } catch(_e) {}
     }
     await idbPut(task.key, data, {label:task.label, url:task.url});
+    try { clearDirty(task.key); } catch(_e) {}
     bridgeLocalCache(task, data);
   }
   function installApiLocalFirst(){
     const root = window.YX || (window.YX = {});
-    if (root.__deviceSyncApiPatchedV459) return;
+    if (root.__deviceSyncApiPatchedV464) return;
     const original = root.api;
     if (typeof original !== 'function') return;
     root.api = async function(url, opt){
@@ -276,7 +290,27 @@
           const out = await original.call(this, url, opt);
           if (!out || out.success !== false) {
             markDirty(dirty);
-            dirty.forEach(k => { idbDelete(k); });
+            try {
+              if(out && out.snapshots && typeof out.snapshots === 'object') {
+                const map = {inventory:'inventory', orders:'orders', master_order:'master_order', master_orders:'master_order'};
+                Object.keys(map).forEach(k => {
+                  const rows = out.snapshots[k];
+                  if(Array.isArray(rows)) {
+                    const key = map[k];
+                    idbPut(key, {success:true, items:clone(rows), rows:clone(rows), sync_authority:true, from_api_write_snapshot:true, saved_at:now()}, {label:key, url:'api-write-snapshot'}).catch(()=>{});
+                    writeLocalProductCache(key, {items:rows, rows});
+                  }
+                });
+              }
+              const u = cleanUrl(url); const p = u && u.pathname || '';
+              const exact = Array.isArray(out?.exact_customer_items) ? out.exact_customer_items : null;
+              if(exact && exact.length) {
+                const path = (cleanUrl(url)||{}).pathname || '';
+                const src = /^\/api\/orders\b/.test(path) ? 'orders' : (/^\/api\/master_orders?\b/.test(path) ? 'master_order' : (/^\/api\/inventory\b/.test(path) ? 'inventory' : ''));
+                if(src && window.YXDataStore?.upsertRows) window.YXDataStore.upsertRows(src, exact, {reason:'api-write-exact'});
+              }
+            } catch(_e) {}
+            // V464: do NOT delete synced payloads after a write. Deleting them made reload/page-open slow and empty before DB readback.
             try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'dirty', dirty, source:'api-write'}})); } catch(_e) {}
           }
           return out;
@@ -289,34 +323,32 @@
       const u = cleanUrl(url);
       const forceFresh = u && (u.searchParams.get('yx_device_network') === '1' || u.searchParams.get('no_cache') === '1');
       const dirty = key && isDirty(key);
-      const bypass = !key || forceFresh || opt.yxDeviceLocalFirst === false || dirty;
-      if (bypass) {
-        const fresh = await original.call(this, url, opt);
-        try { if (key && fresh && fresh.success !== false) await storeTaskPayload(TASKS.find(t => t.key === key) || {key, label:key, url:String(url||'')}, fresh); } catch(_e) {}
-        return fresh;
-      }
+      const bypass = !key || forceFresh || opt.yxDeviceLocalFirst === false;
       const task = TASKS.find(t => t.key === key) || {key, label:key, url:String(url || '')};
-      const cached = await readCachedPayload(key, 1000*60*60*24*7);
-      if (cached) {
-        try {
-          const age = now() - Number((await idbGet(key))?.saved_at || 0);
-          const lastBg = Number(bgRefreshAt[key] || 0);
-          if (age > 1000*60*30 && now() - lastBg > 1000*60*10) {
-            bgRefreshAt[key] = now();
-            original.call(this, url, Object.assign({}, opt, {yxDeviceLocalFirst:false})).then(fresh => {
-              if (fresh && fresh.success !== false) storeTaskPayload(task, fresh).then(() => {
-                try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source:'api-background', data:fresh}})); } catch(_e) {}
+      if (!bypass) {
+        const cached = await readCachedPayload(key, 1000*60*60*24*7);
+        if (cached) {
+          try {
+            const age = now() - Number((await idbGet(key))?.saved_at || 0);
+            const lastBg = Number(bgRefreshAt[key] || 0);
+            if ((dirty || age > 1000*60*30) && now() - lastBg > 1000*60*3) {
+              bgRefreshAt[key] = now();
+              original.call(this, url, Object.assign({}, opt, {yxDeviceLocalFirst:false, yx_device_network:1})).then(fresh => {
+                if (fresh && fresh.success !== false) storeTaskPayload(task, fresh).then(() => {
+                  try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source: dirty ? 'api-dirty-background' : 'api-background', data:fresh}})); } catch(_e) {}
+                }).catch(()=>{});
               }).catch(()=>{});
-            }).catch(()=>{});
-          }
-        } catch(_e) {}
-        return clone(cached);
+            }
+          } catch(_e) {}
+          // V462: even when dirty, show synced cache immediately and refresh in background; never block the page on DB.
+          return clone(cached);
+        }
       }
       const fresh = await original.call(this, url, opt);
-      try { await storeTaskPayload(task, fresh); } catch(_e) {}
+      try { if (key && fresh && fresh.success !== false) await storeTaskPayload(task, fresh); } catch(_e) {}
       return fresh;
     };
-    root.__deviceSyncApiPatchedV459 = true;
+    root.__deviceSyncApiPatchedV464 = true;
   }
   function readRunState(){ try { return JSON.parse(localStorage.getItem(RUN_KEY) || 'null') || null; } catch(_e) { return null; } }
   function writeRunState(v){ try { if (v) localStorage.setItem(RUN_KEY, JSON.stringify(v)); else localStorage.removeItem(RUN_KEY); } catch(_e) {} }
@@ -324,8 +356,11 @@
   function writeAuto(v){ try { localStorage.setItem(AUTO_KEY, JSON.stringify(Object.assign({enabled:false}, v || {}))); } catch(_e) {} }
   function isoFromMs(ms){ try { return ms ? new Date(Number(ms)).toISOString() : ''; } catch(_e) { return ''; } }
   function taskUrl(task, meta){
-    const lastMs = Number(meta?.saved_at || meta?.last_success_at || 0) || 0;
     const join = task.url.includes('?') ? '&' : '?';
+    // V462: 商品/客戶/倉庫/今日異動必須用完整權威資料，否則刪除項目不會同步消失、件/筆會殘留、倉庫格會舊資料重複。
+    // 只有非關鍵小資料才允許 changed_since。
+    if (task && task.fullAlways) return task.url + join + '_=' + Date.now() + '&sync_authority=1';
+    const lastMs = Number(meta?.saved_at || meta?.last_success_at || 0) || 0;
     const since = lastMs ? '&changed_since=' + encodeURIComponent(isoFromMs(lastMs)) + '&since=' + encodeURIComponent(isoFromMs(lastMs)) + '&incremental=1' : '';
     return task.url + join + '_=' + Date.now() + since;
   }
@@ -460,7 +495,14 @@
     });
     updateHomePanelStatus();
   }
-  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync, markDirty});
+  async function writeCachedPayload(key, data){
+    if(!key) return false;
+    const task = TASKS.find(t => t.key === key) || {key, label:key, url:''};
+    await storeTaskPayload(task, data || {success:true, items:[], rows:[]});
+    try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source:'writeCachedPayload', data:data||{}}})); } catch(_e) {}
+    return true;
+  }
+  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, writeCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync, markDirty});
   installApiLocalFirst();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ()=>{ resumeIfNeeded(); maybeRunAutoSync(); }, {once:true});
   else { resumeIfNeeded(); maybeRunAutoSync(); }

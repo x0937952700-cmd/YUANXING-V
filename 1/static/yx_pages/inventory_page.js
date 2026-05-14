@@ -184,7 +184,7 @@
   }
   async function api(url, opt={}){
     const headers = {'Content-Type':'application/json', ...(opt.headers || {})};
-    const res = await fetch(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
+    const res = await window.YXDataStore.requestResponse(url, {credentials:'same-origin', cache:'no-store', ...opt, headers});
     const txt = await res.text();
     let data = {};
     try { data = txt ? JSON.parse(txt) : {}; }
@@ -712,8 +712,8 @@
         const customer = customerOf(row) || selectedCustomer();
         const d = await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:customer, allow_inventory_fallback:true})});
         YX.toast('已加到總單', 'ok');
-        if (!applySnapshotFromResponse(d, 'orders')) await loadSource('orders', {force:true});
-        try { if (!applySnapshotFromResponse(d, 'master_order')) await loadSource('master_order', {force:true}); } catch(_e) {}
+        if (!applySnapshotFromResponse(d, 'orders')) { try { window.YXDataStore?.setRows?.('orders', rowsStore('orders'), {reason:'inventory-order-confirmed'}); } catch(_e) {} }
+        try { if (!applySnapshotFromResponse(d, 'master_order')) { try { window.YXDataStore?.setRows?.('master_order', rowsStore('master_order'), {reason:'inventory-master-confirmed'}); } catch(_e) {} } } catch(_e) {}
         try { await refreshCustomerBoards(customer); } catch(_e) {}
         return;
       }
@@ -770,6 +770,7 @@
     if (!rows && Array.isArray(data?.items) && data.items.length && (source === sourceFromModule() || source)) rows = data.items;
     if (Array.isArray(rows)) {
       rowsStore(source, rows);
+      try { window.YXDataStore?.setRows?.(source, rows, {reason:'inventory-apply-snapshot'}); } catch(_e) {}
       if (shouldAvoidRerender(source)) {
         updateSummaryHeaderOnly(source);
         try { if (Array.isArray(data?.customers) && window.YX113CustomerRegions?.renderBoards) window.YX113CustomerRegions.renderBoards(data.customers); } catch(_e) {}
@@ -798,8 +799,8 @@
     const d = await YX.api('/api/items/batch-transfer', {method:'POST', body:JSON.stringify({items, target, customer_name:customer, region:'北區', allow_inventory_fallback:true, request_key:`v18-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})});
     clearSelected(source);
     YX.toast(`已移動 ${d.count || items.length} 筆商品`, 'ok');
-    if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
-    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; if (!applySnapshotFromResponse(d, t)) await loadSource(t, {force:true}); } } catch(_e) {}
+    if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'inventory-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
+    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; if (!applySnapshotFromResponse(d, t)) { try { window.YXDataStore?.setRows?.(t, rowsStore(t), {reason:'inventory-target-local-confirmed'}); } catch(_e) {} } } } catch(_e) {}
     const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : [customer]).filter(Boolean);
     try { for (const n of names) await refreshCustomerBoards(n); } catch(_e) {}
   }
@@ -813,7 +814,7 @@
     const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items})});
     clearSelected(source);
     YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
-    if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
+    if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'inventory-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
   }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
@@ -1092,8 +1093,8 @@
     const d = await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer, region:'北區'})});
     YX.toast(`已加到${target === 'orders' ? '訂單' : '總單'}`, 'ok');
     window.__YX_SELECTED_CUSTOMER__ = customer;
-    if (!applySnapshotFromResponse(d, 'inventory')) await loadSource('inventory', {force:true});
-    try { if (!applySnapshotFromResponse(d, targetSource)) await loadSource(targetSource, {force:true}); } catch(_e) {}
+    if (!applySnapshotFromResponse(d, 'inventory')) { try { window.YXDataStore?.setRows?.('inventory', rowsStore('inventory'), {reason:'inventory-confirmed'}); } catch(_e) {} }
+    try { if (!applySnapshotFromResponse(d, targetSource)) { try { window.YXDataStore?.setRows?.(targetSource, rowsStore(targetSource), {reason:'inventory-target-confirmed'}); } catch(_e) {} } } catch(_e) {}
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
     try { await refreshCustomerBoards(customer); } catch(_e) {}
     try { if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
@@ -1105,7 +1106,7 @@
     const customer = customerOf(row);
     const d = await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:apiSource(source), id, target:'ship', customer_name:customer, qty:row.qty || qtyOf(row), allow_inventory_fallback:true})});
     YX.toast('已直接出貨', 'ok');
-    if (!applySnapshotFromResponse(d, source)) await loadSource(source, {force:true});
+    if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'inventory-source-confirmed'}); } catch(_e) {} }
     try { await refreshCustomerBoards(customer); } catch(_e) {}
   }
   async function saveAllEdits(source){
@@ -1117,7 +1118,7 @@
       let row = rowsStore(source).find(r => String(idOf(r) || '') === String(id));
       if (!row || !id) {
         // main：暫存列沒有真實 id 時，先重抓後端清單，不能直接消失。
-        try { await loadSource(source, {force:true, beforeEditSave:true}); } catch(_e) {}
+        try { await loadSource(source, {force:false, beforeEditSave:true}); } catch(_e) {}
         row = rowsStore(source).find(r => String(idOf(r) || '') === String(id));
         if (!row) continue;
       }
@@ -1166,7 +1167,7 @@
       YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok');
       if(sel) sel.value='';
       clearSelected(source);
-      if (!applySnapshotFromResponse(d, source)) { if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else await loadSource(source); }
+      if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'inventory-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
     }catch(e){
       await loadSource(source);
       YX.toast(e.message || '批量材質失敗，請確認材質是否在下拉選單內', 'error');
@@ -1202,6 +1203,7 @@
     const keyOfRow = (r) => { const p=splitProduct(r.product_text||''); return [p.size||r.product_text||'', p.support||String(qtyOf(r)), String(qtyOf(r)), materialOf(r), customerOf(r), zoneLabel(r)].join('|'); };
     const checkedKeys = new Set(checkedRows2.map(tr => Array.from(tr.children).slice(0,5).map(td => (td.textContent||'').trim()).join('|')));
     rowsStore(source, rowsStore(source).filter(r => !idSet.has(String(idOf(r) || '')) && !checkedKeys.has(keyOfRow(r))));
+    try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'inventory-bulk-delete-optimistic'}); } catch(_e) {}
     clearSelected(source);
     renderSummary(source); renderCards(source);
     removeDeletedRowsFromDom(source, idSet);
@@ -1396,7 +1398,7 @@
     catch(_e){ alert(msg); }
   }
   async function api(url, opt={}){
-    const r = await fetch(url, {
+    const r = await window.YXDataStore.requestResponse(url, {
       credentials:'same-origin',
       cache:'no-store',
       ...opt,
@@ -1538,7 +1540,7 @@
         // formal mainline behavior.
         const current = (Array.isArray(act.rowsStore(m)) ? act.rowsStore(m) : []).filter(r => !r.__optimistic && !r.__pending_server_id && !String(r.id || '').startsWith('tmp-'));
         act.rowsStore(m, current);
-        try { act.loadSource?.(m, {force:true, afterSubmit:true, customer_name:customer}); } catch(_e) {}
+        try { act.loadSource?.(m, {force:false, afterSubmit:true, customer_name:customer}); } catch(_e) {}
       }
       act.renderSummary?.(m);
       act.renderCards?.(m);
@@ -1813,7 +1815,7 @@
   const clean=v=>String(v??'').trim();
   const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const page=()=>document.body?.dataset?.module||document.querySelector('.module-screen[data-module]')?.dataset?.module||'';
-  async function api(url,opt={}){ const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{};}catch(_e){d={success:false,error:t};} if(!r.ok||d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; }
+  async function api(url,opt={}){ const r=await window.YXDataStore.requestResponse(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Accept':'application/json','Content-Type':'application/json',...(opt.headers||{})}}); const t=await r.text(); let d={}; try{d=t?JSON.parse(t):{};}catch(_e){d={success:false,error:t};} if(!r.ok||d.success===false) throw new Error(d.error||d.message||'請求失敗'); return d; }
   function toast(message,kind='ok'){
     const active=document.activeElement; const editable=active&&active.matches?.('input,textarea,select,[contenteditable="true"]'); let ss=null,se=null; try{ if(editable&&'selectionStart' in active){ss=active.selectionStart;se=active.selectionEnd;} }catch(_e){}
     let box=document.getElementById('yx-v20-toast'); if(!box){box=document.createElement('div');box.id='yx-v20-toast';document.body.appendChild(box);} box.tabIndex=-1; box.setAttribute('aria-live','polite'); box.className='yx-v20-toast-card '+(kind||'ok'); box.style.pointerEvents='none'; box.innerHTML=`<strong>${kind==='error'?'操作失敗':kind==='warn'?'請注意':'操作成功'}</strong><div>${esc(message||'')}</div>`; box.classList.add('show'); box.style.display='block'; clearTimeout(window.__YX_V55_TOAST_TIMER__); window.__YX_V55_TOAST_TIMER__=setTimeout(()=>{try{box.classList.remove('show');box.style.display='none';}catch(_e){}},1800);

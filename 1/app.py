@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V459-VERIFY-NO-EMPTY-OVERWRITE'
-STATIC_VERSION = '119-v459_verify_no_empty_overwrite'
-API_SCHEMA_VERSION = 'v457-final_verify_sync_speed_warehouse'
+APP_VERSION = 'V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18'
+STATIC_VERSION = '119-v481_deploy_regression_verify_pass18'
+API_SCHEMA_VERSION = 'v462-data_spine_real_fix'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -1601,6 +1601,10 @@ def todos_page():
 @app.route("/today-changes")
 def today_changes_page():
     return render_template("today_changes.html", username=current_username(), title="今日異動")
+
+@app.route("/diagnostics")
+def diagnostics_page():
+    return render_template("diagnostics.html", username=current_username(), title="系統診斷")
 
 @app.route('/todo-image/<path:filename>')
 def todo_image(filename):
@@ -6145,6 +6149,147 @@ def api_health_db_init():
         counts = {'_error': str(e)[:300]}
     return jsonify(success=bool(ok), ready=bool(ok), version=APP_VERSION, static_version=STATIC_VERSION, db_info=info, db_counts=counts, startup_error=(STARTUP_DB_ERROR or '')[:800])
 
+
+
+@app.route('/api/diagnostics/client-log', methods=['POST'])
+@login_required_json
+def api_diagnostics_client_log():
+    """Collect front-end errors/slow API reports. Read/write only diagnostic logs; never mutates business data."""
+    try:
+        data = request.get_json(silent=True) or {}
+        dtype = str(data.get('type') or 'client').strip()[:80]
+        page = str(data.get('page') or '')[:160]
+        detail = data.get('detail') if isinstance(data.get('detail'), dict) else {}
+        message = json.dumps({
+            'type': dtype,
+            'page': page,
+            'module': str(data.get('module') or '')[:80],
+            'at': str(data.get('at') or now())[:80],
+            'detail': detail,
+            'app_version': str(data.get('app_version') or '')[:120],
+            'static_version': str(data.get('static_version') or '')[:120],
+        }, ensure_ascii=False)[:3500]
+        try:
+            log_error('client_diagnostics_' + re.sub(r'[^a-zA-Z0-9_]+', '_', dtype)[:40], message)
+        except Exception:
+            pass
+        return jsonify(success=True, saved=True, version=APP_VERSION)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)[:500]), 500
+
+@app.route('/api/diagnostics/summary', methods=['GET'])
+@login_required_json
+def api_diagnostics_summary():
+    """Manual diagnostics summary for sync/today/warehouse/shipping. Read-only."""
+    out = {
+        'success': True,
+        'version': APP_VERSION,
+        'static_version': STATIC_VERSION,
+        'db_info': {},
+        'db_counts': {},
+        'routes': {},
+        'recent_errors': [],
+        'warnings': [],
+        'regression_guard_rules': {
+            'today_changes_not_empty_when_unplaced_exists': True,
+            'today_count_badge_same_source': True,
+            'warehouse_timeout_must_not_clear_local_rows': True,
+            'shipping_preview_must_render_feedback': True,
+            'customer_counts_rows_authoritative': True,
+            'old_v452_patch_must_not_load': True,
+            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/export'],
+        },
+        'checked_at': now(),
+    }
+    try:
+        try:
+            out['db_info'] = database_mode_info()
+            out['db_counts'] = table_counts()
+        except Exception as e:
+            out['warnings'].append('資料庫診斷失敗：' + str(e)[:240])
+        try:
+            route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
+            for rr in ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/client-log','/api/diagnostics/export']:
+                out['routes'][rr] = rr in route_rules
+        except Exception as e:
+            out['warnings'].append('route 檢查失敗：' + str(e)[:240])
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (25,))
+            cols = [d[0] for d in cur.description]
+            out['recent_errors'] = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+        except Exception as e:
+            out['warnings'].append('讀取 errors 失敗：' + str(e)[:240])
+        if out.get('db_info', {}).get('render_warning'):
+            out['warnings'].append('Render 可能沒有 DATABASE_URL，會導致正式資料看起來空白。')
+        if not all(out.get('routes', {}).values()):
+            out['warnings'].append('有必要 API route 尚未掛上。')
+        return jsonify(out)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
+
+
+@app.route('/api/diagnostics/export', methods=['GET'])
+@login_required_json
+def api_diagnostics_export():
+    """Export a server-side diagnostic report as JSON. Read-only; never mutates business data."""
+    report = {
+        'success': True,
+        'report_type': 'yuanxing_server_diagnostics_export',
+        'version': APP_VERSION,
+        'static_version': STATIC_VERSION,
+        'api_schema_version': API_SCHEMA_VERSION,
+        'generated_at': now(),
+        'user': current_username(),
+        'request_host': request.host_url.rstrip('/'),
+        'db_info': {},
+        'db_counts': {},
+        'routes': {},
+        'recent_errors': [],
+        'health': {},
+        'warnings': [],
+        'regression_guard_rules': {
+            'today_changes_not_empty_when_unplaced_exists': True,
+            'today_count_badge_same_source': True,
+            'warehouse_timeout_must_not_clear_local_rows': True,
+            'shipping_preview_must_render_feedback': True,
+            'customer_counts_rows_authoritative': True,
+            'old_v452_patch_must_not_load': True,
+            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/export'],
+        },
+    }
+    try:
+        try:
+            report['db_info'] = database_mode_info()
+            report['db_counts'] = table_counts()
+        except Exception as e:
+            report['warnings'].append('資料庫摘要失敗：' + str(e)[:300])
+        try:
+            route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
+            important = ['/health','/api/health','/api/health/smoke','/api/health/api-schema','/api/health/event-flow','/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/shipping','/api/diagnostics/summary','/api/diagnostics/client-log','/api/diagnostics/export']
+            report['routes'] = {rr: (rr in route_rules) for rr in important}
+        except Exception as e:
+            report['warnings'].append('route 檢查失敗：' + str(e)[:300])
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
+            cols = [d[0] for d in cur.description]
+            report['recent_errors'] = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+        except Exception as e:
+            report['warnings'].append('讀取錯誤紀錄失敗：' + str(e)[:300])
+        if report.get('db_info', {}).get('render_warning'):
+            report['warnings'].append('Render 可能沒有接到 PostgreSQL DATABASE_URL，正式資料可能看起來空白。')
+        if not all(report.get('routes', {}).values()):
+            report['warnings'].append('有必要 API route 尚未掛上。')
+        body = json.dumps(report, ensure_ascii=False, indent=2, default=str)
+        resp = Response(body, mimetype='application/json; charset=utf-8')
+        resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_server_report.json"'
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    except Exception as e:
+        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
 
 @app.route("/api/native-shell/config", methods=["GET"])
 def api_native_shell_config():
