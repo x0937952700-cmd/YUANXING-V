@@ -1,15 +1,17 @@
-/* V452 device pre-entry sync: IndexedDB + local cache bridge. No yx_cache/yx_core edits, no timers/observers. */
+/* V453 device sync: stable position, resume across page switches, incremental request hints, 5AM auto option. No yx_cache/yx_core edits, no timers/observers. */
 (function(){
   'use strict';
-  if (window.__YX_DEVICE_SYNC_V452__) return;
-  window.__YX_DEVICE_SYNC_V452__ = true;
+  if (window.__YX_DEVICE_SYNC_V453__) return;
+  window.__YX_DEVICE_SYNC_V453__ = true;
 
-  const VERSION = 'v452-device-prefetch-indexeddb-progress-guard';
+  const VERSION = 'v453-device-sync-resume-incremental-auto5';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
   const META_KEY = 'yx_device_sync_v452_meta';
   const SYNC_EVENT = 'yx:device-sync-updated';
+  const RUN_KEY = 'yx_device_sync_v453_running';
+  const AUTO_KEY = 'yx_device_sync_v453_auto';
   const productCachePrefix = 'yx_v406_cache_';
   const staticToken = () => String(window.__YX_STATIC_VERSION__ || window.YX?.version || VERSION).replace(/[^A-Za-z0-9_-]/g, '_');
   const now = () => Date.now();
@@ -165,7 +167,7 @@
   }
   function installApiLocalFirst(){
     const root = window.YX || (window.YX = {});
-    if (root.__deviceSyncApiPatchedV452) return;
+    if (root.__deviceSyncApiPatchedV453) return;
     const original = root.api;
     if (typeof original !== 'function') return;
     root.api = async function(url, opt){
@@ -190,56 +192,116 @@
       try { await storeTaskPayload(task, fresh); } catch(_e) {}
       return fresh;
     };
-    root.__deviceSyncApiPatchedV452 = true;
+    root.__deviceSyncApiPatchedV453 = true;
   }
-  async function syncAll(onProgress){
+  function readRunState(){ try { return JSON.parse(localStorage.getItem(RUN_KEY) || 'null') || null; } catch(_e) { return null; } }
+  function writeRunState(v){ try { if (v) localStorage.setItem(RUN_KEY, JSON.stringify(v)); else localStorage.removeItem(RUN_KEY); } catch(_e) {} }
+  function readAuto(){ try { return JSON.parse(localStorage.getItem(AUTO_KEY) || 'null') || null; } catch(_e) { return null; } }
+  function writeAuto(v){ try { localStorage.setItem(AUTO_KEY, JSON.stringify(Object.assign({enabled:false}, v || {}))); } catch(_e) {} }
+  function isoFromMs(ms){ try { return ms ? new Date(Number(ms)).toISOString() : ''; } catch(_e) { return ''; } }
+  function taskUrl(task, meta){
+    const lastMs = Number(meta?.saved_at || meta?.last_success_at || 0) || 0;
+    const join = task.url.includes('?') ? '&' : '?';
+    const since = lastMs ? '&changed_since=' + encodeURIComponent(isoFromMs(lastMs)) + '&since=' + encodeURIComponent(isoFromMs(lastMs)) + '&incremental=1' : '';
+    return task.url + join + '_=' + Date.now() + since;
+  }
+  async function syncOneTask(task, meta){
+    const data = await networkFetchJson(taskUrl(task, meta), {method:'GET'});
+    await storeTaskPayload(task, data);
+    return data;
+  }
+  async function syncAll(onProgress, opts={}){
     const started = now();
-    const results = [];
-    let done = 0;
-    for (const task of TASKS) {
+    const meta = readMeta() || {};
+    let run = opts.resume ? readRunState() : null;
+    if (!run || !Array.isArray(run.remaining) || !run.remaining.length) {
+      run = {id:'sync-' + started, started_at:started, remaining:TASKS.map(t=>t.key), done:[], results:[], active:true};
+    }
+    run.active = true; writeRunState(run);
+    const results = Array.isArray(run.results) ? run.results : [];
+    const doneKeys = new Set(Array.isArray(run.done) ? run.done : []);
+    const remaining = () => TASKS.filter(t => (run.remaining || []).includes(t.key) && !doneKeys.has(t.key));
+    let done = doneKeys.size;
+    for (const task of remaining()) {
       const pctStart = Math.round((done / TASKS.length) * 100);
       try { onProgress && onProgress({task, done, total:TASKS.length, percent:pctStart, phase:'running'}); } catch(_e) {}
       try{
-        const data = await networkFetchJson(task.url + (task.url.includes('?') ? '&' : '?') + '_=' + Date.now(), {method:'GET'});
-        await storeTaskPayload(task, data);
-        done += 1;
-        results.push({key:task.key, ok:true, count:rowsOf(data).length || (Array.isArray(data.cells) ? data.cells.length : 0)});
+        const data = await syncOneTask(task, meta);
+        done += 1; doneKeys.add(task.key);
+        results.push({key:task.key, ok:true, count:rowsOf(data).length || (Array.isArray(data.cells) ? data.cells.length : 0), incremental:!!meta.saved_at});
+        run.done = Array.from(doneKeys); run.results = results; run.remaining = TASKS.map(t=>t.key).filter(k=>!doneKeys.has(k)); writeRunState(run);
         try { onProgress && onProgress({task, done, total:TASKS.length, percent:Math.round((done / TASKS.length) * 100), phase:'done'}); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:task.key, source:'manual-sync-task', data:null}})); } catch(_e) {}
       }catch(e){
-        done += 1;
+        done += 1; doneKeys.add(task.key);
         results.push({key:task.key, ok:false, error:e?.message || String(e)});
+        run.done = Array.from(doneKeys); run.results = results; run.remaining = TASKS.map(t=>t.key).filter(k=>!doneKeys.has(k)); writeRunState(run);
         try { onProgress && onProgress({task, done, total:TASKS.length, percent:Math.round((done / TASKS.length) * 100), phase:'error', error:e}); } catch(_e) {}
       }
     }
     const ok = results.filter(x => x.ok).length;
-    writeMeta({ok, total:TASKS.length, elapsed_ms:now()-started, results});
-    try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'all', source:'manual-sync', results}})); } catch(_e) {}
+    writeMeta({ok, total:TASKS.length, elapsed_ms:now()-started, results, last_success_at: ok ? now() : Number(meta.last_success_at || 0), incremental_from: meta.saved_at || 0});
+    writeRunState(null);
+    try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'all', source:opts.auto?'auto-sync':'manual-sync', results}})); } catch(_e) {}
     return {ok, total:TASKS.length, results, elapsed_ms:now()-started};
+  }
+  function fmtTime(ms){ return ms ? new Date(Number(ms)).toLocaleString('zh-TW', {hour12:false}) : '尚未同步'; }
+  function updateHomePanelStatus(){
+    const meta = readMeta();
+    const txt = document.getElementById('yx-device-sync-text');
+    if (txt && !document.getElementById('yx-device-sync-card')?.classList.contains('is-syncing')) txt.textContent = '上次同步：' + fmtTime(meta?.saved_at || meta?.last_success_at || 0);
+    const auto = readAuto() || {};
+    const autoBtn = document.getElementById('yx-device-auto-sync-btn');
+    if (autoBtn) autoBtn.textContent = auto.enabled ? '自動同步：開' : '自動同步：關';
+  }
+  function nextAutoDate(){
+    const d = new Date();
+    d.setHours(5,0,0,0);
+    if (Date.now() >= d.getTime()) d.setDate(d.getDate()+1);
+    return d;
+  }
+  async function maybeRunAutoSync(){
+    const auto = readAuto();
+    if (!auto?.enabled) return;
+    const today = new Date(); today.setHours(5,0,0,0);
+    const last = Number(auto.last_run_at || 0);
+    const lastDay = last ? new Date(last).toDateString() : '';
+    if (Date.now() >= today.getTime() && lastDay !== new Date().toDateString()) {
+      writeAuto(Object.assign({}, auto, {last_run_at:Date.now()}));
+      syncAll(()=>{}, {auto:true, resume:true}).then(updateHomePanelStatus).catch(()=>{});
+    }
+  }
+  async function resumeIfNeeded(){
+    const run = readRunState();
+    if (run?.active && Array.isArray(run.remaining) && run.remaining.length) {
+      syncAll(()=>{}, {resume:true}).then(updateHomePanelStatus).catch(()=>{});
+    }
   }
   function ensureHomePanel(){
     if (document.getElementById('yx-device-sync-card')) return;
-    const home = document.querySelector('.home-screen .hero') || document.querySelector('.home-screen') || document.body;
-    if (!home) return;
     const meta = readMeta();
-    const last = meta?.saved_at ? new Date(meta.saved_at).toLocaleString('zh-TW', {hour12:false}) : '尚未同步';
+    const last = fmtTime(meta?.saved_at || meta?.last_success_at || 0);
     const card = document.createElement('div');
     card.id = 'yx-device-sync-card';
     card.className = 'yx-device-sync-card';
     card.innerHTML = `
       <div class="yx-device-sync-head">
-        <div><strong>裝置資料同步</strong><span>進入前先下載，頁面先讀本機再背景比對</span></div>
-        <button id="yx-device-sync-btn" class="yx-device-sync-btn" type="button">同步資料到本機</button>
+        <div><strong>裝置資料同步</strong><span>只更新最新改動；切頁後會接續同步，不會整個中斷</span></div>
+        <div class="yx-device-sync-actions"><button id="yx-device-sync-btn" class="yx-device-sync-btn" type="button">同步資料</button><button id="yx-device-auto-sync-btn" class="yx-device-sync-btn ghost" type="button">自動同步：${(readAuto()||{}).enabled?'開':'關'}</button></div>
       </div>
       <div class="yx-device-sync-progress" aria-live="polite">
         <div class="yx-device-sync-bar"><i style="width:0%"></i></div>
         <div class="yx-device-sync-status"><span id="yx-device-sync-text">上次同步：${last}</span><b id="yx-device-sync-percent">0%</b></div>
       </div>`;
-    home.appendChild(card);
+    const todo = Array.from(document.querySelectorAll('.home-menu a.menu-btn')).find(a => /代辦事項/.test(a.textContent || '') || /todos/.test(a.getAttribute('href') || ''));
+    if (todo && todo.parentElement) todo.insertAdjacentElement('afterend', card);
+    else (document.querySelector('.home-menu') || document.querySelector('.home-screen') || document.body).appendChild(card);
     const btn = card.querySelector('#yx-device-sync-btn');
+    const autoBtn = card.querySelector('#yx-device-auto-sync-btn');
     const bar = card.querySelector('.yx-device-sync-bar i');
     const txt = card.querySelector('#yx-device-sync-text');
     const pct = card.querySelector('#yx-device-sync-percent');
-    btn?.addEventListener('click', async () => {
+    const runSync = async (auto=false) => {
       btn.disabled = true; card.classList.add('is-syncing');
       try{
         const res = await syncAll(info => {
@@ -247,10 +309,10 @@
           if (bar) bar.style.width = p + '%';
           if (pct) pct.textContent = p + '%';
           if (txt) txt.textContent = `${info.task?.label || '資料'} ${info.phase === 'error' ? '同步失敗，繼續下一項' : '同步中'}（${info.done}/${info.total}）`;
-        });
+        }, {auto});
         if (bar) bar.style.width = '100%';
         if (pct) pct.textContent = '100%';
-        if (txt) txt.textContent = `同步完成：${res.ok}/${res.total} 項，已可先讀本機資料`;
+        if (txt) txt.textContent = `同步完成：${res.ok}/${res.total} 項｜上次同步：${fmtTime(Date.now())}`;
         card.classList.toggle('has-error', res.ok < res.total);
         try { window.YX?.toast?.(`同步完成 ${res.ok}/${res.total}`, res.ok === res.total ? 'ok' : 'warn'); } catch(_e) {}
       }catch(e){
@@ -260,10 +322,21 @@
       }finally{
         btn.disabled = false; card.classList.remove('is-syncing');
       }
+    };
+    btn?.addEventListener('click', () => runSync(false));
+    autoBtn?.addEventListener('click', () => {
+      const cur = readAuto() || {};
+      const next = !cur.enabled;
+      writeAuto(Object.assign({}, cur, {enabled:next, next_run_at:nextAutoDate().getTime()}));
+      updateHomePanelStatus();
+      try { window.YX?.toast?.(next ? '已開啟每天凌晨 5 點自動同步（開啟網頁時會執行）' : '已關閉自動同步', 'ok'); } catch(_e) {}
     });
+    updateHomePanelStatus();
   }
-  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, readMeta, installApiLocalFirst});
+  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync});
   installApiLocalFirst();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ()=>{ resumeIfNeeded(); maybeRunAutoSync(); }, {once:true});
+  else { resumeIfNeeded(); maybeRunAutoSync(); }
   if ((window.__YX_PAGE_ENDPOINT__ || '') === 'home' || document.body?.dataset?.module === 'home') {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensureHomePanel, {once:true});
     else ensureHomePanel();

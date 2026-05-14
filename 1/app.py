@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V452-MAX-REPAIR-NO-CACHE-CHANGE'
-STATIC_VERSION = '119-v452-max_repair_no_cache_change'
-API_SCHEMA_VERSION = 'v452-max_repair_no_cache_change'
+APP_VERSION = 'V119-V453-SYNC-TODAY-SHIP-WAREHOUSE-FIX'
+STATIC_VERSION = '119-v453_sync_today_ship_warehouse_fix'
+API_SCHEMA_VERSION = 'v453-sync_today_ship_warehouse_fix'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -3762,7 +3762,7 @@ def _warehouse_cell_items_for_count(cell):
         return []
 
 def warehouse_v432_api_display_parser_lock_version():
-    return 'v452-max_repair_no_cache_change'
+    return 'v453-sync_today_ship_warehouse_fix'
 
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
@@ -7660,4 +7660,4 @@ def _warehouse_cell_items_for_count(cell):
 
 
 def warehouse_v429_api_display_parser_lock_version():
-    return 'v452-max_repair_no_cache_change'
+    return 'v453-sync_today_ship_warehouse_fix'

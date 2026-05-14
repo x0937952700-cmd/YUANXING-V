@@ -613,11 +613,11 @@
       try {
         cleanLegacyTodayDom();
         const forceHeavy = !!(opts.force || state.forceNext);
-        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v406-warehouse-order-drag-longpress-fix&force=' + (forceHeavy ? '1' : '0'), {method:'GET'}); state.forceNext=false;
+        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v406-warehouse-order-drag-longpress-fix&force=' + (forceHeavy ? '1' : '0') + (forceHeavy ? '&yx_device_network=1&ts=' + Date.now() : ''), {method:'GET', yxDeviceLocalFirst: !forceHeavy}); state.forceNext=false;
         // V136: 不再每次開今日異動就另外打 warehouse/available-items；只有手動刷新(force)才補最新未入倉區域統計。
         if (forceHeavy) {
           try {
-            const wz = await YX.api('/api/warehouse/available-items?fast=1&yx138_manual=1&v=119-v406-warehouse-order-drag-longpress-fix', {method:'GET'});
+            const wz = await YX.api('/api/warehouse/available-items?fast=1&force=1&yx_device_network=1&yx138_manual=1&v=119-v406-warehouse-order-drag-longpress-fix&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:false});
             data.summary = data.summary || {};
             data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
           } catch(_e) {}
@@ -757,6 +757,7 @@
         loadTodayChanges112({force:true, silent:true});
       };
       ['yx:today-changes-refresh','yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed'].forEach(ev=>window.addEventListener(ev, refreshTodayV214, false));
+      window.addEventListener('yx:device-sync-updated', ev=>{ try{ if((ev.detail||{}).key==='today_changes' || (ev.detail||{}).key==='all') refreshTodayV214(); }catch(_e){} }, false);
     }
     cleanLegacyTodayDom();
     loadTodayChanges112({force:true, silent:true});

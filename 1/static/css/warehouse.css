@@ -847,3 +847,5 @@ html[data-yx-warehouse-single-html-data-js="true"] #yx-final-warehouse-menu[data
   touch-action:manipulation;
   -webkit-tap-highlight-color:transparent;
 }
+
+#yx-final-warehouse-menu .yx-wh-menu-close{margin-top:6px;border-top:1px solid rgba(120,86,42,.16);color:#8a1f1f;background:rgba(255,255,255,.88)}

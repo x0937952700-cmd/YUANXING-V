@@ -1632,13 +1632,16 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return raw || '庫存';
   }
   function cleanCustomer(v){
-    const s=clean(v)||'庫存';
-    // formal mainline behavior.
-    return s
+    let s=clean(v)||'庫存';
+    s = s
       .replace(/(?:FOB\s*代付|FOB\s*代|FOB|CNF)/gi,'')
+      .replace(/[｜|].*$/g,'')
       .replace(/(?:^|\s)代(?:$|\s)/g,' ')
       .replace(/\s+/g,' ')
-      .trim() || '庫存';
+      .trim();
+    // v453：倉庫格內客戶名不可把尺寸/支數誤當客戶顯示；商品資料一律回到「庫存」而不是亂顯示。
+    if(!s || /\d+\s*[x×✕＊*]\s*\d+/i.test(s) || /[=＝]\s*\d+/.test(s)) return '庫存';
+    return s || '庫存';
   }
   function productText(it){ return clean(it?.product_text || it?.product || it?.product_size || it?.display_product_size || it?.base_product_size || it?.size || it?.size_text || it?.dimension || it?.dimensions || it?.product_label || it?.raw_text || it?.label || it?.title || it?.detail || it?.description || it?.goods_text || it?.item_text || it?.content || it?.memo || it?.remark || it?.desc || it?.name || it?.text || it?.value || ''); }
   function stripProductParen(text){ return clean(text).replace(/[\(（][^\)）]*[\)）]/g,'').trim(); }
@@ -3593,11 +3596,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
     m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden';
-    m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button>';
+    m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button><button type="button" data-wh-close="1" class="yx-wh-menu-close">關閉選單</button>';
     // V126：只保留 document click 單一路徑執行選單動作；避免 pointerup+click 雙重觸發造成後端操作被鎖或重複。
     const stopMenuBubble=(ev)=>{ if(ev.target?.closest?.('[data-wh-act]')){ try{ ev.stopPropagation(); }catch(_e){} } };
     ['pointerdown','pointerup','touchstart','touchend','mousedown','mouseup'].forEach(t=>m.addEventListener(t, stopMenuBubble, true));
-    m.addEventListener('click', ev=>{ const act=ev.target?.closest?.('[data-wh-act]'); if(!act) return; ev.preventDefault(); ev.stopPropagation(); try{ ev.stopImmediatePropagation(); }catch(_e){} executeWarehouseMenuAction(act.dataset.whAct); }, true);
+    m.addEventListener('click', ev=>{ const close=ev.target?.closest?.('[data-wh-close]'); if(close){ ev.preventDefault(); ev.stopPropagation(); try{ ev.stopImmediatePropagation(); }catch(_e){} hideWarehouseMenu(); return; } const act=ev.target?.closest?.('[data-wh-act]'); if(!act) return; ev.preventDefault(); ev.stopPropagation(); try{ ev.stopImmediatePropagation(); }catch(_e){} executeWarehouseMenuAction(act.dataset.whAct); }, true);
     // V439: Android/WebView sometimes swallows the final click after a long-press menu opens.
     // Keep the original menu and action path, but allow pointerup/touchend to execute once with the same de-dupe guard.
     let lastMenuFallbackAt=0, lastMenuFallbackAction='';
@@ -3709,7 +3712,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return true;
   }
   function hideWarehouseMenu(){
-    try{ const m=menu(); m.classList.add('hidden'); m.dataset.open='0'; m.setAttribute('aria-hidden','true'); }catch(_e){}
+    try{ const m=menu(); m.classList.add('hidden'); m.dataset.open='0'; m.setAttribute('aria-hidden','true'); m.style.setProperty('display','none','important'); delete m.dataset.yxPressedAct; delete m.dataset.yxPressedAt; state.activeMenuKey=''; document.documentElement.dataset.yxWarehouseLongpressOpen='0'; }catch(_e){}
   }
   async function toggleProblemMark(z,c,s){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -4015,6 +4018,15 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if((slot && (now<suppressUntil || now<Number(state.longpressSuppressClickUntil||0) || now<Number(slot.dataset.blockClickUntil||0))) || (openedAt && now-openedAt<2600)){
           try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
         }
+      }, {capture:true, passive:false});
+      document.addEventListener('keydown', ev=>{ if(ev.key==='Escape') hideWarehouseMenu(); }, {capture:true, passive:true});
+      document.addEventListener('pointerdown', ev=>{
+        if(!isWarehouse()) return;
+        const m=$('yx-final-warehouse-menu');
+        if(!m || m.dataset.open!=='1' || m.classList.contains('hidden')) return;
+        if(ev.target?.closest?.('#yx-final-warehouse-menu')) return;
+        // v453：長按選單開啟後，點外面就能關閉；不影響格子點擊，避免「開啟後關不掉」。
+        hideWarehouseMenu();
       }, {capture:true, passive:false});
       const menuButtonFrom=(ev)=>{
         let act=ev.target?.closest?.('#yx-final-warehouse-menu [data-wh-act]');

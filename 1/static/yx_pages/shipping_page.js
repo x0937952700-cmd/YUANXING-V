@@ -652,9 +652,10 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
-      const d = await YX.api('/api/customers?yx114=1&fast=1&light=1&force=1&v214=1', {method:'GET'});
-      // v17：客戶區不能只看 /api/customers；重新整理後若後端客戶檔尚未同步，仍要從目前訂單/總單 rowsStore 立刻補出客戶卡。
-      state.items = relationCustomersFromRows(Array.isArray(d.items) ? d.items : []);
+      const d = await YX.api('/api/customers?yx114=1&fast=1&light=1&force=1&v214=1&yx_device_network=1&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:false});
+      // v453：/api/customers 有些版本回傳 customers，不一定是 items；兩者都要吃，避免出貨北中南被同步快取清空。
+      const customerRows = Array.isArray(d.items) ? d.items : (Array.isArray(d.customers) ? d.customers : []);
+      state.items = relationCustomersFromRows(customerRows);
       renderBoards(state.items);
       try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}
       return state.items;
@@ -1023,7 +1024,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   function setCount(text){const el=$('ship-customer-item-count');if(el)el.textContent=text;}
   function syncHiddenSelect(){const select=$('ship-customer-item-select');if(!select)return;select.hidden=true;select.setAttribute('hidden','hidden');select.setAttribute('aria-hidden','true');select.style.display='none';select.innerHTML='<option value="">商品標籤清單已顯示在下方</option>';}
   function renderCustomers(){const box=$('ship-customer-quick-list');if(box)box.replaceChildren();}
-  async function loadCustomers(){let hadCached=false;const currentKey='ship_customers_'+SHIP_CACHE_VERSION;try{const keys=[currentKey];let cached=null;for(const k of keys){cached=window.YX?.cache?.read(k,1000*60*10);if(Array.isArray(cached?.items)&&cached.items.length)break;} if(Array.isArray(cached?.items)&&cached.items.length){hadCached=true;state.customers=cached.items; renderCustomers();}}catch(_e){} const fresh=async()=>{try{const d=await api('/api/customers?ship_single=1&light=1&fast=1&force=1&v='+encodeURIComponent(SHIP_QUERY_VERSION));state.customers=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]); try{window.YX?.cache?.write(currentKey,{items:state.customers});}catch(_e){} try{ if(window.YX113CustomerRegions&&window.YX113CustomerRegions.loadCustomerBlocks) window.YX113CustomerRegions.loadCustomerBlocks(true); }catch(_e){} renderCustomers();}catch(_){}}; const p=fresh(); return hadCached?state.customers:p; }
+  async function loadCustomers(){let hadCached=false;const currentKey='ship_customers_'+SHIP_CACHE_VERSION;try{const keys=[currentKey];let cached=null;for(const k of keys){cached=window.YX?.cache?.read(k,1000*60*10);if(Array.isArray(cached?.items)&&cached.items.length)break;} if(Array.isArray(cached?.items)&&cached.items.length){hadCached=true;state.customers=cached.items; renderCustomers();}}catch(_e){} const fresh=async()=>{try{const d=await api('/api/customers?ship_single=1&light=1&fast=1&force=1&yx_device_network=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now(), {yxDeviceLocalFirst:false});state.customers=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]); try{window.YX?.cache?.write(currentKey,{items:state.customers});}catch(_e){} try{ if(window.YX113CustomerRegions&&window.YX113CustomerRegions.loadCustomerBlocks) window.YX113CustomerRegions.loadCustomerBlocks(true); }catch(_e){} renderCustomers();}catch(_){}}; const p=fresh(); return hadCached?state.customers:p; }
     function renderItems(){const box=$('ship-customer-item-list');syncHiddenSelect();if(!box){return;}box.classList.remove('yx-final-ship-product-list-hidden');box.classList.add('yx-final-ship-tag-menu','yx-ship-one-column-menu');if(!state.customer){setCount('請先點選北 / 中 / 南客戶');box.innerHTML='<div class="empty-state-card compact-empty">請先點選北 / 中 / 南客戶</div>';return;}if(state.loadingName===state.customer){setCount(`${state.customer}：商品載入中…`);box.innerHTML='<div class="empty-state-card compact-empty">商品載入中…</div>';return;}if(state.itemsForCustomer!==state.customer){setCount(`${state.customer}：商品載入中…`);box.innerHTML='<div class="empty-state-card compact-empty">商品載入中…</div>';return;}if(!state.items.length){setCount(`${state.customer}：0 筆 / 0 件`);box.innerHTML='<div class="empty-state-card compact-empty">此客戶目前沒有可出貨商品</div>';return;}const total=state.items.reduce((sum,it)=>sum+qtyFromText(it.product_text,it.qty),0);setCount(`${state.customer}：${state.items.length} 筆 / ${total} 件`);box.innerHTML=state.items.map((it,i)=>`<button type="button" class="yx-ship-product-option-row" data-ship-add-index="${i}"><span class="yx-ship-option-source">出貨源：${esc(shipSourceLabel(it))}</span><span class="yx-ship-option-material">${esc(materialOf(it)||'未填材質')}</span><span class="yx-ship-option-text">${esc(it.product_text||'')}</span><strong>${qtyFromText(it.product_text,it.qty)}件</strong><em>加入</em></button>`).join('');}
   async function loadItems(name,opts={}){
     setCustomer(name||state.customer);
@@ -1049,7 +1050,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       state.loadingName=requestCustomer;
       if(!hadCached) renderItems();
       try{
-        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&fast=1&force=1&ship_single=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+requestVariants);
+        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&fast=1&force=1&yx_device_network=1&ship_single=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now()+requestVariants, {yxDeviceLocalFirst:false});
         if(state.customer!==requestCustomer) return;
         state.items=Array.isArray(d.items)?d.items:[];
         const saved={items:state.items,at:Date.now()};

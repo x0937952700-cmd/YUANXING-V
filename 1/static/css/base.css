@@ -7309,3 +7309,6 @@ body[data-module="warehouse"] #yx-final-warehouse-menu button{
 .customer-region-card .yx113-customer-left,.customer-region-card .yx116-customer-name{font-size:24px!important;line-height:1.08!important;font-weight:950!important;white-space:normal!important;word-break:break-word!important;letter-spacing:.02em!important;max-width:100%!important;writing-mode:horizontal-tb!important;transform:none!important;}
 .customer-region-card .yx113-customer-tag,.customer-region-card .yx116-customer-tag{font-size:12px!important;line-height:1!important;padding:5px 10px!important;white-space:nowrap!important;}
 .customer-region-card .yx113-customer-count,.customer-region-card .yx116-customer-count{font-size:17px!important;font-weight:950!important;white-space:nowrap!important;}
+
+.yx-device-sync-card{display:block}.home-menu>.yx-device-sync-card{box-sizing:border-box}.yx-device-sync-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.yx-device-sync-btn.ghost{background:rgba(255,255,255,.78);color:#2d2118;border:1px solid rgba(80,55,28,.18);box-shadow:none}
+@media(max-width:640px){.yx-device-sync-actions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:8px}.yx-device-sync-btn.ghost{width:100%}}
