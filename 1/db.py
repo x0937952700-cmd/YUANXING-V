@@ -10448,3 +10448,222 @@ def warehouse_get_cells():
     finally:
         try: conn.close()
         except Exception: pass
+
+# ============================================================
+# V487 real speed/action-audit fix
+# - Final override: warehouse column reads must not call the full rescued sweep.
+# - Structural writes return fast column readback, avoiding statement timeout/SSL churn.
+# - Does not change yx_cache/yx_core/service worker/timers.
+# ============================================================
+def _yx_v487_parse_items_fast_value(value):
+    try:
+        if isinstance(value, list):
+            arr = value
+        elif isinstance(value, dict):
+            arr = [value]
+        else:
+            txt = str(value or '').strip()
+            if not txt or txt.lower() in ('[]','null','none','undefined'):
+                arr = []
+            else:
+                arr = json.loads(txt)
+                if isinstance(arr, dict): arr = [arr]
+        if not isinstance(arr, list):
+            arr = []
+    except Exception:
+        arr = []
+    out=[]; seen=set()
+    for it in arr:
+        if not isinstance(it, dict):
+            continue
+        product = str(it.get('product_text') or it.get('product') or it.get('raw_text') or it.get('size') or it.get('display_product_size') or '').strip()
+        if not product:
+            continue
+        row = dict(it)
+        row['product_text'] = product
+        row['product'] = product
+        try: row['qty'] = max(1, int(float(row.get('qty') or row.get('quantity') or row.get('pieces') or 1)))
+        except Exception: row['qty'] = 1
+        k='|'.join([str(row.get('source_table') or row.get('source') or ''),str(row.get('source_id') or row.get('id') or ''),str(row.get('customer_name') or row.get('customer') or ''),str(row.get('material') or row.get('product_code') or ''),product,str(row.get('placement_label') or row.get('layer_label') or '')])
+        if k in seen: continue
+        seen.add(k); out.append(row)
+    return out
+
+def _yx_v487_rows_to_client_cells(rows, mirror_rows=None):
+    mirror_by_cell={}; mirror_by_coord={}
+    for it in mirror_rows or []:
+        try:
+            cell_id=it.get('cell_id')
+            z=_yx_v116_zone(it.get('zone'))
+            c=int(it.get('column_index') or 0)
+            s=int(it.get('slot_number') or 0)
+            product=str(it.get('product_text') or '').strip()
+            if not product: continue
+            obj={
+                'source_table':it.get('source_table') or it.get('source') or '',
+                'source':it.get('source_table') or it.get('source') or '',
+                'source_id':it.get('source_id') or '',
+                'customer_name':it.get('customer_name') or '',
+                'product_text':product,
+                'product':product,
+                'material':it.get('material') or '',
+                'product_code':it.get('material') or '',
+                'qty':max(1,int(it.get('qty') or 1)),
+                'placement_label':it.get('placement_label') or '',
+            }
+            if cell_id: mirror_by_cell.setdefault(cell_id,[]).append(obj)
+            if z in ('A','B') and c>0 and s>0: mirror_by_coord.setdefault((z,c,s),[]).append(obj)
+        except Exception:
+            continue
+    by={}
+    for row in rows or []:
+        try:
+            z=_yx_v116_zone(row.get('zone'))
+            c=int(row.get('column_index') or 0)
+            s=int(row.get('slot_number') or 0)
+            if z not in ('A','B') or c<1 or s<1: continue
+            cid=row.get('id') or row.get('cell_id')
+            items=_yx_v487_parse_items_fast_value(row.get('items_json') or row.get('items') or [])
+            mirrors=(mirror_by_cell.get(cid) or []) + (mirror_by_coord.get((z,c,s)) or [])
+            if mirrors:
+                try:
+                    items = _yx_v434_merge_items(items, mirrors) if '_yx_v434_merge_items' in globals() else items + mirrors
+                except Exception:
+                    items = items + mirrors
+            rr=dict(row)
+            rr['zone']=z; rr['column_index']=c; rr['slot_type']='direct'; rr['slot_number']=s
+            rr['items']=items; rr['items_json']=json.dumps(items or [], ensure_ascii=False); rr['is_deleted']=0
+            old=by.get((z,c,s))
+            if old:
+                old_items=_yx_v487_parse_items_fast_value(old.get('items') or old.get('items_json') or [])
+                try:
+                    merged=_yx_v434_merge_items(old_items, items) if '_yx_v434_merge_items' in globals() else old_items+items
+                except Exception:
+                    merged=old_items+items
+                try: keep=rr if int(rr.get('id') or 0) >= int(old.get('id') or 0) else dict(old)
+                except Exception: keep=rr
+                keep['items']=merged; keep['items_json']=json.dumps(merged or [], ensure_ascii=False)
+                by[(z,c,s)]=keep
+            else:
+                by[(z,c,s)]=rr
+        except Exception:
+            continue
+    out=list(by.values())
+    out.sort(key=lambda r:(_yx_v116_zone(r.get('zone')), int(r.get('column_index') or 0), int(r.get('slot_number') or 0)))
+    return out
+
+def warehouse_get_column_cells(zone, column_index):
+    z=_yx_v116_zone(zone); c=int(column_index or 0)
+    if z not in ('A','B') or c<1:
+        return []
+    conn=get_db(); cur=conn.cursor()
+    try:
+        try: _yx_v116_ensure_schema(cur)
+        except Exception: pass
+        try:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0 ORDER BY slot_number ASC, id ASC"),(z,c))
+        except Exception:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? ORDER BY slot_number ASC, id ASC"),(z,c))
+        rows=rows_to_dict(cur) or []
+        ids=[r.get('id') for r in rows if r.get('id')]
+        mirrors=[]
+        try:
+            if ids and _yx_v427_table_exists(cur,'warehouse_cell_items'):
+                ph=','.join(['?']*len(ids))
+                cur.execute(sql(f"SELECT * FROM warehouse_cell_items WHERE cell_id IN ({ph}) OR (zone=? AND column_index=?) ORDER BY cell_id, sort_order, id"), tuple(ids)+ (z,c))
+                mirrors=rows_to_dict(cur) or []
+        except Exception:
+            mirrors=[]
+        return _yx_v487_rows_to_client_cells(rows, mirrors)
+    except Exception as e:
+        try: log_error('v487_fast_column_cells', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_get_cells():
+    conn=get_db(); cur=conn.cursor()
+    try:
+        try: _yx_v116_ensure_schema(cur)
+        except Exception: pass
+        try:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0 ORDER BY zone, column_index, slot_number, id"))
+        except Exception:
+            cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number, id"))
+        rows=rows_to_dict(cur) or []
+        mirrors=[]
+        try:
+            if _yx_v427_table_exists(cur,'warehouse_cell_items'):
+                cur.execute(sql("SELECT * FROM warehouse_cell_items ORDER BY zone, column_index, slot_number, sort_order, id"))
+                mirrors=rows_to_dict(cur) or []
+        except Exception:
+            mirrors=[]
+        return _yx_v487_rows_to_client_cells(rows, mirrors)
+    except Exception as e:
+        try: log_error('v487_fast_warehouse_get_cells', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_batch_add_slots(zone, column_index, insert_after=0, count=1):
+    z=_yx_v116_zone(zone); c=int(column_index or 0); n=max(1,min(120,int(count or 1)))
+    if z not in ('A','B') or c<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        try: after=int(insert_after or 0)
+        except Exception: after=0
+        cur.execute(sql("SELECT COALESCE(MAX(slot_number),0) AS max_slot FROM warehouse_cells WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0"),(z,c))
+        mx=fetchone_dict(cur) or {}; current=int(mx.get('max_slot') or 0)
+        after=max(0,min(after,current))
+        # Two-step shift avoids unique slot conflicts on PostgreSQL/SQLite.
+        cur.execute(sql("UPDATE warehouse_cells SET slot_number=slot_number+100000, updated_at=? WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0 AND slot_number>?"),(now(),z,c,after))
+        try:
+            cur.execute(sql("UPDATE warehouse_cell_items SET slot_number=slot_number+100000, updated_at=? WHERE zone=? AND column_index=? AND slot_number>?"),(now(),z,c,after))
+        except Exception: pass
+        cur.execute(sql("UPDATE warehouse_cells SET slot_number=slot_number-100000+?, updated_at=? WHERE zone=? AND column_index=? AND slot_number>100000"),(n,now(),z,c))
+        try:
+            cur.execute(sql("UPDATE warehouse_cell_items SET slot_number=slot_number-100000+?, updated_at=? WHERE zone=? AND column_index=? AND slot_number>100000"),(n,now(),z,c))
+        except Exception: pass
+        for i in range(n):
+            s=after+1+i
+            cur.execute(sql("INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag) VALUES(?,?,?,?,?,?,?,?,?)"),(z,c,'direct',s,'[]','',now(),0,''))
+        conn.commit()
+        return {'success':True,'count':n,'first_slot':after+1,'last_slot':after+n,'visible_count':current+n,'v487_fast':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_batch_add_slots_v487_fast', str(e))
+        except Exception: pass
+        return {'success':False,'error':'批量新增格子資料庫失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked):
+    z=_yx_v116_zone(zone); c=int(column_index or 0); s=int(slot_number or 0)
+    if z not in ('A','B') or c<1 or s<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur)
+        flag='1' if marked else ''
+        cur.execute(sql("UPDATE warehouse_cells SET problem_flag=?, updated_at=? WHERE zone=? AND column_index=? AND slot_number=? AND COALESCE(is_deleted,0)=0"),(flag,now(),z,c,s))
+        if cur.rowcount == 0:
+            cur.execute(sql("INSERT INTO warehouse_cells(zone,column_index,slot_type,slot_number,items_json,note,updated_at,is_deleted,problem_flag) VALUES(?,?,?,?,?,?,?,?,?)"),(z,c,'direct',s,'[]','',now(),0,flag))
+        conn.commit()
+        return {'success':True,'zone':z,'column_index':c,'slot_number':s,'marked':bool(marked),'v487_fast':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_mark_cell_v487_fast', str(e))
+        except Exception: pass
+        return {'success':False,'error':'標記失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass

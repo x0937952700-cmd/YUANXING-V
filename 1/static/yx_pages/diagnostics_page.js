@@ -1,4 +1,4 @@
-/* V486 diagnostics page: deep read-only issue detection + export. No polling/timer/observer. */
+/* V487 diagnostics page: current-version deep issue detection + export. No polling/timer/observer. */
 (function(){
   'use strict';
   const $ = s => document.querySelector(s);
@@ -18,11 +18,19 @@
   function addIssue(list, severity, title, detail, source){
     list.push({severity, title:String(title||''), detail:detail||{}, source:source||'', at:new Date().toISOString()});
   }
+  function currentAppVersion(){ return String(window.__YX_APP_VERSION__ || ''); }
+  function currentStaticVersion(){ return String(window.__YX_STATIC_VERSION__ || ''); }
+  function isCurrentClientError(e){
+    const av=String(e?.app_version||''); const sv=String(e?.static_version||'');
+    if(!av && !sv) return true;
+    return (!!av && av===currentAppVersion()) || (!!sv && sv===currentStaticVersion());
+  }
   function issueClass(sev){ return sev==='critical' || sev==='error' ? 'bad' : (sev==='warn' ? 'warn' : ''); }
   function issueSort(a,b){ return (SEV[b.severity]||0)-(SEV[a.severity]||0); }
   function classifyClientErrors(errors, guards){
     const issues=[];
     (errors||[]).forEach(e=>{
+      if(!isCurrentClientError(e)) return;
       const type=String(e.type||''); const d=e.detail||{}; const url=normalizeEndpoint(d.url||''); const msg=String(d.message||d.error||''); const ms=Number(d.ms||0);
       if(url==='/api/performance/route-prewarm') addIssue(issues,'info','預熱 API 失敗，不影響主要資料，但代表網路/頁面切換時有中斷', {url, message:msg, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('fetch_failed')) addIssue(issues,'error',`API 呼叫失敗：${url || '未知 API'}`, {url, message:msg, page:e.page, at:e.at}, 'local_errors');
@@ -42,6 +50,7 @@
     if(Number(counts.inventory||0)>0 && Number((server?.local_counts||{}).inventory||0)===0) addIssue(issues,'warn','伺服器庫存有資料，但本機同步資料可能是空的', {db_inventory:counts.inventory}, 'server_counts');
     errors.forEach(e=>{
       const src=String(e.source||''); const msg=String(e.message||'');
+      if(src.indexOf('client_')===0 && msg.indexOf(currentAppVersion())<0 && msg.indexOf(currentStaticVersion())<0) return;
       if(/statement timeout|SSL connection|canceling statement/i.test(msg)) addIssue(issues,'critical',`資料庫/倉庫查詢異常：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
       else if(/api_slow_or_error|fetch_failed|unhandledrejection|window.error|regression_guard/i.test(src+msg)) addIssue(issues,'warn',`近期錯誤紀錄：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
     });
@@ -94,7 +103,7 @@
     return {ok:res.ok, status:res.status, data};
   }
   function renderLocal(snap){
-    const counts = snap.local_counts || {}; const errors = snap.last_errors || []; const guards = snap.regression_guard_events || [];
+    const counts = snap.local_counts || {}; const errors = (snap.last_errors || []).filter(isCurrentClientError); const guards = snap.regression_guard_events || [];
     $('#diag-local').innerHTML = card('本機同步 / 快取狀態', kv({
       '版本': snap.app_version, '靜態版本': snap.static_version, '上次同步': snap.sync?.last_success_display || snap.sync?.last_success_at || '尚未記錄',
       '自動同步': snap.sync?.auto_enabled === '1' ? '開啟' : '關閉', '庫存 rows': counts.inventory || 0, '訂單 rows': counts.orders || 0,
@@ -148,7 +157,7 @@
   async function init(){
     const root = $('#diagnostics-root'); if(!root) return;
     root.innerHTML = `<div class="diag-actions"><button class="primary-btn" id="diag-run">立即詳盡檢查</button><button class="primary-btn" id="diag-export">匯出診斷報告</button><button class="ghost-btn" id="diag-send">送出本機診斷</button><button class="ghost-btn" id="diag-clear">清除本機錯誤紀錄</button></div><div id="diag-status" class="diag-status muted">診斷頁已載入。</div><div id="diag-issues"></div><div id="diag-local"></div><div id="diag-server"></div><div id="diag-actions-audit"></div><div id="diag-errors"></div>`;
-    if(!document.getElementById('diag-v486-style')){ const style=document.createElement('style'); style.id='diag-v486-style'; style.textContent='.diagnostics-shell{padding:14px;max-width:1040px;margin:0 auto}.diag-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.diag-status{font-weight:800;margin:10px 0}.diag-status.warn{color:#a24b00}.diag-status.ok{color:#146c2e}.diag-card{background:rgba(255,255,255,.88);border:1px solid rgba(120,90,50,.14);border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 8px 28px rgba(50,32,16,.06)}.diag-card.ok{border-color:rgba(30,120,60,.28)}.diag-card.warn{border-color:rgba(180,80,30,.35);background:#fffaf2}.diag-kv>div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);padding:7px 0}.diag-kv span{text-align:right;word-break:break-all}.diag-issue-summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.diag-issue-summary b{background:#fff;border:1px solid #f0b6a0;border-radius:999px;padding:6px 10px}.diag-row{padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;margin:8px 0;background:#fff}.diag-row.warn{border-color:rgba(200,130,0,.35);background:#fffdf5}.diag-row.bad{border-color:rgba(200,0,0,.42);background:#fff7f7}.diag-row b{display:block}.diag-row span{color:#8a765f;font-size:12px}.diag-row pre{white-space:pre-wrap;max-height:220px;overflow:auto;background:#f7f3ed;padding:8px;border-radius:8px}'; document.head.appendChild(style); }
+    if(!document.getElementById('diag-v487-style')){ const style=document.createElement('style'); style.id='diag-v487-style'; style.textContent='.diagnostics-shell{padding:14px;max-width:1040px;margin:0 auto}.diag-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.diag-status{font-weight:800;margin:10px 0}.diag-status.warn{color:#a24b00}.diag-status.ok{color:#146c2e}.diag-card{background:rgba(255,255,255,.88);border:1px solid rgba(120,90,50,.14);border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 8px 28px rgba(50,32,16,.06)}.diag-card.ok{border-color:rgba(30,120,60,.28)}.diag-card.warn{border-color:rgba(180,80,30,.35);background:#fffaf2}.diag-kv>div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);padding:7px 0}.diag-kv span{text-align:right;word-break:break-all}.diag-issue-summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.diag-issue-summary b{background:#fff;border:1px solid #f0b6a0;border-radius:999px;padding:6px 10px}.diag-row{padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;margin:8px 0;background:#fff}.diag-row.warn{border-color:rgba(200,130,0,.35);background:#fffdf5}.diag-row.bad{border-color:rgba(200,0,0,.42);background:#fff7f7}.diag-row b{display:block}.diag-row span{color:#8a765f;font-size:12px}.diag-row pre{white-space:pre-wrap;max-height:220px;overflow:auto;background:#f7f3ed;padding:8px;border-radius:8px}'; document.head.appendChild(style); }
     const snap = await window.YXDiagnostics?.snapshot?.(); if(snap){ renderLocal(snap); renderIssues(classifyClientErrors(snap.last_errors||[], snap.regression_guard_events||[])); }
     $('#diag-run').onclick=runServerCheck; $('#diag-export').onclick=exportReport; $('#diag-send').onclick=sendSnapshot; $('#diag-clear').onclick=async()=>{ window.YXDiagnostics?.clear?.(); const s=await window.YXDiagnostics?.snapshot?.(); renderLocal(s||{}); renderIssues([]); setStatus('已清除本機錯誤紀錄。'); };
     runServerCheck();

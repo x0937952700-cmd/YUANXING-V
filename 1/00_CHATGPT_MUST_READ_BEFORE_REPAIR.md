@@ -207,3 +207,8 @@ python -m zipfile -t 你的輸出檔.zip
 - 不准因為 `/api/health` 或 `/api/diagnostics/summary` 回 200 就顯示「沒有主要異常」。
 - 診斷必須同時檢查：本機錯誤、伺服器 recent_errors、必要 API route、核心按鈕/事件對應、資料保存主線。
 - 診斷不應自動點擊會新增/刪除/出貨/入倉的破壞性按鈕；若需要真實操作測試，必須明確標示為「需使用者實測」。
+
+## V487 additional mandatory rule
+- Diagnostics must separate **current-version errors** from old-version history. Old history may be shown, but must not be used to claim the current package still has that exact error unless the app/static version matches.
+- Warehouse structure actions (`/api/warehouse/cell`, `/api/warehouse/batch-add-slots`, `/api/warehouse/mark-cell`) must return a fast touched-column payload and must not recompute the full unplaced/available list in the same request.
+- Do not remove batch buttons globally unless the user explicitly says the exact button location/page to remove.

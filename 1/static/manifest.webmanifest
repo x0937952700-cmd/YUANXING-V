@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/?v=119-v486-deep-diag-real-issue-detect",
-  "start_url": "/?v=119-v486-deep-diag-real-issue-detect",
+  "id": "/?v=119-v487-real-fix-speed-action-audit",
+  "start_url": "/?v=119-v487-real-fix-speed-action-audit",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "v486-deep-diag-real-issue-detect"
+  "version": "v487-real-fix-speed-action-audit"
 }

@@ -984,9 +984,9 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   const $=(id)=>document.getElementById(id);
   const state={customer:'',items:[],selected:[],customers:[],loadingName:'',itemCache:new Map(),bound:false,itemsForCustomer:''};
   const shipRuntime={previewBusy:false,confirmBusy:false,inflight:new Set(),completed:new Set(),lastPreview:null};
-  const SHIP_SYNC_VERSION='v486-deep-diag-real-issue-detect';
+  const SHIP_SYNC_VERSION='v487-real-fix-speed-action-audit';
   const SHIP_CACHE_VERSION='v485';
-  const SHIP_QUERY_VERSION='119-v486_deep_diag_real_issue_detect';
+  const SHIP_QUERY_VERSION='119-v487_real_fix_speed_action_audit';
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean=(v)=>String(v??'').replace(/\s+/g,' ').trim();
   function safeErrorMessage(v,status){let s=clean(v||'');if(!s)return status?`請求失敗 ${status}`:'請求失敗';if(/^<!doctype|<html|<h1>|internal server error/i.test(s))return status===500?'伺服器出貨資料讀取錯誤，已保留畫面，請重新點一次客戶':'伺服器回應格式錯誤';return s.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,160)||'請求失敗';}

@@ -8,9 +8,9 @@ import re, sys, ast
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT'
-VERSION_STATIC='119-v486_deep_diag_real_issue_detect'
-VERSION_JS='v486-deep-diag-real-issue-detect'
+VERSION_APP='V119-V487-REAL-FIX-SPEED-ACTION-AUDIT'
+VERSION_STATIC='119-v487_real_fix_speed_action_audit'
+VERSION_JS='v487-real-fix-speed-action-audit'
 
 def read(rel):
     p=root/rel
@@ -82,7 +82,7 @@ for old in ['__yxMutationBusV471','__yxMutationBusV472','__yxMutationBusV473']:
         fail.append(f'yx_mutation_bus.js still has stale flag {old}')
 
 sync=read('static/yx_device_sync.js')
-for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v486-deep-diag-real-issue-detect', 'yx_warehouse_available_cache_v486-deep-diag-real-issue-detect']:
+for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v487-real-fix-speed-action-audit', 'yx_warehouse_available_cache_v487-real-fix-speed-action-audit']:
     has(sync, token, 'yx_device_sync.js sync token')
 for key in ['inventory','orders','master_order','customers','warehouse','warehouse_available','shipping_records','today_changes','todos']:
     if f"key:'{key}'" not in sync and f'key:"{key}"' not in sync:
@@ -99,7 +99,7 @@ elif rw_pos >= 0 and api_pos > rw_pos:
     fail.append('service-worker /api bypass must be before respondWith')
 
 manifest=read('static/manifest.webmanifest')
-has(manifest, '119-v486-deep-diag-real-issue-detect', 'manifest version')
+has(manifest, '119-v487-real-fix-speed-action-audit', 'manifest version')
 
 # Page-level regression checks: critical pages must either reference YXDataStore directly or be protected by bridges loaded before pages.
 critical_pages=['inventory_page.js','product_page_core.js','shipping_page.js','today_changes_page.js','warehouse_page.js','home_page.js']

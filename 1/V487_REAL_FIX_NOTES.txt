@@ -1,0 +1,1 @@
+V487 real speed/action audit fix: fast warehouse column reads, no full available recompute on structure actions, diagnostics filters historical old-version errors, normal product GET uses fast cache.

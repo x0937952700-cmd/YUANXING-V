@@ -17,8 +17,8 @@ from collections import defaultdict
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT"
-EXPECTED_STATIC_VERSION = "119-v486_deep_diag_real_issue_detect"
+EXPECTED_APP_VERSION = "V119-V487-REAL-FIX-SPEED-ACTION-AUDIT"
+EXPECTED_STATIC_VERSION = "119-v487_real_fix_speed_action_audit"
 
 READ_ENDPOINTS = {
     "inventory": "/api/inventory?sync_full=1&verify=1",

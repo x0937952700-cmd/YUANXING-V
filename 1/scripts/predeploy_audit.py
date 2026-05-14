@@ -39,7 +39,7 @@ app=read('app.py')
 for route in ['@app.route("/health")','@app.route("/api/health")',"@app.route('/api/health/smoke'", "@app.route('/api/health/api-schema'", "@app.route('/api/health/event-flow'", '@app.route("/diagnostics")', "@app.route('/api/diagnostics/summary'", "@app.route('/api/diagnostics/client-log'", "@app.route('/api/diagnostics/export'"]:
     if route not in app:
         fail.append(f'app.py missing route marker {route}')
-if 'V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT' not in app:
+if 'V119-V487-REAL-FIX-SPEED-ACTION-AUDIT' not in app:
     fail.append('app.py version not v483')
 
 base=read('templates/base.html')

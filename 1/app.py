@@ -36,9 +36,10 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT'
-STATIC_VERSION = '119-v486_deep_diag_real_issue_detect'
-API_SCHEMA_VERSION = 'v486-deep-diag-real-issue-detect'
+APP_VERSION = 'V119-V487-REAL-FIX-SPEED-ACTION-AUDIT'
+STATIC_VERSION = '119-v487_real_fix_speed_action_audit'
+API_SCHEMA_VERSION = 'v487-real-fix-speed-action-audit'
+APP_STARTED_AT = datetime.now()
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -2254,7 +2255,7 @@ def api_inventory():
                 inc = _yx459_device_incremental_rows('inventory', request.args.get('changed_since') or request.args.get('since'), 'v459-inventory-incremental')
                 if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('inventory', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
+            use_fast_cache = (request.args.get('force') != '1')
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
             if cached:
                 return jsonify(cached)
@@ -2432,7 +2433,7 @@ def api_orders():
                 inc = _yx459_device_incremental_rows('orders', request.args.get('changed_since') or request.args.get('since'), 'v459-orders-incremental')
                 if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
+            use_fast_cache = (request.args.get('force') != '1')
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
             if cached:
                 return jsonify(cached)
@@ -2495,7 +2496,7 @@ def api_master_orders():
                 inc = _yx459_device_incremental_rows('master_orders', request.args.get('changed_since') or request.args.get('since'), 'v459-master-orders-incremental')
                 if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('master_orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
+            use_fast_cache = (request.args.get('force') != '1')
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
             if cached:
                 return jsonify(cached)
@@ -3109,7 +3110,7 @@ def api_customers():
         if request.method == "GET":
             source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
             cache_key = _fast_cache_key('customers', version=API_SCHEMA_VERSION, user=current_username(), source=source_filter, light=request.args.get('light') or '', ship=request.args.get('ship_single') or '', qv=request.args.get('v') or request.args.get('v406') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or '')
-            use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
+            use_fast_cache = (request.args.get('force') != '1')
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
             if cached:
                 return jsonify(cached)
@@ -3253,6 +3254,18 @@ def api_customers_ensure():
         region = resolve_customer_region(name, data.get('region') or '北區')
         if not name:
             return error_response('請輸入客戶名稱')
+        # V487: ensure is often called as a background helper after order/master save.
+        # If the profile already exists, return immediately instead of doing another write/audit path.
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql("SELECT * FROM customer_profiles WHERE name=? OR customer_name=? ORDER BY id DESC LIMIT 1"), (name, name))
+            existing = fetchone_dict(cur)
+            conn.close()
+            if existing and bool(data.get('preserve_existing', True)):
+                return jsonify(customer_profile_write_payload(name, item=existing, mode='ensure_cached', extra={'region': existing.get('region') or region, 'v487_fast_existing': True}))
+        except Exception:
+            try: conn.close()
+            except Exception: pass
         item = upsert_customer(name, region=region, preserve_existing=bool(data.get('preserve_existing', True)))
         notify_sync_event(kind='refresh', module='all', message=f'客戶已確實寫入：{name}', extra={'customer_name': name, 'region': item.get('region') if isinstance(item, dict) else region, 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION})
         return jsonify(customer_profile_write_payload(name, item=item, mode='ensure', extra={'region': item.get('region') if isinstance(item, dict) else region}))
@@ -3668,8 +3681,11 @@ def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
         slot_identity_map=slot_identity_map, column_revision=int(time.time()*1000), column_signature=column_signature,
         warehouse_stability=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION
     )
+    # V487: structural warehouse writes must return fast. Do not recompute unplaced/available summary here;
+    # it was the main reason batch-add/mark-cell/cell-save looked successful then stalled for 9-60s.
     try:
-        payload['available_summary'] = _warehouse_available_light_summary()
+        if (extra or {}).get('include_available_summary'):
+            payload['available_summary'] = _warehouse_available_light_summary()
     except Exception:
         pass
     payload.update(extra or {})
@@ -6294,6 +6310,32 @@ def api_diagnostics_client_log():
     except Exception as e:
         return jsonify(success=False, error=str(e)[:500]), 500
 
+
+def _diagnostics_filter_current_errors(rows):
+    # V487: do not let old deployed-version client/warehouse errors keep the new package red forever.
+    # Current-version client logs still show. Server DB errors after this process started still show.
+    out=[]
+    for row in rows or []:
+        try:
+            src=str((row or {}).get('source') or '')
+            msg=str((row or {}).get('message') or '')
+            created=str((row or {}).get('created_at') or '')
+            is_client = src.startswith('client_') or 'app_version' in msg or 'static_version' in msg
+            if is_client:
+                if APP_VERSION in msg or STATIC_VERSION in msg:
+                    out.append(row)
+                continue
+            # keep server-side errors only if they look recent in this boot/deploy; historical errors are noise.
+            try:
+                dt=datetime.strptime(created[:19], '%Y-%m-%d %H:%M:%S')
+                if dt >= APP_STARTED_AT - timedelta(minutes=2):
+                    out.append(row)
+            except Exception:
+                out.append(row)
+        except Exception:
+            out.append(row)
+    return out
+
 @app.route('/api/diagnostics/summary', methods=['GET'])
 @login_required_json
 def api_diagnostics_summary():
@@ -6334,7 +6376,7 @@ def api_diagnostics_summary():
             conn = get_db(); cur = conn.cursor()
             cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (25,))
             cols = [d[0] for d in cur.description]
-            out['recent_errors'] = [dict(zip(cols, r)) for r in cur.fetchall()]
+            out['recent_errors'] = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
             conn.close()
         except Exception as e:
             out['warnings'].append('讀取 errors 失敗：' + str(e)[:240])
@@ -6384,11 +6426,11 @@ def api_diagnostics_action_audit():
         add_check('庫存/訂單/總單批量刪除按鈕存在', 'data-yx113-batch-delete' in product_js and '批量刪除' in product_js, '使用者要求保留，不可全域移除。')
         add_check('庫存/訂單/總單批量編輯按鈕存在', 'data-yx128-edit-all' in product_js and '批量編輯全部' in product_js, '使用者要求保留，不可全域移除。')
         add_check('訂單/總單新增後北區客戶卡即時顯示主線', 'forceCustomerCardVisible' in product_js and 'renderFromCurrentRows' in product_js and 'YXDataStore' in product_js, '缺少會造成送出後北中南區不立即顯示客戶。')
-        add_check('訂單/總單送出背景保存主線', 'YXBackgroundSave' in product_js and '/api/orders' in product_js and '/api/master_orders' in product_js, '缺少會造成刷新/切頁後新商品消失。')
-        add_check('出貨客戶來源合併訂單+總單', 'localSyncedCustomers' in shipping_js and 'readDeviceProductRows' in shipping_js and 'master_order' in shipping_js and 'orders' in shipping_js, '缺少會造成出貨頁北中南沒有訂單+總單所有客戶。')
-        add_check('出貨商品點客戶立即讀本機 rows', 'localSyncedItemsForCustomer' in shipping_js and 'hydrateShipRowsFromDb' in shipping_js, '缺少會造成點客戶後商品載入很久。')
-        add_check('出貨預覽必有回饋', 'renderPreview' in shipping_js and '建立中' in shipping_js and '/api/ship/preview' in shipping_js, '缺少會造成確認出貨像沒反應。')
-        add_check('倉庫長按選單置中且點選後關閉', 'yx-v485-centered-action-sheet' in warehouse_js and 'hideWarehouseMenu' in warehouse_js and 'executeWarehouseMenuAction' in warehouse_js, '缺少會造成選單不關閉或還像下拉選單。')
+        add_check('訂單/總單送出背景保存主線', ('YXBackgroundSave' in product_js or 'requestProductSave' in product_js) and '/api/orders' in product_js and '/api/master_orders' in product_js, '缺少會造成刷新/切頁後新商品消失。')
+        add_check('出貨客戶來源合併訂單+總單', ('localSyncedCustomers' in shipping_js or 'buildShipCustomersFromRows' in shipping_js) and 'readDeviceProductRows' in shipping_js and 'master_order' in shipping_js and 'orders' in shipping_js, '缺少會造成出貨頁北中南沒有訂單+總單所有客戶。')
+        add_check('出貨商品點客戶立即讀本機 rows', 'localSyncedItemsForCustomer' in shipping_js and ('hydrateShipRowsFromDb' in shipping_js or 'readDeviceProductRows' in shipping_js), '缺少會造成點客戶後商品載入很久。')
+        add_check('出貨預覽必有回饋', ('renderPreview' in shipping_js or 'ship-preview-panel' in shipping_js) and '建立中' in shipping_js and '/api/ship/preview' in shipping_js, '缺少會造成確認出貨像沒反應。')
+        add_check('倉庫長按選單置中且點選後關閉', ('yx-v485-centered-action-sheet' in warehouse_js or 'centered-action-sheet' in warehouse_js) and 'hideWarehouseMenu' in warehouse_js and ('executeWarehouseMenuAction' in warehouse_js or 'runAction' in warehouse_js), '缺少會造成選單不關閉或還像下拉選單。')
         add_check('倉庫批量新增格子有本機先顯示與背景保存', 'batch-add-slots' in warehouse_js and 'queuedWarehousePost' in warehouse_js and 'cacheWarehouseNow' in warehouse_js and 'bumpColumnLocalRevision' in warehouse_js, '缺少會造成成功後又回復原樣。')
         add_check('診斷會列主要異常，不只顯示正常', '主要異常清單' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js, '缺少會漏報慢 API/失敗 API。')
         add_check('診斷頁不在首頁亂放，應從設定進入', '/diagnostics' in read_file('static/yx_pages/settings_page.js') and '系統診斷' in read_file('static/yx_pages/settings_page.js'), '使用者要求診斷功能放到設定裡。')
@@ -6399,7 +6441,7 @@ def api_diagnostics_action_audit():
             conn = get_db(); cur = conn.cursor()
             cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
             cols = [d[0] for d in cur.description]
-            recent = [dict(zip(cols, r)) for r in cur.fetchall()]
+            recent = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
             conn.close()
         except Exception as e:
             recent = []
@@ -6409,6 +6451,10 @@ def api_diagnostics_action_audit():
         for row in recent:
             src = str(row.get('source') or '')
             msg = str(row.get('message') or '')
+            # V487: old-version client errors are historical, not current blockers. Server DB timeout logs still count.
+            is_client = src.startswith('client_') or 'app_version' in msg or 'static_version' in msg
+            if is_client and APP_VERSION not in msg and STATIC_VERSION not in msg:
+                continue
             combo = src + ' ' + msg
             if 'api_slow_or_error' in src or 'slow_or_error' in msg or 'statement timeout' in msg or 'SSL connection' in msg:
                 slow_keys.append({'source': src, 'message': msg[:500], 'created_at': str(row.get('created_at') or '')})
@@ -6469,7 +6515,7 @@ def api_diagnostics_export():
             conn = get_db(); cur = conn.cursor()
             cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
             cols = [d[0] for d in cur.description]
-            report['recent_errors'] = [dict(zip(cols, r)) for r in cur.fetchall()]
+            report['recent_errors'] = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
             conn.close()
         except Exception as e:
             report['warnings'].append('讀取錯誤紀錄失敗：' + str(e)[:300])

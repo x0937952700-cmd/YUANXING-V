@@ -28,9 +28,9 @@ if (root/'static/yx_v452_max_repair.js').exists():
     fail.append('old static/yx_v452_max_repair.js still exists')
 
 app=read('app.py')
-if 'V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT' not in app:
+if 'V119-V487-REAL-FIX-SPEED-ACTION-AUDIT' not in app:
     fail.append('APP_VERSION is not v483')
-if '119-v486_deep_diag_real_issue_detect' not in app:
+if '119-v487_real_fix_speed_action_audit' not in app:
     fail.append('STATIC_VERSION is not v483')
 
 # PWA / service worker must not cache API and must use current cache token.
@@ -46,11 +46,11 @@ if 'event.respondWith' in sw:
     if api_pos < 0 or api_pos > rw_pos:
         fail.append('service-worker API bypass is after respondWith')
 manifest=read('static/manifest.webmanifest')
-if '119-v486-deep-diag-real-issue-detect' not in manifest:
+if '119-v487-real-fix-speed-action-audit' not in manifest:
     fail.append('manifest start/id version is not v483')
 
 data=read('static/yx_data_store.js')
-for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v486-deep-diag-real-issue-detect']:
+for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v487-real-fix-speed-action-audit']:
     if token not in data:
         fail.append(f'yx_data_store.js missing {token}')
 for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH_CLEANUP__','__yxDataSpineFetchV472','__yxDataSpineV472','__YX_V472_REFRESH_CLEANUP__']:
@@ -58,7 +58,7 @@ for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH
         fail.append(f'yx_data_store.js still has old flag {old_flag}')
 
 mut=read('static/yx_mutation_bus.js')
-for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v486-deep-diag-real-issue-detect']:
+for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v487-real-fix-speed-action-audit']:
     if token not in mut:
         fail.append(f'yx_mutation_bus.js missing {token}')
 for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
@@ -66,7 +66,7 @@ for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
         fail.append(f'yx_mutation_bus.js still has old flag {old_flag}')
 
 sync=read('static/yx_device_sync.js')
-for token in ['v486-deep-diag-real-issue-detect','yx_warehouse_cache_v486-deep-diag-real-issue-detect','yx_warehouse_available_cache_v486-deep-diag-real-issue-detect']:
+for token in ['v487-real-fix-speed-action-audit','yx_warehouse_cache_v487-real-fix-speed-action-audit','yx_warehouse_available_cache_v487-real-fix-speed-action-audit']:
     if token not in sync:
         fail.append(f'yx_device_sync.js missing {token}')
 

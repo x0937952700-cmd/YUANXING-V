@@ -41,5 +41,10 @@
     "V485: Check inventory/orders/master_order batch delete and batch edit buttons still exist unless the user explicitly asked to remove them from that exact page.",
     "V486: Run diagnostics export and verify issue_summary exists and includes recent_errors / endpoint_checks / action_audit.",
     "V486: If diagnostics recent_errors contains slow/fetch failed/timeout, the UI must show an issue, not “no major abnormal”."
+  ],
+  "mandatory_rules": [
+    "V487: separate current-version diagnostics from historical old-version errors",
+    "V487: warehouse structure actions must not recompute full available/unplaced list before returning",
+    "V487: never globally remove same-named buttons when user only references a screenshot location"
   ]
 }
