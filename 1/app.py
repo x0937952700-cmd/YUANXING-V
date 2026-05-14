@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V448-WAREHOUSE-LONGPRESS-TRUE-SINGLE-ENGINE-ACTION-PROOF'
-STATIC_VERSION = '119-v448-warehouse_longpress_true_single_engine_action_proof'
-API_SCHEMA_VERSION = 'v448-warehouse_longpress_true_single_engine_action_proof'
+APP_VERSION = 'V119-V452-MAX-REPAIR-NO-CACHE-CHANGE'
+STATIC_VERSION = '119-v452-max_repair_no_cache_change'
+API_SCHEMA_VERSION = 'v452-max_repair_no_cache_change'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -1884,6 +1884,102 @@ def _parse_items_from_request(data):
     return cleaned
 
 
+# ============================================================
+# V452 max repair: exact DB readback + fallback insert for product creation.
+# This does not change yx_cache/yx_core/fast-cache architecture; it only prevents
+# successful-looking submits from disappearing after refresh when legacy merge/upsert paths miss a row.
+# ============================================================
+def _v452_table_columns(cur, table_name):
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,))
+        else:
+            cur.execute(f"PRAGMA table_info({table_name})")
+            return [r[1] for r in cur.fetchall()]
+        return [r[0] for r in cur.fetchall()]
+    except Exception:
+        return []
+
+def _v452_item_exists(cur, table_name, customer_name, product_text, material, location=''):
+    clauses = ["product_text = ?"]
+    vals = [product_text]
+    if customer_name:
+        clauses.append("customer_name = ?")
+        vals.append(customer_name)
+    if material:
+        clauses.append("COALESCE(material, product_code, '') = ?")
+        vals.append(material)
+    if location:
+        clauses.append("COALESCE(location, area, zone, '') = ?")
+        vals.append(location)
+    try:
+        cur.execute(sql(f"SELECT id FROM {table_name} WHERE " + " AND ".join(clauses) + " LIMIT 1"), tuple(vals))
+        return bool(fetchone_dict(cur))
+    except Exception:
+        try:
+            cur.execute(sql(f"SELECT id FROM {table_name} WHERE product_text = ? LIMIT 1"), (product_text,))
+            return bool(fetchone_dict(cur))
+        except Exception:
+            return False
+
+def _v452_force_persist_items(table_name, customer_name, items, operator='', location='', region=''):
+    inserted = 0
+    verified = 0
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cols = set(_v452_table_columns(cur, table_name))
+        if not cols:
+            return {'inserted':0, 'verified':0, 'error':'no_columns'}
+        for it in (items or []):
+            product_text = format_product_text_height2((it.get('product_text') or '').strip())
+            if not product_text:
+                continue
+            material = clean_material_value(it.get('material') or it.get('product_code') or '', product_text)
+            qty = int(effective_product_qty(product_text, it.get('qty') or 1) or it.get('qty') or 1)
+            if qty <= 0:
+                qty = 1
+            loc = (it.get('location') or it.get('area') or it.get('zone') or location or '').strip()
+            if _v452_item_exists(cur, table_name, customer_name, product_text, material, loc):
+                verified += 1
+                continue
+            row = {}
+            def put(k,v):
+                if k in cols: row[k]=v
+            put('customer_name', customer_name or '')
+            put('product_text', product_text)
+            put('product_code', material)
+            put('material', material)
+            put('month_tag', product_month_tag(product_text))
+            put('qty', qty)
+            put('quantity', qty)
+            put('area', loc)
+            put('location', loc)
+            put('zone', loc)
+            put('region', region or resolve_customer_region(customer_name, region or '北區') if customer_name else (region or ''))
+            put('status', 'pending')
+            put('operator', operator or current_username())
+            put('source_text', it.get('source_text') or '')
+            put('created_at', now())
+            put('updated_at', now())
+            if not row:
+                continue
+            placeholders = ','.join(['?'] * len(row))
+            cur.execute(sql(f"INSERT INTO {table_name} (" + ','.join(row.keys()) + f") VALUES ({placeholders})"), tuple(row.values()))
+            inserted += 1
+        conn.commit()
+        return {'inserted':inserted, 'verified':verified}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('v452_force_persist_' + table_name, str(e))
+        except Exception: pass
+        return {'inserted':inserted, 'verified':verified, 'error':str(e)}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+
 # service-line retained: mainfile behavior consolidated into formal services.
 def _dup_size_key(product_text):
     return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
@@ -2164,6 +2260,7 @@ def api_inventory():
         for it in items:
             item_location = (it.get("location") or it.get("area") or it.get("zone") or location or "").strip()
             save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), item_location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
+        v452_persist = _v452_force_persist_items('inventory', customer_name, items, operator=operator, location=location, region=data.get('region') or '')
     except Exception as e:
         log_error("inventory_main_save_v40", str(e))
         return error_response("建立失敗")
@@ -2172,14 +2269,14 @@ def api_inventory():
     audit_service_safe_side_effect('notify_inventory', notify_sync_event, kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
     _clear_product_fast_cache()
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('inventory', customer_name, extra={'count': len(items)}))
+        return jsonify(_yx145_write_payload('inventory', customer_name, extra={'count': len(items), 'v452_persist': locals().get('v452_persist')}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_inventory', product_service_exact_customer_rows, 'inventory', customer_name) or []
     try:
         rows = grouped_inventory()
     except Exception:
         rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
+    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
 
 @app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
 @login_required_json
@@ -2329,6 +2426,7 @@ def api_orders():
             return error_response("請輸入客戶名稱")
         audit_service_safe_side_effect('upsert_orders_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        v452_persist = _v452_force_persist_items('orders', customer_name, items, operator=current_username(), location=data.get('location') or data.get('zone') or '', region=data.get('region') or '北區')
         audit_service_safe_side_effect('upsert_orders_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
     except Exception as e:
         log_error("orders_main_save_v40", str(e))
@@ -2345,14 +2443,14 @@ def api_orders():
     except Exception:
         pass
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('orders', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION}))
+        return jsonify(_yx145_write_payload('orders', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist')}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_orders', product_service_exact_customer_rows, 'orders', customer_name) or []
     try:
         rows = get_orders()
     except Exception:
         rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
+    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
 
 @app.route("/api/master_orders", methods=["GET", "POST"])
 @login_required_json
@@ -2388,6 +2486,7 @@ def api_master_orders():
             return error_response("請輸入客戶名稱")
         audit_service_safe_side_effect('upsert_master_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
         save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
+        v452_persist = _v452_force_persist_items('master_orders', customer_name, items, operator=current_username(), location=data.get('location') or data.get('zone') or '', region=data.get('region') or '北區')
         audit_service_safe_side_effect('upsert_master_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
     except Exception as e:
         log_error("master_orders_main_save_v40", str(e))
@@ -2404,14 +2503,14 @@ def api_master_orders():
     except Exception:
         pass
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('master_order', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION}))
+        return jsonify(_yx145_write_payload('master_order', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist')}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_master_orders', product_service_exact_customer_rows, 'master_orders', customer_name) or []
     try:
         rows = get_master_orders()
     except Exception:
         rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, **payload)
+    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
 
 
 
@@ -2950,6 +3049,7 @@ def api_ship_preview():
         preview = preview_ship_order(customer_name, items)
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
+        preview['success'] = True
         preview['preview_source_lock_summary'] = shipping_service_preview_source_lock_summary(preview)
         preview['preview_token'] = shipping_service_make_preview_token(customer_name, items, preview)
         preview['operation_id'] = data.get('operation_id') or data.get('request_key') or uuid.uuid4().hex
@@ -3046,11 +3146,38 @@ def api_customers():
                         continue
                     out.append(_fill_source_counts({'name': name, 'customer_name': name}, name, ct))
                 return out
-            # V406: source=orders 時只回傳真的有訂單的客戶；直接用 orders 資料重算件數/筆數。
+            # V452: 客戶資料直接從 customer_profiles + 訂單 + 總單合併。
+            # 訂單/總單頁仍只顯示該來源有商品的客戶；客戶資料頁則保留已建立客戶，
+            # 並補上訂單/總單的件數與筆數，不會因商品出完就刪掉 customer_profiles。
             if source_filter in ('orders', 'order'):
                 items = _yx_apply_exact_source_counts(items, 'orders')
             elif source_filter in ('master_order', 'master_orders', 'master'):
                 items = _yx_apply_exact_source_counts(items, 'master_order')
+            elif not source_filter:
+                try:
+                    oc = _yx_source_counts_from_rows('orders')
+                    mc = _yx_source_counts_from_rows('master_order')
+                    by_name = {}
+                    for c in items or []:
+                        name = (c.get('name') or c.get('customer_name') or '').strip()
+                        if name: by_name[name] = dict(c)
+                    for name, ct in list(oc.items()) + list(mc.items()):
+                        row = by_name.setdefault(name, {'name': name, 'customer_name': name, 'region': resolve_customer_region(name, ct.get('region') or '北區')})
+                        rc = dict(row.get('relation_counts') or {})
+                        cnt = dict(row.get('counts') or {})
+                        if name in oc:
+                            rc['order_rows'] = oc[name]['rows']; rc['order_qty'] = oc[name]['qty']; cnt['orders'] = {'rows': oc[name]['rows'], 'qty': oc[name]['qty']}
+                        if name in mc:
+                            rc['master_rows'] = mc[name]['rows']; rc['master_qty'] = mc[name]['qty']; cnt['master_order'] = {'rows': mc[name]['rows'], 'qty': mc[name]['qty']}
+                        row['relation_counts'] = rc; row['counts'] = cnt
+                        row['row_count'] = int(rc.get('order_rows') or 0) + int(rc.get('master_rows') or 0)
+                        row['item_count'] = row['row_count']
+                        row['total_qty'] = int(rc.get('order_qty') or 0) + int(rc.get('master_qty') or 0)
+                    items = list(by_name.values())
+                    items.sort(key=lambda c: ({'北區':1,'中區':2,'南區':3}.get(c.get('region'),9), c.get('name') or c.get('customer_name') or ''))
+                except Exception as e:
+                    try: log_error('v452_customers_relation_merge', str(e))
+                    except Exception: pass
             payload = dict(success=True, items=items, source_filter=source_filter, server_cache=API_SCHEMA_VERSION)
             if (request.args.get('fast') == '1' or request.args.get('light') == '1'):
                 _fast_cache_set(cache_key, payload)
@@ -3635,7 +3762,7 @@ def _warehouse_cell_items_for_count(cell):
         return []
 
 def warehouse_v432_api_display_parser_lock_version():
-    return 'v448-warehouse_longpress_true_single_engine_action_proof'
+    return 'v452-max_repair_no_cache_change'
 
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
@@ -7533,4 +7660,4 @@ def _warehouse_cell_items_for_count(cell):
 
 
 def warehouse_v429_api_display_parser_lock_version():
-    return 'v448-warehouse_longpress_true_single_engine_action_proof'
+    return 'v452-max_repair_no_cache_change'

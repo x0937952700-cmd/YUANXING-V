@@ -33,6 +33,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}?v={{ static_version }}" media="(max-width: 920px), (pointer: coarse)">
   <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v={{ static_version }}"></script>
   <script defer src="{{ url_for('static', filename='yx_core.js') }}?v={{ static_version }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_device_sync.js') }}?v={{ static_version }}"></script>
   <script defer src="{{ url_for('static', filename='yx_mobile_zoom.js') }}?v={{ static_version }}"></script>
   <script>
     window.addEventListener('load', function(){
@@ -67,6 +68,7 @@
   {% elif _ep == 'customers_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/customers_page.js') }}?v={{ static_version }}"></script>
   {% endif %}
+  <script defer src="{{ url_for('static', filename='yx_v452_max_repair.js') }}?v={{ static_version }}"></script>
 </head>
   {% set _yx_body_module = {
     'home':'home', 'login_page':'login', 'settings_page':'settings', 'today_changes_page':'today_changes',
@@ -74,7 +76,6 @@
     'warehouse_page':'warehouse', 'shipping_query_page':'shipping_query', 'customers_page':'customers', 'todos_page':'todos'
   }.get(request.endpoint or '', module_key|default('')) %}
 <body data-module="{{ _yx_body_module }}" data-yx-dream-ui="156_warehouse_stability_from_v155">
-  <button id="yx-global-page-undo-btn" class="ghost-btn small-btn yx-page-undo-btn" type="button" aria-label="還原功能">還原功能</button>
   <div class="page-shell">
     {% block body %}{% endblock %}
   </div>

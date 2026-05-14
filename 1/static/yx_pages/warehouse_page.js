@@ -1070,14 +1070,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v448-warehouse-longpress-true-single-engine-action-proof';
+  const CACHE_VERSION = 'v451-device-prefetch-indexeddb-progress';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
     try{
       let raw=localStorage.getItem(k);
       if(!raw){
-        const versions=['v436-warehouse-longpress-action-menu-final','v433-warehouse-maximum-readback-save-proof','v432-warehouse-max-repair-no-cache-damage','v431-warehouse-full-item-key-readback-proof','v430-warehouse-deleted-row-rescue-readback-proof','v429-warehouse-nondirect-readback-guard','v428-warehouse-save-readback-mirror-lock','v427-warehouse-mirror-rescue-visible-items','v426-warehouse-display-readback-shield','v425-warehouse-visible-items-hard-repair','v424-warehouse-visible-items-cache-guard','v422-warehouse-readback-guard-sync','v421-warehouse-continuous-structure-return-sync','v420-warehouse-cell-save-reopen-sync','v419-warehouse-batch-support-return-sync','v418-warehouse-visible-longpress-regression','v417-remove-opstatus-warehouse-visible-longpress','v416-inventory-source-move-sync','v415-product-write-refresh-sync','v414-customer-count-source-sync','v413-shipping-preview-source-lock','v412-shipping-source-deduct-sync','v411-warehouse-cell-edit-save-sync','v410-warehouse-structure-longpress-sync','v409-warehouse-unplaced-source-sync','v408-warehouse-drag-cache-sync','v407-source-panel-opstatus-scope','v406-warehouse-order-drag-longpress-fix','v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
+        const versions=['v450-warehouse-longpress-single-engine-cleanout-proof','v436-warehouse-longpress-action-menu-final','v433-warehouse-maximum-readback-save-proof','v432-warehouse-max-repair-no-cache-damage','v431-warehouse-full-item-key-readback-proof','v430-warehouse-deleted-row-rescue-readback-proof','v429-warehouse-nondirect-readback-guard','v428-warehouse-save-readback-mirror-lock','v427-warehouse-mirror-rescue-visible-items','v426-warehouse-display-readback-shield','v425-warehouse-visible-items-hard-repair','v424-warehouse-visible-items-cache-guard','v422-warehouse-readback-guard-sync','v421-warehouse-continuous-structure-return-sync','v420-warehouse-cell-save-reopen-sync','v419-warehouse-batch-support-return-sync','v418-warehouse-visible-longpress-regression','v417-remove-opstatus-warehouse-visible-longpress','v416-inventory-source-move-sync','v415-product-write-refresh-sync','v414-customer-count-source-sync','v413-shipping-preview-source-lock','v412-shipping-source-deduct-sync','v411-warehouse-cell-edit-save-sync','v410-warehouse-structure-longpress-sync','v409-warehouse-unplaced-source-sync','v408-warehouse-drag-cache-sync','v407-source-panel-opstatus-scope','v406-warehouse-order-drag-longpress-fix','v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
         for(const v of versions){
           const alt=String(k).replace(CACHE_VERSION, v).replace('v143-warehouse-dom-cache', v);
           raw=localStorage.getItem(alt);
@@ -1452,7 +1452,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       try{ state.availableCache={}; state.availableSeq++; }catch(_e){}
       try{ updateAllSlots(); }catch(_e){}
       try{ updateUnplacedPillLocal(); }catch(_e){}
-      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v448-warehouse-longpress-true-single-engine-action-proof'}})); }catch(_e){}
+      try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'ship-columns',refresh_target:touched.join('、'),message:'出貨後倉庫欄位已套用後端讀回',operation_id:detail?.operation_id||detail?.result?.operation_id||'',version:'v450-warehouse-longpress-single-engine-cleanout-proof'}})); }catch(_e){}
     }
     return changed;
   }
@@ -3080,7 +3080,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v423', sync_version:'v448-warehouse-longpress-true-single-engine-action-proof', cache_bust:'v448-warehouse-longpress-true-single-engine-action-proof'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v423', sync_version:'v450-warehouse-longpress-single-engine-cleanout-proof', cache_bust:'v450-warehouse-longpress-single-engine-cleanout-proof'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -3103,7 +3103,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       window.YX?.cache?.clearGroup?.('customer_blocks_');
     }catch(_e){}
   }
-  function saveCellPayload(z,c,s,items,note){ const safe=sanitizeCellItemsForSave(items||[]); const total=safe.reduce((a,it)=>a+Math.max(1,itemQty(it)||1),0); return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:safe,item_count:safe.length,item_total:total,explicit_empty_save:(safe.length===0 && total===0),note:note||'',client_stability:'v448-warehouse_longpress_true_single_engine_action_proof'}; }
+  function saveCellPayload(z,c,s,items,note){ const safe=sanitizeCellItemsForSave(items||[]); const total=safe.reduce((a,it)=>a+Math.max(1,itemQty(it)||1),0); return {operation_id:yxOperationId('warehouse-cell-save'),zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:safe,item_count:safe.length,item_total:total,explicit_empty_save:(safe.length===0 && total===0),note:note||'',client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof'}; }
   function handleWarehouseBackgroundSaveStatus(ev){
     try{
       const item=ev?.detail?.item || {};
@@ -3329,7 +3329,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(toToken!==fromToken) state.lastGoodColumns.set(toToken.key, toSnap);
       queuedWarehouseMovePost({
         operation_id:yxOperationId('warehouse-move-cell'),
-        client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',
+        client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',
         strict_validate:0,
         source_cell_items:src.items,
         target_cell_items_before:dst.items,
@@ -3467,7 +3467,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateAllSlots(); highlightWarehouseCell(z,c,s+1); toast(`已先在第 ${s} 格下方批量新增 ${count} 格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/batch-add-slots',{operation_id:yxOperationId('warehouse-batch-add-slots'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,insert_after:s,count,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'batch-insert',slot:Number(d?.first_slot||s+1),highlightSlot:Number(d?.first_slot||s+1),operation_id:d?.operation_id||'',message:`批量新增 ${count} 格已永久存入資料庫`});
     }, '批量新增格子', {token});
   }
@@ -3498,7 +3498,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     state.lastGoodColumns.set(token.key, columnBefore);
     queuedWarehousePost('/api/warehouse/batch-remove-slots',{
       operation_id:yxOperationId('warehouse-batch-remove-slots'),
-      client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',
+      client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',
       zone:z,column_index:c,slot_number:s,count:emptySlots.length,slots:emptySlots,slot_type:'direct',
       mode:'empty_from_here'
     }, (d, token)=>{
@@ -3513,7 +3513,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const localSlot=localInsertSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,localSlot); toast(`已先在第 ${s} 格下方新增一格，背景儲存`,'ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/add-slot',{operation_id:yxOperationId('warehouse-add-slot'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,insert_after:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'insert',slot:Number(d?.slot_number||localSlot),highlightSlot:Number(d?.slot_number||localSlot),operation_id:d?.operation_id||'',message:'新增格子已永久存入資料庫'});
     }, '新增格子', {token});
   }
@@ -3526,7 +3526,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     localDeleteSlot(z,c,s); clearWarehouseColumnDrafts(z,c); normalizeColumnSlots(z,c); updateAllSlots(); highlightWarehouseCell(z,c,nextVisibleSlotAfterStructure(z,c,s)); toast('已先從畫面刪除空格並補齊格號，背景儲存','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
+    queuedWarehousePost('/api/warehouse/remove-slot',{operation_id:yxOperationId('warehouse-remove-slot'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,slot_number:s,slot_type:'direct'}, (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'delete',slot:s,afterDelete:true,operation_id:d?.operation_id||'',message:'刪除空格已永久存入資料庫'});
     }, '刪除空格', {token});
   }
@@ -3549,7 +3549,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     toast('已先從畫面退回，背景寫入資料庫','ok');
     const token=beginColumnOp(z,c);
     state.lastGoodColumns.set(token.key, columnBefore);
-    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v448-warehouse_longpress_true_single_engine_action_proof',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
+    queuedWarehousePost('/api/warehouse/return-unplaced',{operation_id:yxOperationId('warehouse-return-unplaced'),client_stability:'v450-warehouse_longpress_single_engine_cleanout_proof',zone:z,column_index:c,slot_number:s}, async (d, token)=>{
       finalizeWarehouseStructureSuccess(d,z,c,token,{action:'return-unplaced',slot:s,highlightSlot:s,operation_id:d?.operation_id||'',message:'退回該格已永久存入資料庫'});
       notifyWarehouseChanged({action:'return-unplaced',zone:z,column_index:c,slot_number:s,items:oldItems,customer_name:(oldItems||[]).map(it=>it.customer_name).filter(Boolean)[0]||'',operation_id:d?.operation_id||''});
       loadAvailable(true).catch(()=>{});
@@ -3731,9 +3731,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function bindSlot(slot){
     if(!slot) return;
-    if(slot.dataset.yxFinalBound==='1' && slot.dataset.yxLongpressHandlerVersion==='v448') return;
+    if(slot.dataset.yxFinalBound==='1' && slot.dataset.yxLongpressHandlerVersion==='v450') return;
     slot.dataset.yxFinalBound='1';
-    slot.dataset.yxLongpressHandlerVersion='v448';
+    slot.dataset.yxLongpressHandlerVersion='v450';
     const DRAG_START_TOLERANCE=104;
     const data=()=>({zone:clean(slot.dataset.zone).toUpperCase(),col:Number(slot.dataset.column),slot:Number(slot.dataset.slot)});
     const isEditableTarget=(target)=>!!target?.closest?.('input,textarea,select,[contenteditable="true"],.modal,.bottom-sheet,.drawer,.sheet,.dialog,.yx-final-warehouse-menu,#yx-final-warehouse-menu,[data-no-longpress]');
@@ -3757,7 +3757,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       slot.style.webkitTapHighlightColor='transparent';
       slot.setAttribute('aria-haspopup','menu');
       slot.dataset.yxLongpressReady='1';
-      slot.dataset.yxSlotInputEngine='v448';
+      slot.dataset.yxSlotInputEngine='v450';
       slot.draggable=false;
     }catch(_e){}
     slot.addEventListener('pointerdown',ev=>{
@@ -3776,7 +3776,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(movedBy>8) press.moved=true;
       if(!press.dragStarted && slot.dataset.hasItems==='1' && movedBy>DRAG_START_TOLERANCE){
         press.dragStarted=true;
-        state.drag={zone:press.zone,col:press.col,slot:press.slot,pointerId:ev.pointerId,startedAt:Date.now(),source:'slot-v448'};
+        state.drag={zone:press.zone,col:press.col,slot:press.slot,pointerId:ev.pointerId,startedAt:Date.now(),source:'slot-v450'};
         try{ slot.classList.add('yx121-warehouse-dragging'); }catch(_e){}
       }
       if(press.dragStarted || state.drag){
@@ -3823,7 +3823,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function bindSlots(){ document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot]').forEach(bindSlot); }
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
-    // V448: true single long-press engine. Slot binding no longer owns long-press timers; root handles long-press, slot handles tap/intentional drag only.
+    // V449: de-ghosted true single long-press engine. Slot binding no longer owns long-press timers; root handles long-press, slot handles tap/intentional drag only.
     // Older delegated/capture bridges and slot longpress timers stay disabled; tap/drag/cache behavior remains intact.
     try{
       window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V442__=true;
@@ -3834,16 +3834,23 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V445__=true;
       window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V447__=true;
       window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V448__=true;
+      window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V449__=true;
+      window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V450__=true;
+      window.__YX_WAREHOUSE_LONGPRESS_LEGACY_BRIDGES_REMOVED_V450__=true;
     }catch(_e){}
-    if(!window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V448__){
+    if(!window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V450__){
       window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V445__=true;
       window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V447__=true;
       window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V448__=true;
-      let hold=null, holdTimer=null, openedAt=0, suppressUntil=0, lastRunKey='', lastRunAt=0, lastEndAt=0;
+      window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V449__=true;
+      window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V450__=true;
+      try{ document.documentElement.dataset.yxWarehouseLongpressEngine='v450'; }catch(_e){}
+      let hold=null, holdTimer=null, openedAt=0, suppressUntil=0, lastRunKey='', lastRunAt=0, lastEndAt=0, lastStartAt=0;
       const SLOT_SEL='#warehouse-root [data-zone][data-column][data-slot], .warehouse-slot[data-zone][data-column][data-slot]';
       const HOLD_MS={touch:260, pen:285, mouse:400, fallback:285};
-      const MOVE_CANCEL=165;
+      const MOVE_CANCEL=150;
       const DRAG_ALLOW=190;
+      const MIN_CANCEL_RESCUE_MS=180;
       const point=(ev)=>{
         const t=(ev?.changedTouches&&ev.changedTouches[0]) || (ev?.touches&&ev.touches[0]) || ev || {};
         return {x:Number.isFinite(Number(t.clientX))?Number(t.clientX):0, y:Number.isFinite(Number(t.clientY))?Number(t.clientY):0};
@@ -3865,7 +3872,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         return {el:slot, zone:z, column:c, slot:s, key:`${z}-${c}-${s}`};
       };
       const clearHold=(keepActive)=>{
-        try{ if(hold?.snap?.el && !keepActive) hold.snap.el.classList.remove('yx446-longpress-active','yx443-longpress-active','yx442-longpress-active','yx441-longpress-active'); }catch(_e){}
+        try{ if(hold?.snap?.el && !keepActive) hold.snap.el.classList.remove('yx449-longpress-active','yx446-longpress-active','yx443-longpress-active','yx442-longpress-active','yx441-longpress-active'); }catch(_e){}
         if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
         hold=null;
       };
@@ -3877,8 +3884,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
           if(sn?.el){
             sn.el.dataset.blockClickUntil=String(until);
             sn.el.dataset.yxLongpressOpenAt=String(Date.now());
-            sn.el.dataset.yxLongpressBridge='v448';
-            sn.el.classList.add('yx446-longpress-active','yx443-longpress-active','yx442-longpress-active');
+            sn.el.dataset.yxLongpressBridge='v450';
+            sn.el.classList.add('yx449-longpress-active','yx446-longpress-active','yx443-longpress-active','yx442-longpress-active');
           }
         }catch(_e){}
         return until;
@@ -3899,7 +3906,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
             const mw=Math.min(310, Math.max(230, (p.vw||window.innerWidth||360)-16));
             const mh=Math.min(440, Math.max(300, (p.vh||window.innerHeight||640)-16));
             m.dataset.zone=sn.zone; m.dataset.column=String(sn.column); m.dataset.slot=String(sn.slot);
-            m.dataset.yxBridge='v448'; m.dataset.yxOpenReason=String(reason||'longpress'); m.dataset.yxMenuActionGuard='v448'; m.dataset.open='1'; try{ delete m.dataset.yxPressedAct; delete m.dataset.yxPressedAt; }catch(_e){}
+            m.dataset.yxBridge='v450'; m.dataset.yxOpenReason=String(reason||'longpress'); m.dataset.yxMenuActionGuard='v450'; m.dataset.open='1'; try{ delete m.dataset.yxPressedAct; delete m.dataset.yxPressedAt; }catch(_e){}
             m.removeAttribute('hidden'); m.setAttribute('aria-hidden','false'); m.classList.remove('hidden');
             m.style.setProperty('position','fixed','important');
             m.style.setProperty('display','flex','important');
@@ -3909,13 +3916,13 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
             m.style.setProperty('pointer-events','auto','important');
             m.style.setProperty('z-index','2147483647','important');
             m.style.maxWidth=mw+'px'; m.style.maxHeight=mh+'px';
-            try{ m.querySelectorAll('button[data-wh-act]').forEach(btn=>{ btn.type='button'; btn.dataset.yxActionReady='v448'; }); }catch(_e){}
+            try{ m.querySelectorAll('button[data-wh-act]').forEach(btn=>{ btn.type='button'; btn.dataset.yxActionReady='v450'; }); }catch(_e){}
             m.style.left=Math.max(8,Math.min(p.x,(p.vw||window.innerWidth||360)-mw-8))+'px';
             m.style.top=Math.max(8,Math.min(p.y,(p.vh||window.innerHeight||640)-mh-8))+'px';
           }
           openedAt=Date.now(); state.menuOpenedAt=openedAt; state.activeMenuKey=sn.key;
           state.longpressOpenSeq=Number(state.longpressOpenSeq||0)+1;
-          state.longpressLastOpen={key:sn.key,zone:sn.zone,column:sn.column,slot:sn.slot,x,y,at:openedAt,seq:state.longpressOpenSeq,reason:String(reason||'v448')};
+          state.longpressLastOpen={key:sn.key,zone:sn.zone,column:sn.column,slot:sn.slot,x,y,at:openedAt,seq:state.longpressOpenSeq,reason:String(reason||'v450')};
           document.documentElement.dataset.yxWarehouseLongpressOpen='1';
         }catch(_e){}
         // One-shot repairs only; no interval/observer. Protects against old click handlers immediately hiding the menu.
@@ -3944,8 +3951,8 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         const p=point(ev); clearHold(false);
         hold={snap:sn,x:p.x,y:p.y,lastX:p.x,lastY:p.y,kind:String(kind||'fallback'),startedAt:Date.now(),pointerId:ev.pointerId,opened:false,moved:false};
         state.lastWarehousePointerDownAt=Date.now();
-        try{ sn.el.dataset.yxLongpressBridge='v448'; sn.el.classList.add('yx446-longpress-active','yx443-longpress-active','yx442-longpress-active'); }catch(_e){}
-        // v448: do not preventDefault on initial touch/pointerdown; doing so can suppress the normal tap that opens a cell.
+        try{ sn.el.dataset.yxLongpressBridge='v450'; sn.el.classList.add('yx449-longpress-active','yx446-longpress-active','yx443-longpress-active','yx442-longpress-active'); }catch(_e){}
+        // v450: do not preventDefault on initial touch/pointerdown; doing so can suppress the normal tap that opens a cell.
         // Native long-press/click is blocked only after the menu really opens or during guarded movement.
         holdTimer=setTimeout(()=>{ if(!hold || hold.opened || hold.moved) return; hold.opened=true; hardOpen(hold.snap,hold.x,hold.y,ev,'timer-'+kind); }, HOLD_MS[kind]||HOLD_MS.fallback);
       };
@@ -3955,6 +3962,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         const p=point(ev); hold.lastX=p.x; hold.lastY=p.y;
         const d=Math.hypot(p.x-hold.x,p.y-hold.y);
         if(d>MOVE_CANCEL){ hold.moved=true; clearHold(false); return; }
+        try{ const live=slotAt(p.x,p.y); const liveSnap=snap(live); if(liveSnap && liveSnap.key!==hold.snap.key && d>44){ hold.moved=true; clearHold(false); return; } }catch(_e){}
         if((hold.kind==='touch' || hold.kind==='pen') && d<DRAG_ALLOW){ try{ ev.preventDefault(); }catch(_e){} }
       };
       const end=(ev)=>{
@@ -3965,19 +3973,20 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const cancel=(ev,reason)=>{
         if(hold && !hold.moved && !hold.opened){
           const sn=hold.snap, x=hold.x, y=hold.y, age=Date.now()-Number(hold.startedAt||0);
-          if(age>90){ hold.opened=true; hardOpen(sn,x,y,ev,reason||ev.type); }
+          if(age>=MIN_CANCEL_RESCUE_MS){ hold.opened=true; hardOpen(sn,x,y,ev,reason||ev.type); }
           else {
             // Android/WebView may cancel almost immediately before the long-press timer can run.
             // One delayed rescue only; no interval/observer and no cache changes.
             setTimeout(()=>{
               try{
+                if(lastEndAt && lastEndAt>=lastStartAt) return;
                 if(Date.now()-lastEndAt<160) return;
                 if(!isWarehouse()) return;
                 const live=slotAt(x,y);
                 if(live && snap(live)?.key && snap(live).key!==sn.key) return;
                 hardOpen(sn,x,y,null,(reason||'cancel')+'-delayed');
               }catch(_e){}
-            }, Math.max(90, 170-age));
+            }, Math.max(100, MIN_CANCEL_RESCUE_MS-age));
           }
         }
         clearHold(false);
@@ -4001,7 +4010,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       document.addEventListener('dragstart', ev=>{ if(isWarehouse() && slotFrom(ev)){ try{ ev.preventDefault(); ev.stopPropagation(); }catch(_e){} } }, {capture:true, passive:false});
       document.addEventListener('selectstart', ev=>{ if(isWarehouse() && slotFrom(ev)){ try{ ev.preventDefault(); ev.stopPropagation(); }catch(_e){} } }, {capture:true, passive:false});
       document.addEventListener('click', ev=>{
-        if(!isWarehouse() || ev.target?.closest?.('#yx-final-warehouse-menu')) return;
+        if(!isWarehouse() || ev.target?.closest?.('#yx-final-warehouse-menu,.modal,.bottom-sheet,.drawer,.sheet,.dialog')) return;
         const now=Date.now(); const slot=slotFrom(ev);
         if((slot && (now<suppressUntil || now<Number(state.longpressSuppressClickUntil||0) || now<Number(slot.dataset.blockClickUntil||0))) || (openedAt && now-openedAt<2600)){
           try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
@@ -4044,11 +4053,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       document.addEventListener('touchend', runButton, {capture:true, passive:false});
       document.addEventListener('click', runButton, {capture:true, passive:false});
       window.YXWarehouseLongpressRebind=function(){
-        try{ document.querySelectorAll(SLOT_SEL).forEach(el=>{ bindSlot(el); el.dataset.yxLongpressBridge='v448'; el.style.touchAction='manipulation'; el.style.webkitTouchCallout='none'; el.style.webkitUserSelect='none'; el.style.userSelect='none'; el.draggable=false; }); return true; }catch(_e){ return false; }
+        try{ document.querySelectorAll(SLOT_SEL).forEach(el=>{ bindSlot(el); el.dataset.yxLongpressBridge='v450'; el.style.touchAction='manipulation'; el.style.webkitTouchCallout='none'; el.style.webkitUserSelect='none'; el.style.userSelect='none'; el.draggable=false; }); return true; }catch(_e){ return false; }
       };
       window.YXWarehouseLongpressDiagnose=function(){
         const m=$('yx-final-warehouse-menu'); const slots=document.querySelectorAll(SLOT_SEL);
-        return {version:'v448', bridge:'root-single-engine-proof', totalSlots:slots.length, boundSlots:document.querySelectorAll(SLOT_SEL+'[data-yx-final-bound="1"]').length, markedV448:document.querySelectorAll(SLOT_SEL+'[data-yx-longpress-bridge="v448"]').length, activeHold:hold?{key:hold.snap?.key||'',kind:hold.kind,age:Date.now()-Number(hold.startedAt||0),moved:!!hold.moved,opened:!!hold.opened}:null, menuOpen:!!(m && m.dataset.open==='1' && !m.classList.contains('hidden')), activeMenuKey:state.activeMenuKey||'', suppressUntil:Number(state.longpressSuppressClickUntil||0), singleEngineSuppressUntil:suppressUntil, lastEndAt, menuOpenedAt:openedAt, slotLongpressDisabled:!!window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V445__, slotLongpressDisabledV448:!!window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V448__, lastOpen:state.longpressLastOpen||null, menuDataset:m?{open:m.dataset.open,zone:m.dataset.zone,column:m.dataset.column,slot:m.dataset.slot,bridge:m.dataset.yxBridge,display:m.style.display,visibility:m.style.visibility,opacity:m.style.opacity}:null};
+        return {version:'v450', bridge:'single-engine-cleanout-proof', totalSlots:slots.length, boundSlots:document.querySelectorAll(SLOT_SEL+'[data-yx-final-bound="1"]').length, markedV450:document.querySelectorAll(SLOT_SEL+'[data-yx-longpress-bridge="v450"]').length, activeHold:hold?{key:hold.snap?.key||'',kind:hold.kind,age:Date.now()-Number(hold.startedAt||0),moved:!!hold.moved,opened:!!hold.opened}:null, menuOpen:!!(m && m.dataset.open==='1' && !m.classList.contains('hidden')), activeMenuKey:state.activeMenuKey||'', suppressUntil:Number(state.longpressSuppressClickUntil||0), singleEngineSuppressUntil:suppressUntil, lastEndAt, menuOpenedAt:openedAt, slotLongpressDisabled:!!window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V445__, slotLongpressDisabledV448:!!window.__YX_WAREHOUSE_DISABLE_SLOT_LONGPRESS_V448__, slotLongpressEngineV449:!!window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V449__, slotLongpressEngineV450:!!window.__YX_WAREHOUSE_LONGPRESS_SINGLE_ENGINE_V450__, legacyBridgeRemovedV450:!!window.__YX_WAREHOUSE_LONGPRESS_LEGACY_BRIDGES_REMOVED_V450__, lastOpen:state.longpressLastOpen||null, menuDataset:m?{open:m.dataset.open,zone:m.dataset.zone,column:m.dataset.column,slot:m.dataset.slot,bridge:m.dataset.yxBridge,display:m.style.display,visibility:m.style.visibility,opacity:m.style.opacity}:null};
       };
       window.YXWarehouseOpenLongpressMenu=function(zone,column,slot,x,y){
         const z=clean(zone).toUpperCase(), c=Number(column), s=Number(slot);
@@ -4056,527 +4065,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         try{ el=[...document.querySelectorAll(SLOT_SEL)].find(n=>clean(n.dataset.zone).toUpperCase()===z && Number(n.dataset.column)===c && Number(n.dataset.slot)===s) || null; }catch(_e){}
         return hardOpen({el,zone:z,column:c,slot:s,key:`${z}-${c}-${s}`}, x||window.innerWidth/2, y||window.innerHeight/2, null, 'manual');
       };
-      window.addEventListener('pageshow',()=>{ clearHold(false); suppressUntil=0; try{ window.YXWarehouseLongpressRebind?.(); }catch(_e){} }, false);
-      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ clearHold(false); suppressUntil=0; try{ window.YXWarehouseLongpressRebind?.(); }catch(_e){} } }, false);
+      window.addEventListener('pageshow',()=>{ clearHold(false); suppressUntil=0; lastRunKey=''; lastRunAt=0; try{ document.documentElement.dataset.yxWarehouseLongpressEngine='v450'; }catch(_e){} try{ window.YXWarehouseLongpressRebind?.(); }catch(_e){} }, false);
+      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ clearHold(false); suppressUntil=0; lastRunKey=''; lastRunAt=0; try{ document.documentElement.dataset.yxWarehouseLongpressEngine='v450'; }catch(_e){} try{ window.YXWarehouseLongpressRebind?.(); }catch(_e){} } }, false);
       try{ window.YXWarehouseLongpressRebind(); }catch(_e){}
     }
-    // V439: single global long-press rescue for every warehouse slot.
-    // It uses the original #yx-final-warehouse-menu only; no renderer, no setInterval, no MutationObserver, no cache change.
-    if(!window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V442__){
-      window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V442__=true;
-      try{ window.__YX_WAREHOUSE_DELEGATED_LONGPRESS_V439__=true; }catch(_e){}
-      let dgTimer=null, dgStart=null, suppressClickUntil=0, dgOpenedAt=0;
-      const findSlot=(target)=>target?.closest?.('#warehouse-root [data-zone][data-column][data-slot]');
-      const isMenuOrEditor=(target)=>!!target?.closest?.('#yx-final-warehouse-menu,.modal,input,textarea,select,[contenteditable="true"]');
-      const clear=()=>{ try{ dgStart?.slot?.classList?.remove('yx442-longpress-active'); }catch(_e){} if(dgTimer){ clearTimeout(dgTimer); dgTimer=null; } dgStart=null; };
-      const blockSlotClick=(slot,ms)=>{
-        const until=Date.now()+Number(ms||1700);
-        try{ slot.dataset.blockClickUntil=String(until); slot.dataset.yxLongpressOpenAt=String(Date.now()); slot.classList.add('yx446-longpress-active','yx442-longpress-active'); }catch(_e){}
-        suppressClickUntil=until;
-        state.longpressSuppressClickUntil=Math.max(Number(state.longpressSuppressClickUntil||0), until);
-        return until;
-      };
-      const openFromSlot=(slot,x,y,ev)=>{
-        if(!slot) return false;
-        try{
-          if(document.body) document.body.dataset.module='warehouse';
-          blockSlotClick(slot,1900);
-          dgOpenedAt=Date.now();
-          if(ev){ try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){} }
-          return !!showMenu(slot.dataset.zone, Number(slot.dataset.column), Number(slot.dataset.slot), x, y);
-        }catch(_e){ return false; }
-      };
-      const startPress=(slot,x,y,ev,kind)=>{
-        if(!slot || isMenuOrEditor(ev?.target)) return;
-        clear();
-        dgStart={x:Number(x)||0,y:Number(y)||0,slot,kind,startedAt:Date.now(),pointerId:ev?.pointerId};
-        dgTimer=setTimeout(()=>{
-          const d=dgStart; if(!d || d.slot!==slot) return;
-          openFromSlot(slot,d.x,d.y,ev);
-          clear();
-        }, kind==='touch'?410:390);
-      };
-      document.addEventListener('pointerdown', ev=>{
-        const slot=findSlot(ev.target);
-        if(!slot || (ev.button && ev.button!==0) || isMenuOrEditor(ev.target)) return;
-        state.lastWarehousePointerDownAt=Date.now();
-        startPress(slot,ev.clientX,ev.clientY,ev,'pointer');
-      }, {capture:true, passive:false});
-      document.addEventListener('pointermove', ev=>{
-        if(!dgStart) return;
-        const moved=Math.hypot(Number(ev.clientX||0)-dgStart.x, Number(ev.clientY||0)-dgStart.y);
-        if(moved>68) clear();
-      }, {capture:true, passive:true});
-      document.addEventListener('pointercancel', ev=>{
-        if(dgStart && Date.now()-Number(dgStart.startedAt||0)>260){
-          const d=dgStart; openFromSlot(d.slot,d.x,d.y,ev);
-        }
-        clear();
-      }, {capture:true, passive:false});
-      document.addEventListener('pointerup', clear, {capture:true, passive:true});
-      document.addEventListener('touchstart', ev=>{
-        const t=ev.touches&&ev.touches[0]; const slot=findSlot(ev.target);
-        if(!t || !slot || isMenuOrEditor(ev.target)) return;
-        if(window.PointerEvent && Date.now()-Number(state.lastWarehousePointerDownAt||0)<420) return;
-        startPress(slot,t.clientX,t.clientY,ev,'touch');
-      }, {capture:true, passive:false});
-      document.addEventListener('touchmove', ev=>{
-        if(!dgStart || !ev.touches?.length) return; const t=ev.touches[0];
-        if(Math.hypot(Number(t.clientX||0)-dgStart.x, Number(t.clientY||0)-dgStart.y)>68) clear();
-      }, {capture:true, passive:true});
-      document.addEventListener('touchend', clear, {capture:true, passive:true});
-      document.addEventListener('touchcancel', ev=>{
-        if(dgStart && Date.now()-Number(dgStart.startedAt||0)>260){ const d=dgStart; openFromSlot(d.slot,d.x,d.y,ev); }
-        clear();
-      }, {capture:true, passive:false});
-      document.addEventListener('click', ev=>{
-        const slot=findSlot(ev.target);
-        const now=Date.now();
-        if(ev.target?.closest?.('#yx-final-warehouse-menu')) return;
-        if((slot && (now<suppressClickUntil || now<Number(state.longpressSuppressClickUntil||0) || now<Number(slot.dataset.blockClickUntil||0))) || (dgOpenedAt && now-dgOpenedAt<1250)){
-          ev.preventDefault(); ev.stopPropagation(); try{ ev.stopImmediatePropagation(); }catch(_e){}
-        }
-      }, {capture:true, passive:false});
-      document.addEventListener('contextmenu', ev=>{
-        const slot=findSlot(ev.target);
-        if(!slot || isMenuOrEditor(ev.target)) return;
-        openFromSlot(slot, ev.clientX || (window.innerWidth/2), ev.clientY || (window.innerHeight/2), ev);
-      }, {capture:true, passive:false});
-      const clearLongpressSuppress=()=>{
-        try{
-          state.longpressSuppressClickUntil=0; suppressClickUntil=0;
-          document.querySelectorAll('#warehouse-root .yx442-longpress-active,#warehouse-root .yx121-warehouse-dragging,#warehouse-root .yx121-warehouse-drop-target').forEach(el=>el.classList.remove('yx442-longpress-active','yx121-warehouse-dragging','yx121-warehouse-drop-target'));
-        }catch(_e){}
-      };
-      window.addEventListener('pageshow', clearLongpressSuppress, false);
-      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') clearLongpressSuppress(); }, false);
-      window.YXWarehouseOpenLongpressMenu=function(zone,column,slot,x,y){ return !!showMenu(zone,column,slot,x||window.innerWidth/2,y||window.innerHeight/2); };
-      window.YXWarehouseLongpressDiagnose=function(){
-        const m=document.getElementById('yx-final-warehouse-menu');
-        const slots=document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot]');
-        return {version:'v443', boundSlots:document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot][data-yx-final-bound="1"]').length, readySlots:document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot][data-yx-longpress-ready="1"]').length, totalSlots:slots.length, menuOpen:!!(m && m.dataset.open==='1' && !m.classList.contains('hidden')), activeMenuKey:state.activeMenuKey||'', lastOpen:state.longpressLastOpen||null, menuDataset:m?{open:m.dataset.open,zone:m.dataset.zone,column:m.dataset.column,slot:m.dataset.slot,display:m.style.display,visibility:m.style.visibility,opacity:m.style.opacity}:null, suppressUntil:Number(state.longpressSuppressClickUntil||0)};
-      };
-    }
-
-    // V442: maximum long-press event bridge.
-    // Goal: make long-press reliable even when per-slot binding, Android WebView click synthesis,
-    // button default behavior, or pointer-capture cancellation fails. It does not touch cache core,
-    // does not add a renderer, and does not use setInterval/MutationObserver.
-    if(!window.__YX_WAREHOUSE_LONGPRESS_BRIDGE_V442__){
-      window.__YX_WAREHOUSE_LONGPRESS_BRIDGE_V442__=true;
-      let lp=null, lpTimer=null, lpOpenedAt=0, lpSuppressUntil=0, lastMenuAct='', lastMenuActAt=0;
-      const slotSelV442='#warehouse-root [data-zone][data-column][data-slot]';
-      const findSlotV442=(target)=>target?.closest?.(slotSelV442);
-      const ignoreLongpressTargetV442=(target)=>!!target?.closest?.('#yx-final-warehouse-menu,.modal,.bottom-sheet,.drawer,.sheet,input,textarea,select,[contenteditable="true"],[data-no-longpress]');
-      const clearV442=()=>{
-        try{ lp?.slot?.classList?.remove('yx442-longpress-active','yx441-longpress-active','yx440-longpress-active'); }catch(_e){}
-        if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; }
-        lp=null;
-      };
-      const blockV442=(slot,ms)=>{
-        const until=Date.now()+Number(ms||1800);
-        lpSuppressUntil=until;
-        state.longpressSuppressClickUntil=Math.max(Number(state.longpressSuppressClickUntil||0), until);
-        try{
-          if(slot){
-            slot.dataset.blockClickUntil=String(until);
-            slot.dataset.yxLongpressOpenAt=String(Date.now());
-            slot.dataset.yxLongpressBridge='v442';
-            slot.classList.add('yx446-longpress-active','yx442-longpress-active');
-          }
-        }catch(_e){}
-        return until;
-      };
-      const openBridgeMenuV442=(slot,x,y,ev,reason)=>{
-        if(!slot) return false;
-        const z=clean(slot.dataset.zone||'').toUpperCase();
-        const c=Number(slot.dataset.column); const s=Number(slot.dataset.slot);
-        if(!z || !Number.isFinite(c) || !Number.isFinite(s) || c<=0 || s<=0) return false;
-        blockV442(slot,2100);
-        try{ ev?.preventDefault?.(); ev?.stopPropagation?.(); ev?.stopImmediatePropagation?.(); }catch(_e){}
-        const ok=!!showMenu(z,c,s,Number(x)||window.innerWidth/2,Number(y)||window.innerHeight/2);
-        if(ok){
-          lpOpenedAt=Date.now();
-          try{
-            slot.dataset.yxLongpressBridgeOpenAt=String(lpOpenedAt);
-            slot.dataset.yxLongpressBridgeReason=String(reason||'bridge');
-            const m=$('yx-final-warehouse-menu');
-            if(m){
-              m.dataset.yxBridge='v442';
-              m.dataset.open='1';
-              m.classList.remove('hidden');
-              m.setAttribute('aria-hidden','false');
-              m.style.setProperty('display','flex','important');
-              m.style.setProperty('visibility','visible','important');
-              m.style.setProperty('opacity','1','important');
-              m.style.setProperty('pointer-events','auto','important');
-              m.style.setProperty('z-index','2147483647','important');
-            }
-          }catch(_e){}
-        }
-        return ok;
-      };
-      const startBridgePressV442=(slot,x,y,ev,type)=>{
-        if(!slot || ignoreLongpressTargetV442(ev?.target)) return;
-        clearV442();
-        const now=Date.now();
-        lp={slot,x:Number(x)||0,y:Number(y)||0,startedAt:now,type:String(type||'pointer'),pointerId:ev?.pointerId,opened:false,moved:false};
-        try{ slot.classList.add('yx446-longpress-active','yx442-longpress-active'); slot.dataset.yxLongpressBridge='v442'; }catch(_e){}
-        const ms=(type==='mouse')?430:360;
-        lpTimer=setTimeout(()=>{
-          if(!lp || lp.slot!==slot || lp.opened || lp.moved) return;
-          lp.opened=true;
-          openBridgeMenuV442(slot,lp.x,lp.y,ev,'timer-'+type);
-          clearV442();
-        }, ms);
-      };
-      document.addEventListener('pointerdown', ev=>{
-        if(!isWarehouse()) return;
-        const slot=findSlotV442(ev.target);
-        if(!slot || ignoreLongpressTargetV442(ev.target)) return;
-        if(ev.button && ev.button!==0) return;
-        state.lastWarehousePointerDownAt=Date.now();
-        try{ slot.setPointerCapture?.(ev.pointerId); }catch(_e){}
-        if(ev.pointerType==='touch' || ev.pointerType==='pen'){
-          try{ ev.preventDefault(); }catch(_e){}
-          startBridgePressV442(slot,ev.clientX,ev.clientY,ev,'touch');
-        }else{
-          startBridgePressV442(slot,ev.clientX,ev.clientY,ev,'mouse');
-        }
-      }, {capture:true, passive:false});
-      document.addEventListener('pointermove', ev=>{
-        if(!lp || (lp.pointerId!=null && ev.pointerId!==lp.pointerId)) return;
-        const moved=Math.hypot(Number(ev.clientX||0)-lp.x, Number(ev.clientY||0)-lp.y);
-        if(moved>72){ lp.moved=true; clearV442(); }
-        else if(lp.type==='touch'){ try{ ev.preventDefault(); }catch(_e){} }
-      }, {capture:true, passive:false});
-      document.addEventListener('pointerup', ev=>{
-        if(!lp) return;
-        const wasOpened=!!lp.opened;
-        clearV442();
-        if(wasOpened || Date.now()<lpSuppressUntil){ try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){} }
-      }, {capture:true, passive:false});
-      document.addEventListener('pointercancel', ev=>{
-        if(lp && Date.now()-Number(lp.startedAt||0)>230 && !lp.moved){ openBridgeMenuV442(lp.slot,lp.x,lp.y,ev,'pointercancel'); }
-        clearV442();
-      }, {capture:true, passive:false});
-      document.addEventListener('lostpointercapture', ev=>{
-        if(lp && Date.now()-Number(lp.startedAt||0)>320 && !lp.moved){ openBridgeMenuV442(lp.slot,lp.x,lp.y,ev,'lostpointercapture'); clearV442(); }
-      }, {capture:true, passive:false});
-      document.addEventListener('touchstart', ev=>{
-        if(!isWarehouse()) return;
-        if(window.PointerEvent && lp && Date.now()-Number(state.lastWarehousePointerDownAt||0)<550) return;
-        const t=ev.touches&&ev.touches[0]; const slot=findSlotV442(ev.target);
-        if(!t || !slot || ignoreLongpressTargetV442(ev.target)) return;
-        try{ ev.preventDefault(); }catch(_e){}
-        startBridgePressV442(slot,t.clientX,t.clientY,ev,'touch');
-      }, {capture:true, passive:false});
-      document.addEventListener('touchmove', ev=>{
-        if(!lp || !ev.touches?.length) return;
-        const t=ev.touches[0];
-        const moved=Math.hypot(Number(t.clientX||0)-lp.x, Number(t.clientY||0)-lp.y);
-        if(moved>72){ lp.moved=true; clearV442(); }
-        else{ try{ ev.preventDefault(); }catch(_e){} }
-      }, {capture:true, passive:false});
-      document.addEventListener('touchend', ev=>{ if(lp){ clearV442(); if(Date.now()<lpSuppressUntil){ try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){} } } }, {capture:true, passive:false});
-      document.addEventListener('touchcancel', ev=>{
-        if(lp && Date.now()-Number(lp.startedAt||0)>230 && !lp.moved){ openBridgeMenuV442(lp.slot,lp.x,lp.y,ev,'touchcancel'); }
-        clearV442();
-      }, {capture:true, passive:false});
-      document.addEventListener('contextmenu', ev=>{
-        if(!isWarehouse()) return;
-        const slot=findSlotV442(ev.target);
-        if(!slot || ignoreLongpressTargetV442(ev.target)) return;
-        openBridgeMenuV442(slot,ev.clientX||window.innerWidth/2,ev.clientY||window.innerHeight/2,ev,'contextmenu');
-      }, {capture:true, passive:false});
-      document.addEventListener('dragstart', ev=>{
-        if(!isWarehouse()) return;
-        const slot=findSlotV442(ev.target);
-        if(slot){ try{ ev.preventDefault(); ev.stopPropagation(); }catch(_e){} }
-      }, {capture:true, passive:false});
-      document.addEventListener('selectstart', ev=>{
-        if(!isWarehouse()) return;
-        const slot=findSlotV442(ev.target);
-        if(slot){ try{ ev.preventDefault(); ev.stopPropagation(); }catch(_e){} }
-      }, {capture:true, passive:false});
-      document.addEventListener('click', ev=>{
-        if(!isWarehouse()) return;
-        if(ev.target?.closest?.('#yx-final-warehouse-menu')) return;
-        const slot=findSlotV442(ev.target);
-        const now=Date.now();
-        if((slot && (now<lpSuppressUntil || now<Number(state.longpressSuppressClickUntil||0) || now<Number(slot.dataset.blockClickUntil||0))) || (lpOpenedAt && now-lpOpenedAt<1500)){
-          try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
-        }
-      }, {capture:true, passive:false});
-      const menuActionBridgeV442=(ev)=>{
-        if(!isWarehouse()) return;
-        let act=ev.target?.closest?.('#yx-final-warehouse-menu [data-wh-act]');
-        if(!act){
-          try{
-            const t=ev.changedTouches&&ev.changedTouches[0] || ev.touches&&ev.touches[0] || ev;
-            act=document.elementFromPoint(Number(t.clientX||0),Number(t.clientY||0))?.closest?.('#yx-final-warehouse-menu [data-wh-act]');
-          }catch(_e){}
-        }
-        const m=$('yx-final-warehouse-menu');
-        if(!act && m?.dataset?.yxPressedAct){ try{ act=m.querySelector(`[data-wh-act="${m.dataset.yxPressedAct}"]`); }catch(_e){} }
-        if(!act) return;
-        if(ev.type==='pointerup' && ev.pointerType==='mouse') return;
-        const key=[act.dataset.whAct||'',m?.dataset.zone||'',m?.dataset.column||'',m?.dataset.slot||''].join(':');
-        const now=Date.now();
-        if(key===lastMenuAct && now-lastMenuActAt<820) return;
-        lastMenuAct=key; lastMenuActAt=now;
-        try{ if(m){ delete m.dataset.yxPressedAct; delete m.dataset.yxPressedAt; } }catch(_e){}
-        try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
-        executeWarehouseMenuAction(act.dataset.whAct);
-      };
-      document.addEventListener('pointerup', menuActionBridgeV442, {capture:true, passive:false});
-      document.addEventListener('touchend', menuActionBridgeV442, {capture:true, passive:false});
-      const oldDiag=window.YXWarehouseLongpressDiagnose;
-      window.YXWarehouseLongpressDiagnose=function(){
-        let base={}; try{ base=oldDiag?oldDiag():{}; }catch(_e){}
-        const m=$('yx-final-warehouse-menu');
-        const slots=document.querySelectorAll(slotSelV442);
-        return Object.assign({}, base, {
-          version:'v443', bridge:'gesture-action-proof', totalSlots:slots.length,
-          bridgeMarked:document.querySelectorAll(slotSelV442+'[data-yx-longpress-bridge="v442"]').length,
-          menuOpen:!!(m && m.dataset.open==='1' && !m.classList.contains('hidden')),
-          menuDataset:m?{open:m.dataset.open,zone:m.dataset.zone,column:m.dataset.column,slot:m.dataset.slot,bridge:m.dataset.yxBridge,display:m.style.display,visibility:m.style.visibility,opacity:m.style.opacity}:null,
-          suppressUntil:Number(state.longpressSuppressClickUntil||0), bridgeSuppressUntil:lpSuppressUntil,
-          lastBridgeOpenAt:lpOpenedAt, activeMenuKey:state.activeMenuKey||''
-        });
-      };
-      window.YXWarehouseOpenLongpressMenu=function(zone,column,slot,x,y){
-        const el=document.querySelector(`${slotSelV442}[data-zone="${clean(zone).toUpperCase()}"][data-column="${Number(column)}"][data-slot="${Number(slot)}"]`);
-        return el ? !!openBridgeMenuV442(el,x||window.innerWidth/2,y||window.innerHeight/2,null,'manual') : !!showMenu(zone,column,slot,x||window.innerWidth/2,y||window.innerHeight/2);
-      };
-      try{ document.querySelectorAll(slotSelV442).forEach(el=>{ el.dataset.yxLongpressBridge='v442'; el.style.touchAction='none'; el.style.webkitTouchCallout='none'; el.style.webkitUserSelect='none'; }); }catch(_e){}
-    }
-
-
-    // V443: last-resort long-press input shield.
-    // 目標：在 Android/PWA/WebView、slot DOM 被重繪、pointer/touch 其中一條事件被吃掉時，長按仍能開啟同一個原本選單。
-    // 不改 yx_cache.js / yx_core.js / fast cache / background queue；不新增 renderer、setInterval、MutationObserver。
-    if(!window.__YX_WAREHOUSE_LONGPRESS_LAST_RESORT_V443__){
-      window.__YX_WAREHOUSE_LONGPRESS_LAST_RESORT_V443__=true;
-      let h=null, hTimer=null, openedAt443=0, suppressUntil443=0, lastAct443='', lastActAt443=0;
-      const slotSel443='#warehouse-root [data-zone][data-column][data-slot]';
-      const pressMs443={touch:310, pen:310, mouse:390, fallback:330};
-      const moveTolerance443=118;
-      const dragTolerance443=132;
-      const longpressIgnore443=(target)=>!!target?.closest?.('#yx-final-warehouse-menu,.modal,.bottom-sheet,.drawer,.sheet,.dialog,input,textarea,select,[contenteditable="true"],[data-no-longpress]');
-      const point443=(ev)=>{ const t=ev?.changedTouches&&ev.changedTouches[0] || ev?.touches&&ev.touches[0] || ev; return {x:Number(t?.clientX||0), y:Number(t?.clientY||0)}; };
-      const slotFromPoint443=(x,y)=>{ try{ return document.elementFromPoint(Number(x)||0,Number(y)||0)?.closest?.(slotSel443) || null; }catch(_e){ return null; } };
-      const slotFromEvent443=(ev)=>{ const p=point443(ev); return ev?.target?.closest?.(slotSel443) || slotFromPoint443(p.x,p.y); };
-      const snap443=(slot)=>{
-        if(!slot) return null;
-        const z=clean(slot.dataset.zone||'').toUpperCase(), c=Number(slot.dataset.column), s=Number(slot.dataset.slot);
-        if(!z || !Number.isFinite(c) || !Number.isFinite(s) || c<=0 || s<=0) return null;
-        return {el:slot, zone:z, column:c, slot:s, key:`${z}-${c}-${s}`};
-      };
-      const clear443=(keepActive)=>{
-        try{ if(h?.snap?.el && !keepActive) h.snap.el.classList.remove('yx443-longpress-active','yx442-longpress-active'); }catch(_e){}
-        if(hTimer){ clearTimeout(hTimer); hTimer=null; }
-        h=null;
-      };
-      const block443=(snap,ms)=>{
-        const until=Date.now()+Number(ms||2100);
-        suppressUntil443=until;
-        state.longpressSuppressClickUntil=Math.max(Number(state.longpressSuppressClickUntil||0), until);
-        try{
-          if(snap?.el){
-            snap.el.dataset.blockClickUntil=String(until);
-            snap.el.dataset.yxLongpressOpenAt=String(Date.now());
-            snap.el.dataset.yxLongpressBridge='v443';
-            snap.el.classList.add('yx443-longpress-active','yx442-longpress-active');
-          }
-        }catch(_e){}
-        return until;
-      };
-      const hardShow443=(snap,x,y,reason)=>{
-        if(!snap) return false;
-        block443(snap,2300);
-        let ok=false;
-        try{ ok=!!showMenu(snap.zone,snap.column,snap.slot,x,y); }catch(_e){ ok=false; }
-        try{
-          const m=$('yx-final-warehouse-menu') || menu();
-          if(m){
-            m.dataset.zone=snap.zone; m.dataset.column=String(snap.column); m.dataset.slot=String(snap.slot);
-            m.dataset.yxBridge='v443'; m.dataset.yxOpenReason=String(reason||'longpress'); m.dataset.open='1';
-            m.setAttribute('aria-hidden','false');
-            m.classList.remove('hidden');
-            m.style.setProperty('position','fixed','important');
-            m.style.setProperty('display','flex','important');
-            m.style.setProperty('visibility','visible','important');
-            m.style.setProperty('opacity','1','important');
-            m.style.setProperty('pointer-events','auto','important');
-            m.style.setProperty('z-index','2147483647','important');
-            const p=normalizeWarehouseMenuCoords(x,y);
-            const mw=Math.min(300, Math.max(230, (p.vw||window.innerWidth||360)-16));
-            const mh=Math.min(430, Math.max(300, (p.vh||window.innerHeight||640)-16));
-            m.style.maxWidth=mw+'px'; m.style.maxHeight=mh+'px';
-            try{ m.querySelectorAll('button[data-wh-act]').forEach(btn=>{ btn.type='button'; btn.dataset.yxActionReady='v448'; }); }catch(_e){}
-            m.style.left=Math.max(8,Math.min(p.x,(p.vw||window.innerWidth||360)-mw-8))+'px';
-            m.style.top=Math.max(8,Math.min(p.y,(p.vh||window.innerHeight||640)-mh-8))+'px';
-          }
-          state.activeMenuKey=snap.key; state.menuOpenedAt=Date.now(); openedAt443=state.menuOpenedAt;
-          state.longpressLastOpen={key:snap.key,zone:snap.zone,column:snap.column,slot:snap.slot,x,y,at:openedAt443,seq:Number(state.longpressOpenSeq||0)+1,reason:String(reason||'v443')};
-          state.longpressOpenSeq=Number(state.longpressOpenSeq||0)+1;
-        }catch(_e){}
-        // One-shot repair only: old delegated click handlers sometimes hide the menu immediately after Android long-press.
-        try{ [35,95,180,360,760,1200].forEach(delay=>setTimeout(()=>{
-          try{
-            if(state.activeMenuKey!==snap.key || Date.now()-Number(openedAt443||0)>1600) return;
-            const m=$('yx-final-warehouse-menu'); if(!m) return;
-            if(m.dataset.open==='1'){
-              m.classList.remove('hidden'); m.setAttribute('aria-hidden','false');
-              m.style.setProperty('display','flex','important');
-              m.style.setProperty('visibility','visible','important');
-              m.style.setProperty('opacity','1','important');
-              m.style.setProperty('pointer-events','auto','important');
-              m.style.setProperty('z-index','2147483647','important');
-            }
-          }catch(_e){}
-        }, delay)); }catch(_e){}
-        return ok || true;
-      };
-      const open443=(snap,x,y,ev,reason)=>{
-        if(!snap) return false;
-        try{ ev?.preventDefault?.(); ev?.stopPropagation?.(); ev?.stopImmediatePropagation?.(); }catch(_e){}
-        const r=hardShow443(snap,x,y,reason);
-        clear443(true);
-        return r;
-      };
-      const start443=(ev,kind)=>{
-        if(!isWarehouse()) return;
-        if(kind==='mouse' && ev.button && ev.button!==0) return;
-        if(longpressIgnore443(ev.target)) return;
-        const p=point443(ev); const slot=slotFromEvent443(ev); const snap=snap443(slot);
-        if(!snap) return;
-        clear443(false);
-        const now=Date.now();
-        h={snap,x:p.x,y:p.y,lastX:p.x,lastY:p.y,kind:String(kind||'fallback'),startedAt:now,pointerId:ev.pointerId,opened:false,moved:false,evType:ev.type};
-        try{ snap.el.dataset.yxLongpressBridge='v443'; snap.el.classList.add('yx443-longpress-active','yx442-longpress-active'); }catch(_e){}
-        state.lastWarehousePointerDownAt=now;
-        // For touch/pen we prevent native text selection/context-callout immediately; click is blocked only after actual long-press.
-        if(kind==='touch' || kind==='pen'){ try{ ev.preventDefault(); }catch(_e){} }
-        const ms=pressMs443[kind] || pressMs443.fallback;
-        hTimer=setTimeout(()=>{
-          if(!h || h.opened || h.moved) return;
-          h.opened=true;
-          open443(h.snap,h.x,h.y,ev,'timer-'+kind);
-        }, ms);
-      };
-      const move443=(ev)=>{
-        if(!h) return;
-        if(h.pointerId!=null && ev.pointerId!=null && h.pointerId!==ev.pointerId) return;
-        const p=point443(ev); h.lastX=p.x; h.lastY=p.y;
-        const moved=Math.hypot(p.x-h.x,p.y-h.y);
-        if(moved>moveTolerance443){ h.moved=true; clear443(false); return; }
-        // Before reaching drag distance, keep touch still enough for long-press and stop page scroll/callout.
-        if((h.kind==='touch' || h.kind==='pen') && moved<dragTolerance443){ try{ ev.preventDefault(); }catch(_e){} }
-      };
-      const end443=(ev)=>{
-        if(h){
-          const wasOpened=!!h.opened; clear443(false);
-          if(wasOpened || Date.now()<suppressUntil443){ try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){} }
-          return;
-        }
-        if(Date.now()<suppressUntil443){ try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){} }
-      };
-      const cancel443=(ev,reason)=>{
-        if(h && !h.moved && Date.now()-Number(h.startedAt||0)>210){ open443(h.snap,h.x,h.y,ev,reason||ev.type); }
-        clear443(false);
-      };
-      // Capture layer runs in addition to the original per-slot binding. It is a fallback, not a second renderer.
-      document.addEventListener('pointerdown', ev=>{ const kind=ev.pointerType==='mouse'?'mouse':(ev.pointerType==='pen'?'pen':'touch'); start443(ev,kind); }, {capture:true, passive:false});
-      document.addEventListener('pointermove', move443, {capture:true, passive:false});
-      document.addEventListener('pointerup', end443, {capture:true, passive:false});
-      document.addEventListener('pointercancel', ev=>cancel443(ev,'pointercancel'), {capture:true, passive:false});
-      document.addEventListener('lostpointercapture', ev=>cancel443(ev,'lostpointercapture'), {capture:true, passive:false});
-      document.addEventListener('touchstart', ev=>{
-        // Some Android WebViews expose PointerEvent but never send a usable pointerdown to the target; allow touch fallback when no active hold exists.
-        if(window.PointerEvent && h && Date.now()-Number(h.startedAt||0)<520) return;
-        start443(ev,'touch');
-      }, {capture:true, passive:false});
-      document.addEventListener('touchmove', move443, {capture:true, passive:false});
-      document.addEventListener('touchend', end443, {capture:true, passive:false});
-      document.addEventListener('touchcancel', ev=>cancel443(ev,'touchcancel'), {capture:true, passive:false});
-      document.addEventListener('mousedown', ev=>{ if(!window.PointerEvent) start443(ev,'mouse'); }, {capture:true, passive:false});
-      document.addEventListener('mouseup', end443, {capture:true, passive:false});
-      document.addEventListener('contextmenu', ev=>{
-        if(!isWarehouse()) return;
-        if(longpressIgnore443(ev.target)) return;
-        const p=point443(ev); const snap=snap443(slotFromEvent443(ev));
-        if(!snap) return;
-        open443(snap,p.x||window.innerWidth/2,p.y||window.innerHeight/2,ev,'contextmenu');
-      }, {capture:true, passive:false});
-      document.addEventListener('click', ev=>{
-        if(!isWarehouse()) return;
-        if(ev.target?.closest?.('#yx-final-warehouse-menu')) return;
-        const now=Date.now(); const slot=slotFromEvent443(ev);
-        if((slot && (now<suppressUntil443 || now<Number(state.longpressSuppressClickUntil||0) || now<Number(slot.dataset.blockClickUntil||0))) || (openedAt443 && now-openedAt443<1650)){
-          try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
-        }
-      }, {capture:true, passive:false});
-      const menuActFrom443=(ev)=>{
-        let act=ev.target?.closest?.('#yx-final-warehouse-menu [data-wh-act]');
-        if(act) return act;
-        try{ const p=point443(ev); act=document.elementFromPoint(p.x,p.y)?.closest?.('#yx-final-warehouse-menu [data-wh-act]'); if(act) return act; }catch(_e){}
-        try{ const m=$('yx-final-warehouse-menu'); const saved=m?.dataset?.yxPressedAct||''; return saved ? m.querySelector(`[data-wh-act="${saved}"]`) : null; }catch(_e){ return null; }
-      };
-      const markMenuDown443=(ev)=>{
-        const act=menuActFrom443(ev); if(!act) return;
-        try{ const m=$('yx-final-warehouse-menu'); if(m){ m.dataset.yxPressedAct=String(act.dataset.whAct||''); m.dataset.yxPressedAt=String(Date.now()); } act.dataset.yxMenuPressAt=String(Date.now()); }catch(_e){}
-        try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
-      };
-      const runMenuAct443=(ev)=>{
-        if(!isWarehouse()) return;
-        const act=menuActFrom443(ev); if(!act) return;
-        if(ev.type==='pointerup' && ev.pointerType==='mouse') return;
-        const m=$('yx-final-warehouse-menu');
-        const action=String(act.dataset.whAct||'');
-        const key=[action,m?.dataset.zone||'',m?.dataset.column||'',m?.dataset.slot||''].join(':');
-        const now=Date.now();
-        if(!action || (key===lastAct443 && now-lastActAt443<900)) return;
-        lastAct443=key; lastActAt443=now;
-        try{ if(m){ delete m.dataset.yxPressedAct; delete m.dataset.yxPressedAt; } }catch(_e){}
-        try{ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); }catch(_e){}
-        executeWarehouseMenuAction(action);
-      };
-      document.addEventListener('pointerdown', markMenuDown443, {capture:true, passive:false});
-      document.addEventListener('touchstart', markMenuDown443, {capture:true, passive:false});
-      document.addEventListener('mousedown', markMenuDown443, {capture:true, passive:false});
-      document.addEventListener('pointerup', runMenuAct443, {capture:true, passive:false});
-      document.addEventListener('touchend', runMenuAct443, {capture:true, passive:false});
-      document.addEventListener('click', runMenuAct443, {capture:true, passive:false});
-      window.YXWarehouseLongpressRebind=function(){
-        try{ document.querySelectorAll(slotSel443).forEach(el=>{ bindSlot(el); el.dataset.yxLongpressBridge='v443'; el.style.touchAction='none'; el.style.webkitTouchCallout='none'; el.style.webkitUserSelect='none'; }); return true; }catch(_e){ return false; }
-      };
-      const prevDiag443=window.YXWarehouseLongpressDiagnose;
-      window.YXWarehouseLongpressDiagnose=function(){
-        let base={}; try{ base=prevDiag443?prevDiag443():{}; }catch(_e){}
-        const m=$('yx-final-warehouse-menu');
-        return Object.assign({}, base, {
-          version:'v443', bridge:'last-resort-input-shield',
-          totalSlots:document.querySelectorAll(slotSel443).length,
-          markedV443:document.querySelectorAll(slotSel443+'[data-yx-longpress-bridge="v443"]').length,
-          activeHold:h?{key:h.snap?.key||'',kind:h.kind,age:Date.now()-Number(h.startedAt||0),moved:!!h.moved,opened:!!h.opened}:null,
-          menuOpen:!!(m && m.dataset.open==='1' && !m.classList.contains('hidden')),
-          activeMenuKey:state.activeMenuKey||'', suppressUntil:Number(state.longpressSuppressClickUntil||0), suppressUntil443,
-          lastOpen:state.longpressLastOpen||null,
-          menuDataset:m?{open:m.dataset.open,zone:m.dataset.zone,column:m.dataset.column,slot:m.dataset.slot,bridge:m.dataset.yxBridge,display:m.style.display,visibility:m.style.visibility,opacity:m.style.opacity}:null
-        });
-      };
-      window.YXWarehouseOpenLongpressMenu=function(zone,column,slot,x,y){
-        const z=clean(zone).toUpperCase(), c=Number(column), s=Number(slot);
-        const el=document.querySelector(`${slotSel443}[data-zone="${z}"][data-column="${c}"][data-slot="${s}"]`);
-        return hardShow443({el,zone:z,column:c,slot:s,key:`${z}-${c}-${s}`}, x||window.innerWidth/2, y||window.innerHeight/2, 'manual');
-      };
-      window.addEventListener('pageshow',()=>{ clear443(false); suppressUntil443=0; }, false);
-      document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ clear443(false); suppressUntil443=0; try{ window.YXWarehouseLongpressRebind?.(); }catch(_e){} } }, false);
-      try{ window.YXWarehouseLongpressRebind(); }catch(_e){}
-    }
-
+    // V450: legacy v439/v442/v443 bridge blocks removed from the active file.
+    // Long-press now has exactly one root engine plus the original menu/actions.
     const unplacedPill=$('warehouse-unplaced-pill');
     if(unplacedPill && unplacedPill.dataset.yxLongRefresh!=='1'){
       unplacedPill.dataset.yxLongRefresh='1';
@@ -4690,7 +4184,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ protectActiveWarehouseEdit(''); const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=resolveSearchHitCell(hit); highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }
-  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v448-warehouse-longpress-true-single-engine-action-proof' ; try{ if(document.body) document.body.dataset.module='warehouse'; }catch(_e){}; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
+  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; document.documentElement.dataset.yxWarehouseLongpressDbSync='v450-warehouse-longpress-single-engine-cleanout-proof' ; try{ if(document.body) document.body.dataset.module='warehouse'; }catch(_e){}; bindGlobal(); bindSlots(); setTimeout(()=>{ retryPendingWarehouseConsistencyChecks({toast:false}).catch(()=>{}); }, 900); if(!state.productDataChangedBound){ state.productDataChangedBound=true; const refreshFromExternal=(ev)=>{ const d=ev&&ev.detail?ev.detail:ev; const eid=[ev&&ev.type||'', d&&d.operation_id||d&&d.request_key||d&&d.event_id||'', d&&d.reason||'', d&&d.customer_name||''].join('::'); state.externalRefreshSeen=state.externalRefreshSeen||new Map(); const now=Date.now(); const last=Number(state.externalRefreshSeen.get(eid)||0); if(eid && last && now-last<900) return; state.externalRefreshSeen.set(eid,now); let applied=false; try{ applied=!!applyWarehouseShipColumnSnapshots(d); if(!applied) applied=!!applyWarehouseDeductFromShip(d); if(applied) updateAllSlots(); }catch(_e){} try{ clearWarehouseCaches(); }catch(_e){} try{ state.availableCache = {}; }catch(_e){} try{ state.availableSeq++; }catch(_e){} try{ if(applied){ setTimeout(()=>{ try{ renderWarehouse(true); }catch(_e){} }, 680); } else renderWarehouse(true); }catch(_e){} }; window.addEventListener('yx:product-data-changed',refreshFromExternal,false); window.addEventListener('yx:ship-completed',refreshFromExternal,false); window.addEventListener('yx:order-master-changed',refreshFromExternal,false); } setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(false); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
   window.searchWarehouse=searchWarehouse;
@@ -4778,7 +4272,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         if(highlightCell && highlightCell.zone && highlightCell.column_index && highlightCell.slot_number) highlightWarehouseCell(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number);
         const refreshTarget=clean(refreshTargets.join('、') || (highlightCell ? refreshLabel(highlightCell.zone,highlightCell.column_index,highlightCell.slot_number) : '倉庫格位'));
         try{ ctx._yx_refresh_target=refreshTarget; }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v448-warehouse-longpress-true-single-engine-action-proof'}})); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:operation-target-refresh',{detail:{source:'warehouse',target:'cell-or-column',refresh_target:refreshTarget,target_label:refreshTarget,detail_text:refreshTarget,message:refreshTarget?'局部刷新完成：'+refreshTarget:'倉庫局部刷新完成',operation_id:payload.operation_id||result.operation_id||'',version:'v450-warehouse-longpress-single-engine-cleanout-proof'}})); }catch(_e){}
         return true;
       }
     }catch(e){
@@ -4786,7 +4280,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     return false;
   }
-  window.YXFinalWarehouse={version:'v448-warehouse-longpress-true-single-engine-action-proof',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
+  window.YXFinalWarehouse={version:'v450-warehouse-longpress-single-engine-cleanout-proof',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots};
   if(YX.register) YX.register('warehouse',{install,render:renderWarehouse,cleanup:()=>{}});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
 })();
@@ -5111,3 +4605,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v448_longpress_exact_touch_action_proof: root single engine now avoids preventing default on initial touch so normal tap still opens cells; menu button hit testing no longer triggers first action on whitespace; drag state is cleared before menu open; manual diagnose selector fixed. No cache core/renderer/setInterval/MutationObserver change.
 
 // warehouse_v448_longpress_true_single_engine_action_proof: removed per-slot longpress timers/preventDefault conflicts; root single engine owns long-press, slot engine only handles tap/intentional drag. Menu action fallback now requires open menu + recent pressed action. No cache core/renderer/setInterval/MutationObserver change.
+
+// warehouse_v449_longpress_deghosted_single_engine_proof: de-ghosts legacy longpress bridges, keeps one root engine, preserves tap/drag/menu actions. No cache core/renderer/setInterval/MutationObserver change.
+
+// warehouse_v450_longpress_single_engine_cleanout_proof: removes dormant legacy v439/v442/v443 longpress bridge blocks from active file, keeps one root engine, makes cancel rescue less ghost-prone, preserves tap/drag/menu actions and cache core.

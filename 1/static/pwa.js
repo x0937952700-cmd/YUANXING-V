@@ -3,7 +3,7 @@
 (function(){
   'use strict';
   const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v437-warehouse-longpress-tap-suppress-drag-guard';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v452-max_repair_no_cache_change';
   root.enabled = true;
   root.policy = 'static-css-icons-only-no-api-cache';
   async function register(){

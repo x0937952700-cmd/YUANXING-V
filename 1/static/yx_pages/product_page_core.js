@@ -2050,7 +2050,7 @@
     toast(`已先顯示 ${items.length} 筆，可直接新增下一筆`, 'ok');
 
     const activeEl = () => document.activeElement && document.activeElement.matches && document.activeElement.matches('#ocr-text,#customer-name,input,textarea,select,[contenteditable="true"]');
-    backgroundRequest(apiPath(m), {customer_name:customer, ocr_text:text, items, duplicate_mode:duplicateMode, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey, fast_response:true})
+    api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, duplicate_mode:duplicateMode, location:activeZone, zone:activeZone, region:(m === 'orders' || m === 'master_order') ? '北區' : '', request_key:requestKey, fast_response:true, verify_readback:true, v452_save_lock:true})})
       .then(async posted => {
         try {
           const act = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;

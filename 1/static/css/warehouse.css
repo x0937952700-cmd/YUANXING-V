@@ -771,3 +771,79 @@ body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot
   outline: 2px solid rgba(30,64,175,.22) !important;
   outline-offset: -2px !important;
 }
+
+/* V450 warehouse longpress single engine cleanout proof; scoped only, no cache/renderer/setInterval/MutationObserver change. */
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot],
+html[data-yx-warehouse-single-html-data-js="true"] #warehouse-root [data-zone][data-column][data-slot],
+body[data-module="warehouse"] .warehouse-slot[data-zone][data-column][data-slot]{
+  touch-action: manipulation !important;
+  -ms-touch-action: manipulation !important;
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-user-drag: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  cursor: pointer !important;
+}
+body[data-module="warehouse"] #warehouse-root [data-zone][data-column][data-slot].yx449-longpress-active,
+html[data-yx-warehouse-single-html-data-js="true"] #warehouse-root [data-zone][data-column][data-slot].yx449-longpress-active{
+  outline: 2px solid rgba(30,64,175,.34) !important;
+  outline-offset: -2px !important;
+  filter: brightness(.985) !important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-bridge="v449"],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-bridge="v450"],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-menu-action-guard="v449"],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-menu-action-guard="v450"],
+html[data-yx-warehouse-single-html-data-js="true"] #yx-final-warehouse-menu[data-yx-bridge="v449"],
+html[data-yx-warehouse-single-html-data-js="true"] #yx-final-warehouse-menu[data-yx-bridge="v450"]{
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+  overscroll-behavior: contain !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-bridge="v449"] button[data-wh-act],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-bridge="v450"] button[data-wh-act],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-menu-action-guard="v449"] button[data-wh-act],
+body[data-module="warehouse"] #yx-final-warehouse-menu[data-yx-menu-action-guard="v450"] button[data-wh-act],
+html[data-yx-warehouse-single-html-data-js="true"] #yx-final-warehouse-menu[data-yx-bridge="v449"] button[data-wh-act],
+html[data-yx-warehouse-single-html-data-js="true"] #yx-final-warehouse-menu[data-yx-bridge="v450"] button[data-wh-act]{
+  min-height: 60px !important;
+  width: 100% !important;
+  display: block !important;
+  position: relative !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  touch-action: manipulation !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* v450 warehouse longpress single engine cleanout: menu hit area and native gesture shield. */
+#warehouse-root [data-zone][data-column][data-slot]{
+  -webkit-touch-callout:none;
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+#yx-final-warehouse-menu{
+  z-index:2147483647 !important;
+  pointer-events:auto !important;
+  touch-action:manipulation !important;
+  -webkit-user-select:none;
+  user-select:none;
+  overscroll-behavior:contain;
+}
+#yx-final-warehouse-menu button[data-wh-act]{
+  min-height:46px;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
