@@ -1082,7 +1082,7 @@
       } finally { if (state.loading === source) state.loading = null; }
     };
     if (hadCached && !opts.force && !opts.full) {
-      try { (window.YX?.scheduler?.idle || window.requestIdleCallback || function(fn){return setTimeout(fn,0);})(() => fetchFresh().catch(()=>{}), 1800); } catch(_e) { fetchFresh().catch(()=>{}); }
+      try { (window.YX?.scheduler?.idle || window.requestIdleCallback || function(fn){return setTimeout(fn,0);})(() => fetchFresh().catch(()=>{}), 120); } catch(_e) { fetchFresh().catch(()=>{}); }
       return rowsStore(source);
     }
     return fetchFresh();
@@ -2036,6 +2036,7 @@
         if ($('customer-name')) $('customer-name').value = customer;
         forceCustomerCardVisible(customer, m);
         try { window.YX113CustomerRegions?.renderFromCurrentRows?.(); forceCustomerCardVisible(customer, m); } catch(_e) {}
+        try { renderSelectedCustomerItems(customer, preOptimistic.concat((window.YX113ProductActions?.rowsStore?.(m)||[]).filter(r=>clean(r.customer_name||r.customer||'')===customer))); } catch(_e) {}
         try { window.YX113CustomerRegions?.selectCustomer?.(customer); } catch(_e) {}
       }
     } catch(e){ console.warn('[YX V59 optimistic submit]', e); }
@@ -2069,10 +2070,11 @@
           }
           toast(`背景儲存完成：${items.length} 筆`, 'ok');
           try { clearCrossFunctionCaches(m, customer, 'submit-success'); } catch(_e) {}
-          try { if ((m === 'orders' || m === 'master_order') && customer) refreshCustomerBoardsSafe(customer).catch(()=>{}); } catch(_e) {}
+          try { if ((m === 'orders' || m === 'master_order') && customer) { forceCustomerCardVisible(customer, m); window.YX113CustomerRegions?.renderFromCurrentRows?.(); } } catch(_e) {}
           try {
             const act2 = window.YX113ProductActions || window.YX132ProductActions || window.YX128ProductActions;
-            setTimeout(()=>{ try { act2?.loadSource?.(m, {force:true, afterSubmit:true, full:true, customer_name:customer}); } catch(_e){} }, 450);
+            // v459: no immediate full-table reload after fast save; exact_customer_items already updates the screen. Full reload is manual/sync only.
+            // setTimeout removed to prevent slow DB write/refresh feeling and stale cache overwrites.
           } catch(_e) {}
         } catch(e) { console.warn('[YX V59 background refresh]', e); }
       })

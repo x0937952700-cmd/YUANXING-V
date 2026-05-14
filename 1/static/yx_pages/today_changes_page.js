@@ -543,6 +543,56 @@
     el.innerHTML = first.map(r => todayRow(r, kind)).join('');
     if(rest.length) try { window.YX?.renderChunks?.appendRows?.(el, rest, r => todayRow(r, kind), {size:24}); } catch(_e){ el.insertAdjacentHTML('beforeend', rest.map(r => todayRow(r, kind)).join('')); }
   }
+  function readSyncedUnplacedPayload(){
+    const out = {items:null, summary:null, count:0, at:0};
+    try {
+      const meta = JSON.parse(localStorage.getItem('yx_today_unplaced_summary_from_sync') || 'null') || null;
+      if (meta && Number(meta.saved_at || 0) > Date.now() - 1000*60*60*24) {
+        out.summary = meta.summary || null;
+        out.count = Number(meta.count || 0);
+        out.at = Number(meta.saved_at || 0);
+      }
+    } catch(_e) {}
+    try {
+      const versions = ['v459-full-audit-no-half-sync-visible','v457-final-verify-sync-speed-warehouse','v456-verified-instant-sync-ship-warehouse','v455-dirty-sync-cache-align','v454-instant-sync-data-align','v451-device-prefetch-indexeddb-progress','v450-warehouse-longpress-single-engine-cleanout-proof'];
+      for (const v of versions) {
+        const raw = localStorage.getItem('yx_warehouse_available_cache_' + v);
+        if (!raw) continue;
+        const obj = JSON.parse(raw);
+        if (!obj || Number(obj.saved_at || 0) < Date.now() - 1000*60*60*24) continue;
+        const data = obj.data || {};
+        const items = Array.isArray(data.items) ? data.items : (Array.isArray(data.available) ? data.available : []);
+        if (items.length) {
+          out.items = items;
+          out.at = Math.max(out.at || 0, Number(obj.saved_at || 0));
+          if (!out.summary && data.zone_summary) out.summary = data.zone_summary;
+          if (!out.count) out.count = items.reduce((n,it)=>n+(Number(it.unplaced_qty||it.qty||1)||1),0);
+          break;
+        }
+      }
+    } catch(_e) {}
+    return out;
+  }
+  function applySyncedUnplacedToToday(data){
+    try {
+      const sync = readSyncedUnplacedPayload();
+      if (!sync.at) return data;
+      data = Object.assign({}, data || {});
+      data.summary = Object.assign({}, data.summary || {});
+      if (sync.items && sync.items.length) {
+        data.unplaced_items = sync.items;
+        data.summary.unplaced_row_count = sync.items.length;
+      }
+      if (sync.count) data.summary.unplaced_count = sync.count;
+      if (sync.summary && typeof sync.summary === 'object') {
+        data.summary.unplaced_zone_summary = Object.assign({}, data.summary.unplaced_zone_summary || {}, sync.summary);
+        const z = data.summary.unplaced_zone_summary || {};
+        data.summary.unplaced_zone_summary.total = Number(z.total || ((Number(z.A||0)+Number(z.B||0)+Number(z.unassigned||0))) || data.summary.unplaced_count || 0);
+      }
+      data.summary.from_device_sync_unplaced = true;
+      return data;
+    } catch(_e) { return data; }
+  }
   function normalizeTodayData(data){
     const d = (data && typeof data === 'object') ? data : {};
     const summary = d.summary && typeof d.summary === 'object' ? d.summary : {};
@@ -607,7 +657,7 @@
     const cacheKey = 'today_changes_light_v406';
     const cached = !opts.force ? window.YX?.cache?.read(cacheKey, 1000*60*60*8) : null;
     if (cached && !opts.force) {
-      try { cleanLegacyTodayDom(); render(cached); if ($('today-unread-badge')) $('today-unread-badge').textContent = String(cached.summary?.unread_count || 0); } catch(_e) {}
+      try { cleanLegacyTodayDom(); render(normalizeTodayData(applySyncedUnplacedToToday(cached))); if ($('today-unread-badge')) $('today-unread-badge').textContent = String(cached.summary?.unread_count || 0); } catch(_e) {}
     }
     const fetchFresh = async () => {
       try {
@@ -622,7 +672,7 @@
             data.summary.unplaced_zone_summary = wz.zone_summary || data.summary.unplaced_zone_summary || {};
           } catch(_e) {}
         }
-        data = normalizeTodayData(data);
+        data = normalizeTodayData(applySyncedUnplacedToToday(data));
         try { window.YX?.cache?.write(cacheKey, data); } catch(_e) {}
         render(data);
         try { await YX.api('/api/today-changes/read', {method:'POST', body:JSON.stringify({})}); } catch(_e) {}
@@ -757,7 +807,7 @@
         loadTodayChanges112({force:true, silent:true});
       };
       ['yx:today-changes-refresh','yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed'].forEach(ev=>window.addEventListener(ev, refreshTodayV214, false));
-      window.addEventListener('yx:device-sync-updated', ev=>{ try{ if((ev.detail||{}).key==='today_changes' || (ev.detail||{}).key==='all') refreshTodayV214(); }catch(_e){} }, false);
+      window.addEventListener('yx:device-sync-updated', ev=>{ try{ if(['today_changes','warehouse_available','warehouse','all'].includes((ev.detail||{}).key)) refreshTodayV214(); }catch(_e){} }, false);
     }
     cleanLegacyTodayDom();
     loadTodayChanges112({force:true, silent:true});

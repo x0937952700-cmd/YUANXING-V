@@ -887,18 +887,27 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }catch(_e){}
     return out;
   }
-  function mergeCellsPreservingLocalProtected(incomingCells, zonesData){
+  function mergeCellsPreservingLocalProtected(incomingCells, zonesData, opts={}){
     // V182: cache/DB full responses can arrive while a cell is being edited or saved.
     // Preserve protected local cells by exact cell key, and preserve pending columns by column key.
+    opts = opts || {};
+    const preserveMissingLocal = opts.preserveMissingLocal !== false;
+    const trustIncoming = opts.trustIncoming === true;
     const protectedCols=new Set(state.pendingColumns||[]);
     const protectedCellsByKey=protectedCellKeySet();
     const normalized=(Array.isArray(incomingCells)?incomingCells:[]).map(cell=>normalizeServerCell(cell));
     if(!protectedCols.size && !protectedCellsByKey.size){
       const incomingTotal=warehouseCellItemTotalFromCells(normalized);
       const localTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
-      // V426: avoid whole-page blanking when a stale/empty warehouse response races after local/cache data.
+      // V426/V457: avoid whole-page blanking when a stale/empty response races after local/cache data.
       if(incomingTotal<=0 && localTotal>0){
         state.data={cells:state.data.cells||[], zones:(state.data&&state.data.zones)||zonesData||{A:{},B:{}}};
+        return;
+      }
+      // V457: after device sync or a DB refresh with real cells, trust the incoming cell map.
+      // Otherwise an item moved out of an old cell can be preserved locally and appears duplicated/wrong.
+      if(trustIncoming){
+        state.data={cells:normalized, zones:zonesData||{A:{},B:{}}};
         return;
       }
       // V426: if a same-slot server row is empty but local/cache row has products, keep the non-empty row.
@@ -911,7 +920,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         return cell;
       });
       // V432: 有些 lite/readback 只回結構格，不回舊資料格；本機已有商品的格子不可因「未出現在 incoming」被整列洗掉。
-      localByKey.forEach((local,lk)=>{ if(!incomingKeys.has(lk) && cellItemsFromRow(local).length>0) guarded.push(local); });
+      if (preserveMissingLocal) localByKey.forEach((local,lk)=>{ if(!incomingKeys.has(lk) && cellItemsFromRow(local).length>0) guarded.push(local); });
       state.data={cells:guarded, zones:zonesData||{A:{},B:{}}};
       return;
     }
@@ -934,7 +943,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(local && cellItemsFromRow(cell).length<=0 && cellItemsFromRow(local).length>0) return local;
       return cell;
     });
-    localByKey.forEach((local,lk)=>{ if(!incomingKeys.has(lk) && !protectedCellKeys.has(lk) && cellItemsFromRow(local).length>0) guardedFresh.push(local); });
+    if (preserveMissingLocal) localByKey.forEach((local,lk)=>{ if(!incomingKeys.has(lk) && !protectedCellKeys.has(lk) && cellItemsFromRow(local).length>0) guardedFresh.push(local); });
     state.data={cells:guardedFresh.concat(localProtected), zones:zonesData||{A:{},B:{}}};
   }
   function snapshotColumn(z,c){
@@ -1070,14 +1079,14 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v451-device-prefetch-indexeddb-progress';
+  const CACHE_VERSION = 'v459-full-audit-no-half-sync-visible';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
     try{
       let raw=localStorage.getItem(k);
       if(!raw){
-        const versions=['v450-warehouse-longpress-single-engine-cleanout-proof','v436-warehouse-longpress-action-menu-final','v433-warehouse-maximum-readback-save-proof','v432-warehouse-max-repair-no-cache-damage','v431-warehouse-full-item-key-readback-proof','v430-warehouse-deleted-row-rescue-readback-proof','v429-warehouse-nondirect-readback-guard','v428-warehouse-save-readback-mirror-lock','v427-warehouse-mirror-rescue-visible-items','v426-warehouse-display-readback-shield','v425-warehouse-visible-items-hard-repair','v424-warehouse-visible-items-cache-guard','v422-warehouse-readback-guard-sync','v421-warehouse-continuous-structure-return-sync','v420-warehouse-cell-save-reopen-sync','v419-warehouse-batch-support-return-sync','v418-warehouse-visible-longpress-regression','v417-remove-opstatus-warehouse-visible-longpress','v416-inventory-source-move-sync','v415-product-write-refresh-sync','v414-customer-count-source-sync','v413-shipping-preview-source-lock','v412-shipping-source-deduct-sync','v411-warehouse-cell-edit-save-sync','v410-warehouse-structure-longpress-sync','v409-warehouse-unplaced-source-sync','v408-warehouse-drag-cache-sync','v407-source-panel-opstatus-scope','v406-warehouse-order-drag-longpress-fix','v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
+        const versions=['v459-full-audit-no-half-sync-visible','v457-final-verify-sync-speed-warehouse','v456-verified-instant-sync-ship-warehouse','v455-dirty-sync-cache-align','v451-device-prefetch-indexeddb-progress','v454-instant-sync-data-align','v453-device-sync-resume-incremental-auto5','v450-warehouse-longpress-single-engine-cleanout-proof','v436-warehouse-longpress-action-menu-final','v433-warehouse-maximum-readback-save-proof','v432-warehouse-max-repair-no-cache-damage','v431-warehouse-full-item-key-readback-proof','v430-warehouse-deleted-row-rescue-readback-proof','v429-warehouse-nondirect-readback-guard','v428-warehouse-save-readback-mirror-lock','v427-warehouse-mirror-rescue-visible-items','v426-warehouse-display-readback-shield','v425-warehouse-visible-items-hard-repair','v424-warehouse-visible-items-cache-guard','v422-warehouse-readback-guard-sync','v421-warehouse-continuous-structure-return-sync','v420-warehouse-cell-save-reopen-sync','v419-warehouse-batch-support-return-sync','v418-warehouse-visible-longpress-regression','v417-remove-opstatus-warehouse-visible-longpress','v416-inventory-source-move-sync','v415-product-write-refresh-sync','v414-customer-count-source-sync','v413-shipping-preview-source-lock','v412-shipping-source-deduct-sync','v411-warehouse-cell-edit-save-sync','v410-warehouse-structure-longpress-sync','v409-warehouse-unplaced-source-sync','v408-warehouse-drag-cache-sync','v407-source-panel-opstatus-scope','v406-warehouse-order-drag-longpress-fix','v292-status-single-retry-cancel','v287-status-detail-card','v282-operation-status-card','v267-structure-operation-retry-lock','v262-save-retry-recovery-lock','v257-available-qty-operation-lock','v252-warehouse-ship-edit-conflict-lock','v222-warehouse-available-zone-sync','v219-warehouse-live-draft-switch-sync','v218-cross-function-error-card','v217-today-empty-refresh-guard','v214-warehouse-customer-count-sync','v208-warehouse-drag-count-sync','v188-warehouse-stability','v187-warehouse-stability','v186-warehouse-stability','v185-warehouse-stability','v184-warehouse-stability','v183-warehouse-stability','v182-warehouse-stability','v181-warehouse-stability','v180-warehouse-stability','v179-warehouse-stability','v178-warehouse-stability','v177-warehouse-stability','v176-warehouse-stability','v175-warehouse-stability','v174-warehouse-stability','v173-warehouse-stability','v172-warehouse-stability','v171-warehouse-stability','v170-warehouse-stability','v169-warehouse-stability','v168-warehouse-stability','v166-warehouse-self-repair','v165-warehouse-stability-final','v163-warehouse-stability','v162-warehouse-stability','v161-warehouse-stability','v160-warehouse-polish-stability','v159-warehouse-auto-stability','v158-warehouse-stability-latest','v156-warehouse-stability-from-v155','v143-warehouse-dom-cache','v140-warehouse-fast-lite-cache','v138-warehouse-fast-lite-cache','v135-warehouse-fast-lite-cache','v134-warehouse-speed-qty-cache'];
         for(const v of versions){
           const alt=String(k).replace(CACHE_VERSION, v).replace('v143-warehouse-dom-cache', v);
           raw=localStorage.getItem(alt);
@@ -1580,7 +1589,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const localTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
     // V426: 保留快取架構，但不讓舊版空快取把目前已顯示商品洗成空格。
     if(cachedTotal<=0 && localTotal>0) return false;
-    mergeCellsPreservingLocalProtected(cached.cells, cached.zones||{A:{},B:{}});
+    mergeCellsPreservingLocalProtected(cached.cells, cached.zones||{A:{},B:{}}, {preserveMissingLocal:false, trustIncoming:true});
     state.sourceQtyMap=cached.source_qty_map||cached.source_totals||state.sourceQtyMap||{};
     updateAllSlots();
     return true;
@@ -1992,7 +2001,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
         // Force refresh still hits DB; it just cannot repaint all visible products as empty unless there was no local product.
         state.lastWarehouseEmptyReadbackBlocked = {at:Date.now(), beforeTotal, incomingTotal, version:CACHE_VERSION};
       }else{
-        mergeCellsPreservingLocalProtected(freshCells, d.zones||{A:{},B:{}});
+        mergeCellsPreservingLocalProtected(freshCells, d.zones||{A:{},B:{}}, {preserveMissingLocal:false, trustIncoming:true});
       }
       if(d.source_qty_map || d.source_totals) state.sourceQtyMap=d.source_qty_map||d.source_totals||{};
       cacheWarehouseNow();

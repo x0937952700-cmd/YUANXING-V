@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V453-SYNC-TODAY-SHIP-WAREHOUSE-FIX'
-STATIC_VERSION = '119-v453_sync_today_ship_warehouse_fix'
-API_SCHEMA_VERSION = 'v453-sync_today_ship_warehouse_fix'
+APP_VERSION = 'V119-V459-VERIFY-NO-EMPTY-OVERWRITE'
+STATIC_VERSION = '119-v459_verify_no_empty_overwrite'
+API_SCHEMA_VERSION = 'v457-final_verify_sync_speed_warehouse'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -2165,34 +2165,32 @@ def _yx145_fast_write_requested(data=None):
 
 
 def _yx145_write_payload(module='', customer_name='', item=None, extra=None):
-    payload = yx_api_align_payload(dict(fast_response=True, module=module or '', customer_name=(customer_name or '').strip(), item=item or {}), cache_label=API_SCHEMA_VERSION)
-    try:
-        if customer_name:
-            payload.update(build_customer_payload_snapshot(customer_name))
-    except Exception as e:
-        log_error('v146_fast_write_customer_snapshot', str(e))
+    # V457: fast_response must stay fast. Do not rebuild all customers/orders/master_orders here.
+    # The front-end already paints optimistic rows immediately; this response only confirms the
+    # affected customer's rows so saving does not feel stuck after DB commit.
+    customer_name = (customer_name or '').strip()
+    payload = yx_api_align_payload(dict(fast_response=True, module=module or '', customer_name=customer_name, item=item or {}), cache_label=API_SCHEMA_VERSION)
     try:
         table = {'orders': 'orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}.get(str(module or '').strip())
         if table and customer_name:
-            payload['exact_customer_items'] = product_service_exact_customer_rows(table, customer_name)
-            customers_payload = get_customers()
-            payload['customers'] = customers_payload
-            # V192: fast_response stays small but carries a DB-confirmed snapshot so
-            # 訂單/總單新增後，北中南客戶卡片與商品清單不會只停在前端暫存。
+            exact = product_service_exact_customer_rows(table, customer_name) or []
+            payload['exact_customer_items'] = exact
+            qty_total = 0
             try:
-                snap = {'customers': customers_payload}
-                if table == 'orders':
-                    snap['orders'] = get_orders()
-                elif table == 'master_orders':
-                    master_rows = get_master_orders()
-                    snap['master_order'] = master_rows
-                    snap['master_orders'] = master_rows
-                payload['snapshots'] = snap
-            except Exception as e:
-                try: log_error('yx145_fast_snapshot_v196', str(e))
-                except Exception: pass
+                for r in exact:
+                    txt = str((r or {}).get('product_text') or (r or {}).get('product') or '')
+                    q = int((r or {}).get('qty') or (r or {}).get('quantity') or (r or {}).get('pieces') or 0)
+                    qty_total += q if q > 0 else 1
+            except Exception:
+                qty_total = len(exact)
+            rc = {'order_rows': len(exact) if table == 'orders' else 0, 'order_qty': qty_total if table == 'orders' else 0,
+                  'master_rows': len(exact) if table == 'master_orders' else 0, 'master_qty': qty_total if table == 'master_orders' else 0}
+            payload['customers'] = [{'name': customer_name, 'customer_name': customer_name, 'region': resolve_customer_region(customer_name, '北區'), 'relation_counts': rc, 'item_count': len(exact), 'row_count': len(exact), 'total_qty': qty_total}]
+            # exact-only snapshot: never overwrites the whole list, only lets the caller merge this customer.
+            payload['items_are_delta'] = True
+            payload['changed_items'] = exact
     except Exception as e:
-        log_error('v196_fast_write_exact_customer', str(e))
+        log_error('v457_fast_write_exact_customer', str(e))
     if isinstance(extra, dict):
         payload.update(extra)
     return payload
@@ -2222,11 +2220,35 @@ def _yx137_product_payload(rows, cache_label):
     payload = yx_api_align_payload(dict(items=sliced, rows=sliced, **meta), cache_label=API_SCHEMA_VERSION, extra={'legacy_server_cache': cache_label})
     return payload
 
+
+def _yx459_device_incremental_rows(table, since, label):
+    """V459: small incremental payload for device sync. Falls back safely when timestamps are missing."""
+    since = (since or '').replace('T', ' ').replace('Z', '').split('.')[0].strip()
+    if not since:
+        return None
+    if table not in ('inventory', 'orders', 'master_orders'):
+        return None
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(updated_at, created_at, '') >= ? ORDER BY COALESCE(updated_at, created_at, '') DESC, id DESC"), (since,))
+        rows = fetchall_dict(cur)
+        conn.close()
+        payload = yx_api_align_payload(dict(success=True, items=rows, rows=rows, total=len(rows), limit=0, offset=0, has_more=False, incremental=True, changed_since=since), cache_label=API_SCHEMA_VERSION, extra={'legacy_server_cache': label, 'v459_incremental': True})
+        return payload
+    except Exception as e:
+        try: log_error('v459_incremental_rows_' + table, str(e))
+        except Exception: pass
+        return None
+
+
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
 def api_inventory():
     if request.method == "GET":
         try:
+            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
+                inc = _yx459_device_incremental_rows('inventory', request.args.get('changed_since') or request.args.get('since'), 'v459-inventory-incremental')
+                if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('inventory', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
             use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
@@ -2402,6 +2424,9 @@ def api_orders():
         except Exception: pass
     if request.method == "GET":
         try:
+            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
+                inc = _yx459_device_incremental_rows('orders', request.args.get('changed_since') or request.args.get('since'), 'v459-orders-incremental')
+                if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
             use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
@@ -2462,6 +2487,9 @@ def api_master_orders():
         except Exception: pass
     if request.method == "GET":
         try:
+            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
+                inc = _yx459_device_incremental_rows('master_orders', request.args.get('changed_since') or request.args.get('since'), 'v459-master-orders-incremental')
+                if inc is not None: return jsonify(inc)
             cache_key = _fast_cache_key('master_orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
             use_fast_cache = (request.args.get('force') != '1' and (request.args.get('fast') == '1' or request.args.get('light') == '1'))
             cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
@@ -3762,7 +3790,7 @@ def _warehouse_cell_items_for_count(cell):
         return []
 
 def warehouse_v432_api_display_parser_lock_version():
-    return 'v453-sync_today_ship_warehouse_fix'
+    return 'v457-final_verify_sync_speed_warehouse'
 
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
@@ -7660,4 +7688,4 @@ def _warehouse_cell_items_for_count(cell):
 
 
 def warehouse_v429_api_display_parser_lock_version():
-    return 'v453-sync_today_ship_warehouse_fix'
+    return 'v457-final_verify_sync_speed_warehouse'

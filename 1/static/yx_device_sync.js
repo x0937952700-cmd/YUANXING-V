@@ -1,17 +1,20 @@
-/* V453 device sync: stable position, resume across page switches, incremental request hints, 5AM auto option. No yx_cache/yx_core edits, no timers/observers. */
+/* V459 device sync: persistent last-sync time, instant page cache bridge, dirty-key invalidation after writes, warehouse/today cache alignment, no-empty-overwrite guards. No yx_cache/yx_core edits, no timers/observers. */
 (function(){
   'use strict';
-  if (window.__YX_DEVICE_SYNC_V453__) return;
-  window.__YX_DEVICE_SYNC_V453__ = true;
+  if (window.__YX_DEVICE_SYNC_V459__) return;
+  window.__YX_DEVICE_SYNC_V459__ = true;
 
-  const VERSION = 'v453-device-sync-resume-incremental-auto5';
+  const VERSION = 'v459-full-audit-no-half-sync-visible';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
   const META_KEY = 'yx_device_sync_v452_meta';
   const SYNC_EVENT = 'yx:device-sync-updated';
-  const RUN_KEY = 'yx_device_sync_v453_running';
+  const RUN_KEY = 'yx_device_sync_v459_running';
+  const DIRTY_PREFIX = 'yx_device_sync_dirty_';
   const AUTO_KEY = 'yx_device_sync_v453_auto';
+  const LAST_SYNC_KEY = 'yx_device_sync_last_success_at';
+  const bgRefreshAt = Object.create(null);
   const productCachePrefix = 'yx_v406_cache_';
   const staticToken = () => String(window.__YX_STATIC_VERSION__ || window.YX?.version || VERSION).replace(/[^A-Za-z0-9_-]/g, '_');
   const now = () => Date.now();
@@ -50,8 +53,8 @@
     [/^\/api\/orders\b/, 'orders'],
     [/^\/api\/master_orders\b/, 'master_order'],
     [/^\/api\/customers\b/, 'customers'],
-    [/^\/api\/warehouse(?:\/cells)?\b/, 'warehouse'],
     [/^\/api\/warehouse\/available-items\b/, 'warehouse_available'],
+    [/^\/api\/warehouse(?:\/cells)?\b/, 'warehouse'],
     [/^\/api\/shipping_records\b/, 'shipping_records'],
     [/^\/api\/today-changes\b/, 'today_changes'],
     [/^\/api\/todos\b/, 'todos']
@@ -92,6 +95,39 @@
       });
     } finally { try { db.close(); } catch(_e){} }
   }
+  async function idbDelete(key){
+    try{
+      const db = await openDB();
+      try{
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).delete(key);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error || new Error('IndexedDB 刪除失敗'));
+        });
+      } finally { try { db.close(); } catch(_e){} }
+    }catch(_e){}
+  }
+  function dirtyKeysFromUrl(url){
+    const u = cleanUrl(url); if(!u) return [];
+    const p = u.pathname || '';
+    const out = new Set();
+    const add = (...ks)=>ks.forEach(k=>k&&out.add(k));
+    if (/^\/api\/orders\b/.test(p)) add('orders','customers','today_changes','warehouse_available');
+    else if (/^\/api\/master_orders?\b/.test(p)) add('master_order','customers','today_changes','warehouse_available');
+    else if (/^\/api\/inventory\b/.test(p)) add('inventory','today_changes','warehouse_available');
+    else if (/^\/api\/customers\b/.test(p)) add('customers','orders','master_order');
+    else if (/^\/api\/warehouse\/available-items\b/.test(p)) add('warehouse_available','today_changes');
+    else if (/^\/api\/warehouse\b/.test(p)) add('warehouse','warehouse_available','today_changes','shipping_records');
+    else if (/^\/api\/(?:ship|shipping|shipping_records)\b/.test(p)) add('orders','master_order','inventory','warehouse','warehouse_available','shipping_records','today_changes','customers');
+    else if (/^\/api\/today-changes\b/.test(p)) add('today_changes');
+    return Array.from(out);
+  }
+  function markDirty(keys){
+    try{ (keys||[]).forEach(k=>localStorage.setItem(DIRTY_PREFIX+k, String(now()))); }catch(_e){}
+  }
+  function clearDirty(key){ try{ localStorage.removeItem(DIRTY_PREFIX+key); }catch(_e){} }
+  function isDirty(key){ try{ return Number(localStorage.getItem(DIRTY_PREFIX+key)||0) > 0; }catch(_e){ return false; } }
   function writeLocalProductCache(source, data){
     try{
       if (!source) return;
@@ -104,31 +140,50 @@
   function writeLocalWarehouseCache(data){
     try{
       if (!data || !Array.isArray(data.cells)) return;
-      const key = 'yx_warehouse_cache_' + VERSION;
+      const keys = [
+        'yx_warehouse_cache_' + VERSION,
+        'yx_warehouse_cache_v455-dirty-sync-cache-align',
+        'yx_warehouse_cache_v451-device-prefetch-indexeddb-progress',
+        'yx_warehouse_cache_v450-warehouse-longpress-single-engine-cleanout-proof'
+      ];
       const incomingCount = warehouseItemCount(data);
       let oldCount = 0;
-      try { oldCount = warehouseItemCount((JSON.parse(localStorage.getItem(key) || 'null') || {}).data); } catch(_e) {}
+      for (const k of keys) { try { oldCount = Math.max(oldCount, warehouseItemCount((JSON.parse(localStorage.getItem(k) || 'null') || {}).data)); } catch(_e) {} }
       if (incomingCount <= 0 && oldCount > 0) return;
-      localStorage.setItem(key, JSON.stringify({saved_at:now(), data:clone(data)}));
+      const payload = JSON.stringify({saved_at:now(), data:clone(data)});
+      keys.forEach(k => { try { localStorage.setItem(k, payload); } catch(_e) {} });
     }catch(_e){}
   }
   function writeLocalWarehouseAvailableCache(data){
     try{
       if (!data) return;
-      const key = 'yx_warehouse_available_cache_' + VERSION;
+      const keys = [
+        'yx_warehouse_available_cache_' + VERSION,
+        'yx_warehouse_available_cache_v455-dirty-sync-cache-align',
+        'yx_warehouse_available_cache_v451-device-prefetch-indexeddb-progress',
+        'yx_warehouse_available_cache_v450-warehouse-longpress-single-engine-cleanout-proof'
+      ];
       const payload = {
         available: Array.isArray(data.available) ? data.available : (Array.isArray(data.items) ? data.items : []),
+        items: Array.isArray(data.items) ? data.items : (Array.isArray(data.available) ? data.available : []),
         availableByZone: data.availableByZone || data.available_by_zone || {A:[],B:[]},
         zone_summary: data.zone_summary || null,
         from_device_sync: true
       };
-      localStorage.setItem(key, JSON.stringify({saved_at:now(), data:payload}));
+      const raw = JSON.stringify({saved_at:now(), data:payload});
+      keys.forEach(k => { try { localStorage.setItem(k, raw); } catch(_e) {} });
+      try { localStorage.setItem('yx_today_unplaced_summary_from_sync', JSON.stringify({saved_at:now(), summary:payload.zone_summary || null, count:(payload.items||[]).reduce((n,it)=>n+(Number(it.unplaced_qty||it.qty||1)||1),0)})); } catch(_e) {}
     }catch(_e){}
   }
   function writeMeta(meta){
-    try { localStorage.setItem(META_KEY, JSON.stringify(Object.assign({saved_at:now(), version:VERSION, static_version:window.__YX_STATIC_VERSION__ || ''}, meta || {}))); } catch(_e) {}
+    try {
+      const payload = Object.assign({saved_at:now(), version:VERSION, static_version:window.__YX_STATIC_VERSION__ || ''}, meta || {});
+      if (!payload.last_success_at && payload.ok) payload.last_success_at = now();
+      localStorage.setItem(META_KEY, JSON.stringify(payload));
+      if (payload.saved_at || payload.last_success_at) localStorage.setItem(LAST_SYNC_KEY, String(payload.last_success_at || payload.saved_at));
+    } catch(_e) {}
   }
-  function readMeta(){ try { return JSON.parse(localStorage.getItem(META_KEY) || 'null') || null; } catch(_e) { return null; } }
+  function readMeta(){ try { const m = JSON.parse(localStorage.getItem(META_KEY) || 'null') || null; const last = Number(localStorage.getItem(LAST_SYNC_KEY) || 0); if (last && (!m || !(m.saved_at || m.last_success_at))) return {saved_at:last,last_success_at:last,version:VERSION}; return m; } catch(_e) { return null; } }
   function matchKey(url){
     const u = cleanUrl(url); if (!u) return '';
     const p = u.pathname;
@@ -157,8 +212,50 @@
     if (task.productSource) writeLocalProductCache(task.productSource, data);
     if (task.warehouse) writeLocalWarehouseCache(data);
     if (task.warehouseAvailable) writeLocalWarehouseAvailableCache(data);
+    if (task.key) clearDirty(task.key);
+  }
+  function mergeByStableKey(oldRows, newRows){
+    const out=[]; const seen=new Set();
+    const stable=(r)=>String(r?.id || r?.uuid || r?.key || [r?.customer_name||r?.customer||'', r?.product_text||r?.text||'', r?.material||r?.product_code||'', r?.qty||''].join('|'));
+    (Array.isArray(oldRows)?oldRows:[]).forEach(r=>{ const k=stable(r); if(!seen.has(k)){ seen.add(k); out.push(r); } });
+    (Array.isArray(newRows)?newRows:[]).forEach(r=>{ const k=stable(r); const idx=out.findIndex(x=>stable(x)===k); if(idx>=0) out[idx]=r; else out.push(r); seen.add(k); });
+    return out;
+  }
+  function mergeCellsBySlot(oldCells, newCells){
+    const stable=(c)=>[String(c?.zone||'').toUpperCase(), Number(c?.column_index||c?.col||0), Number(c?.slot_number||c?.slot||0)].join('-');
+    const out=[]; const map=new Map();
+    (Array.isArray(oldCells)?oldCells:[]).forEach(c=>{ const k=stable(c); if(k!=='--0-0'){ map.set(k,c); } });
+    (Array.isArray(newCells)?newCells:[]).forEach(c=>{ const k=stable(c); if(k!=='--0-0'){ map.set(k,c); } });
+    map.forEach(v=>out.push(v));
+    return out.sort((a,b)=>String(a.zone||'').localeCompare(String(b.zone||'')) || Number(a.column_index||0)-Number(b.column_index||0) || Number(a.slot_number||0)-Number(b.slot_number||0));
+  }
+  async function mergeIncrementalPayload(task, data){
+    try{
+      if(!task || !data || !(data.incremental || data.is_incremental || data.changed_since || data.delta)) return data;
+      const old = await readCachedPayload(task.key, 0);
+      if(!old) return data;
+      const merged = clone(old) || {};
+      if(Array.isArray(data.items) || Array.isArray(data.rows)){
+        const nr = Array.isArray(data.items) ? data.items : data.rows;
+        const or = Array.isArray(old.items) ? old.items : (Array.isArray(old.rows) ? old.rows : []);
+        const rows = mergeByStableKey(or, nr);
+        merged.items = rows; merged.rows = rows; merged.incremental_merged = true;
+      }
+      if(Array.isArray(data.cells)){
+        merged.cells = mergeCellsBySlot(old.cells || [], data.cells || []);
+        merged.zones = data.zones || old.zones || {A:{},B:{}};
+        merged.incremental_merged = true;
+      }
+      if(task.key === 'warehouse_available'){
+        // 未錄入倉庫圖必須以最新回傳為準，避免已入倉商品還留在下拉/今日異動。
+        return data;
+      }
+      Object.keys(data||{}).forEach(k=>{ if(!['items','rows','cells','zones'].includes(k)) merged[k]=data[k]; });
+      return merged;
+    }catch(_e){ return data; }
   }
   async function storeTaskPayload(task, data){
+    data = await mergeIncrementalPayload(task, data);
     if (task && task.warehouse && warehouseItemCount(data) <= 0) {
       try { const old = await readCachedPayload(task.key, 0); if (warehouseItemCount(old) > 0) { bridgeLocalCache(task, old); return; } } catch(_e) {}
     }
@@ -167,24 +264,51 @@
   }
   function installApiLocalFirst(){
     const root = window.YX || (window.YX = {});
-    if (root.__deviceSyncApiPatchedV453) return;
+    if (root.__deviceSyncApiPatchedV459) return;
     const original = root.api;
     if (typeof original !== 'function') return;
     root.api = async function(url, opt){
       opt = opt || {};
-      const key = isGet(opt) ? matchKey(url) : '';
+      const methodIsGet = isGet(opt);
+      if (!methodIsGet) {
+        const dirty = dirtyKeysFromUrl(url);
+        try {
+          const out = await original.call(this, url, opt);
+          if (!out || out.success !== false) {
+            markDirty(dirty);
+            dirty.forEach(k => { idbDelete(k); });
+            try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'dirty', dirty, source:'api-write'}})); } catch(_e) {}
+          }
+          return out;
+        } catch(e) {
+          markDirty(dirty);
+          throw e;
+        }
+      }
+      const key = matchKey(url);
       const u = cleanUrl(url);
-      const bypass = !key || (u && u.searchParams.get('yx_device_network') === '1') || opt.yxDeviceLocalFirst === false;
-      if (bypass) return original.call(this, url, opt);
+      const forceFresh = u && (u.searchParams.get('yx_device_network') === '1' || u.searchParams.get('no_cache') === '1');
+      const dirty = key && isDirty(key);
+      const bypass = !key || forceFresh || opt.yxDeviceLocalFirst === false || dirty;
+      if (bypass) {
+        const fresh = await original.call(this, url, opt);
+        try { if (key && fresh && fresh.success !== false) await storeTaskPayload(TASKS.find(t => t.key === key) || {key, label:key, url:String(url||'')}, fresh); } catch(_e) {}
+        return fresh;
+      }
       const task = TASKS.find(t => t.key === key) || {key, label:key, url:String(url || '')};
       const cached = await readCachedPayload(key, 1000*60*60*24*7);
       if (cached) {
         try {
-          original.call(this, url, Object.assign({}, opt, {yxDeviceLocalFirst:false})).then(fresh => {
-            if (fresh && fresh.success !== false) storeTaskPayload(task, fresh).then(() => {
-              try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source:'api-background', data:fresh}})); } catch(_e) {}
+          const age = now() - Number((await idbGet(key))?.saved_at || 0);
+          const lastBg = Number(bgRefreshAt[key] || 0);
+          if (age > 1000*60*30 && now() - lastBg > 1000*60*10) {
+            bgRefreshAt[key] = now();
+            original.call(this, url, Object.assign({}, opt, {yxDeviceLocalFirst:false})).then(fresh => {
+              if (fresh && fresh.success !== false) storeTaskPayload(task, fresh).then(() => {
+                try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source:'api-background', data:fresh}})); } catch(_e) {}
+              }).catch(()=>{});
             }).catch(()=>{});
-          }).catch(()=>{});
+          }
         } catch(_e) {}
         return clone(cached);
       }
@@ -192,7 +316,7 @@
       try { await storeTaskPayload(task, fresh); } catch(_e) {}
       return fresh;
     };
-    root.__deviceSyncApiPatchedV453 = true;
+    root.__deviceSyncApiPatchedV459 = true;
   }
   function readRunState(){ try { return JSON.parse(localStorage.getItem(RUN_KEY) || 'null') || null; } catch(_e) { return null; } }
   function writeRunState(v){ try { if (v) localStorage.setItem(RUN_KEY, JSON.stringify(v)); else localStorage.removeItem(RUN_KEY); } catch(_e) {} }
@@ -243,6 +367,9 @@
     writeMeta({ok, total:TASKS.length, elapsed_ms:now()-started, results, last_success_at: ok ? now() : Number(meta.last_success_at || 0), incremental_from: meta.saved_at || 0});
     writeRunState(null);
     try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'all', source:opts.auto?'auto-sync':'manual-sync', results}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:product-data-changed', {detail:{source:'all', reason:'device-sync-complete', results}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:warehouse-changed', {detail:{source:'device-sync', reason:'device-sync-complete'}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:today-changes-refresh', {detail:{source:'device-sync', reason:'device-sync-complete'}})); } catch(_e) {}
     return {ok, total:TASKS.length, results, elapsed_ms:now()-started};
   }
   function fmtTime(ms){ return ms ? new Date(Number(ms)).toLocaleString('zh-TW', {hour12:false}) : '尚未同步'; }
@@ -333,7 +460,7 @@
     });
     updateHomePanelStatus();
   }
-  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync});
+  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync, markDirty});
   installApiLocalFirst();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ()=>{ resumeIfNeeded(); maybeRunAutoSync(); }, {once:true});
   else { resumeIfNeeded(); maybeRunAutoSync(); }
