@@ -14,6 +14,27 @@
     document.body.appendChild(a); a.click();
     setTimeout(()=>{ try{URL.revokeObjectURL(a.href);}catch(_e){} try{a.remove();}catch(_e){} }, 1200);
   }
+
+  function collectButtonAudit(){
+    const pages = [
+      {name:'首頁', url:'/'}, {name:'庫存', url:'/inventory'}, {name:'訂單', url:'/orders'}, {name:'總單', url:'/master_order'},
+      {name:'出貨', url:'/ship'}, {name:'倉庫圖', url:'/warehouse'}, {name:'今日異動', url:'/today-changes'}, {name:'設定', url:'/settings'}, {name:'診斷', url:'/diagnostics'}
+    ];
+    const buttons = Array.from(document.querySelectorAll('button,a,input,select,textarea')).map(el=>({
+      tag:el.tagName, text:(el.innerText||el.value||el.getAttribute('aria-label')||el.id||'').trim().slice(0,80),
+      id:el.id||'', name:el.name||'', type:el.type||'', disabled:!!el.disabled, href:el.getAttribute('href')||'', onclick:el.getAttribute('onclick')||'', data:Object.keys(el.dataset||{}).slice(0,8)
+    }));
+    const requiredFlows = [
+      {flow:'庫存確認送出', front:'submit-btn optimistic rows', api:'/api/inventory POST', persistence:'YXBackgroundSave + YXDataStore'},
+      {flow:'訂單確認送出', front:'北區客戶卡 immediate rows', api:'/api/orders POST', persistence:'YXBackgroundSave + YXDataStore'},
+      {flow:'總單確認送出', front:'北區客戶卡 immediate rows', api:'/api/master_orders POST', persistence:'YXBackgroundSave + YXDataStore'},
+      {flow:'出貨預覽/確認', front:'ship preview feedback', api:'/api/ship/preview + /api/ship', persistence:'YXBackgroundSave + YXMutationBus'},
+      {flow:'倉庫格位儲存', front:'local warehouse cache first', api:'/api/warehouse/cell', persistence:'background queue'}
+    ];
+    const requiredButtons = ['確認送出','套用材質','商品位置','加入出貨','確認出貨','反查商品位置','開啟診斷','匯出診斷報告','同步資料'];
+    return {page:location.pathname, buttons, pages, requiredFlows, requiredButtons, generated_at:new Date().toISOString(), note:'按鍵稽核列出可檢查目標；真正資料保存以 API/背景佇列/診斷錯誤紀錄判斷。'};
+  }
+
   function renderLocal(snap){
     const counts = snap.local_counts || {};
     const errors = snap.last_errors || [];
@@ -21,7 +42,7 @@
     $('#diag-local').innerHTML = card('本機同步 / 快取狀態', kv({
       '版本': snap.app_version,
       '靜態版本': snap.static_version,
-      '上次同步': snap.sync?.last_success_at || '尚未記錄',
+      '上次同步': snap.sync?.last_success_display || snap.sync?.last_success_at || '尚未記錄',
       '自動同步': snap.sync?.auto_enabled === '1' ? '開啟' : '關閉',
       '庫存 rows': counts.inventory || 0,
       '訂單 rows': counts.orders || 0,
@@ -29,8 +50,11 @@
       '倉庫格資料': counts.warehouse_cells || 0,
       '未錄入倉庫圖': counts.today_unplaced || 0,
       '本機錯誤數': errors.length,
-      '防回歸事件': (snap.regression_guard_events || []).length
+      '防回歸事件': (snap.regression_guard_events || []).length,
+      '背景儲存佇列': (window.YXBackgroundSave?.pending?.() || 0),
+      '頁面按鍵數': collectButtonAudit().buttons.length
     }), '');
+    $('#diag-actions-audit') && ($('#diag-actions-audit').innerHTML = card('按鍵 / 儲存流程檢查', `<div class="diag-list">${collectButtonAudit().requiredFlows.map(f=>`<div class="diag-row"><b>${esc(f.flow)}</b><span>${esc(f.api)}</span><p>前端：${esc(f.front)}｜儲存：${esc(f.persistence)}</p></div>`).join('')}</div>`, 'ok'));
     $('#diag-errors').innerHTML = card('前端錯誤 / 防回歸紀錄', (errors.length || guards.length) ? `<div class="diag-list">${errors.slice(0,14).map(e=>`<div class="diag-row"><b>${esc(e.type)}</b><span>${esc(e.at)}｜${esc(e.page)}</span><pre>${esc(JSON.stringify(e.detail||{}, null, 2))}</pre></div>`).join('') + guards.slice(0,14).map(e=>`<div class="diag-row warn"><b>防回歸：${esc(e.type)}</b><span>${esc(e.at)}｜${esc(e.page)}</span><pre>${esc(JSON.stringify(e.detail||{}, null, 2))}</pre></div>`).join('')}</div>` : '<p class="muted">目前沒有前端錯誤紀錄。</p>', (errors.length || guards.length) ? 'warn' : 'ok');
   }
   async function apiJson(url, opt){
@@ -44,7 +68,7 @@
   async function runServerCheck(){
     setStatus('正在檢查伺服器與資料一致性…');
     const box = $('#diag-server'); box.innerHTML = '<div class="diag-card"><h3>伺服器檢查</h3><p>檢查中…</p></div>';
-    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/export','/api/health','/api/today-changes/count','/api/warehouse/available-items','/api/warehouse'];
+    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/export','/api/health','/api/today-changes/count','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1'];
     const rows=[];
     for(const ep of endpoints){
       const t=Date.now();
@@ -67,7 +91,7 @@
     let endpointChecks = [];
     try { local = await window.YXDiagnostics?.snapshot?.() || {}; } catch(e){ local = {error:String(e && e.message || e)}; }
     try { server = (await apiJson('/api/diagnostics/export')).data || {}; } catch(e){ server = {success:false, error:String(e && e.message || e)}; }
-    const endpoints = ['/api/diagnostics/summary','/api/health','/api/today-changes/count','/api/today-changes/badge','/api/warehouse/available-items','/api/warehouse','/api/shipping'];
+    const endpoints = ['/api/diagnostics/summary','/api/health','/api/today-changes/count','/api/today-changes/badge','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1','/api/shipping'];
     for(const ep of endpoints){
       const t=Date.now();
       try{ const r=await apiJson(ep); endpointChecks.push({endpoint:ep,status:r.status,ms:Date.now()-t,success:r.data.success!==false && r.data.ok!==false, sample:r.data}); }
@@ -82,6 +106,7 @@
       local_snapshot:local,
       server_export:server,
       endpoint_checks:endpointChecks,
+      button_audit:collectButtonAudit(),
       notes:['這份報告只讀取診斷資料，不會修改庫存、訂單、總單、出貨或倉庫資料。','請把此 JSON 檔傳回來，即可直接檢查同步、今日異動、倉庫圖、出貨與 API 是否同源。']
     };
     const date = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
@@ -100,6 +125,7 @@
       <div id="diag-status" class="muted">診斷頁已載入。</div>
       <div id="diag-local"></div>
       <div id="diag-server"></div>
+      <div id="diag-actions-audit"></div>
       <div id="diag-errors"></div>`;
     if(!document.getElementById('diag-v480-style')){
       const style=document.createElement('style'); style.id='diag-v480-style'; style.textContent='.diagnostics-shell{padding:14px;max-width:980px;margin:0 auto}.diag-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.diag-card{background:rgba(255,255,255,.86);border:1px solid rgba(120,90,50,.14);border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 8px 28px rgba(50,32,16,.06)}.diag-card.ok{border-color:rgba(30,120,60,.28)}.diag-card.warn{border-color:rgba(180,80,30,.35)}.diag-kv>div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(0,0,0,.06);padding:7px 0}.diag-kv span{text-align:right;word-break:break-all}.diag-row{padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;margin:8px 0;background:#fff}.diag-row.bad{border-color:rgba(200,0,0,.35);background:#fff7f7}.diag-row b{display:block}.diag-row span{color:#8a765f;font-size:12px}.diag-row pre{white-space:pre-wrap;max-height:180px;overflow:auto;background:#f7f3ed;padding:8px;border-radius:8px}'; document.head.appendChild(style);

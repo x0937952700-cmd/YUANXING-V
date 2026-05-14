@@ -10326,3 +10326,125 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
 
 def warehouse_v434_maximum_db_mirror_readback_proof_version():
     return 'v437-warehouse_longpress_tap_suppress_drag_guard'
+
+
+# ============================================================
+# V484 fast warehouse cell reader override
+# - Replaces the old recursive/raw-sweep reader that caused statement timeout.
+# - Reads warehouse_cells once, mirrors warehouse_cell_items once, then merges by coordinate.
+# - No renderer/cache-core change. warehouse_save_cell still writes both tables.
+# ============================================================
+def _yx_v484_cell_key_fast(row):
+    try:
+        z = _yx_v116_zone(row.get('zone') or 'A') if '_yx_v116_zone' in globals() else str(row.get('zone') or 'A').strip().upper()
+        if z not in ('A','B'): z = 'A'
+        c = _yx_v427_int(row.get('column_index'), 1) if '_yx_v427_int' in globals() else int(row.get('column_index') or 1)
+        s = _yx_v427_int(row.get('slot_number'), 1) if '_yx_v427_int' in globals() else int(row.get('slot_number') or 1)
+        return (z, max(1, int(c or 1)), max(1, int(s or 1)))
+    except Exception:
+        return ('A', 1, 1)
+
+def _yx_v484_parse_cell_items_fast(row, mirror_items=None):
+    items = []
+    try:
+        raw = row.get('items_json') if isinstance(row, dict) else ''
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list): items.extend(parsed)
+            except Exception:
+                pass
+        elif isinstance(raw, list):
+            items.extend(raw)
+        if isinstance(row.get('items'), list):
+            items.extend(row.get('items') or [])
+    except Exception:
+        pass
+    try:
+        if isinstance(mirror_items, list): items.extend(mirror_items)
+    except Exception:
+        pass
+    try:
+        if '_yx_v434_merge_items' in globals():
+            return _yx_v434_merge_items([], items)
+    except Exception:
+        pass
+    out=[]; seen=set()
+    for it in items or []:
+        if not isinstance(it, dict): continue
+        product=str(it.get('product_text') or it.get('product') or it.get('raw_text') or '').strip()
+        if not product: continue
+        key='|'.join([str(it.get('source_table') or it.get('source') or ''), str(it.get('source_id') or it.get('id') or ''), str(it.get('customer_name') or ''), product, str(it.get('material') or it.get('product_code') or '')])
+        if key in seen: continue
+        seen.add(key); out.append(it)
+    return out
+
+def warehouse_get_cells():
+    conn = get_db(); cur = conn.cursor()
+    try:
+        try:
+            _yx_v116_ensure_schema(cur)
+        except Exception:
+            pass
+        try:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0 ORDER BY zone, column_index, slot_number, id"))
+        except Exception:
+            cur.execute(sql("SELECT * FROM warehouse_cells ORDER BY zone, column_index, slot_number, id"))
+        raw_rows = rows_to_dict(cur) or []
+        raw_ids = [r.get('id') for r in raw_rows if r.get('id')]
+        mirror_by_id = {}
+        mirror_by_coord = {}
+        try:
+            if '_yx_v434_mirror_items_by_cell_ids' in globals():
+                mirror_by_id = _yx_v434_mirror_items_by_cell_ids(cur, raw_ids)
+        except Exception as e:
+            try: log_error('v484_fast_mirror_by_id', str(e))
+            except Exception: pass
+        try:
+            if '_yx_v435_mirror_items_by_coordinate' in globals():
+                mirror_by_coord = _yx_v435_mirror_items_by_coordinate(cur)
+        except Exception as e:
+            try: log_error('v484_fast_mirror_by_coord', str(e))
+            except Exception: pass
+        by = {}
+        for row in raw_rows:
+            try:
+                k = _yx_v484_cell_key_fast(row)
+                cid = row.get('id')
+                merged_items = _yx_v484_parse_cell_items_fast(row, (mirror_by_id.get(cid) or []) + (mirror_by_coord.get(k) or []))
+                rr = dict(row)
+                rr['zone'], rr['column_index'], rr['slot_type'], rr['slot_number'] = k[0], k[1], 'direct', k[2]
+                rr['items'] = merged_items
+                rr['items_json'] = json.dumps(merged_items or [], ensure_ascii=False)
+                rr['is_deleted'] = 0
+                old = by.get(k)
+                if old:
+                    old_items = _yx_v484_parse_cell_items_fast(old)
+                    try:
+                        all_items = _yx_v434_merge_items(old_items, merged_items) if '_yx_v434_merge_items' in globals() else (old_items + merged_items)
+                    except Exception:
+                        all_items = old_items + merged_items
+                    # prefer newer row metadata but keep merged item list
+                    try:
+                        old_id = int(old.get('id') or 0); new_id = int(rr.get('id') or 0)
+                    except Exception:
+                        old_id = 0; new_id = 0
+                    keep = rr if new_id >= old_id else old
+                    keep = dict(keep)
+                    keep['items'] = all_items
+                    keep['items_json'] = json.dumps(all_items or [], ensure_ascii=False)
+                    by[k] = keep
+                else:
+                    by[k] = rr
+            except Exception:
+                continue
+        out = list(by.values())
+        out.sort(key=lambda r: (r.get('zone') or 'A', int(r.get('column_index') or 1), int(r.get('slot_number') or 1)))
+        return out
+    except Exception as e:
+        try: log_error('v484_fast_warehouse_get_cells', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass

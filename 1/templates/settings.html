@@ -91,6 +91,17 @@
   </div>
   {% endif %}
 
+
+  <div class="glass panel">
+    <div class="section-head">
+      <div>
+        <div class="section-title">系統診斷</div>
+        <div class="muted">檢查同步、按鍵、儲存佇列、今日異動、出貨與倉庫圖；可匯出報告給 ChatGPT 直接修復。</div>
+      </div>
+      <a class="primary-btn" href="{{ url_for('diagnostics_page') }}">開啟診斷</a>
+    </div>
+  </div>
+
   <div class="glass panel">
     <div class="section-title">帳號</div>
     <button class="primary-btn full" onclick="logout()">登出</button>

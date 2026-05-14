@@ -1,8 +1,8 @@
-/* V480 predeploy final check pass9: one data spine, API/fetch local-first bridge, old refresh cleanup. No renderer, no timer, no observer, no cache-core change. */
+/* V483 predeploy final check pass9: one data spine, API/fetch local-first bridge, old refresh cleanup. No renderer, no timer, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if (window.YXDataStore && window.YXDataStore.version === 'v481-deploy-regression-verify-pass18') return;
-  const VERSION = 'v481-deploy-regression-verify-pass18';
+  if (window.YXDataStore && window.YXDataStore.version === 'v484-speed-persist-diag-final-patch') return;
+  const VERSION = 'v484-speed-persist-diag-final-patch';
   const PRODUCT_KEY = {inventory:'inventory', orders:'orders', master_order:'master_order'};
   const clean = v => String(v == null ? '' : v).replace(/[\u3000\s]+/g,' ').trim();
   const clone = v => { try { return JSON.parse(JSON.stringify(v)); } catch(_e) { return v; } };
@@ -162,8 +162,12 @@
     const snaps = data.snapshots || {};
     let rows = Array.isArray(snaps[source]) ? snaps[source] : null;
     if(!rows && source === 'master_order' && Array.isArray(snaps.master_orders)) rows = snaps.master_orders;
-    if(!rows && Array.isArray(data.items) && !data.items_are_delta && !data.delta_items && !data.changed_items) rows = data.items;
     if(Array.isArray(rows)){ setRows(source, rows, Object.assign({reason:'applyResponseRows'}, opts||{})); return true; }
+    const delta = Array.isArray(data.changed_items) ? data.changed_items : (Array.isArray(data.delta_items) ? data.delta_items : null);
+    if(delta && delta.length){ upsertRows(source, delta, Object.assign({reason:'applyResponseRows-delta'}, opts||{})); return true; }
+    if(Array.isArray(data.exact_customer_items) && data.exact_customer_items.length){ upsertRows(source, data.exact_customer_items, Object.assign({reason:'applyResponseRows-exact-customer'}, opts||{})); return true; }
+    if(Array.isArray(data.saved_items) && data.saved_items.length){ upsertRows(source, data.saved_items, Object.assign({reason:'applyResponseRows-saved-items'}, opts||{})); return true; }
+    if(Array.isArray(data.items) && !data.items_are_delta && !data.delta_items && !data.changed_items){ setRows(source, data.items, Object.assign({reason:'applyResponseRows-items'}, opts||{})); return true; }
     return false;
   }
   async function getTodayWithUnplaced(){
@@ -283,6 +287,28 @@
     return null;
   }
 
+  function isMutatingApi(url, opt){
+    try{
+      const u = new URL(String(url || ''), location.origin);
+      const m = String((opt && opt.method) || 'GET').toUpperCase();
+      return u.origin === location.origin && /^\/api\//.test(u.pathname) && m !== 'GET' && m !== 'HEAD';
+    }catch(_e){ return false; }
+  }
+  async function resilientMutatingRequest(original, input, init, url, opt){
+    try{
+      return await original(input, init);
+    }catch(err){
+      try{
+        if(isMutatingApi(url, opt) && window.YXBackgroundSave && typeof window.YXBackgroundSave.enqueue === 'function'){
+          const queued = window.YXBackgroundSave.enqueue(url, (function(){try{return JSON.parse(opt.body||'{}');}catch(_e){return opt.body||{};}})(), {method:opt.method || 'POST', headers:opt.headers || {'Content-Type':'application/json'}, reason:'v483-network-fallback-queue'});
+          const payload = {success:false, queued:true, background_saved:true, error:'網路中斷，已加入背景儲存佇列，下次開啟會繼續送出。', queue_item_id:queued && queued.id, version:VERSION};
+          const res = makeJsonResponse(payload);
+          if(res) return res;
+        }
+      }catch(_e){}
+      throw err;
+    }
+  }
   async function requestResponse(input, init){
     let url=''; let opt=init || {};
     try{
@@ -300,7 +326,7 @@
     }catch(_e){}
     const original = (window.fetch && window.fetch.__yxOriginalFetch) ? window.fetch.__yxOriginalFetch.bind(window) : (window.fetch ? window.fetch.bind(window) : null);
     if(!original) throw new Error('瀏覽器不支援網路請求');
-    return original(input, init);
+    return resilientMutatingRequest(original, input, init, url, opt || {});
   }
   async function requestJson(url, opt){
     opt = opt || {};
@@ -338,7 +364,7 @@
             }
           }
         }catch(_e){}
-        return original(input, init);
+        return resilientMutatingRequest(original, input, init, url, opt || {});
       };
       bridged.__yxDataSpineFetchV480 = true;
       bridged.__yxOriginalFetch = original;

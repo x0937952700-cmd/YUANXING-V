@@ -3729,7 +3729,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
-    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden';
+    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu yx-v483-centered-action-sheet hidden';
     m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button><button type="button" data-wh-close="1" class="yx-wh-menu-close">關閉選單</button>';
     // V126：只保留 document click 單一路徑執行選單動作；避免 pointerup+click 雙重觸發造成後端操作被鎖或重複。
     const stopMenuBubble=(ev)=>{ if(ev.target?.closest?.('[data-wh-act]')){ try{ ev.stopPropagation(); }catch(_e){} } };
@@ -3801,10 +3801,10 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     m.setAttribute('role','menu');
     m.setAttribute('aria-hidden','false');
     const p=normalizeWarehouseMenuCoords(x,y);
-    const mw=Math.min(280, Math.max(220, p.vw-16));
-    const mh=Math.min(390, Math.max(300, p.vh-16));
-    const px=Math.max(8, Math.min(p.x, p.vw-mw-8));
-    const py=Math.max(8, Math.min(p.y, p.vh-mh-8));
+    const mw=Math.min(360, Math.max(280, p.vw-40));
+    const mh=Math.min(520, Math.max(340, p.vh-80));
+    const px=Math.round((p.vw-mw)/2);
+    const py=Math.round((p.vh-mh)/2);
     m.classList.remove('hidden');
     m.dataset.open='1';
     m.style.setProperty('position','fixed','important');
@@ -3817,8 +3817,9 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     m.style.maxWidth=mw+'px';
     m.style.maxHeight=mh+'px';
     m.style.overflow='auto';
-    m.style.left=px+'px';
-    m.style.top=py+'px';
+    m.style.left='50%';
+    m.style.top='50%';
+    m.style.transform='translate(-50%,-50%)';
     try{ m.querySelector('[data-wh-act="open"]')?.focus?.({preventScroll:true}); }catch(_e){}
     state.activeMenuKey=mk; state.menuOpenedAt=Date.now();
     state.longpressOpenSeq=Number(state.longpressOpenSeq||0)+1;
@@ -3838,7 +3839,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
             mm.style.setProperty('visibility','visible','important');
             mm.style.setProperty('opacity','1','important');
             mm.style.setProperty('pointer-events','auto','important');
-            mm.style.left=repairLeft; mm.style.top=repairTop;
+            mm.style.left='50%'; mm.style.top='50%'; mm.style.transform='translate(-50%,-50%)';
           }
         }catch(_e){}
       }, delay));

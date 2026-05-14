@@ -1,8 +1,8 @@
-/* V480 regression guard: prevents old empty-overwrite / timeout-wash regressions. No polling, no MutationObserver. */
+/* V483 regression guard: prevents old empty-overwrite / timeout-wash regressions. No polling, no MutationObserver. */
 (function(){
   'use strict';
-  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v481-deploy-regression-verify-pass18') return;
-  const VERSION = 'v481-deploy-regression-verify-pass18';
+  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v484-speed-persist-diag-final-patch') return;
+  const VERSION = 'v484-speed-persist-diag-final-patch';
   const KEY = 'yx_regression_guard_events_v480';
   const MAX = 80;
   const clean = v => String(v == null ? '' : v).slice(0, 1200);

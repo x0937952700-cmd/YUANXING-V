@@ -1,8 +1,8 @@
-/* V480 predeploy mutation bus audit: write-path consistency for inventory/orders/master/shipping/warehouse/today. No renderer, no interval, no observer, no cache-core change. */
+/* V483 predeploy mutation bus audit: write-path consistency for inventory/orders/master/shipping/warehouse/today. No renderer, no interval, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if(window.YXMutationBus && window.YXMutationBus.version === 'v481-deploy-regression-verify-pass18') return;
-  const VERSION='v481-deploy-regression-verify-pass18';
+  if(window.YXMutationBus && window.YXMutationBus.version === 'v484-speed-persist-diag-final-patch') return;
+  const VERSION='v484-speed-persist-diag-final-patch';
   const clean=v=>String(v==null?'':v).replace(/[\u3000\s]+/g,' ').trim();
   const clone=v=>{try{return JSON.parse(JSON.stringify(v));}catch(_e){return v;}};
   const normSource=s=>{s=clean(s); if(['master','master_orders','總單'].includes(s))return'master_order'; if(['order','訂單'].includes(s))return'orders'; if(['庫存'].includes(s))return'inventory'; if(['ship','shipping','出貨'].includes(s))return'ship'; return s;};

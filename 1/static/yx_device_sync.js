@@ -1,10 +1,10 @@
-/* V480 device sync predeploy final audit: full authoritative sync + datastore bridge + empty-overwrite guard. No yx_cache/yx_core edits, no timers/observers. */
+/* V483 device sync predeploy final audit: full authoritative sync + datastore bridge + empty-overwrite guard. No yx_cache/yx_core edits, no timers/observers. */
 (function(){
   'use strict';
   if (window.__YX_DEVICE_SYNC_V480__) return;
   window.__YX_DEVICE_SYNC_V480__ = true;
 
-  const VERSION = 'v481-deploy-regression-verify-pass18';
+  const VERSION = 'v484-speed-persist-diag-final-patch';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
@@ -141,7 +141,7 @@
     try{
       if (!data || !Array.isArray(data.cells)) return;
       const keys = [
-        'yx_warehouse_cache_v481-deploy-regression-verify-pass18',
+        'yx_warehouse_cache_v484-speed-persist-diag-final-patch',
         'yx_warehouse_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_cache_' + VERSION,
         'yx_warehouse_cache_v463-data-spine-100pct-pass1',
@@ -163,7 +163,7 @@
     try{
       if (!data) return;
       const keys = [
-        'yx_warehouse_available_cache_v481-deploy-regression-verify-pass18',
+        'yx_warehouse_available_cache_v484-speed-persist-diag-final-patch',
         'yx_warehouse_available_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_available_cache_' + VERSION,
         'yx_warehouse_available_cache_v463-data-spine-100pct-pass1',

@@ -8,9 +8,9 @@ import re, sys, ast
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18'
-VERSION_STATIC='119-v481_deploy_regression_verify_pass18'
-VERSION_JS='v481-deploy-regression-verify-pass18'
+VERSION_APP='V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH'
+VERSION_STATIC='119-v484_speed_persist_diag_final_patch'
+VERSION_JS='v484-speed-persist-diag-final-patch'
 
 def read(rel):
     p=root/rel
@@ -82,7 +82,7 @@ for old in ['__yxMutationBusV471','__yxMutationBusV472','__yxMutationBusV473']:
         fail.append(f'yx_mutation_bus.js still has stale flag {old}')
 
 sync=read('static/yx_device_sync.js')
-for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v481-deploy-regression-verify-pass18', 'yx_warehouse_available_cache_v481-deploy-regression-verify-pass18']:
+for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v484-speed-persist-diag-final-patch', 'yx_warehouse_available_cache_v484-speed-persist-diag-final-patch']:
     has(sync, token, 'yx_device_sync.js sync token')
 for key in ['inventory','orders','master_order','customers','warehouse','warehouse_available','shipping_records','today_changes','todos']:
     if f"key:'{key}'" not in sync and f'key:"{key}"' not in sync:
@@ -90,7 +90,7 @@ for key in ['inventory','orders','master_order','customers','warehouse','warehou
 
 # Service worker API bypass must occur before cache respondWith.
 sw=read('static/service-worker.js')
-has(sw, 'yuanxing-v481-static-css-icons', 'service-worker cache version')
+has(sw, 'yuanxing-v483-static-css-icons', 'service-worker cache version')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos < 0:
@@ -99,7 +99,7 @@ elif rw_pos >= 0 and api_pos > rw_pos:
     fail.append('service-worker /api bypass must be before respondWith')
 
 manifest=read('static/manifest.webmanifest')
-has(manifest, '119-v481-deploy-regression-verify-pass18', 'manifest version')
+has(manifest, '119-v484-speed-persist-diag-final-patch', 'manifest version')
 
 # Page-level regression checks: critical pages must either reference YXDataStore directly or be protected by bridges loaded before pages.
 critical_pages=['inventory_page.js','product_page_core.js','shipping_page.js','today_changes_page.js','warehouse_page.js','home_page.js']

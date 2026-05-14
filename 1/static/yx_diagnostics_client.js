@@ -1,8 +1,8 @@
-/* V480 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
+/* V483 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
 (function(){
   'use strict';
-  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v481-deploy-regression-verify-pass18') return;
-  const VERSION = 'v481-deploy-regression-verify-pass18';
+  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v484-speed-persist-diag-final-patch') return;
+  const VERSION = 'v484-speed-persist-diag-final-patch';
   const MAX_LOCAL = 80;
   const KEY = 'yx_diagnostics_recent_errors_v480';
   const nowIso = () => new Date().toISOString();
@@ -69,10 +69,17 @@
       });
     };
   }
+
+  function formatSyncTime(v){
+    const n = Number(v || 0);
+    if(!n) return '';
+    try { return new Date(n).toLocaleString('zh-TW', {hour12:false}); } catch(_e) { return String(v || ''); }
+  }
+
   async function snapshot(){
     const out = {version:VERSION, app_version:window.__YX_APP_VERSION__||'', static_version:window.__YX_STATIC_VERSION__||'', page:location.pathname, module:document.body?.dataset?.module||'', last_errors:readLocal(), regression_guard_events:(window.YXRegressionGuard?.recent?.() || []), regression_guard_self_check:(window.YXRegressionGuard?.runSelfCheck?.() || null), sync:{}, local_counts:{}};
-    try { out.sync.last_success_at = localStorage.getItem('yx_device_sync_last_success_at') || ''; } catch(_e){}
-    try { out.sync.auto_enabled = localStorage.getItem('yx_device_sync_auto_enabled') || ''; } catch(_e){}
+    try { const raw = localStorage.getItem('yx_device_sync_last_success_at') || ''; out.sync.last_success_at = raw; out.sync.last_success_display = formatSyncTime(raw) || raw; } catch(_e){}
+    try { const a = JSON.parse(localStorage.getItem('yx_device_sync_v453_auto') || 'null') || {}; out.sync.auto_enabled = a.enabled ? '1' : ''; out.sync.auto_next = a.next_run_at || ''; } catch(_e){ try { out.sync.auto_enabled = localStorage.getItem('yx_device_sync_auto_enabled') || ''; } catch(__e){} }
     try{
       if(window.YXDataStore){
         const sources = ['inventory','orders','master_order'];

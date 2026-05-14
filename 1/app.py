@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18'
-STATIC_VERSION = '119-v481_deploy_regression_verify_pass18'
-API_SCHEMA_VERSION = 'v462-data_spine_real_fix'
+APP_VERSION = 'V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH'
+STATIC_VERSION = '119-v484_speed_persist_diag_final_patch'
+API_SCHEMA_VERSION = 'v484-speed-persist-diag-final-patch'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -2295,7 +2295,7 @@ def api_inventory():
     audit_service_safe_side_effect('notify_inventory', notify_sync_event, kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
     _clear_product_fast_cache()
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('inventory', customer_name, extra={'count': len(items), 'v452_persist': locals().get('v452_persist')}))
+        return jsonify(_yx145_write_payload('inventory', customer_name, extra={'count': len(items), 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'inventory'}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_inventory', product_service_exact_customer_rows, 'inventory', customer_name) or []
     try:
@@ -2472,7 +2472,7 @@ def api_orders():
     except Exception:
         pass
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('orders', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist')}))
+        return jsonify(_yx145_write_payload('orders', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'orders'}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_orders', product_service_exact_customer_rows, 'orders', customer_name) or []
     try:
@@ -2535,7 +2535,7 @@ def api_master_orders():
     except Exception:
         pass
     if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('master_order', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist')}))
+        return jsonify(_yx145_write_payload('master_order', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'master_order'}))
     payload = product_service_response_payload(customer_name)
     exact = audit_service_safe_side_effect('exact_master_orders', product_service_exact_customer_rows, 'master_orders', customer_name) or []
     try:
@@ -3796,6 +3796,113 @@ def _warehouse_cell_items_for_count(cell):
 def warehouse_v432_api_display_parser_lock_version():
     return 'v457-final_verify_sync_speed_warehouse'
 
+
+# V484: fast server-side warehouse diagnostics/cache helpers.
+# These do not change the client cache architecture; they prevent diagnostics and normal page checks
+# from triggering the old expensive raw-cell sweep unless a real device sync / DB-only read asks for it.
+def _yx484_json_setting(key, default=None):
+    try:
+        raw = get_setting(key, '')
+        if raw:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return default
+
+def _yx484_set_json_setting(key, value):
+    try:
+        set_setting(key, json.dumps(value or {}, ensure_ascii=False, default=str))
+    except Exception as e:
+        try: log_error('yx484_set_json_setting_' + str(key)[:40], str(e))
+        except Exception: pass
+
+def _yx484_warehouse_cache_key(kind='warehouse', zone='ALL'):
+    return 'yx484_' + kind + '_' + API_SCHEMA_VERSION + '_' + (zone or 'ALL')
+
+def _yx484_is_light_request():
+    try:
+        return str(request.args.get('summary') or request.args.get('diag_light') or request.args.get('light') or '').lower() in ('1','true','yes','on')
+    except Exception:
+        return False
+
+def _yx484_is_real_sync_request():
+    try:
+        return str(request.args.get('yx_device_sync') or '') == '1' or str(request.args.get('sync_full') or '') == '1'
+    except Exception:
+        return False
+
+def _yx484_cached_warehouse_payload(max_age_seconds=86400):
+    try:
+        cached = _warehouse_cache_get(max_age_seconds)
+        if cached:
+            cached['server_cache'] = True
+            cached['yx484_fast_cache'] = True
+            cached['cache_bust'] = API_SCHEMA_VERSION
+            cached['sync_version'] = API_SCHEMA_VERSION
+            return cached
+    except Exception:
+        pass
+    payload = _yx484_json_setting(_yx484_warehouse_cache_key('warehouse','ALL'), None)
+    if isinstance(payload, dict):
+        payload['server_cache'] = True
+        payload['yx484_setting_cache'] = True
+        payload['cache_bust'] = API_SCHEMA_VERSION
+        payload['sync_version'] = API_SCHEMA_VERSION
+        return payload
+    return None
+
+def _yx484_store_warehouse_payload(payload):
+    try:
+        if isinstance(payload, dict) and (payload.get('cells') or payload.get('zones')):
+            _warehouse_cache_set(payload)
+            _yx484_set_json_setting(_yx484_warehouse_cache_key('warehouse','ALL'), payload)
+    except Exception as e:
+        try: log_error('yx484_store_warehouse_payload', str(e))
+        except Exception: pass
+
+def _yx484_cached_available_payload(zone='', max_age_seconds=86400):
+    z = (zone or 'ALL') or 'ALL'
+    try:
+        ck = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=z, user=current_username())
+        cached = _fast_cache_get(ck, float(max_age_seconds))
+        if cached:
+            cached['server_cache'] = True
+            cached['yx484_fast_cache'] = True
+            cached['cache_bust'] = API_SCHEMA_VERSION
+            cached['sync_version'] = API_SCHEMA_VERSION
+            return cached
+    except Exception:
+        pass
+    payload = _yx484_json_setting(_yx484_warehouse_cache_key('warehouse_available', z), None)
+    if isinstance(payload, dict):
+        payload['server_cache'] = True
+        payload['yx484_setting_cache'] = True
+        payload['cache_bust'] = API_SCHEMA_VERSION
+        payload['sync_version'] = API_SCHEMA_VERSION
+        return payload
+    return None
+
+def _yx484_store_available_payload(zone, payload):
+    z = (zone or 'ALL') or 'ALL'
+    try:
+        if isinstance(payload, dict):
+            ck = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=z, user=current_username())
+            _fast_cache_set(ck, payload)
+            _yx484_set_json_setting(_yx484_warehouse_cache_key('warehouse_available', z), payload)
+    except Exception as e:
+        try: log_error('yx484_store_available_payload', str(e))
+        except Exception: pass
+
+def _yx484_available_light_payload(zone_filter=''):
+    cached = _yx484_cached_available_payload(zone_filter or 'ALL', 86400)
+    if cached:
+        items = cached.get('items') if isinstance(cached.get('items'), list) else []
+        summary = cached.get('zone_summary') or {}
+        return dict(success=True, items=items[:80], zone=zone_filter or '', zone_summary=summary, total=len(items), light=True, yx484_light=True, from_cached_full=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
+    summary_light = _warehouse_available_light_summary()
+    total = int(summary_light.get('unplaced_total') or 0)
+    return dict(success=True, items=[], zone=zone_filter or '', zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': total}, summary=summary_light, total=0, light=True, yx484_light=True, degraded=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
+
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
 @login_required_json
@@ -3803,8 +3910,14 @@ def api_warehouse():
     try:
         include_source = request.args.get('include_source_qty') == '1'
         force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
-        if not include_source and not force_fresh:
-            cached = _warehouse_cache_get()
+        real_sync = _yx484_is_real_sync_request()
+        if _yx484_is_light_request():
+            cached_light = _yx484_cached_warehouse_payload(86400)
+            if cached_light:
+                return jsonify(cached_light)
+            return jsonify(success=True, cells=[], zones={"A":{},"B":{}}, light=True, yx484_light=True, preserve_client_cache=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
+        if not include_source and (not force_fresh or not real_sync):
+            cached = _yx484_cached_warehouse_payload(86400)
             if cached:
                 try:
                     cached_total = int(cached.get('warehouse_item_total') or _warehouse_payload_item_total(cached.get('cells') or [])[0] or 0)
@@ -3822,11 +3935,11 @@ def api_warehouse():
         payload['force_fresh'] = bool(force_fresh)
         payload['cache_bust'] = API_SCHEMA_VERSION
         payload['sync_version'] = API_SCHEMA_VERSION
-        if not include_source and not force_fresh:
-            # V432: keep server fast cache, but never write an empty warehouse payload over a potentially valid DB/client view.
+        if not include_source:
+            # V484: persist latest good warehouse payload in both memory and app_settings so diagnostics/page-open never need a raw sweep.
             try:
-                if int(payload.get('warehouse_item_total') or 0) > 0:
-                    _warehouse_cache_set(payload)
+                if int(payload.get('warehouse_item_total') or _warehouse_payload_item_total(payload.get('cells') or [])[0] or 0) > 0:
+                    _yx484_store_warehouse_payload(payload)
             except Exception:
                 pass
         return jsonify(payload)
@@ -4365,13 +4478,17 @@ def api_warehouse_available_items():
         if zone_filter not in ("A", "B"):
             zone_filter = ""
         force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
+        real_sync = _yx484_is_real_sync_request()
+        if _yx484_is_light_request():
+            return jsonify(_yx484_available_light_payload(zone_filter))
         cache_key = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=zone_filter or 'ALL', user=current_username())
-        if request.args.get('fast') == '1' and not force_fresh:
-            cached = _fast_cache_get(cache_key, 120.0)
+        if not force_fresh or not real_sync:
+            cached = _yx484_cached_available_payload(zone_filter or 'ALL', 86400)
             if cached:
                 cached['server_cache'] = True
                 cached['cache_bust'] = API_SCHEMA_VERSION
                 cached['sync_version'] = API_SCHEMA_VERSION
+                cached['fast_cached_response'] = True
                 return jsonify(cached)
         items, zone_summary = _warehouse_unplaced_snapshot(zone_filter)
         # If a caller asks for only A/B rows, still return the full A/B/unassigned summary
@@ -4385,8 +4502,8 @@ def api_warehouse_available_items():
                 try: log_error('warehouse_available_full_summary_v423', str(_summary_err))
                 except Exception: pass
         payload = dict(success=True, items=items, zone=zone_filter, zone_summary=zone_summary, cache_version=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, force_fresh=bool(force_fresh))
-        if request.args.get('fast') == '1' and not force_fresh:
-            _fast_cache_set(cache_key, payload)
+        # V484: store both force sync and normal results for fast later page/diagnostic reads.
+        _yx484_store_available_payload(zone_filter or 'ALL', payload)
         return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))

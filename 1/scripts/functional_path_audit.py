@@ -11,9 +11,9 @@ import ast, re, sys
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18'
-VERSION_STATIC='119-v481_deploy_regression_verify_pass18'
-VERSION_JS='v481-deploy-regression-verify-pass18'
+VERSION_APP='V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH'
+VERSION_STATIC='119-v484_speed_persist_diag_final_patch'
+VERSION_JS='v484-speed-persist-diag-final-patch'
 
 def read(rel):
     p=root/rel
@@ -136,7 +136,7 @@ for bad in ['renderWarehouse(true)','loadAvailable(true)','force:true','force: t
 
 # Service worker/PWA: API must not be cached.
 sw=read('static/service-worker.js')
-must(sw, 'yuanxing-v481-static-css-icons', 'static/service-worker.js')
+must(sw, 'yuanxing-v483-static-css-icons', 'static/service-worker.js')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos<0: fail.append('service-worker missing /api bypass')

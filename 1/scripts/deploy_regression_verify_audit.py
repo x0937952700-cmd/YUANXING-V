@@ -14,7 +14,7 @@ def read(rel):
 app=read('app.py')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
-for token in ['V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18','regression_guard_rules','today_count_badge_same_source','warehouse_timeout_must_not_clear_local_rows','shipping_preview_must_render_feedback','customer_counts_rows_authoritative']:
+for token in ['V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH','regression_guard_rules','today_count_badge_same_source','warehouse_timeout_must_not_clear_local_rows','shipping_preview_must_render_feedback','customer_counts_rows_authoritative']:
     if token not in app:
         fail.append(f'app.py missing regression export token: {token}')
 

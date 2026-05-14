@@ -65,7 +65,7 @@
     <div id="inventory-inline-panel" class="result-card inventory-inline-panel yx-html-direct-product-shell" data-html-direct-shell>
       <div class="section-head inventory-inline-head">
         <h3>庫存清單</h3>
-        <span class="muted">固定 HTML 表格：送出後直接更新；批量動作用單次 API。</span>
+        <span class="muted">固定 HTML 表格：送出後直接更新，背景持續儲存。</span>
       </div>
       <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
         <div class="yx114-toolbar-main"></div>
@@ -78,8 +78,6 @@
             <option value="">批量增加材質</option><option>TD</option><option>MER</option><option>DF</option><option>SP</option><option>SPF</option><option>HF</option><option>RDT</option><option>尤加利</option><option>LVL</option>
           </select>
           <button class="ghost-btn small-btn" type="button" data-yx113-batch-material="inventory">套用材質</button>
-          <button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="inventory">批量刪除</button>
-          <button class="ghost-btn small-btn" type="button" data-yx128-edit-all="inventory">批量編輯全部</button>
         </div>
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
@@ -95,7 +93,7 @@
   <section class="subsection yx-html-direct-product-shell" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>訂單清單</h3>
-      <span class="muted">固定 HTML 表格：批量動作用單次 API；批量編輯後一次儲存。</span>
+      <span class="muted">固定 HTML 表格：送出後立即顯示，背景持續儲存。</span>
     </div>
     <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
@@ -118,7 +116,7 @@
   <section class="subsection yx-html-direct-product-shell" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>總單清單</h3>
-      <span class="muted">固定 HTML 表格：批量動作用單次 API；批量編輯後一次儲存。</span>
+      <span class="muted">固定 HTML 表格：送出後立即顯示，背景持續儲存。</span>
     </div>
     <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>

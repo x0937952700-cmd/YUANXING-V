@@ -14,8 +14,8 @@ import argparse, json, sys, time, urllib.error, urllib.request
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V481-DEPLOY-REGRESSION-VERIFY-PASS18"
-EXPECTED_STATIC_VERSION = "119-v481_deploy_regression_verify_pass18"
+EXPECTED_APP_VERSION = "V119-V484-SPEED-PERSIST-DIAG-FINAL-PATCH"
+EXPECTED_STATIC_VERSION = "119-v484_speed_persist_diag_final_patch"
 
 PUBLIC_PATHS = ["/health", "/api/health"]
 PROTECTED_PATHS = [
@@ -177,7 +177,7 @@ def main() -> int:
     ap.add_argument("base_url")
     ap.add_argument("--username", default="")
     ap.add_argument("--password", default="")
-    ap.add_argument("--strict-version", action="store_true", help="fail if version is not exactly v481")
+    ap.add_argument("--strict-version", action="store_true", help="fail if version is not exactly v483")
     ap.add_argument("--strict-regression", action="store_true", help="fail on count/badge regression mismatches instead of warning")
     args = ap.parse_args()
     base = args.base_url.rstrip("/")
