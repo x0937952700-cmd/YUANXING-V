@@ -3,7 +3,7 @@
 (function(){
   'use strict';
   const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v485_restore_buttons_realtime_ship_wh';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v486_deep_diag_real_issue_detect';
   root.enabled = true;
   root.policy = 'static-css-icons-only-no-api-cache';
   async function register(){

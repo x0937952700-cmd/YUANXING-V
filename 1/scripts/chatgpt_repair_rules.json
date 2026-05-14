@@ -15,7 +15,10 @@
     "Warehouse placed/unplaced items must share the same unique item key to prevent duplicates or wrong slots.",
     "Run audits and syntax checks before claiming completion.",
     "V485: When user references 圖一/圖二/圖三, change only that shown area; never globally hide/remove same-name buttons elsewhere.",
-    "V485: Before removing a button, verify page/module/container/selector and ensure unrelated pages still keep their buttons."
+    "V485: Before removing a button, verify page/module/container/selector and ensure unrelated pages still keep their buttons.",
+    "V486: Diagnostics must not report normal just because endpoints return 200; it must classify recent client/server errors and slow APIs.",
+    "V486: Diagnostics must include a main issue list with severity for slow APIs, failed APIs, JS exceptions, regression guard events, missing routes, and missing button/event paths.",
+    "V486: Diagnostics must not automatically click destructive business buttons; destructive flows require user testing or a dedicated safe test mode."
   ],
   "required_audits": [
     "python scripts/static_data_spine_audit.py",
@@ -35,6 +38,8 @@
     "No old version should override the new UI causing page jumps."
   ],
   "must_check_after_repair": [
-    "V485: Check inventory/orders/master_order batch delete and batch edit buttons still exist unless the user explicitly asked to remove them from that exact page."
+    "V485: Check inventory/orders/master_order batch delete and batch edit buttons still exist unless the user explicitly asked to remove them from that exact page.",
+    "V486: Run diagnostics export and verify issue_summary exists and includes recent_errors / endpoint_checks / action_audit.",
+    "V486: If diagnostics recent_errors contains slow/fetch failed/timeout, the UI must show an issue, not “no major abnormal”."
   ]
 }

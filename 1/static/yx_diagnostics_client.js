@@ -1,8 +1,8 @@
 /* V483 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
 (function(){
   'use strict';
-  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v485-restore-buttons-realtime-ship-wh') return;
-  const VERSION = 'v485-restore-buttons-realtime-ship-wh';
+  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v486-deep-diag-real-issue-detect') return;
+  const VERSION = 'v486-deep-diag-real-issue-detect';
   const MAX_LOCAL = 80;
   const KEY = 'yx_diagnostics_recent_errors_v480';
   const nowIso = () => new Date().toISOString();

@@ -201,3 +201,9 @@ python -m zipfile -t 你的輸出檔.zip
 - 修復前必須先確認：該按鈕在哪個頁面、哪個容器、哪個 selector；修復只限那個 selector。
 - 修完必須檢查：庫存、訂單、總單、出貨、倉庫圖原本正常按鈕仍存在。
 - 診斷報告若顯示正常，但使用者實測失敗，必須以使用者實測流程為準，補強診斷規則，不能只說報告正常。
+
+## V486 追加硬規則：診斷不能只看 API 200
+- 診斷若近期錯誤紀錄中有 `api.fetch_failed`、`api.slow_or_error`、`statement timeout`、`SSL connection has been closed unexpectedly`、`unhandledrejection`、`regression_guard`，就必須在「主要異常清單」明確列出。
+- 不准因為 `/api/health` 或 `/api/diagnostics/summary` 回 200 就顯示「沒有主要異常」。
+- 診斷必須同時檢查：本機錯誤、伺服器 recent_errors、必要 API route、核心按鈕/事件對應、資料保存主線。
+- 診斷不應自動點擊會新增/刪除/出貨/入倉的破壞性按鈕；若需要真實操作測試，必須明確標示為「需使用者實測」。

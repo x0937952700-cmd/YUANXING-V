@@ -36,9 +36,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V485-RESTORE-BUTTONS-REALTIME-SHIP-WH'
-STATIC_VERSION = '119-v485_restore_buttons_realtime_ship_wh'
-API_SCHEMA_VERSION = 'v485-restore-buttons-realtime-ship-wh'
+APP_VERSION = 'V119-V486-DEEP-DIAG-REAL-ISSUE-DETECT'
+STATIC_VERSION = '119-v486_deep_diag_real_issue_detect'
+API_SCHEMA_VERSION = 'v486-deep-diag-real-issue-detect'
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -6314,7 +6314,7 @@ def api_diagnostics_summary():
             'shipping_preview_must_render_feedback': True,
             'customer_counts_rows_authoritative': True,
             'old_v452_patch_must_not_load': True,
-            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/export'],
+            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/action-audit','/api/diagnostics/export'],
         },
         'checked_at': now(),
     }
@@ -6326,7 +6326,7 @@ def api_diagnostics_summary():
             out['warnings'].append('資料庫診斷失敗：' + str(e)[:240])
         try:
             route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-            for rr in ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/client-log','/api/diagnostics/export']:
+            for rr in ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/client-log','/api/diagnostics/action-audit','/api/diagnostics/export']:
                 out['routes'][rr] = rr in route_rules
         except Exception as e:
             out['warnings'].append('route 檢查失敗：' + str(e)[:240])
@@ -6346,6 +6346,83 @@ def api_diagnostics_summary():
     except Exception as e:
         return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
 
+
+
+@app.route('/api/diagnostics/action-audit', methods=['GET'])
+@login_required_json
+def api_diagnostics_action_audit():
+    """V486 read-only deep action/flow audit. It checks mappings and recent failures; it never presses destructive buttons or mutates business data."""
+    checks = []
+    issues = []
+    def add_check(name, ok, detail=''):
+        checks.append({'name': name, 'ok': bool(ok), 'detail': str(detail)[:1000]})
+        if not ok:
+            issues.append({'severity': 'error', 'title': name, 'detail': str(detail)[:1000]})
+    def warn(title, detail=''):
+        issues.append({'severity': 'warn', 'title': title, 'detail': str(detail)[:1000]})
+    def crit(title, detail=''):
+        issues.append({'severity': 'critical', 'title': title, 'detail': str(detail)[:1000]})
+    def read_file(rel):
+        try:
+            return (BASE_DIR / rel).read_text(encoding='utf-8', errors='ignore')
+        except Exception:
+            return ''
+    try:
+        route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
+        required_routes = ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/customer-items/batch-delete','/api/ship/preview','/api/ship','/api/shipping','/api/warehouse','/api/warehouse/cell','/api/warehouse/batch-add-slots','/api/warehouse/available-items','/api/diagnostics/action-audit','/api/diagnostics/export']
+        for rr in required_routes:
+            add_check('必要 API route：' + rr, rr in route_rules, '缺少 route 會造成按鍵按了沒反應或無法保存。')
+
+        product_js = read_file('static/yx_pages/product_page_core.js')
+        shipping_js = read_file('static/yx_pages/shipping_page.js')
+        warehouse_js = read_file('static/yx_pages/warehouse_page.js')
+        diag_js = read_file('static/yx_pages/diagnostics_page.js')
+        base_html = read_file('templates/base.html')
+        rules_md = read_file('00_CHATGPT_MUST_READ_BEFORE_REPAIR.md')
+        rules_json = read_file('scripts/chatgpt_repair_rules.json')
+
+        add_check('庫存/訂單/總單批量刪除按鈕存在', 'data-yx113-batch-delete' in product_js and '批量刪除' in product_js, '使用者要求保留，不可全域移除。')
+        add_check('庫存/訂單/總單批量編輯按鈕存在', 'data-yx128-edit-all' in product_js and '批量編輯全部' in product_js, '使用者要求保留，不可全域移除。')
+        add_check('訂單/總單新增後北區客戶卡即時顯示主線', 'forceCustomerCardVisible' in product_js and 'renderFromCurrentRows' in product_js and 'YXDataStore' in product_js, '缺少會造成送出後北中南區不立即顯示客戶。')
+        add_check('訂單/總單送出背景保存主線', 'YXBackgroundSave' in product_js and '/api/orders' in product_js and '/api/master_orders' in product_js, '缺少會造成刷新/切頁後新商品消失。')
+        add_check('出貨客戶來源合併訂單+總單', 'localSyncedCustomers' in shipping_js and 'readDeviceProductRows' in shipping_js and 'master_order' in shipping_js and 'orders' in shipping_js, '缺少會造成出貨頁北中南沒有訂單+總單所有客戶。')
+        add_check('出貨商品點客戶立即讀本機 rows', 'localSyncedItemsForCustomer' in shipping_js and 'hydrateShipRowsFromDb' in shipping_js, '缺少會造成點客戶後商品載入很久。')
+        add_check('出貨預覽必有回饋', 'renderPreview' in shipping_js and '建立中' in shipping_js and '/api/ship/preview' in shipping_js, '缺少會造成確認出貨像沒反應。')
+        add_check('倉庫長按選單置中且點選後關閉', 'yx-v485-centered-action-sheet' in warehouse_js and 'hideWarehouseMenu' in warehouse_js and 'executeWarehouseMenuAction' in warehouse_js, '缺少會造成選單不關閉或還像下拉選單。')
+        add_check('倉庫批量新增格子有本機先顯示與背景保存', 'batch-add-slots' in warehouse_js and 'queuedWarehousePost' in warehouse_js and 'cacheWarehouseNow' in warehouse_js and 'bumpColumnLocalRevision' in warehouse_js, '缺少會造成成功後又回復原樣。')
+        add_check('診斷會列主要異常，不只顯示正常', '主要異常清單' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js, '缺少會漏報慢 API/失敗 API。')
+        add_check('診斷頁不在首頁亂放，應從設定進入', '/diagnostics' in read_file('static/yx_pages/settings_page.js') and '系統診斷' in read_file('static/yx_pages/settings_page.js'), '使用者要求診斷功能放到設定裡。')
+        add_check('不載入舊 v452 補丁', 'yx_v452_max_repair' not in base_html, '舊補丁載入會覆蓋新版、造成頁面亂跳。')
+        add_check('修復規則寫入：只改指定圖，不動未壞功能', ('只改指定' in rules_md or '圖幾' in rules_md) and ('only_targeted_area' in rules_json or 'scope' in rules_json), '使用者要求之後說圖幾只改圖幾。')
+
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
+            cols = [d[0] for d in cur.description]
+            recent = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.close()
+        except Exception as e:
+            recent = []
+            warn('讀取近期錯誤失敗', str(e))
+        slow_keys = []
+        fail_keys = []
+        for row in recent:
+            src = str(row.get('source') or '')
+            msg = str(row.get('message') or '')
+            combo = src + ' ' + msg
+            if 'api_slow_or_error' in src or 'slow_or_error' in msg or 'statement timeout' in msg or 'SSL connection' in msg:
+                slow_keys.append({'source': src, 'message': msg[:500], 'created_at': str(row.get('created_at') or '')})
+            if 'fetch_failed' in src or 'fetch_failed' in msg or 'unhandledrejection' in src or 'unhandledrejection' in msg:
+                fail_keys.append({'source': src, 'message': msg[:500], 'created_at': str(row.get('created_at') or '')})
+        if slow_keys:
+            sev = 'critical' if any(('warehouse' in (x['message']+x['source']).lower() or 'statement timeout' in x['message'].lower()) for x in slow_keys) else 'warn'
+            issues.append({'severity': sev, 'title': '近期仍有慢 API / DB timeout', 'detail': slow_keys[:12]})
+        if fail_keys:
+            issues.append({'severity': 'error', 'title': '近期仍有 API 失敗 / 前端 JS 失敗', 'detail': fail_keys[:12]})
+
+        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, checked_at=now(), checks=checks, issues=issues, summary={'checks': len(checks), 'failed_checks': len([c for c in checks if not c.get('ok')]), 'issues': len(issues), 'critical': len([i for i in issues if i.get('severity') == 'critical'])})
+    except Exception as e:
+        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
 
 @app.route('/api/diagnostics/export', methods=['GET'])
 @login_required_json
@@ -6373,7 +6450,7 @@ def api_diagnostics_export():
             'shipping_preview_must_render_feedback': True,
             'customer_counts_rows_authoritative': True,
             'old_v452_patch_must_not_load': True,
-            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/export'],
+            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/action-audit','/api/diagnostics/export'],
         },
     }
     try:
@@ -6384,7 +6461,7 @@ def api_diagnostics_export():
             report['warnings'].append('資料庫摘要失敗：' + str(e)[:300])
         try:
             route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-            important = ['/health','/api/health','/api/health/smoke','/api/health/api-schema','/api/health/event-flow','/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/shipping','/api/diagnostics/summary','/api/diagnostics/client-log','/api/diagnostics/export']
+            important = ['/health','/api/health','/api/health/smoke','/api/health/api-schema','/api/health/event-flow','/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/shipping','/api/diagnostics/summary','/api/diagnostics/client-log','/api/diagnostics/action-audit','/api/diagnostics/export']
             report['routes'] = {rr: (rr in route_rules) for rr in important}
         except Exception as e:
             report['warnings'].append('route 檢查失敗：' + str(e)[:300])
