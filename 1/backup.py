@@ -29,7 +29,7 @@ def backup_sqlite():
         target = _backup_filename("sqlite_backup", "db")
         shutil.copy2(db_path, target)
         _trim_backups("sqlite_backup")
-        return {"success": True, "type": "sqlite", "file": target, "filename": os.path.basename(target)}
+        return {"success": True, "type": "sqlite", "file": target}
     except Exception as e:
         log_error("backup_sqlite", str(e))
         return {"success": False, "error": str(e)}
@@ -41,29 +41,20 @@ def backup_postgres():
         tables = [
             "users", "customer_profiles", "inventory", "orders", "master_orders",
             "shipping_records", "corrections", "image_hashes", "logs", "errors", "warehouse_cells",
-            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails",
-            "operation_log", "warehouse_cell_items", "sync_events", "shipping_preview_snapshots", "today_changes"
+            "todo_items", "app_settings", "customer_aliases", "warehouse_recent_slots", "audit_trails"
         ]
         backup_data = {}
-        skipped = {}
         for table in tables:
-            try:
-                cur.execute(f"SELECT * FROM {table}")
-                cols = [d[0] for d in cur.description]
-                rows = cur.fetchall()
-                backup_data[table] = [dict(zip(cols, row)) for row in rows]
-            except Exception as e:
-                # V497: older DBs may not have every optional table. A missing optional table must not make backup fail.
-                skipped[table] = str(e)[:180]
-        try:
-            conn.close()
-        except Exception:
-            pass
+            cur.execute(f"SELECT * FROM {table}")
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+            backup_data[table] = [dict(zip(cols, row)) for row in rows]
+        conn.close()
         target = _backup_filename("postgres_backup", "json")
         with open(target, "w", encoding="utf-8") as f:
-            json.dump({"_meta": {"created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "skipped_tables": skipped}, **backup_data}, f, ensure_ascii=False, indent=2)
+            json.dump(backup_data, f, ensure_ascii=False, indent=2)
         _trim_backups("postgres_backup")
-        return {"success": True, "type": "postgres", "file": target, "filename": os.path.basename(target), "skipped_tables": skipped}
+        return {"success": True, "type": "postgres", "file": target}
     except Exception as e:
         log_error("backup_postgres", str(e))
         return {"success": False, "error": str(e)}
@@ -87,30 +78,7 @@ def list_backups():
                     "created_at": datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
                 })
         files.sort(key=lambda x: x["created_at"], reverse=True)
-        return {"success": True, "files": files, "items": files}
+        return {"success": True, "files": files}
     except Exception as e:
         log_error("list_backups", str(e))
-        return {"success": False, "files": [], "items": []}
-
-
-def verify_backup_file(filename):
-    """Validate a backup file without restoring it. Used by the commercial smoke-check flow."""
-    try:
-        safe_name = os.path.basename(str(filename or ''))
-        if not safe_name:
-            return {"success": False, "error": "missing filename"}
-        path = os.path.join(BACKUP_FOLDER, safe_name)
-        if not os.path.isfile(path):
-            return {"success": False, "error": "backup not found"}
-        if safe_name.endswith('.json'):
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            table_counts = {k: len(v) for k, v in data.items() if isinstance(v, list)}
-            required_any = any(k in table_counts for k in ("inventory", "orders", "master_orders", "warehouse_cells"))
-            return {"success": bool(required_any), "type": "postgres_json", "filename": safe_name, "tables": table_counts, "error": "backup has no known tables" if not required_any else ""}
-        if safe_name.endswith('.db'):
-            return {"success": True, "type": "sqlite_db", "filename": safe_name, "size": os.path.getsize(path)}
-        return {"success": False, "error": "unsupported backup type", "filename": safe_name}
-    except Exception as e:
-        log_error("verify_backup_file", str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "files": []}

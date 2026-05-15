@@ -1,0 +1,38 @@
+
+/* 520 精緻畫面整合：只補視覺質感，不接管 renderer；出貨頁維持「還完整」原版。 */
+:root{--yx-paper:#f7f3ed;--yx-card:rgba(255,255,255,.86);--yx-line:rgba(120,90,50,.16);--yx-ink:#2b2118;--yx-soft:#8a765f;--yx-accent:#7b4a26;}
+body:not([data-module="ship"]){background:linear-gradient(180deg,#fbf7f0 0%,#f4ede4 100%);color:var(--yx-ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Segoe UI",sans-serif;}
+body:not([data-module="ship"]) .page-shell{min-height:100vh;}
+body:not([data-module="ship"]) .glass,
+body:not([data-module="ship"]) .panel,
+body:not([data-module="ship"]) .table-card,
+body:not([data-module="ship"]) .empty-state-card,
+body:not([data-module="ship"]) .card{background:var(--yx-card);border:1px solid var(--yx-line);border-radius:18px;box-shadow:0 10px 28px rgba(80,54,28,.08);backdrop-filter:blur(10px);}
+body:not([data-module="ship"]) .primary-btn,
+body:not([data-module="ship"]) .menu-btn{border-radius:16px;box-shadow:0 8px 20px rgba(75,48,22,.14);transition:transform .12s ease,box-shadow .12s ease,filter .12s ease;}
+body:not([data-module="ship"]) .primary-btn:active,
+body:not([data-module="ship"]) .menu-btn:active,
+body:not([data-module="ship"]) button:active{transform:scale(.985);}
+body:not([data-module="ship"]) .ghost-btn,
+body:not([data-module="ship"]) .chip,
+body:not([data-module="ship"]) .tiny-btn{border-radius:999px;border:1px solid rgba(120,90,50,.14);background:rgba(255,255,255,.72);color:#3b2c1d;}
+body:not([data-module="ship"]) input,
+body:not([data-module="ship"]) select,
+body:not([data-module="ship"]) textarea{border-radius:14px;border:1px solid rgba(120,90,50,.18);background:rgba(255,255,255,.88);}
+body:not([data-module="ship"]) .section-title,
+body:not([data-module="ship"]) h1,
+body:not([data-module="ship"]) h2,
+body:not([data-module="ship"]) h3{letter-spacing:.02em;}
+body:not([data-module="ship"]) .mat-tag,
+body:not([data-module="ship"]) .material-tag{background:#e8f3e5;color:#2e6b3e;border-radius:999px;padding:3px 9px;font-weight:800;}
+body:not([data-module="ship"]) .danger-btn,
+body:not([data-module="ship"]) .danger-text{color:#b42318!important;}
+body:not([data-module="ship"]) .warehouse-cell.is-used,
+body:not([data-module="ship"]) [data-warehouse-cell].is-used{box-shadow:inset 0 0 0 2px rgba(42,111,151,.18),0 8px 20px rgba(42,111,151,.10);}
+body:not([data-module="ship"]) .yx-cache-save-status{position:fixed;right:12px;bottom:12px;z-index:9999;padding:6px 10px;border-radius:999px;background:rgba(43,33,24,.78);color:white;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.16);}
+@media (max-width:920px){body:not([data-module="ship"]) .btn-row{gap:8px;flex-wrap:wrap}body:not([data-module="ship"]) button{min-height:38px}body:not([data-module="ship"]) input,body:not([data-module="ship"]) select,body:not([data-module="ship"]) textarea{min-height:40px;font-size:16px}}
+
+/* v520 full-asset visual alignment: asset-backed premium background, ship page excluded. */
+body:not([data-module="ship"]){background-image:linear-gradient(180deg,rgba(251,247,240,.88),rgba(244,237,228,.92)),url('/static/yx_assets/yx_dream_starry_background.png');background-size:cover;background-attachment:fixed;background-position:center top;}
+body:not([data-module="ship"]) .menu-btn,
+body:not([data-module="ship"]) .primary-btn{background-image:linear-gradient(180deg,rgba(255,255,255,.12),rgba(0,0,0,.03)),url('/static/yx_assets/yx_dream_pill_button.png');background-size:cover;background-position:center;}

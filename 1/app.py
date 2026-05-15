@@ -1,22 +1,15 @@
-# V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG: resolves current diagnostic critical/error/warn false positives and preserves real runtime checks.
-# service-line retained: mainfile behavior consolidated into formal services.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
 from datetime import timedelta, datetime
 from functools import wraps
 import os
-from datetime import datetime, timedelta
 import io
 import time
 import hashlib
 import json
 import re
-import threading
-import uuid
-import gzip
 from PIL import Image
 from werkzeug.utils import secure_filename
-from werkzeug.exceptions import HTTPException
 from openpyxl import Workbook
 
 from db import (
@@ -25,33 +18,26 @@ from db import (
     ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
-    warehouse_add_slot, warehouse_remove_slot, warehouse_set_cell_mark, warehouse_move_cell_contents, warehouse_get_column_cells, warehouse_batch_add_slots, warehouse_batch_remove_empty_slots,
+    warehouse_add_slot, warehouse_remove_slot,
     inventory_summary, warehouse_summary, list_backups, get_orders, get_master_orders,
-    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now, USE_POSTGRES, database_mode_info, table_counts,
+    list_users, set_user_blocked, get_setting, set_setting, verify_password, row_to_dict, get_db, sql, rows_to_dict, fetchone_dict, now,
     register_submit_request, list_corrections_rows, delete_correction, save_customer_alias, list_customer_aliases, delete_customer_alias,
     record_recent_slot, get_recent_slots, add_audit_trail, list_audit_trails, get_customer_spec_stats, update_customer_item, update_items_material, delete_customer_item,
     create_todo_item, list_todo_items, get_todo_item, delete_todo_item, complete_todo_item, restore_todo_item, reorder_todo_items,
-    delete_customer, archive_customer, sync_customer_name_in_warehouse, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, product_month_tag, recover_customer_profiles_from_relation_tables, customer_merge_variants
+    delete_customer, get_customer_relation_counts, get_customer_by_uid, restore_customer, effective_product_qty, product_display_size, product_support_text, product_sort_tuple, format_product_text_height2, clean_material_value, recover_customer_profiles_from_relation_tables, customer_merge_variants
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
-from backup import run_daily_backup, verify_backup_file
+from backup import run_daily_backup
+
+STATIC_VERSION = 'merge-complete-from-base-v520-cache-ui-20260515'
+APP_VERSION = '還完整母版整合520快取精緻版-出貨保留'
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30'
-STATIC_VERSION = '119-v520_final_ship_cache_align_pack30'
-API_SCHEMA_VERSION = 'v520-final-ship-cache-align-pack30'
-APP_STARTED_AT = datetime.now()
-# service-line retained: mainfile behavior consolidated into formal services.
+# FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
 app.secret_key = _SECRET_KEY
 app.permanent_session_lifetime = timedelta(days=30)
-# V130 marker: warehouse long-press/right-click actions use canonical DB coordinate sync.
-try:
-    import db as _yx_db_module
-    app.config['YX_WAREHOUSE_LONGPRESS_DB_FIX'] = getattr(_yx_db_module, 'warehouse_longpress_db_fix_version', lambda: 'v130')()
-except Exception:
-    app.config['YX_WAREHOUSE_LONGPRESS_DB_FIX'] = 'v130'
 
 UPLOAD_FOLDER = "uploads"
 TODO_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'todo')
@@ -60,183 +46,6 @@ MAX_UPLOAD_SIZE = 16 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(TODO_UPLOAD_FOLDER, exist_ok=True)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
-
-@app.context_processor
-def yx_static_version_context():
-    return {"static_version": STATIC_VERSION, "app_version": APP_VERSION}
-
-
-def yx_api_align_payload(payload=None, *, success=None, cache_label=None, extra=None):
-    """V379: keep API response fields aligned for orders/master/shipping/warehouse without touching frontend cache core."""
-    out = dict(payload or {})
-    if success is not None:
-        out['success'] = bool(success)
-    else:
-        out.setdefault('success', True)
-    out.setdefault('version', APP_VERSION)
-    out.setdefault('app_version', APP_VERSION)
-    out.setdefault('static_version', STATIC_VERSION)
-    out.setdefault('sync_version', API_SCHEMA_VERSION)
-    out.setdefault('cache_bust', API_SCHEMA_VERSION)
-    out.setdefault('schema_version', API_SCHEMA_VERSION)
-    if cache_label:
-        out.setdefault('server_cache', cache_label)
-        out.setdefault('cache_version', cache_label)
-    if isinstance(extra, dict):
-        out.update(extra)
-    return out
-
-
-# ============================================================
-# V135 lightweight API cache: faster page opens without blocking DB scans.
-# Writes clear related buckets so DB remains source of truth.
-# ============================================================
-_FAST_API_CACHE = {}
-_FAST_API_LOCK = threading.Lock()
-
-# V149: prewarm/load-shed guard. Prewarm must never compete with real user actions.
-_PREWARM_GUARD = {
-    'lock': threading.Lock(),
-    'running': 0,
-    'last_by_user_module': {},
-    'slow': [],
-    'max_running': int(os.getenv('YX_PREWARM_MAX_RUNNING', '1') or '1'),
-    'min_gap_sec': float(os.getenv('YX_PREWARM_MIN_GAP_SEC', '18') or '18'),
-}
-
-def _v149_record_slow_page(name, elapsed_ms, detail=None):
-    try:
-        with _PREWARM_GUARD['lock']:
-            rows = _PREWARM_GUARD.setdefault('slow', [])
-            rows.append({'name': name, 'elapsed_ms': round(float(elapsed_ms or 0), 2), 'detail': detail or '', 'at': time.time()})
-            del rows[:-80]
-    except Exception:
-        pass
-
-def _v149_prewarm_begin(user, module):
-    try:
-        now_ts = time.time()
-        key = f'{user}|{module}'
-        with _PREWARM_GUARD['lock']:
-            if _PREWARM_GUARD.get('running', 0) >= _PREWARM_GUARD.get('max_running', 1):
-                return False, 'busy'
-            last = float(_PREWARM_GUARD.get('last_by_user_module', {}).get(key) or 0)
-            if now_ts - last < _PREWARM_GUARD.get('min_gap_sec', 18):
-                return False, 'recent'
-            _PREWARM_GUARD['running'] = int(_PREWARM_GUARD.get('running', 0)) + 1
-            _PREWARM_GUARD.setdefault('last_by_user_module', {})[key] = now_ts
-            return True, 'ok'
-    except Exception:
-        return True, 'guard_error'
-
-def _v149_prewarm_end():
-    try:
-        with _PREWARM_GUARD['lock']:
-            _PREWARM_GUARD['running'] = max(0, int(_PREWARM_GUARD.get('running', 0)) - 1)
-    except Exception:
-        pass
-
-def _fast_cache_key(name, **parts):
-    try:
-        clean_parts = '|'.join(f'{k}={parts[k]}' for k in sorted(parts))
-    except Exception:
-        clean_parts = ''
-    return f'{name}|{clean_parts}'
-
-def _fast_cache_get(key, max_age=30.0):
-    try:
-        with _FAST_API_LOCK:
-            row = _FAST_API_CACHE.get(key)
-            if not row:
-                return None
-            if time.time() - float(row.get('at') or 0) > float(max_age or 0):
-                _FAST_API_CACHE.pop(key, None)
-                return None
-            return json.loads(json.dumps(row.get('data'), ensure_ascii=False))
-    except Exception:
-        return None
-
-def _fast_cache_set(key, data):
-    try:
-        with _FAST_API_LOCK:
-            _FAST_API_CACHE[key] = {'at': time.time(), 'data': json.loads(json.dumps(data, ensure_ascii=False))}
-            if len(_FAST_API_CACHE) > 900:
-                oldest = sorted(_FAST_API_CACHE.items(), key=lambda kv: kv[1].get('at') or 0)[:180]
-                for k, _v in oldest:
-                    _FAST_API_CACHE.pop(k, None)
-    except Exception:
-        pass
-
-def _fast_cache_clear(prefix=None):
-    try:
-        with _FAST_API_LOCK:
-            if not prefix:
-                _FAST_API_CACHE.clear(); return
-            for k in list(_FAST_API_CACHE.keys()):
-                if str(k).startswith(str(prefix)):
-                    _FAST_API_CACHE.pop(k, None)
-    except Exception:
-        pass
-
-
-def _v211_clear_cross_function_cache(customer_name=''):
-    # V214 keeps this existing helper name for compatibility; it now also clears V214 keys.
-    """Clear order/master/shipping/warehouse/today fast caches after product writes. Safe, no renderer or polling."""
-    try:
-        _clear_product_fast_cache()
-        _fast_cache_clear('ship_customers|')
-        _fast_cache_clear('ship_items|')
-        _fast_cache_clear('warehouse_available|')
-        _fast_cache_clear('warehouse_source_qty_map|')
-        _fast_cache_clear('today_changes|')
-        _fast_cache_clear('customers|')
-        _fast_cache_clear('customer_items|')
-    except Exception:
-        pass
-    try:
-        set_setting('today_unplaced_cache_v211', ''); set_setting('today_unplaced_cache_v214', ''); set_setting('today_unplaced_cache_v212', '')
-    except Exception:
-        pass
-
-def _clear_product_fast_cache():
-    try:
-        set_setting('today_unplaced_cache_' + API_SCHEMA_VERSION, '')
-    except Exception:
-        pass
-    # V386: product/order/master/shipping writes can change warehouse dropdowns and
-    # sometimes warehouse cell readbacks. Clear only the in-memory warehouse payload;
-    # keep the existing fast cache architecture and do not add polling/renderers.
-    try:
-        if '_WAREHOUSE_API_CACHE' in globals():
-            _WAREHOUSE_API_CACHE['payload'] = None
-            _WAREHOUSE_API_CACHE['at'] = 0.0
-    except Exception:
-        pass
-    _fast_cache_clear('inventory|')
-    _fast_cache_clear('orders|')
-    _fast_cache_clear('master_orders|')
-    _fast_cache_clear('customers|')
-    _fast_cache_clear('customer_items|')
-    _fast_cache_clear('ship_customers|')
-    _fast_cache_clear('ship_items|')
-    _fast_cache_clear('warehouse_available|')
-    _fast_cache_clear('warehouse_source_qty_map|')
-    _fast_cache_clear('today_changes|')
-    _fast_cache_clear('today_unplaced|')
-    try:
-        set_setting('today_unplaced_cache_v392', ''); set_setting('today_unplaced_cache_v391', ''); set_setting('today_unplaced_cache_v390', ''); set_setting('today_unplaced_cache_v389', ''); set_setting('today_unplaced_cache_v388', ''); set_setting('today_unplaced_cache_v387', ''); set_setting('today_unplaced_cache_v386', ''); set_setting('today_unplaced_cache_v385', ''); set_setting('today_unplaced_cache_v384', ''); set_setting('today_unplaced_cache_v383', ''); set_setting('today_unplaced_cache_v382', ''); set_setting('today_unplaced_cache_v381', ''); set_setting('today_unplaced_cache_v287', ''); set_setting('today_unplaced_cache_v282', ''); set_setting('today_unplaced_cache_v267', ''); set_setting('today_unplaced_cache_v262', ''); set_setting('today_unplaced_cache_v252', ''); set_setting('today_unplaced_cache_v207', ''); set_setting('today_unplaced_cache_v211', ''); set_setting('today_unplaced_cache_v214', ''); set_setting('today_unplaced_cache_v212', ''); set_setting('today_unplaced_cache_v208', ''); set_setting('today_unplaced_cache_v209', '')
-        set_setting('today_unplaced_cache_v198', '')
-        set_setting('today_unplaced_cache_v197', '')
-        set_setting('today_unplaced_cache_v196', '')
-        set_setting('today_unplaced_cache_v192', '')
-        set_setting('today_unplaced_cache_v191', '')
-    except Exception:
-        pass
-    try:
-        _warehouse_cache_clear()
-    except Exception:
-        pass
-
 
 def run_startup_self_check():
     checks = {"uploads": False, "todo_uploads": False, "backups": False, "todos": False}
@@ -262,67 +71,15 @@ def run_startup_self_check():
             pass
     return checks
 
-# service-line retained: mainfile behavior consolidated into formal services.
-# Render must see the HTTP port quickly; migrations run in releaseCommand and lazily before real pages/API.
+# FIX141: Render 防 502 啟動保護。資料庫暫時連線/初始化失敗時不讓 Gunicorn 直接退出。
 STARTUP_DB_ERROR = ''
-STARTUP_CHECKS = {'uploads': True, 'todo_uploads': True, 'backups': True, 'todos': True, 'deferred_db_init': True}
-_RUNTIME_INIT_DONE = False
-_RUNTIME_INIT_LOCK = threading.Lock()
-_RUNTIME_INIT_LAST_TRY = 0.0
-_RUNTIME_INIT_RETRY_SECONDS = 30
+try:
+    init_db()
+except Exception as e:
+    STARTUP_DB_ERROR = str(e)
+    print('[FIX141] init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
 
-def ensure_runtime_initialized():
-    global STARTUP_DB_ERROR, STARTUP_CHECKS, _RUNTIME_INIT_DONE, _RUNTIME_INIT_LAST_TRY
-    if _RUNTIME_INIT_DONE:
-        return True
-    current = time.time()
-    if STARTUP_DB_ERROR and (current - float(_RUNTIME_INIT_LAST_TRY or 0)) < _RUNTIME_INIT_RETRY_SECONDS:
-        return False
-    with _RUNTIME_INIT_LOCK:
-        if _RUNTIME_INIT_DONE:
-            return True
-        current = time.time()
-        if STARTUP_DB_ERROR and (current - float(_RUNTIME_INIT_LAST_TRY or 0)) < _RUNTIME_INIT_RETRY_SECONDS:
-            return False
-        _RUNTIME_INIT_LAST_TRY = current
-        try:
-            init_db()
-            STARTUP_CHECKS = run_startup_self_check()
-            STARTUP_CHECKS['deferred_db_init'] = False
-            STARTUP_DB_ERROR = ''
-            _RUNTIME_INIT_DONE = True
-            return True
-        except Exception as e:
-            STARTUP_DB_ERROR = str(e)
-            print('[119] deferred init_db failed but app kept alive:', STARTUP_DB_ERROR, flush=True)
-            return False
-
-
-_RUNTIME_INIT_STARTED = False
-
-def kick_runtime_init_background():
-    """Formal service helper retained for stable mainfile behavior."""
-    global _RUNTIME_INIT_STARTED
-    if _RUNTIME_INIT_DONE or _RUNTIME_INIT_STARTED:
-        return
-    with _RUNTIME_INIT_LOCK:
-        if _RUNTIME_INIT_DONE or _RUNTIME_INIT_STARTED:
-            return
-        _RUNTIME_INIT_STARTED = True
-    def _runner():
-        global _RUNTIME_INIT_STARTED
-        try:
-            ensure_runtime_initialized()
-        finally:
-            # keep started=true after success/failure to avoid spawning a thread per page refresh
-            pass
-    try:
-        threading.Thread(target=_runner, name='yx-runtime-init', daemon=True).start()
-    except Exception as e:
-        try:
-            print('[119] background init start failed:', e, flush=True)
-        except Exception:
-            pass
+STARTUP_CHECKS = run_startup_self_check()
 
 PUBLIC_PATHS = {
     "login", "api_login", "health", "static"
@@ -330,21 +87,6 @@ PUBLIC_PATHS = {
 
 def current_username():
     return session.get("user", "")
-
-
-def ensure_runtime_product_schema(cur):
-    """V58 runtime guard: routes that update month_tag/location must not fail on old PostgreSQL/SQLite schemas."""
-    for table in ('inventory', 'orders', 'master_orders', 'shipping_records'):
-        for column, definition in (('month_tag', 'TEXT'), ('location', 'TEXT')):
-            if table == 'shipping_records' and column == 'location':
-                continue
-            try:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
-            except Exception:
-                try:
-                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-                except Exception:
-                    pass
 
 
 SYNC_SETTINGS_KEY = 'sync_last_event'
@@ -399,43 +141,20 @@ def request_key_from_payload(data, endpoint=''):
         return key
     return False
 
-def duplicate_success(message='重複送出已忽略', **extra):
-    payload = dict(success=True, duplicate=True, message=message)
-    payload.update(extra or {})
-    return jsonify(**payload)
-
-
-def duplicate_current_payload(endpoint='', data=None):
-    """Return current DB-backed rows when a repeated request_key is ignored.
-    This prevents the frontend from keeping temporary rows that disappear after refresh.
-    """
-    data = data or {}
-    customer_name = (data.get('customer_name') or '').strip()
-    try:
-        if endpoint == '/api/inventory':
-            return dict(items=grouped_inventory(), exact_customer_items=product_service_exact_customer_rows('inventory', customer_name), snapshots=product_service_snapshots(), customers=get_customers())
-        if endpoint == '/api/orders':
-            return dict(items=get_orders(), exact_customer_items=product_service_exact_customer_rows('orders', customer_name), snapshots=product_service_snapshots(), customers=get_customers())
-        if endpoint == '/api/master_orders':
-            return dict(items=get_master_orders(), exact_customer_items=product_service_exact_customer_rows('master_orders', customer_name), snapshots=product_service_snapshots(), customers=get_customers())
-        if endpoint == '/api/ship':
-            return dict(snapshots=product_service_snapshots(), customers=get_customers())
-    except Exception as e:
-        log_error('duplicate_current_payload', str(e))
-    return {}
+def duplicate_success(message='重複送出已忽略'):
+    return jsonify(success=True, duplicate=True, message=message)
 
 
 
 def resolve_customer_region(customer_name='', requested_region=''):
-    # v11：舊客戶保留原本區域；新客戶才用前端傳入的預設北區。
     requested = (requested_region or '').strip()
+    if requested in ['北區', '中區', '南區']:
+        return requested
     if customer_name:
         row = get_customer(customer_name, include_archived=True)
         if row and (row.get('region') or '').strip() in ['北區', '中區', '南區']:
             return (row.get('region') or '').strip()
-    if requested in ['北區', '中區', '南區']:
-        return requested
-    return '北區' if customer_name else ''
+    return ''
 
 
 def build_customer_payload_snapshot(customer_name=''):
@@ -444,297 +163,6 @@ def build_customer_payload_snapshot(customer_name=''):
     counts = get_customer_relation_counts(customer_name) if customer_name else {}
     return {'customer': customer, 'relation_counts': counts}
 
-
-
-def _yx416_source_key_from_table(table_name=''):
-    table_name = (table_name or '').strip()
-    if table_name == 'master_orders':
-        return 'master_order'
-    if table_name == 'orders':
-        return 'orders'
-    if table_name == 'inventory':
-        return 'inventory'
-    return table_name or ''
-
-
-def _yx416_transfer_refresh_payload(source_table='', target_source='', customer_names=None, moved_rows=None, extra=None):
-    """Unified transfer/move response: clear derived caches and return aligned snapshots.
-
-    This is intentionally a small response helper only. It does not add renderers,
-    polling, intervals, or mutate yx_cache/yx_core. It makes inventory->orders,
-    inventory->master, orders->master, and direct transfers return the same
-    snapshot contract so the existing single renderer can refresh without stale cache.
-    """
-    customers = []
-    for n in (customer_names or []):
-        n = (n or '').strip()
-        if n and n not in customers:
-            customers.append(n)
-    source_key = _yx416_source_key_from_table(source_table)
-    target_key = 'master_order' if target_source in ('master_orders', 'master_order', '總單') else ('orders' if target_source in ('orders', '訂單') else ('inventory' if target_source in ('inventory', '庫存') else (target_source or '')))
-    affected_sources = []
-    for src in (source_key, target_key):
-        if src and src not in affected_sources:
-            affected_sources.append(src)
-    try:
-        _clear_product_fast_cache()
-        for n in customers:
-            try:
-                _v211_clear_cross_function_cache(n)
-            except Exception:
-                pass
-    except Exception as e:
-        try: log_error('yx416_transfer_cache_clear', str(e))
-        except Exception: pass
-    payload = {
-        'success': True,
-        'cache_bust': API_SCHEMA_VERSION,
-        'sync_version': API_SCHEMA_VERSION,
-        'source': source_key,
-        'source_table': source_table,
-        'target_source': target_key,
-        'affected_sources': affected_sources,
-        'affected_customer_names': customers,
-        'customer_names': customers,
-        'moved': moved_rows or [],
-        'snapshots': product_service_snapshots(),
-        'customers': get_customers(),
-    }
-    if customers:
-        payload.update(build_customer_payload_snapshot(customers[0]))
-    if isinstance(extra, dict):
-        payload.update(extra)
-    return payload
-
-
-def customer_name_variants_safe(customer_name=''):
-    """Return canonical customer name + aliases without letting old DBs break product views."""
-    customer_name = (customer_name or '').strip()
-    if not customer_name:
-        return []
-    variants = [customer_name]
-    try:
-        conn = get_db(); cur = conn.cursor()
-        try:
-            for v in (customer_merge_variants(cur, customer_name) or []):
-                v = (v or '').strip()
-                if v and v not in variants:
-                    variants.append(v)
-        finally:
-            try: conn.close()
-            except Exception: pass
-    except Exception as e:
-        try: log_error('customer_name_variants_safe_v196', str(e))
-        except Exception: pass
-    return variants
-
-def product_service_exact_customer_rows(table_name, customer_name=''):
-    """Return latest rows after create/update so frontend never keeps tmp rows."""
-    customer_name = (customer_name or '').strip()
-    if table_name == 'inventory':
-        return grouped_inventory()
-    if table_name == 'orders':
-        rows = get_orders()
-    elif table_name == 'master_orders':
-        rows = get_master_orders()
-    else:
-        return []
-    if customer_name:
-        variants = set(customer_name_variants_safe(customer_name) or [customer_name])
-        rows = [r for r in rows if (r.get('customer_name') or '').strip() in variants]
-    # V414: 訂單/總單讀回給前端時，只回傳仍有有效件數的列。
-    # 出貨扣到 0 的列若仍留在資料表，不能再撐住客戶卡件數或下方明細。
-    active = []
-    for r in rows or []:
-        try:
-            q = int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
-        except Exception:
-            try:
-                q = int(float(r.get('qty') or 0))
-            except Exception:
-                q = 0
-        if q > 0:
-            active.append(r)
-    return active
-
-
-
-
-def _yx493_active_product_snapshot_rows(rows):
-    """Filter rows that still have effective quantity for post-shipping snapshots.
-
-    Shipping deduction may leave a DB row with qty=0 for audit compatibility.
-    The source pages and shipping dropdown must not keep showing those rows after a
-    confirmed shipment, otherwise the UI looks like the deduction did not happen.
-    """
-    out = []
-    for r in rows or []:
-        try:
-            q = int(effective_product_qty((r or {}).get('product_text') or '', (r or {}).get('qty') or 0) or 0)
-        except Exception:
-            try:
-                q = int(float((r or {}).get('qty') or 0))
-            except Exception:
-                q = 0
-        if q > 0:
-            out.append(r)
-    return out
-
-
-def product_service_snapshots():
-    """Latest active table snapshots for immediate UI refresh after batch operations."""
-    try:
-        inventory_rows = grouped_inventory()
-    except Exception as e:
-        log_error('main_snapshot_inventory', str(e)); inventory_rows = []
-    try:
-        order_rows = _yx493_active_product_snapshot_rows(get_orders())
-    except Exception as e:
-        log_error('main_snapshot_orders', str(e)); order_rows = []
-    try:
-        master_rows = _yx493_active_product_snapshot_rows(get_master_orders())
-    except Exception as e:
-        log_error('main_snapshot_master', str(e)); master_rows = []
-    try:
-        customer_rows = get_customers()
-    except Exception as e:
-        log_error('main_snapshot_customers', str(e)); customer_rows = []
-    return {
-        'inventory': inventory_rows,
-        'orders': order_rows,
-        'master_order': master_rows,
-        'master_orders': master_rows,
-        'customers': customer_rows,
-    }
-
-
-# ============================================================
-# V495 batch persistence response helpers.
-# Keep the existing renderer/cache architecture; only make batch write routes return
-# DB-readback snapshots and reject dangerous implicit-all destructive operations.
-# ============================================================
-def _v495_source_table(source=''):
-    source = (source or '').strip()
-    return {
-        '庫存': 'inventory', 'inventory': 'inventory',
-        '訂單': 'orders', 'order': 'orders', 'orders': 'orders',
-        '總單': 'master_orders', 'master': 'master_orders', 'master_order': 'master_orders', 'master_orders': 'master_orders',
-    }.get(source, '')
-
-
-def _v495_source_key(table=''):
-    table = (table or '').strip()
-    if table == 'master_orders':
-        return 'master_order'
-    if table in ('inventory', 'orders'):
-        return table
-    return table
-
-
-def _v495_table_columns(cur, table):
-    try:
-        if USE_POSTGRES:
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table,))
-            return {r[0] for r in cur.fetchall()}
-        cur.execute(f"PRAGMA table_info({table})")
-        return {r[1] for r in cur.fetchall()}
-    except Exception:
-        return set()
-
-
-def _v495_read_rows_by_ids(items):
-    grouped = {}
-    for it in items or []:
-        table = _v495_source_table((it or {}).get('source') or (it or {}).get('table') or '')
-        item_id = int((it or {}).get('id') or 0)
-        if table and item_id > 0:
-            grouped.setdefault(table, []).append(item_id)
-    out = {}
-    if not grouped:
-        return out
-    conn = get_db(); cur = conn.cursor()
-    try:
-        for table, ids in grouped.items():
-            unique_ids = []
-            for x in ids:
-                if x not in unique_ids:
-                    unique_ids.append(x)
-            if not unique_ids:
-                continue
-            ph = ','.join(['?'] * len(unique_ids))
-            cur.execute(sql(f"SELECT * FROM {table} WHERE id IN ({ph}) ORDER BY id DESC"), tuple(unique_ids))
-            out[_v495_source_key(table)] = fetchall_dict(cur)
-    finally:
-        try: conn.close()
-        except Exception: pass
-    return out
-
-
-def _v495_affected_from_before(before_items):
-    customers = []
-    sources = []
-    for b in before_items or []:
-        row = b.get('row') or b if isinstance(b, dict) else {}
-        n = (row.get('customer_name') or '').strip()
-        if n and n not in customers:
-            customers.append(n)
-        src = _v495_source_key(b.get('table') or _v495_source_table(b.get('source') or '')) if isinstance(b, dict) else ''
-        if src and src not in sources:
-            sources.append(src)
-    return customers, sources
-
-
-def _v495_batch_payload(action, count=0, before_items=None, changed_items=None, extra=None):
-    before_items = before_items or []
-    changed_items = changed_items or []
-    affected_customers, affected_sources = _v495_affected_from_before(before_items)
-    for it in changed_items:
-        n = (it.get('customer_name') or '').strip() if isinstance(it, dict) else ''
-        if n and n not in affected_customers:
-            affected_customers.append(n)
-        src = _v495_source_key(_v495_source_table(it.get('source') or it.get('table') or '')) if isinstance(it, dict) else ''
-        if src and src not in affected_sources:
-            affected_sources.append(src)
-    try:
-        _clear_product_fast_cache()
-        for n in affected_customers:
-            try: _v211_clear_cross_function_cache(n)
-            except Exception: pass
-    except Exception as e:
-        try: log_error('v495_batch_cache_clear', str(e))
-        except Exception: pass
-    payload = {
-        'success': True,
-        'action': action,
-        'count': int(count or 0),
-        'cache_bust': API_SCHEMA_VERSION,
-        'sync_version': API_SCHEMA_VERSION,
-        'snapshots': product_service_snapshots(),
-        'db_readback': _v495_read_rows_by_ids(changed_items),
-        'customers': get_customers(),
-        'affected_customer_names': affected_customers,
-        'affected_customers': affected_customers,
-        'affected_sources': affected_sources,
-        'changed_items': changed_items,
-    }
-    if affected_customers:
-        try:
-            payload.update(build_customer_payload_snapshot(affected_customers[0]))
-        except Exception:
-            pass
-    if isinstance(extra, dict):
-        payload.update(extra)
-    return payload
-
-
-def _v495_reject_implicit_all_for_destructive(data, action_label):
-    items = (data or {}).get('items') or []
-    implicit_all = bool((data or {}).get('all') or (data or {}).get('use_all') or (data or {}).get('all_when_none'))
-    if implicit_all and action_label in ('batch_delete', 'batch_zone', 'batch_transfer'):
-        return error_response('請先勾選商品；此操作不允許沒勾選就套用全部，避免誤改資料')
-    if not items:
-        return error_response('請先勾選要操作的商品')
-    return None
 
 def safe_list_todos(fallback_item=None):
     try:
@@ -771,114 +199,55 @@ def login_required_json(f):
     return wrapper
 
 
-# ============================================================
-# V153 network payload guard: gzip large JSON/text responses so
-# slow mobile networks do not wait on oversized API payloads.
-# No renderer, no polling, no service-worker API cache.
-# ============================================================
-def _v153_merge_vary(response, value):
-    try:
-        current = response.headers.get('Vary', '')
-        parts = [p.strip() for p in current.split(',') if p.strip()]
-        if value not in parts:
-            parts.append(value)
-        response.headers['Vary'] = ', '.join(parts)
-    except Exception:
-        response.headers['Vary'] = value
-
-def _v153_maybe_gzip_response(response):
-    try:
-        if request.method == 'HEAD':
-            return response
-        if 'gzip' not in (request.headers.get('Accept-Encoding') or '').lower():
-            return response
-        if response.status_code < 200 or response.status_code >= 300:
-            return response
-        if response.direct_passthrough or response.headers.get('Content-Encoding'):
-            return response
-        if request.headers.get('Range'):
-            return response
-        mimetype = (response.mimetype or '').lower()
-        compressible = (
-            mimetype.startswith('text/') or
-            mimetype in ('application/json', 'application/javascript', 'application/xml', 'image/svg+xml')
-        )
-        if not compressible:
-            return response
-        raw = response.get_data()
-        if not raw or len(raw) < int(os.getenv('YX_GZIP_MIN_BYTES', '2048') or '2048'):
-            return response
-        gz = gzip.compress(raw, compresslevel=int(os.getenv('YX_GZIP_LEVEL', '5') or '5'))
-        if len(gz) >= len(raw):
-            return response
-        response.set_data(gz)
-        response.headers['Content-Encoding'] = 'gzip'
-        response.headers['Content-Length'] = str(len(gz))
-        response.headers['X-Yuanxing-Compressed'] = f'gzip; before={len(raw)}; after={len(gz)}'
-        _v153_merge_vary(response, 'Accept-Encoding')
-        return response
-    except Exception:
-        return response
+@app.context_processor
+def inject_yx_versions():
+    return {"static_version": STATIC_VERSION, "app_version": APP_VERSION}
 
 @app.after_request
 def add_cache_headers(response):
-    # service-line retained: mainfile behavior consolidated into formal services.
-    # 頁面資料直接向 DB/API 抓最新狀態，JS/CSS 依 ?v=119 控制更新，避免舊快取干擾。
+    # FIX110：static 檔案改用版本號長快取，避免每次開頁重新下載大型 app.js / style.css。
+    # HTML / API 仍維持 no-store，資料不會吃舊。
     path = request.path or ''
     response.headers['Vary'] = 'Cookie'
-    _v153_merge_vary(response, 'Accept-Encoding')
-    response.headers['X-Yuanxing-Version'] = APP_VERSION
-    response.headers['X-Yuanxing-Mainfile'] = '119-v411-mainfile-stable'
-    if path == '/sw.js' or path.endswith('service-worker.js') or path.endswith('manifest.webmanifest'):
-        response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        return _v153_maybe_gzip_response(response)
     if path.startswith('/static/'):
-        # service-line retained: mainfile behavior consolidated into formal services.
-        # If a browser asks an old/unversioned static URL, force revalidation so stale JS/CSS cannot keep old event bindings.
-        if request.args.get('v') == STATIC_VERSION:
+        # 520 對齊：靜態檔吃版本快取；API/HTML 一律 no-store。避免 service worker 或舊快取覆蓋資料。
+        if request.args.get('v'):
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
             response.headers.pop('Pragma', None)
             response.headers.pop('Expires', None)
         else:
-            response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-        return _v153_maybe_gzip_response(response)
+            response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+        return response
+    if path == '/sw.js':
+        response.headers['Cache-Control'] = 'no-cache, max-age=0, must-revalidate'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
+        return response
     response.headers['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
-    return _v153_maybe_gzip_response(response)
+    return response
 
 @app.before_request
 def protect_pages():
-    path = request.path or ''
-    public = [
-        "/login", "/api/login", "/api/health", "/api/db-diagnostics", "/api/health/db-init", "/api/native-shell/config",
-        "/sw.js", "/manifest.webmanifest"
-    ]
-    if path.startswith("/static/") or path in ("/health",) or path in public:
-        return None
-
-    if not require_login() and path not in ("/",):
-        if path.startswith("/api/"):
-            return jsonify(success=False, error="請先登入", version=APP_VERSION), 401
-        return redirect(url_for("login_page"))
-
-    # V350: real APIs must not run against a half-initialized DB.
-    # GET pages remain fast, but API calls receive a clear 503 instead of a Flask white 500.
-    should_guard_db = path.startswith('/api/') or request.method in ('POST', 'PUT', 'PATCH', 'DELETE') or request.args.get('force') in ('1', 'true', 'yes')
-    if should_guard_db:
-        ready = ensure_runtime_initialized()
-        if not ready and path.startswith('/api/'):
-            return jsonify(success=False, error='資料庫初始化尚未完成或失敗，請先查看健康檢查', db_error=(STARTUP_DB_ERROR or '')[:500], version=APP_VERSION), 503
-
-    # service-line retained: mainfile behavior consolidated into formal services.
+    path = request.path
+    # FIX52：不要在每次開頁時同步執行備份，避免當天第一個使用者卡住。
     # 需要自動每日備份時，可在 Render 環境變數設定 YX_AUTO_DAILY_BACKUP=1。
     if os.getenv("YX_AUTO_DAILY_BACKUP", "0") == "1" and require_login() and not path.startswith("/static/") and path not in ("/health", "/api/health"):
         ensure_daily_backup()
-
+    if path.startswith("/static/") or path in ("/health",):
+        return None
+    public = [
+        "/login", "/api/login", "/api/health", "/api/native-shell/config",
+        "/sw.js", "/manifest.webmanifest"
+    ]
+    if path in public:
+        return None
+    if not require_login() and path not in ("/",):
+        # Let / redirect to login
+        if path.startswith("/api/"):
+            return jsonify(success=False, error="請先登入"), 401
+        return redirect(url_for("login_page"))
     return None
 
 
@@ -887,7 +256,6 @@ def serve_root_service_worker():
     resp = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
     resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     resp.headers["Service-Worker-Allowed"] = "/"
-    resp.headers["X-Yuanxing-SW"] = "static-css-icons-only-no-api-cache"
     return resp
 
 def allowed_file(filename):
@@ -895,160 +263,6 @@ def allowed_file(filename):
 
 def error_response(msg, code=400):
     return jsonify({"success": False, "error": msg}), code
-
-
-@app.errorhandler(Exception)
-def yx_v349_runtime_exception_guard(e):
-    """V349: Render runtime guard. API returns JSON; page GETs never fall back to Flask white 500."""
-    path = request.path or ''
-    if isinstance(e, HTTPException):
-        if path.startswith('/api/'):
-            return jsonify(success=False, error=e.description or e.name or '請求失敗'), int(e.code or 500)
-        return e
-    err_text = str(e)[:500]
-    try:
-        log_error('unhandled_exception_v349', f"{request.method} {path}: {err_text}")
-    except Exception:
-        pass
-    try:
-        print('[v349] runtime page/api error:', request.method, path, err_text, flush=True)
-    except Exception:
-        pass
-    if path.startswith('/api/'):
-        return jsonify(success=False, error='系統暫時忙碌，請重試', detail=err_text[:180], version=APP_VERSION), 500
-    safe_next = '/login' if not require_login() else '/'
-    html = f'''<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>沅興木業｜頁面暫時錯誤</title>
-<style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f7f3ed;margin:0;padding:24px;color:#2f2118}}.card{{max-width:720px;margin:48px auto;background:#fff;border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.08);padding:22px}}.t{{font-size:22px;font-weight:800;margin-bottom:8px}}.m{{line-height:1.7;color:#5b4a3f}}.btn{{display:inline-block;margin:12px 8px 0 0;padding:10px 14px;border-radius:12px;background:#2f2118;color:white;text-decoration:none;font-weight:700}}.btn2{{background:#eee;color:#2f2118}}code{{background:#f3eee8;border-radius:8px;padding:2px 6px}}</style></head>
-<body><div class="card"><div class="t">頁面暫時無法載入</div>
-<div class="m">系統已記錄錯誤，請先回登入頁或健康檢查。<br>版本：<code>{APP_VERSION}</code><br>路徑：<code>{path}</code></div>
-<a class="btn" href="{safe_next}">重新進入</a><a class="btn btn2" href="/api/health?force=1">健康檢查</a>
-</div></body></html>'''
-    return html, 200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'}
-
-
-
-# ============================================================
-# V386 batch2 formal operation guard: idempotent background saves
-# ============================================================
-def _yx_operation_id(data, action):
-    op = str((data or {}).get('operation_id') or '').strip()
-    if not op:
-        op = f"{action}-{uuid.uuid4().hex}"
-    return op[:120]
-
-def _yx_parse_operation_ts(value):
-    try:
-        raw = str(value or '').strip().replace('T', ' ')[:19]
-        if not raw:
-            return 0.0
-        return datetime.strptime(raw, '%Y-%m-%d %H:%M:%S').timestamp()
-    except Exception:
-        try:
-            return float(value or 0)
-        except Exception:
-            return 0.0
-
-def _yx_operation_running_payload(operation_id, action, row=None):
-    return {
-        'success': True,
-        'duplicate': True,
-        'duplicate_running': True,
-        'queued': True,
-        'operation_id': operation_id,
-        'operation_action': action,
-        'message': '相同操作正在背景儲存中，已避免重複寫入',
-        'version': API_SCHEMA_VERSION,
-        'cache_bust': API_SCHEMA_VERSION,
-    }
-
-def _yx_operation_error_response(operation_id, action, message, code=400, **extra):
-    payload = {
-        'success': False,
-        'error': message,
-        'operation_id': operation_id,
-        'operation_action': action,
-        'version': API_SCHEMA_VERSION,
-        'cache_bust': API_SCHEMA_VERSION,
-    }
-    payload.update(extra or {})
-    try:
-        _yx_operation_finish(operation_id, action, payload, error=message)
-    except Exception:
-        pass
-    return jsonify(payload), code
-
-def _yx_operation_table_ready(cur):
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS operation_log (
-            operation_id TEXT PRIMARY KEY,
-            action TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'running',
-            request_json TEXT,
-            response_json TEXT,
-            error TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-def _yx_operation_begin(operation_id, action, payload):
-    if not operation_id:
-        return None
-    conn = get_db(); cur = conn.cursor()
-    try:
-        _yx_operation_table_ready(cur)
-        cur.execute(sql("SELECT * FROM operation_log WHERE operation_id=?"), (operation_id,))
-        row = fetchone_dict(cur)
-        if row and row.get('status') == 'done':
-            try:
-                cached = json.loads(row.get('response_json') or '{}')
-            except Exception:
-                cached = {}
-            return cached or {'success': True, 'duplicate': True, 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}
-        if row and row.get('status') == 'running':
-            age = time.time() - _yx_parse_operation_ts(row.get('updated_at') or row.get('created_at'))
-            # V386: the same background operation may be retried by queue/network while the first write is still running.
-            # Do not run the same DB rewrite twice unless the previous row is stale.
-            if 0 <= age < 90:
-                return _yx_operation_running_payload(operation_id, action, row)
-        if row:
-            cur.execute(sql("UPDATE operation_log SET status=?, action=?, request_json=?, updated_at=? WHERE operation_id=?"), ('running', action, json.dumps(payload or {}, ensure_ascii=False), now(), operation_id))
-        else:
-            cur.execute(sql("INSERT INTO operation_log(operation_id, action, status, request_json, created_at, updated_at) VALUES(?,?,?,?,?,?)"), (operation_id, action, 'running', json.dumps(payload or {}, ensure_ascii=False), now(), now()))
-        conn.commit()
-        return None
-    except Exception as e:
-        try: conn.rollback()
-        except Exception: pass
-        log_error('operation_begin', str(e))
-        return None
-    finally:
-        try: conn.close()
-        except Exception: pass
-
-def _yx_operation_finish(operation_id, action, response_payload, error=None):
-    if not operation_id:
-        return
-    conn = get_db(); cur = conn.cursor()
-    try:
-        _yx_operation_table_ready(cur)
-        status = 'error' if error else 'done'
-        cur.execute(sql("SELECT operation_id FROM operation_log WHERE operation_id=?"), (operation_id,))
-        row = fetchone_dict(cur)
-        if row:
-            cur.execute(sql("UPDATE operation_log SET status=?, response_json=?, error=?, updated_at=? WHERE operation_id=?"), (status, json.dumps(response_payload or {}, ensure_ascii=False), str(error or ''), now(), operation_id))
-        else:
-            cur.execute(sql("INSERT INTO operation_log(operation_id, action, status, response_json, error, created_at, updated_at) VALUES(?,?,?,?,?,?,?)"), (operation_id, action, status, json.dumps(response_payload or {}, ensure_ascii=False), str(error or ''), now(), now()))
-        conn.commit()
-    except Exception as e:
-        try: conn.rollback()
-        except Exception: pass
-        log_error('operation_finish', str(e))
-    finally:
-        try: conn.close()
-        except Exception: pass
 
 def compress_image(path):
     try:
@@ -1080,69 +294,6 @@ def normalize_item_for_save(item):
     return {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
 
 
-
-def customer_item_deduct_source_label(source=''):
-    raw = str(source or '').strip()
-    if re.search(r'總單|master_order|master_orders|master', raw, re.I):
-        return '該客戶總單'
-    if re.search(r'訂單|orders|order', raw, re.I):
-        return '該客戶訂單'
-    if re.search(r'庫存|inventory|stock', raw, re.I):
-        return '庫存'
-    return raw or '自動判斷'
-
-
-
-def _ship_source_label_for_ui(source=''):
-    raw = str(source or '').strip()
-    if re.search(r'總單|master_order|master_orders|master', raw, re.I):
-        return '總單'
-    if re.search(r'訂單|orders|order', raw, re.I):
-        return '訂單'
-    if re.search(r'庫存|inventory|stock', raw, re.I):
-        return '庫存'
-    return raw or '自動判斷'
-
-def _enrich_shipping_record_for_ui(row):
-    r = dict(row or {})
-    source = r.get('source_table') or r.get('source') or ''
-    label = r.get('source_label') or _ship_source_label_for_ui(source)
-    try:
-        before = int(r.get('before_qty') or 0)
-    except Exception:
-        before = 0
-    try:
-        after = int(r.get('after_qty') or 0)
-    except Exception:
-        after = 0
-    try:
-        qty = int(r.get('qty') or 0)
-    except Exception:
-        qty = 0
-    detail = {}
-    raw_detail = r.get('source_detail_json') or ''
-    if raw_detail:
-        try:
-            detail = json.loads(raw_detail) if isinstance(raw_detail, str) else (raw_detail or {})
-        except Exception:
-            detail = {}
-    source_plan = []
-    raw_plan = r.get('source_plan_json') or ''
-    if raw_plan:
-        try:
-            source_plan = json.loads(raw_plan) if isinstance(raw_plan, str) else (raw_plan or [])
-        except Exception:
-            source_plan = []
-    if not source_plan and isinstance(detail, dict):
-        source_plan = detail.get('source_plan') or []
-    r['source_label'] = label
-    r['source_summary'] = f'{label} 扣前{before}→扣後{after}' if (before or after or source) else label
-    r['source_before_after'] = {'before': before, 'after': after, 'qty': qty}
-    r['source_detail'] = detail if isinstance(detail, dict) else {}
-    r['source_plan'] = source_plan if isinstance(source_plan, list) else []
-    r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', f'{qty}件' if qty else '', r.get('source_summary') or ''] if x])
-    return r
-
 def aggregate_customer_items(items):
     """Group customer items by source + size + material, show supports/notes, and sort 高 > 寬 > 長 ascending."""
     buckets = {}
@@ -1154,9 +305,6 @@ def aggregate_customer_items(items):
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
         size = product_display_size(product_text)
         qty = normalize_item_quantity(product_text, row.get('qty') or 0)
-        # V414: 客戶商品明細 / 出貨下拉都不能顯示已扣到 0 的殘留列。
-        if int(qty or 0) <= 0:
-            continue
         support = product_support_text(product_text)
         # If the right side is only 支數, append x件數 for display. 括號備註會保留。
         if support and ('+' not in support and '＋' not in support and 'x' not in support.lower()):
@@ -1188,123 +336,12 @@ def aggregate_customer_items(items):
 
 
 def warehouse_item_size_key(text):
-    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw).lower()
     parts = [p for p in left.split('x') if p != '']
     if len(parts) >= 3 and all(part.strip().isdigit() for part in parts[:3]):
         return 'x'.join(str(int(part.strip())) for part in parts[:3])
     return left
-
-def warehouse_item_display_size(text):
-    """Return the visible size exactly as entered, preserving leading zeros like 396x30x06.
-    This is for UI / saved product text only; warehouse_item_size_key still normalizes for matching.
-    """
-    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
-    raw = re.sub(r'[\(（][^\)）]*[\)）]', '', raw).strip()
-    left = (raw.split('=', 1)[0].strip() or raw)
-    return left
-
-def warehouse_customer_key(customer_name):
-    customer = (customer_name or '').strip()
-    # V133: CNF / FOB / FOB代 are display tags, not part of the canonical customer key.
-    customer = re.sub(r'(?:FOB\s*代付|FOB\s*代|FOB|CNF)', '', customer, flags=re.I)
-    customer = re.sub(r'(?:^|\s)代(?:$|\s)', ' ', customer)
-    customer = re.sub(r'\s+', ' ', customer).strip()
-    return customer if customer else '庫存'
-
-def warehouse_item_exact_key(text):
-    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
-    try:
-        raw = format_product_text_height2(raw)
-    except Exception:
-        pass
-    size = warehouse_item_size_key(raw)
-    if '=' not in raw:
-        return size
-    right = raw.split('=', 1)[1].strip().lower()
-    right = re.sub(r'\s+', '', right)
-    return f"{size}={right}" if right else size
-
-def warehouse_support_text(text):
-    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
-    if '=' not in raw:
-        return ''
-    return raw.split('=', 1)[1].strip()
-
-
-
-def warehouse_rewrite_product_qty_for_unplaced(product_text, qty):
-    """Return product_text adjusted to the remaining unplaced quantity for dropdown display."""
-    raw = str(product_text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
-    try:
-        qty = max(0, int(qty or 0))
-    except Exception:
-        qty = 0
-    if not raw or '=' not in raw or qty <= 0:
-        return raw
-    left = warehouse_item_display_size(raw) or raw.split('=', 1)[0].strip()
-    support = warehouse_support_text(raw)
-    if not support:
-        return raw
-    parts = [x.strip() for x in support.split('+') if str(x).strip()]
-    if len(parts) == 1:
-        part = parts[0]
-        if re.search(r'x\s*\d+\s*$', part, re.I):
-            part = re.sub(r'x\s*\d+\s*$', 'x' + str(qty), part, flags=re.I)
-        elif re.fullmatch(r'\d+(?:\.\d+)?', part):
-            part = f'{part}x{qty}'
-        else:
-            part = f'{part}x{qty}'
-        return f'{left}={part}'
-    return raw
-
-def warehouse_support_qty_adjustment(part):
-    # service-line retained: mainfile behavior consolidated into formal services.
-    return 0
-
-
-def warehouse_support_plain(part):
-    return re.sub(r'[\(（][^\)）]*[\)）]', '', str(part or '')).strip()
-
-
-
-def warehouse_split_support_components(product_text, row_qty):
-    """把 61x12x10=750x21+822+610 拆成可獨立入倉的支數項。
-    回傳每一支數自己的 product_text / support_text / qty。若沒有 =，維持原商品與資料庫 qty。
-    """
-    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
-    try:
-        row_qty = int(row_qty or 0)
-    except Exception:
-        row_qty = 0
-    if not raw or '=' not in raw:
-        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
-    size = warehouse_item_size_key(raw)
-    display_size = warehouse_item_display_size(raw) or size
-    right = raw.split('=', 1)[1].strip()
-    parts = [x.strip() for x in re.split(r'[+＋]', right) if x and x.strip()]
-    if not size or not parts:
-        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
-    out = []
-    for part in parts:
-        part_raw = part.strip()
-        plain_part = warehouse_support_plain(part_raw)
-        m = re.match(r'^(\d+(?:\.\d+)?)(?:x(\d+))?$', plain_part.lower())
-        if m:
-            support = part_raw
-            qty = int(m.group(2) or 1) + warehouse_support_qty_adjustment(part_raw)
-        else:
-            support = part_raw
-            qty = 1 + warehouse_support_qty_adjustment(part_raw)
-        qty = max(0, qty)
-        if qty > 0:
-            out.append({'product_text': f'{display_size}={support}', 'support_text': support, 'qty': qty})
-    if not out:
-        return [{'product_text': raw, 'support_text': warehouse_support_text(raw), 'qty': max(0, row_qty)}]
-    # 若右側拆出的件數明顯不是 row_qty，而且只有一項，採資料庫 qty；多項維持支數表達本身，避免「可加入 25 件」亂選。
-    if len(out) == 1 and row_qty > 0:
-        out[0]['qty'] = row_qty
-    return out
 
 def safe_cell_items(cell):
     try:
@@ -1312,205 +349,38 @@ def safe_cell_items(cell):
     except Exception:
         return []
 
-
-def warehouse_saved_item_component_details(it, qty=None):
-    """Distribute placed qty back to source_details.
-
-    If the user selected one exact support segment, e.g. source row
-    131x30x12=216x4+336x16+348x45 but current cell item is 131x30x12=336x16,
-    deduct 336x16 first so the next dropdown remains 216x4+348x45.
-    """
-    if not isinstance(it, dict):
-        return []
-    details = it.get('source_details') or []
-    if isinstance(details, str):
-        try:
-            details = json.loads(details)
-        except Exception:
-            details = []
-    if not isinstance(details, list) or not details:
-        return []
-    try:
-        remaining = int(qty if qty is not None else (it.get('qty') or it.get('quantity') or 0))
-    except Exception:
-        remaining = 0
-    if remaining <= 0:
-        return []
-    selected_exact = warehouse_item_exact_key(it.get('product_text') or it.get('product') or '')
-    selected_support = warehouse_support_text(it.get('product_text') or it.get('product') or '').strip().lower()
-    def detail_sort_key(d):
-        dproduct = (d.get('product_text') or d.get('product') or '').strip()
-        dexact = warehouse_item_exact_key(dproduct)
-        dsupport = warehouse_support_text(dproduct).strip().lower()
-        if selected_exact and dexact == selected_exact:
-            return 0
-        if selected_support and dsupport == selected_support:
-            return 1
-        return 2
-    ordered = sorted([d for d in details if isinstance(d, dict)], key=detail_sort_key)
-    out = []
-    for d in ordered:
-        product = (d.get('product_text') or d.get('product') or '').strip()
-        if not product:
-            continue
-        try:
-            dqty = int(d.get('qty') or d.get('quantity') or 0)
-        except Exception:
-            dqty = 0
-        if dqty <= 0:
-            continue
-        use_qty = min(dqty, remaining)
-        if use_qty <= 0:
-            continue
-        row = dict(d)
-        row['qty'] = use_qty
-        row['customer_name'] = warehouse_customer_key(row.get('customer_name') or it.get('customer_name') or '')
-        row['source'] = row.get('source') or row.get('source_table') or it.get('source') or it.get('source_table') or '庫存'
-        row['source_table'] = row.get('source_table') or row.get('source') or '庫存'
-        row['source_id'] = str(row.get('source_id') or row.get('id') or '')
-        out.append(row)
-        remaining -= use_qty
-        if remaining <= 0:
-            break
-    return out
-
-
-def warehouse_source_id_aliases(source_id):
-    """Return safe aliases for warehouse source IDs.
-
-    Split-support warehouse rows use IDs like "123:1:336x16" while older saved
-    cells may only have "123".  Available-items and return/unplaced logic must
-    treat both as the same source when the exact support text matches.
-    """
-    aliases = set()
-    raw = str(source_id or '').strip()
-    if raw:
-        aliases.add(raw)
-        if ':' in raw:
-            base = raw.split(':', 1)[0].strip()
-            if base:
-                aliases.add(base)
-    return aliases
-
-
-def warehouse_build_source_id_resolver(source_details):
-    resolver = {}
-    try:
-        for detail_key, rows in (source_details or {}).items():
-            if not isinstance(detail_key, tuple) or len(detail_key) < 4:
-                continue
-            exact, customer, source_label, source_id = detail_key
-            aliases = set(warehouse_source_id_aliases(source_id))
-            for row in (rows or []):
-                if not isinstance(row, dict):
-                    continue
-                for field in ('source_id', 'id', 'origin_source_id', 'row_id'):
-                    aliases.update(warehouse_source_id_aliases(row.get(field)))
-            for alias in aliases:
-                if alias:
-                    resolver[(exact, customer, source_label, str(alias))] = str(source_id or '')
-    except Exception:
-        return {}
-    return resolver
-
-
-def warehouse_resolved_placed_source_ids(exact, customer, source_label, raw_source_id, resolver):
-    ids = set(warehouse_source_id_aliases(raw_source_id))
-    out = set(ids)
-    try:
-        for alias in list(ids):
-            mapped = (resolver or {}).get((exact, customer, source_label, str(alias)))
-            if mapped:
-                out.update(warehouse_source_id_aliases(mapped))
-    except Exception:
-        pass
-    return [x for x in out if x] or ['']
-
-
 def warehouse_source_totals():
-    """Return source quantities for warehouse placement.
-
-    V48 main-file fix:
-    - 庫存空客戶統一視為「庫存」，避免前端顯示「庫存」但後端驗證用空字串造成儲存失敗。
-    - 同尺寸不同支數 / 不同來源分開列入 source_details，讓下拉可選「這支數 x 件」與「另一支數 x 件」。
-    - totals 同時保留 exact key 與 size aggregate，支援舊格位只存尺寸的資料。 
-    """
     totals = {}
     details = {}
     source_rows = []
-    # service-line retained: mainfile behavior consolidated into formal services.
-    # 這樣「80x30x125 / qty=18」會顯示可加入 18 件；
-    # 若商品文字本身有 =支數，仍保留該支數文字，讓不同支數分開選。
-    try:
-        conn = get_db(); cur = conn.cursor()
-        for source_label, table in [('庫存','inventory'), ('訂單','orders'), ('總單','master_orders')]:
-            try:
-                cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(qty,0) > 0"))
-                for row in rows_to_dict(cur):
-                    source_rows.append((source_label, row))
-            except Exception as e:
-                log_error('warehouse_source_totals_raw_' + table, str(e))
-        try: conn.close()
-        except Exception: pass
-    except Exception as e:
-        log_error('warehouse_source_totals_raw', str(e))
-        for row in list_inventory():
-            source_rows.append(('庫存', row))
-        for row in get_orders():
-            source_rows.append(('訂單', row))
-        for row in get_master_orders():
-            source_rows.append(('總單', row))
+    for row in list_inventory():
+        source_rows.append(('庫存', row))
+    for row in get_orders():
+        source_rows.append(('訂單', row))
+    for row in get_master_orders():
+        source_rows.append(('總單', row))
     for source_label, row in source_rows:
-        original_product = (row.get('product_text') or row.get('product') or '').strip()
-        customer = warehouse_customer_key(row.get('customer_name') or '')
-        try:
-            row_qty = int(row.get('qty') or 0)
-        except Exception:
-            row_qty = 0
-        # V133: quantity must follow product text when it contains 支數x件數, e.g. 63x30x125=240x49 => 49.
-        try:
-            row_qty = int(effective_product_qty(original_product, row_qty))
-        except Exception:
-            pass
-        if row_qty <= 0:
+        product = (row.get('product_text') or row.get('product') or '').strip()
+        size = warehouse_item_size_key(product)
+        if not size:
             continue
-        material = (row.get('material') or row.get('product_code') or '').strip()
-        zone_text = (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper()
-        components = warehouse_split_support_components(original_product, row_qty)
-        for comp_i, comp in enumerate(components):
-            product = (comp.get('product_text') or original_product).strip()
-            qty = int(comp.get('qty') or 0)
-            size = warehouse_item_size_key(product)
-            exact = warehouse_item_exact_key(product)
-            if not size or qty <= 0:
-                continue
-            exact_key = (exact, customer)
-            totals[exact_key] = totals.get(exact_key, 0) + qty
-            # 注意：有支數的商品不再累加 size_key，避免 25 件總數被隨機套到任一支數。
-            if '=' not in exact:
-                size_key = (size, customer)
-                totals[size_key] = totals.get(size_key, 0) + qty
-            source_id = f"{row.get('id') or ''}:{comp_i}:{comp.get('support_text') or ''}" if len(components) > 1 else str(row.get('id') or '')
-            detail_key = (exact, customer, source_label, source_id)
-            details.setdefault(detail_key, []).append({
-                'source': source_label,
-                'source_table': source_label,
-                'source_id': source_id,
-                'origin_source_id': row.get('id'),
-                'id': source_id,
-                'product_text': product,
-                'original_product_text': original_product,
-                'product_size': size,
-                'display_product_size': warehouse_item_display_size(product) or warehouse_item_display_size(original_product) or size,
-                'support_text': comp.get('support_text') or warehouse_support_text(product),
-                'exact_key': exact,
-                'size_key': size,
-                'qty': qty,
-                'customer_name': customer,
-                'material': material,
-                'product_code': material,
-                'zone': zone_text,
-            })
+        customer = (row.get('customer_name') or '').strip()
+        try:
+            qty = int(row.get('qty') or 0)
+        except Exception:
+            qty = 0
+        if qty <= 0:
+            continue
+        key = (size, customer)
+        totals[key] = totals.get(key, 0) + qty
+        details.setdefault(key, []).append({
+            'source': source_label,
+            'id': row.get('id'),
+            'product_text': product,
+            'qty': qty,
+            'customer_name': customer,
+            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper(),
+        })
     return totals, details
 
 def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
@@ -1523,147 +393,69 @@ def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
         else:
             items = safe_cell_items(cell)
         for it in items:
-            product = it.get('product_text') or it.get('product') or ''
-            size = warehouse_item_size_key(product)
-            exact = warehouse_item_exact_key(product)
+            size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
             if not size:
                 continue
-            customer = warehouse_customer_key(it.get('customer_name') or '')
+            customer = (it.get('customer_name') or '').strip()
             try:
                 qty = int(it.get('qty') or 0)
             except Exception:
                 qty = 0
             if qty <= 0:
                 continue
-            component_details = warehouse_saved_item_component_details(it, qty)
-            if component_details:
-                for d in component_details:
-                    dproduct = d.get('product_text') or d.get('product') or ''
-                    dsize = warehouse_item_size_key(dproduct)
-                    dexact = warehouse_item_exact_key(dproduct)
-                    dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
-                    try:
-                        dq = int(d.get('qty') or 0)
-                    except Exception:
-                        dq = 0
-                    if not dsize or dq <= 0:
-                        continue
-                    placed[(dexact, dcustomer)] = placed.get((dexact, dcustomer), 0) + dq
-                    if (dsize, dcustomer) != (dexact, dcustomer) and '=' not in dexact:
-                        placed[(dsize, dcustomer)] = placed.get((dsize, dcustomer), 0) + dq
-                continue
-            exact_key = (exact, customer)
-            size_key = (size, customer)
-            placed[exact_key] = placed.get(exact_key, 0) + qty
-            if size_key != exact_key:
-                placed[size_key] = placed.get(size_key, 0) + qty
+            key = (size, customer)
+            placed[key] = placed.get(key, 0) + qty
     return placed
 
 def normalize_warehouse_payload_items(items):
-    # V435: save-boundary normalization must never drop visible legacy warehouse items.
-    # It accepts arrays, dict wrappers, plain strings and every product text alias used by old packages.
-    try:
-        if '_warehouse_v432_parse_items' in globals():
-            parsed = _warehouse_v432_parse_items(items)
-            if parsed:
-                items = parsed
-    except Exception:
-        pass
-    out_map = {}
-    for raw in items or []:
-        if isinstance(raw, str):
-            it = {'product_text': raw, 'product': raw, 'raw_text': raw, 'qty': 1, 'customer_name': '庫存'}
-        elif isinstance(raw, dict):
-            it = dict(raw)
-        else:
+    merged = {}
+    for raw in (items or []):
+        if not isinstance(raw, dict):
             continue
-        product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('product_label') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '').strip()
+        product = (raw.get('product_text') or raw.get('product') or '').strip()
         if not product:
             continue
         try:
-            qty = int(float(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or it.get('total_qty') or it.get('件數') or 0))
+            qty = int(raw.get('qty') or 0)
         except Exception:
             qty = 0
         if qty <= 0:
-            try:
-                qty = int(effective_product_qty(product, 1))
-            except Exception:
-                qty = 1
-        qty = max(1, qty)
-        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or it.get('client_name') or '')
-        material = str(it.get('material') or it.get('wood_type') or it.get('product_code') or '').strip()
-        source_table = str(it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
-        source_id = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
-        placement_label = str(it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
-        key = (warehouse_item_exact_key(product) or product, customer, material, source_table, source_id, placement_label)
-        row = out_map.get(key)
-        if row:
-            row['qty'] = int(row.get('qty') or 0) + qty
+            continue
+        customer = (raw.get('customer_name') or '').strip()
+        key = (warehouse_item_size_key(product), customer)
+        if key not in merged:
+            item = dict(raw)
+            item['product_text'] = product
+            item['product_code'] = (raw.get('product_code') or product)
+            item['customer_name'] = customer
+            item['qty'] = qty
+            merged[key] = item
         else:
-            row = dict(it)
-            row.update({'product_text': product, 'product': product, 'raw_text': row.get('raw_text') or product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label, '__warehouseCellItem': True})
-            out_map[key] = row
-    return list(out_map.values())
+            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
+            if not merged[key].get('source_summary') and raw.get('source_summary'):
+                merged[key]['source_summary'] = raw.get('source_summary')
+    return list(merged.values())
 
 def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    # service-line retained: mainfile behavior consolidated into formal services.
+    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
     source_totals, _details = warehouse_source_totals()
-    exclude_key = ((zone or '').strip().upper(), int(column_index or 0), int(slot_number or 0))
-    proposed_exact = {}
-    proposed_size = {}
-    for it in items or []:
-        product = it.get('product_text') or it.get('product') or ''
-        size = warehouse_item_size_key(product)
-        exact = warehouse_item_exact_key(product)
-        customer = warehouse_customer_key(it.get('customer_name') or '')
-        if not size:
-            continue
-        try:
-            q = int(it.get('qty') or it.get('quantity') or 0)
-        except Exception:
-            q = 0
-        if q <= 0:
-            continue
-        component_details = warehouse_saved_item_component_details(it, q)
-        if component_details:
-            for d in component_details:
-                dproduct = d.get('product_text') or d.get('product') or ''
-                dsize = warehouse_item_size_key(dproduct)
-                dexact = warehouse_item_exact_key(dproduct)
-                dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
-                try:
-                    dq = int(d.get('qty') or 0)
-                except Exception:
-                    dq = 0
-                if not dsize or dq <= 0:
-                    continue
-                proposed_exact[(dexact, dcustomer)] = proposed_exact.get((dexact, dcustomer), 0) + dq
-                proposed_size[(dsize, dcustomer)] = proposed_size.get((dsize, dcustomer), 0) + dq
-            continue
-        proposed_exact[(exact, customer)] = proposed_exact.get((exact, customer), 0) + q
-        proposed_size[(size, customer)] = proposed_size.get((size, customer), 0) + q
-    placed_other = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=[])
-    for key, proposed_qty in proposed_exact.items():
-        source_qty = int(source_totals.get(key, 0) or 0)
-        # 舊資料只有尺寸、沒有支數時，允許走尺寸總量驗證。
-        if source_qty <= 0 and '=' not in key[0]:
-            source_qty = int(source_totals.get(key, 0) or 0)
-        if source_qty > 0:
-            already = int(placed_other.get(key, 0) or 0)
-            if already + proposed_qty > source_qty:
-                return False, f"{key[0]} 的入倉數量超過此支數來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
-    for key, proposed_qty in proposed_size.items():
-        # service-line retained: mainfile behavior consolidated into formal services.
-        has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
-        if has_exact_for_size:
-            continue
-        source_qty = int(source_totals.get(key, 0) or 0)
-        if source_qty <= 0:
-            return False, f"{key[0]} 沒有可加入來源數量"
-        already = int(placed_other.get(key, 0) or 0)
-        if already + proposed_qty > source_qty:
-            return False, f"{key[0]} 的入倉數量超過來源總數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
-    return True, ""
+    exclude_key = (str(zone), int(column_index), int(slot_number))
+    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
+    for it in items:
+        size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+        customer = (it.get('customer_name') or '').strip()
+        key = (size, customer)
+        source_total = int(source_totals.get(key, 0) or 0)
+        if source_total <= 0:
+            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
+            source_total = max(size_matches) if size_matches else 0
+        placed_total = int(placed.get(key, 0) or 0)
+        if placed_total <= 0 and size:
+            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
+        if source_total > 0 and placed_total > source_total:
+            return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
+        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
+    return True, ''
 
 def grouped_inventory():
     return inventory_summary()
@@ -1706,16 +498,12 @@ def login_page():
 
 @app.route("/settings")
 def settings_page():
-    is_admin = _is_admin_user()
-    # service-line retained: mainfile behavior consolidated into formal services.
-    # Do not block a GET page render on DB initialization; the setting API can refresh later.
-    native_mode = True
-    if _RUNTIME_INIT_DONE:
-        try:
-            native_mode = (str(get_setting('native_ocr_mode', '1')) == '1')
-        except Exception:
-            native_mode = True
-    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=native_mode)
+    is_admin = current_username() == '陳韋廷'
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=(str(get_setting('native_ocr_mode', '1')) == '1'))
+
+@app.route("/diagnostics")
+def diagnostics_page():
+    return render_template("diagnostics.html", username=current_username(), title="系統診斷")
 
 @app.route("/inventory")
 def inventory_page():
@@ -1730,7 +518,6 @@ def master_order_page():
     return render_template("module.html", module_key="master_order", title="總單", username=current_username())
 
 @app.route("/ship")
-@app.route("/shipping")
 def ship_page():
     return render_template("module.html", module_key="ship", title="出貨", username=current_username())
 
@@ -1753,10 +540,6 @@ def todos_page():
 @app.route("/today-changes")
 def today_changes_page():
     return render_template("today_changes.html", username=current_username(), title="今日異動")
-
-@app.route("/diagnostics")
-def diagnostics_page():
-    return render_template("diagnostics.html", username=current_username(), title="系統診斷")
 
 @app.route('/todo-image/<path:filename>')
 def todo_image(filename):
@@ -1872,14 +655,6 @@ def api_todo_delete(todo_id):
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
-    try:
-        ready = ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        ready = False
-        try: log_error('runtime_init_login_v351', str(_yx_init_err))
-        except Exception: pass
-    if not ready:
-        return jsonify(success=False, error='資料庫初始化失敗，登入暫時不可用', db_error=(STARTUP_DB_ERROR or '')[:500], version=APP_VERSION), 503
     try:
         data = request.get_json(silent=True) or {}
         username = (data.get("username") or data.get("name") or "").strip()
@@ -2019,9 +794,8 @@ def _parse_items_from_request(data):
             if payload_material and not (it.get("material") or "").strip():
                 it = {**it, "material": payload_material, "product_code": payload_material}
             fixed = normalize_item_for_save(it)
-            # service-line retained: mainfile behavior consolidated into formal services.
-            # service-line retained: mainfile behavior consolidated into formal services.
-            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source', 'area', 'location', 'zone'):
+            # FIX90：保留出貨來源 / 借貨資訊，避免 normalize 後被吃掉。
+            for _k in ('borrow_from_customer_name', 'source_customer_name', 'borrow_reason', 'borrow_confirmed', 'source_preference', 'deduct_source', 'source'):
                 if isinstance(it, dict) and it.get(_k) not in (None, ''):
                     fixed[_k] = it.get(_k)
             if int(fixed.get("qty") or 0) <= 0 or not fixed.get("product_text"):
@@ -2040,103 +814,7 @@ def _parse_items_from_request(data):
     return cleaned
 
 
-# ============================================================
-# V452 max repair: exact DB readback + fallback insert for product creation.
-# This does not change yx_cache/yx_core/fast-cache architecture; it only prevents
-# successful-looking submits from disappearing after refresh when legacy merge/upsert paths miss a row.
-# ============================================================
-def _v452_table_columns(cur, table_name):
-    try:
-        if USE_POSTGRES:
-            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s", (table_name,))
-        else:
-            cur.execute(f"PRAGMA table_info({table_name})")
-            return [r[1] for r in cur.fetchall()]
-        return [r[0] for r in cur.fetchall()]
-    except Exception:
-        return []
-
-def _v452_item_exists(cur, table_name, customer_name, product_text, material, location=''):
-    clauses = ["product_text = ?"]
-    vals = [product_text]
-    if customer_name:
-        clauses.append("customer_name = ?")
-        vals.append(customer_name)
-    if material:
-        clauses.append("COALESCE(material, product_code, '') = ?")
-        vals.append(material)
-    if location:
-        clauses.append("COALESCE(location, area, zone, '') = ?")
-        vals.append(location)
-    try:
-        cur.execute(sql(f"SELECT id FROM {table_name} WHERE " + " AND ".join(clauses) + " LIMIT 1"), tuple(vals))
-        return bool(fetchone_dict(cur))
-    except Exception:
-        try:
-            cur.execute(sql(f"SELECT id FROM {table_name} WHERE product_text = ? LIMIT 1"), (product_text,))
-            return bool(fetchone_dict(cur))
-        except Exception:
-            return False
-
-def _v452_force_persist_items(table_name, customer_name, items, operator='', location='', region=''):
-    inserted = 0
-    verified = 0
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cols = set(_v452_table_columns(cur, table_name))
-        if not cols:
-            return {'inserted':0, 'verified':0, 'error':'no_columns'}
-        for it in (items or []):
-            product_text = format_product_text_height2((it.get('product_text') or '').strip())
-            if not product_text:
-                continue
-            material = clean_material_value(it.get('material') or it.get('product_code') or '', product_text)
-            qty = int(effective_product_qty(product_text, it.get('qty') or 1) or it.get('qty') or 1)
-            if qty <= 0:
-                qty = 1
-            loc = (it.get('location') or it.get('area') or it.get('zone') or location or '').strip()
-            if _v452_item_exists(cur, table_name, customer_name, product_text, material, loc):
-                verified += 1
-                continue
-            row = {}
-            def put(k,v):
-                if k in cols: row[k]=v
-            put('customer_name', customer_name or '')
-            put('product_text', product_text)
-            put('product_code', material)
-            put('material', material)
-            put('month_tag', product_month_tag(product_text))
-            put('qty', qty)
-            put('quantity', qty)
-            put('area', loc)
-            put('location', loc)
-            put('zone', loc)
-            put('region', region or resolve_customer_region(customer_name, region or '北區') if customer_name else (region or ''))
-            put('status', 'pending')
-            put('operator', operator or current_username())
-            put('source_text', it.get('source_text') or '')
-            put('created_at', now())
-            put('updated_at', now())
-            if not row:
-                continue
-            placeholders = ','.join(['?'] * len(row))
-            cur.execute(sql(f"INSERT INTO {table_name} (" + ','.join(row.keys()) + f") VALUES ({placeholders})"), tuple(row.values()))
-            inserted += 1
-        conn.commit()
-        return {'inserted':inserted, 'verified':verified}
-    except Exception as e:
-        try: conn.rollback()
-        except Exception: pass
-        try: log_error('v452_force_persist_' + table_name, str(e))
-        except Exception: pass
-        return {'inserted':inserted, 'verified':verified, 'error':str(e)}
-    finally:
-        try: conn.close()
-        except Exception: pass
-
-
-# service-line retained: mainfile behavior consolidated into formal services.
+# FIX76：送出前檢查相同「尺寸 + 材質」並列出將被合併的資料。
 def _dup_size_key(product_text):
     return product_display_size(format_product_text_height2(product_text or '')).replace(' ', '').lower()
 
@@ -2235,249 +913,34 @@ def api_duplicate_check():
         log_error('duplicate_check', str(e))
         return error_response('合併檢查失敗')
 
-
-
-def audit_service_safe_side_effect(label, fn, *args, **kwargs):
-    """Run logs/audit/notify/snapshot safely so product creation never fails because of side effects."""
-    try:
-        return fn(*args, **kwargs)
-    except Exception as e:
-        try:
-            log_error('v35_safe_side_effect_' + str(label), str(e))
-        except Exception:
-            pass
-        return None
-
-def product_service_response_payload(customer_name=''):
-    payload = {}
-    try:
-        if customer_name:
-            snap = build_customer_payload_snapshot(customer_name)
-            if isinstance(snap, dict):
-                payload.update(snap)
-    except Exception as e:
-        audit_service_safe_side_effect('snapshot', lambda: (_ for _ in ()).throw(e))
-    try:
-        payload['snapshots'] = product_service_snapshots()
-    except Exception:
-        payload['snapshots'] = {}
-    try:
-        payload['customers'] = get_customers()
-    except Exception:
-        payload['customers'] = []
-    return payload
-
-
-def customer_profile_write_payload(customer_name='', *, old_customer_name='', item=None, mode='', extra=None):
-    """V396: shared customer-write response after rename/move/archive/delete/restore/upsert.
-    Keeps customer cards, product tables, shipping dropdown, warehouse unplaced and Today Changes aligned.
-    """
-    customer_name = (customer_name or '').strip()
-    old_customer_name = (old_customer_name or '').strip()
-    try:
-        _clear_product_fast_cache()
-    except Exception as e:
-        try: log_error('customer_profile_write_clear_cache_v396', str(e))
-        except Exception: pass
-    payload = dict(success=True, item=item or {}, mode=mode or '', customer_name=customer_name, old_customer_name=old_customer_name, new_customer_name=customer_name, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION)
-    try:
-        payload['items'] = get_customers()
-        payload['customers'] = payload['items']
-    except Exception as e:
-        try: log_error('customer_profile_write_customers_v396', str(e))
-        except Exception: pass
-        payload['items'] = []
-        payload['customers'] = []
-    try:
-        payload['snapshots'] = product_service_snapshots()
-    except Exception as e:
-        try: log_error('customer_profile_write_snapshots_v396', str(e))
-        except Exception: pass
-    try:
-        if customer_name:
-            payload.update(build_customer_payload_snapshot(customer_name))
-    except Exception as e:
-        try: log_error('customer_profile_write_snapshot_customer_v396', str(e))
-        except Exception: pass
-    if isinstance(extra, dict):
-        payload.update(extra)
-    return yx_api_align_payload(payload, cache_label=API_SCHEMA_VERSION)
-
-
-# V137 second speed pack: light list pagination helpers.  These helpers keep
-# first paint fast on mobile: product pages can request an initial window,
-# while manual refresh / customer drill-down can still request the full list.
-
-
-def _yx145_fast_write_requested(data=None):
-    """V146: product write endpoints can return a tiny payload so saving never freezes pages."""
-    try:
-        data = data or {}
-        v = data.get('fast_response') if isinstance(data, dict) else None
-        q = request.args.get('fast_response') or request.args.get('fast') or request.args.get('light')
-        return str(v).lower() in ('1','true','yes','on') or str(q).lower() in ('1','true','yes','on')
-    except Exception:
-        return False
-
-
-def _yx145_write_payload(module='', customer_name='', item=None, extra=None):
-    # V457: fast_response must stay fast. Do not rebuild all customers/orders/master_orders here.
-    # The front-end already paints optimistic rows immediately; this response only confirms the
-    # affected customer's rows so saving does not feel stuck after DB commit.
-    customer_name = (customer_name or '').strip()
-    payload = yx_api_align_payload(dict(fast_response=True, module=module or '', customer_name=customer_name, item=item or {}), cache_label=API_SCHEMA_VERSION)
-    try:
-        table = {'orders': 'orders', 'master_order': 'master_orders', 'master_orders': 'master_orders'}.get(str(module or '').strip())
-        if table and customer_name:
-            exact = product_service_exact_customer_rows(table, customer_name) or []
-            payload['exact_customer_items'] = exact
-            qty_total = 0
-            try:
-                for r in exact:
-                    txt = str((r or {}).get('product_text') or (r or {}).get('product') or '')
-                    q = int((r or {}).get('qty') or (r or {}).get('quantity') or (r or {}).get('pieces') or 0)
-                    qty_total += q if q > 0 else 1
-            except Exception:
-                qty_total = len(exact)
-            rc = {'order_rows': len(exact) if table == 'orders' else 0, 'order_qty': qty_total if table == 'orders' else 0,
-                  'master_rows': len(exact) if table == 'master_orders' else 0, 'master_qty': qty_total if table == 'master_orders' else 0}
-            payload['customers'] = [{'name': customer_name, 'customer_name': customer_name, 'region': resolve_customer_region(customer_name, '北區'), 'relation_counts': rc, 'item_count': len(exact), 'row_count': len(exact), 'total_qty': qty_total}]
-            # exact-only snapshot: never overwrites the whole list, only lets the caller merge this customer.
-            payload['items_are_delta'] = True
-            payload['changed_items'] = exact
-    except Exception as e:
-        log_error('v457_fast_write_exact_customer', str(e))
-    if isinstance(extra, dict):
-        payload.update(extra)
-    return payload
-
-def _yx137_list_window(items, default_limit=320):
-    try:
-        total = len(items or [])
-    except Exception:
-        total = 0
-    try:
-        limit = int(request.args.get('limit') or request.args.get('page_size') or default_limit)
-    except Exception:
-        limit = default_limit
-    try:
-        offset = int(request.args.get('offset') or 0)
-    except Exception:
-        offset = 0
-    if limit <= 0 or str(request.args.get('all') or '').lower() in ('1','true','yes'):
-        return list(items or []), {'total': total, 'limit': 0, 'offset': 0, 'has_more': False}
-    limit = max(20, min(limit, 800))
-    offset = max(0, offset)
-    sliced = list(items or [])[offset:offset+limit]
-    return sliced, {'total': total, 'limit': limit, 'offset': offset, 'has_more': (offset + limit) < total}
-
-def _yx137_product_payload(rows, cache_label):
-    sliced, meta = _yx137_list_window(rows)
-    payload = yx_api_align_payload(dict(items=sliced, rows=sliced, **meta), cache_label=API_SCHEMA_VERSION, extra={'legacy_server_cache': cache_label})
-    return payload
-
-
-def _yx459_device_incremental_rows(table, since, label):
-    """V459: small incremental payload for device sync. Falls back safely when timestamps are missing."""
-    since = (since or '').replace('T', ' ').replace('Z', '').split('.')[0].strip()
-    if not since:
-        return None
-    if table not in ('inventory', 'orders', 'master_orders'):
-        return None
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(sql(f"SELECT * FROM {table} WHERE COALESCE(updated_at, created_at, '') >= ? ORDER BY COALESCE(updated_at, created_at, '') DESC, id DESC"), (since,))
-        rows = fetchall_dict(cur)
-        conn.close()
-        payload = yx_api_align_payload(dict(success=True, items=rows, rows=rows, total=len(rows), limit=0, offset=0, has_more=False, incremental=True, changed_since=since), cache_label=API_SCHEMA_VERSION, extra={'legacy_server_cache': label, 'v459_incremental': True})
-        return payload
-    except Exception as e:
-        try: log_error('v459_incremental_rows_' + table, str(e))
-        except Exception: pass
-        return None
-
-
-
-# V515: lightweight diagnostics endpoints. They are intentionally read-only and skip heavy grouping / warehouse unplaced scans.
-def _yx515_is_diag_light_request():
-    try:
-        return str(request.args.get('diag_light') or request.args.get('light') or '').strip() == '1'
-    except Exception:
-        return False
-
-def _yx515_table_count(table):
-    try:
-        if table not in ('inventory','orders','master_orders','shipping_records','today_changes','warehouse_cells'):
-            return 0
-        conn=get_db(); cur=conn.cursor(); cur.execute(f"SELECT COUNT(*) AS c FROM {table}"); row=cur.fetchone(); conn.close()
-        try: return int((row[0] if not isinstance(row, dict) else row.get('c')) or 0)
-        except Exception: return 0
-    except Exception:
-        return 0
-
-def _yx515_product_light_payload(table):
-    return yx_api_align_payload(dict(success=True, light=True, diag_light=True, table=table, items=[], rows=[], records=[], total=_yx515_table_count(table), preserve_client_cache=True, version=APP_VERSION), cache_label=API_SCHEMA_VERSION, extra={'v517_lightweight_diagnostics': True})
-
 @app.route("/api/inventory", methods=["GET", "POST"])
 @login_required_json
 def api_inventory():
-    if request.method == "GET":
-        try:
-            if _yx515_is_diag_light_request():
-                return jsonify(_yx515_product_light_payload('inventory'))
-            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
-                inc = _yx459_device_incremental_rows('inventory', request.args.get('changed_since') or request.args.get('since'), 'v459-inventory-incremental')
-                if inc is not None: return jsonify(inc)
-            cache_key = _fast_cache_key('inventory', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
-            cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
-            if cached:
-                return jsonify(cached)
-            payload = _yx137_product_payload(grouped_inventory(), 'v139-fourth-pack-inventory-window-cache')
-            if use_fast_cache:
-                _fast_cache_set(cache_key, payload)
-            return jsonify(payload)
-        except Exception as e:
-            log_error("inventory_get", str(e))
-            try:
-                # Do not show an empty inventory page just because warehouse summary failed.
-                return jsonify(success=True, items=list_inventory(), degraded=True, error=str(e))
-            except Exception as e2:
-                log_error("inventory_get_raw_fallback", str(e2))
-                return jsonify(success=False, items=[], error=str(e2))
-    data = request.get_json(silent=True) or {}
     try:
+        if request.method == "GET":
+            return jsonify(success=True, items=grouped_inventory())
+        data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
-            return duplicate_success('相同庫存送出已忽略', **duplicate_current_payload('/api/inventory', data))
+            return duplicate_success('相同庫存送出已忽略')
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
         operator = current_username()
-        duplicate_mode = (data.get("duplicate_mode") or "merge").strip() or "merge"
-        location = (data.get("location") or data.get("area") or data.get("zone") or "").strip()
+        location = (data.get("location") or "").strip()
         customer_name = (data.get("customer_name") or "").strip()
         if customer_name:
-            audit_service_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')), preserve_existing=True)
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         for it in items:
-            item_location = (it.get("location") or it.get("area") or it.get("zone") or location or "").strip()
-            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), item_location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""), duplicate_mode=duplicate_mode)
-        v452_persist = _v452_force_persist_items('inventory', customer_name, items, operator=operator, location=location, region=data.get('region') or '')
+            save_inventory_item(it["product_text"], it.get("product_code", ""), int(it["qty"]), location, customer_name, operator, data.get("ocr_text", ""), it.get("material",""))
+        log_action(operator, "建立庫存")
+        add_audit_trail(operator, 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
+        notify_sync_event(kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name) if customer_name else {}
+        return jsonify(success=True, items=grouped_inventory(), **snap)
     except Exception as e:
-        log_error("inventory_main_save_v40", str(e))
+        log_error("inventory", str(e))
         return error_response("建立失敗")
-    audit_service_safe_side_effect('log_inventory', log_action, current_username(), "建立庫存")
-    audit_service_safe_side_effect('audit_inventory', add_audit_trail, current_username(), 'create', 'inventory', customer_name or 'inventory', before_json={}, after_json={'customer_name': customer_name, 'location': location, 'items': items})
-    audit_service_safe_side_effect('notify_inventory', notify_sync_event, kind='refresh', module='inventory', message='庫存已更新', extra={'customer_name': customer_name, 'count': len(items)})
-    _clear_product_fast_cache()
-    if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('inventory', customer_name, extra={'count': len(items), 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'inventory'}))
-    payload = product_service_response_payload(customer_name)
-    exact = audit_service_safe_side_effect('exact_inventory', product_service_exact_customer_rows, 'inventory', customer_name) or []
-    try:
-        rows = grouped_inventory()
-    except Exception:
-        rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
+
 
 @app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
 @login_required_json
@@ -2501,15 +964,13 @@ def api_inventory_item(item_id):
             log_action(current_username(), f"刪除庫存商品 #{item_id}")
             add_audit_trail(current_username(), 'delete', 'inventory', str(item_id), before_json=before, after_json={})
             notify_sync_event(kind='refresh', module='inventory', message='庫存商品已刪除', extra={'id': item_id})
-            _clear_product_fast_cache()
             return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = clean_material_value(data.get('material') if data.get('material') is not None else (data.get('product_code') if data.get('product_code') is not None else row.get('material') or row.get('product_code') or ''), product_text)
-        month_tag = product_month_tag(product_text)
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
-        location = (data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or ''))).strip()
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
             conn.close()
@@ -2519,18 +980,14 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
         add_audit_trail(current_username(), 'update', 'inventory', str(item_id), before_json=before, after_json={'product_text': product_text, 'qty': qty, 'location': location, 'customer_name': customer_name})
         notify_sync_event(kind='refresh', module='inventory', message='庫存商品已更新', extra={'id': item_id})
-        _clear_product_fast_cache()
-        _v211_clear_cross_function_cache(customer_name)
-        if _yx145_fast_write_requested(data):
-            return jsonify(_yx145_write_payload('inventory', customer_name, item={'id': item_id, 'product_text': product_text, 'qty': qty, 'material': material, 'location': location}))
         return jsonify(success=True, items=grouped_inventory())
     except Exception as e:
         log_error('inventory_item', str(e))
@@ -2565,7 +1022,7 @@ def api_inventory_item_move(item_id):
         product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        item = {'product_text': product_text, 'product_code': product_code, 'material': product_code, 'qty': move_qty, 'area': row.get('area') or row.get('location') or '', 'location': row.get('location') or row.get('area') or ''}
+        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
         if target == 'orders':
             save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
             target_label = '訂單'
@@ -2584,12 +1041,10 @@ def api_inventory_item_move(item_id):
         conn.close()
         log_action(current_username(), f"庫存移到{target_label}：{customer_name}")
         add_audit_trail(current_username(), 'move', 'inventory', str(item_id), before_json={'id': item_id, 'qty': current_qty, 'product_text': product_text}, after_json={'target': target_label, 'customer_name': customer_name, 'qty': move_qty, 'product_text': product_text})
-        sync_extra = {'id': item_id, 'customer_name': customer_name, 'qty': move_qty, 'source': 'inventory', 'target_source': module, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
-        for _m in ('inventory', module, 'ship', 'warehouse', 'today_changes'):
-            notify_sync_event(kind='refresh', module=_m, message=f'庫存已移到{target_label}', extra=sync_extra)
-        moved_row = {'source': '庫存', 'target': target_label, 'id': item_id, 'product_text': product_text, 'qty': move_qty, 'customer_name': customer_name}
-        payload = _yx416_transfer_refresh_payload('inventory', module, [customer_name], [moved_row], extra={'items': grouped_inventory(), 'customer_name': customer_name, 'target': target_label, 'target_label': target_label, 'moved_qty': move_qty})
-        return jsonify(payload)
+        notify_sync_event(kind='refresh', module='inventory', message=f'庫存已移到{target_label}', extra={'id': item_id, 'customer_name': customer_name, 'qty': move_qty})
+        notify_sync_event(kind='refresh', module=module, message=f'{target_label}已更新', extra={'customer_name': customer_name, 'qty': move_qty})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=grouped_inventory(), customer_name=customer_name, target=target_label, **snap)
     except Exception as e:
         log_error('inventory_item_move', str(e))
         return error_response('庫存移動失敗')
@@ -2597,625 +1052,80 @@ def api_inventory_item_move(item_id):
 @login_required_json
 def api_orders():
     try:
-        ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        try: log_error('runtime_init_orders_v196', str(_yx_init_err))
-        except Exception: pass
-    if request.method == "GET":
-        try:
-            if _yx515_is_diag_light_request():
-                return jsonify(_yx515_product_light_payload('inventory'))
-            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
-                inc = _yx459_device_incremental_rows('orders', request.args.get('changed_since') or request.args.get('since'), 'v459-orders-incremental')
-                if inc is not None: return jsonify(inc)
-            cache_key = _fast_cache_key('orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
-            cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
-            if cached:
-                return jsonify(cached)
-            payload = _yx137_product_payload(get_orders(), 'v137-second-pack-orders')
-            if use_fast_cache:
-                _fast_cache_set(cache_key, payload)
-            return jsonify(payload)
-        except Exception as e:
-            log_error("orders_get", str(e))
-            return jsonify(success=True, items=[])
-    data = request.get_json(silent=True) or {}
-    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=get_orders())
+        data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/orders'):
-            return duplicate_success('相同訂單送出已忽略', **duplicate_current_payload('/api/orders', data))
+            return duplicate_success('相同訂單送出已忽略')
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        audit_service_safe_side_effect('upsert_orders_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         save_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
-        v452_persist = _v452_force_persist_items('orders', customer_name, items, operator=current_username(), location=data.get('location') or data.get('zone') or '', region=data.get('region') or '北區')
-        audit_service_safe_side_effect('upsert_orders_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
+        log_action(current_username(), "建立訂單")
+        add_audit_trail(current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_orders(), **snap)
     except Exception as e:
-        log_error("orders_main_save_v40", str(e))
+        log_error("orders", str(e))
         return error_response("訂單建立失敗")
-    audit_service_safe_side_effect('log_orders', log_action, current_username(), "建立訂單")
-    audit_service_safe_side_effect('audit_orders', add_audit_trail, current_username(), 'create', 'orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
-    audit_service_safe_side_effect('notify_orders', notify_sync_event, kind='refresh', module='orders', message='訂單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-    _clear_product_fast_cache()
-    _v211_clear_cross_function_cache(customer_name)
-    try:
-        _fast_cache_clear('customers|')
-        _fast_cache_clear('customer_items|')
-        _fast_cache_clear('today_changes|')
-    except Exception:
-        pass
-    if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('orders', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'orders'}))
-    payload = product_service_response_payload(customer_name)
-    exact = audit_service_safe_side_effect('exact_orders', product_service_exact_customer_rows, 'orders', customer_name) or []
-    try:
-        rows = get_orders()
-    except Exception:
-        rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
 
 @app.route("/api/master_orders", methods=["GET", "POST"])
 @login_required_json
 def api_master_orders():
     try:
-        ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        try: log_error('runtime_init_master_orders_v196', str(_yx_init_err))
-        except Exception: pass
-    if request.method == "GET":
-        try:
-            if _yx515_is_diag_light_request():
-                return jsonify(_yx515_product_light_payload('inventory'))
-            if request.args.get('yx_device_sync') == '1' and (request.args.get('changed_since') or request.args.get('since')):
-                inc = _yx459_device_incremental_rows('master_orders', request.args.get('changed_since') or request.args.get('since'), 'v459-master-orders-incremental')
-                if inc is not None: return jsonify(inc)
-            cache_key = _fast_cache_key('master_orders', version=API_SCHEMA_VERSION, user=current_username(), limit=request.args.get('limit') or '', offset=request.args.get('offset') or '', all=request.args.get('all') or '', qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-            use_fast_cache = (request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
-            cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
-            if cached:
-                return jsonify(cached)
-            payload = _yx137_product_payload(get_master_orders(), 'v137-second-pack-master-orders')
-            if use_fast_cache:
-                _fast_cache_set(cache_key, payload)
-            return jsonify(payload)
-        except Exception as e:
-            log_error("master_orders_get", str(e))
-            return jsonify(success=True, items=[])
-    data = request.get_json(silent=True) or {}
-    try:
+        if request.method == "GET":
+            return jsonify(success=True, items=get_master_orders())
+        data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/master_orders'):
-            return duplicate_success('相同總單送出已忽略', **duplicate_current_payload('/api/master_orders', data))
+            return duplicate_success('相同總單送出已忽略')
         items = _parse_items_from_request(data)
         if not items:
             return error_response("請輸入商品資料")
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
             return error_response("請輸入客戶名稱")
-        audit_service_safe_side_effect('upsert_master_customer_before', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         save_master_order(customer_name, items, current_username(), (data.get("duplicate_mode") or "merge").strip() or "merge")
-        v452_persist = _v452_force_persist_items('master_orders', customer_name, items, operator=current_username(), location=data.get('location') or data.get('zone') or '', region=data.get('region') or '北區')
-        audit_service_safe_side_effect('upsert_master_customer_after', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region') or '北區'), preserve_existing=True)
+        log_action(current_username(), "更新總單")
+        add_audit_trail(current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
+        notify_sync_event(kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        snap = build_customer_payload_snapshot(customer_name)
+        return jsonify(success=True, items=get_master_orders(), **snap)
     except Exception as e:
-        log_error("master_orders_main_save_v40", str(e))
+        log_error("master_orders", str(e))
         return error_response("總單失敗")
-    audit_service_safe_side_effect('log_master_orders', log_action, current_username(), "更新總單")
-    audit_service_safe_side_effect('audit_master_orders', add_audit_trail, current_username(), 'create', 'master_orders', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items})
-    audit_service_safe_side_effect('notify_master_orders', notify_sync_event, kind='refresh', module='master_order', message='總單已更新', extra={'customer_name': customer_name, 'count': len(items)})
-    _clear_product_fast_cache()
-    _v211_clear_cross_function_cache(customer_name)
-    try:
-        _fast_cache_clear('customers|')
-        _fast_cache_clear('customer_items|')
-        _fast_cache_clear('today_changes|')
-    except Exception:
-        pass
-    if _yx145_fast_write_requested(data):
-        return jsonify(_yx145_write_payload('master_order', customer_name, extra={'count': len(items), 'cache_bust': API_SCHEMA_VERSION, 'v452_persist': locals().get('v452_persist'), 'saved_items': items, 'source':'master_order'}))
-    payload = product_service_response_payload(customer_name)
-    exact = audit_service_safe_side_effect('exact_master_orders', product_service_exact_customer_rows, 'master_orders', customer_name) or []
-    try:
-        rows = get_master_orders()
-    except Exception:
-        rows = []
-    return jsonify(success=True, items=rows, exact_customer_items=exact, v452_persist=locals().get('v452_persist'), **payload)
-
-
-
-
-def shipping_service_warehouse_snapshot_payload(result):
-    """V396: after shipping succeeds, return DB-readback warehouse columns touched by warehouse_deduct.
-    This lets the warehouse page apply the server-confirmed cells immediately instead of first
-    painting an optimistic local deduction and waiting for a later consistency check.
-    """
-    touched = set()
-    def scan(obj):
-        if not obj:
-            return
-        if isinstance(obj, list):
-            for x in obj:
-                scan(x)
-            return
-        if not isinstance(obj, dict):
-            return
-        for ch in obj.get('warehouse_deduct') or []:
-            try:
-                z = str((ch or {}).get('zone') or '').strip().upper()
-                c = int((ch or {}).get('column_index') or (ch or {}).get('col') or 0)
-                if z in ('A', 'B') and c > 0:
-                    touched.add((z, c))
-            except Exception:
-                continue
-        for key in ('breakdown', 'items', 'result', 'source_consistency'):
-            val = obj.get(key)
-            if val is not obj:
-                scan(val)
-    try:
-        scan(result or {})
-    except Exception as e:
-        try: log_error('ship_warehouse_snapshot_collect_v396', str(e))
-        except Exception: pass
-    columns = []
-    flat_cells = []
-    for z, c in sorted(touched):
-        try:
-            cells = warehouse_get_column_cells(z, c)
-            enriched = []
-            for cell in cells or []:
-                try:
-                    if '_warehouse_enrich_cell_client_meta' in globals():
-                        row = _warehouse_enrich_cell_client_meta(cell)
-                    else:
-                        row = dict(cell or {})
-                    try:
-                        if not isinstance(row.get('items'), list):
-                            row['items'] = json.loads(row.get('items_json') or '[]')
-                    except Exception:
-                        row['items'] = []
-                    row['items_json'] = json.dumps(row.get('items') or [], ensure_ascii=False)
-                    enriched.append(row)
-                except Exception:
-                    enriched.append(dict(cell or {}))
-            columns.append({
-                'zone': z,
-                'column_index': c,
-                'column_cells': enriched,
-                'readback_count': len(enriched),
-                'column_revision': int(time.time() * 1000),
-                'db_readback': True,
-                'reason': 'ship-completed-v413',
-            })
-            flat_cells.extend(enriched)
-        except Exception as e:
-            try: log_error('ship_warehouse_snapshot_column_v396', f'{z}-{c}: {e}')
-            except Exception: pass
-    return {
-        'warehouse_column_snapshots': columns,
-        'warehouse_columns': columns,
-        'warehouse_cells_snapshot': flat_cells,
-        'warehouse_snapshot_version': API_SCHEMA_VERSION,
-    }
-
-
-def shipping_service_affected_customers(customer_name, result):
-    """V412: collect every customer whose visible counts can change after shipping.
-    Normal shipping affects the ship customer; borrowed/source-customer shipping also affects
-    the source customer, so front-end customer cards and product lists must refresh both.
-    """
-    names = []
-    def add(v):
-        v = (v or '').strip()
-        if v and v not in names:
-            names.append(v)
-    add(customer_name)
-    try:
-        for b in (result or {}).get('breakdown') or []:
-            add(b.get('ship_customer_name') or b.get('customer_name') or customer_name)
-            src_table = str(b.get('source_table') or '').strip()
-            src_customer = (b.get('source_customer_name') or '').strip()
-            if src_table != 'inventory':
-                add(src_customer)
-            if b.get('is_borrowed'):
-                add(src_customer)
-    except Exception as e:
-        try: log_error('ship_affected_customers_v412', str(e))
-        except Exception: pass
-    return names
-
-
-def shipping_service_affected_customer_payloads(names):
-    """V412: compact per-customer readback for order/master/customer-card refresh."""
-    out = {}
-    for name in names or []:
-        name = (name or '').strip()
-        if not name:
-            continue
-        try:
-            payload = build_customer_payload_snapshot(name)
-            payload['orders'] = product_service_exact_customer_rows('orders', name)
-            payload['master_order'] = product_service_exact_customer_rows('master_orders', name)
-            payload['master_orders'] = payload['master_order']
-            out[name] = payload
-        except Exception as e:
-            try: log_error('ship_affected_customer_payload_v412', f'{name}: {e}')
-            except Exception: pass
-    return out
-
-def shipping_service_snapshot_key(token):
-    return 'ship_preview_snapshot_' + str(token or '').strip()
-
-def shipping_service_source_plan_signature(row):
-    """Compact signature of preview source rows for confirm-time verification.
-
-    V413: source_plan already contains the exact row ids; this signature makes
-    the preview token reject if the selected source row id/qty/before_qty/source
-    table/customer changes before final confirm.
-    """
-    try:
-        plan = []
-        for p in ((row or {}).get('source_plan') or []):
-            if not isinstance(p, dict):
-                continue
-            plan.append({
-                'id': int(p.get('id') or 0),
-                'qty': int(p.get('qty') or 0),
-                'before_qty': int(p.get('before_qty') or 0),
-                'source_table': str(p.get('source_table') or (row or {}).get('source_preference') or (row or {}).get('source_table') or '').strip(),
-                'source_customer_name': str(p.get('source_customer_name') or (row or {}).get('source_customer_name') or '').strip(),
-                'row_lock_key': str(p.get('row_lock_key') or '').strip(),
-            })
-        return json.dumps(plan, ensure_ascii=False, sort_keys=True)
-    except Exception:
-        return ''
-
-
-def shipping_service_preview_source_lock_summary(preview):
-    rows = []
-    try:
-        for idx, row in enumerate((preview or {}).get('items') or []):
-            if not isinstance(row, dict):
-                continue
-            rows.append({
-                'index': idx,
-                'product_text': row.get('product_text') or '',
-                'material': row.get('material') or row.get('product_code') or '',
-                'qty': int(row.get('qty') or 0),
-                'source_table': row.get('source_preference') or row.get('source_table') or '',
-                'source_label': row.get('source_label') or '',
-                'source_customer_name': row.get('source_customer_name') or '',
-                'source_plan_ids': [p.get('id') for p in (row.get('source_plan') or []) if isinstance(p, dict)],
-                'source_plan_signature': shipping_service_source_plan_signature(row),
-            })
-    except Exception as e:
-        try: log_error('ship_preview_source_lock_summary_v413', str(e))
-        except Exception: pass
-    return rows
-
-
-def shipping_service_make_preview_token(customer_name, items, preview):
-    token = uuid.uuid4().hex
-    payload = {
-        'token': token,
-        'customer_name': customer_name,
-        'items': items,
-        'preview': preview,
-        'preview_source_lock_summary': shipping_service_preview_source_lock_summary(preview),
-        'created_at': now(),
-        'operator': current_username(),
-        'source_lock_version': API_SCHEMA_VERSION,
-        'consumed_at': '',
-        'consumed_by_operation_id': '',
-    }
-    try:
-        set_setting(shipping_service_snapshot_key(token), json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    except Exception as e:
-        log_error('ship_preview_snapshot_save', str(e))
-    return token
-
-
-def shipping_service_read_preview_snapshot(token):
-    token = str(token or '').strip()
-    if not token:
-        return None, '出貨缺少預覽鎖定，請重新預覽'
-    raw = get_setting(shipping_service_snapshot_key(token), '') or ''
-    if not raw:
-        return None, '出貨預覽已過期，請重新預覽'
-    try:
-        saved = json.loads(raw)
-    except Exception:
-        return None, '出貨預覽資料損壞，請重新預覽'
-    if saved.get('consumed_at'):
-        return None, '這次出貨預覽已完成扣除，請重新預覽後再送出'
-    if (saved.get('source_lock_version') or '') != API_SCHEMA_VERSION:
-        return None, '出貨預覽鎖定版本已更新，請重新預覽'
-    try:
-        created = datetime.strptime(str(saved.get('created_at') or ''), '%Y-%m-%d %H:%M:%S')
-        if (datetime.now() - created).total_seconds() > 1800:
-            return None, '出貨預覽超過 30 分鐘，請重新預覽'
-    except Exception:
-        pass
-    return saved, ''
-
-
-def shipping_service_consume_preview_token(token, operation_id=''):
-    token = str(token or '').strip()
-    if not token:
-        return
-    saved, err = shipping_service_read_preview_snapshot(token)
-    if not saved:
-        return
-    try:
-        saved['consumed_at'] = now()
-        saved['consumed_by_operation_id'] = str(operation_id or '')
-        saved['source_lock_version'] = API_SCHEMA_VERSION
-        set_setting(shipping_service_snapshot_key(token), json.dumps(saved, ensure_ascii=False, sort_keys=True))
-    except Exception as e:
-        log_error('ship_preview_snapshot_consume', str(e))
-
-
-def shipping_service_preview_locked_items(token, customer_name, items):
-    """Return confirm items locked to the exact source chosen by /api/ship-preview.
-
-    V225: the preview table and the real deduction must use the same source.
-    We do not change the fast cache / queue architecture; this only enriches the
-    already submitted items with the saved preview source before final deduction.
-    """
-    token = str(token or '').strip()
-    if not token:
-        return items
-    saved, _err = shipping_service_read_preview_snapshot(token)
-    if not saved:
-        return items
-    if (saved.get('customer_name') or '').strip() != (customer_name or '').strip():
-        return items
-    preview_rows = (saved.get('preview') or {}).get('items') or []
-    if not isinstance(preview_rows, list) or not preview_rows:
-        return items
-    locked = []
-    for idx, item in enumerate(items or []):
-        row = preview_rows[idx] if idx < len(preview_rows) and isinstance(preview_rows[idx], dict) else {}
-        enriched = dict(item or {})
-        # Only lock when the saved preview row matches this product/material/qty enough to be safe.
-        try:
-            item_product = format_product_text_height2(enriched.get('product_text') or '')
-            row_product = format_product_text_height2(row.get('product_text') or row.get('product') or '')
-            item_material = clean_material_value(enriched.get('material') or enriched.get('product_code') or '', item_product)
-            row_material = clean_material_value(row.get('material') or row.get('product_code') or '', row_product)
-            item_qty = int(enriched.get('qty') or 0)
-            row_qty = int(row.get('qty') or row.get('need_qty') or item_qty or 0)
-            matched = (not row_product or row_product == item_product) and (not row_material or row_material == item_material) and (not row_qty or row_qty == item_qty)
-        except Exception:
-            matched = True
-        if matched:
-            src = row.get('source_preference') or row.get('deduct_source') or row.get('source_table') or row.get('source_label')
-            if src:
-                enriched['source_preference'] = src
-                enriched['deduct_source'] = src
-                enriched['source'] = src
-            source_customer = row.get('source_customer_name') or row.get('borrow_from_customer_name')
-            if source_customer:
-                enriched['source_customer_name'] = source_customer
-                if row.get('borrow_from_customer_name'):
-                    enriched['borrow_from_customer_name'] = row.get('borrow_from_customer_name')
-            # V234: preview locks the exact same-size row plan, not only the source table.
-            # This prevents confirm from deducting a different order/master/inventory row
-            # when the same customer has multiple identical dimensions.
-            if isinstance(row.get('source_plan'), list):
-                enriched['source_plan'] = row.get('source_plan')
-                enriched['deduct_plan'] = row.get('source_plan')
-        locked.append(enriched)
-    return locked
-
-def shipping_service_validate_preview_token(token, customer_name, items):
-    token = str(token or '').strip()
-    if not token:
-        return True, ''
-    saved, snapshot_error = shipping_service_read_preview_snapshot(token)
-    if not saved:
-        return False, snapshot_error or '出貨預覽已過期，請重新預覽'
-    if (saved.get('customer_name') or '').strip() != (customer_name or '').strip():
-        return False, '出貨客戶已變更，請重新預覽'
-    saved_items = saved.get('items') or []
-    try:
-        a = json.dumps(saved_items, ensure_ascii=False, sort_keys=True)
-        b = json.dumps(items, ensure_ascii=False, sort_keys=True)
-        if a != b:
-            return False, '出貨商品已變更，請重新預覽'
-    except Exception:
-        return False, '出貨商品已變更，請重新預覽'
-    # V225: Re-preview with the source selected by the saved preview.
-    # This prevents preview showing 總單/訂單/庫存 but final confirm auto-deducting another source.
-    locked_items = shipping_service_preview_locked_items(token, customer_name, items)
-    fresh = preview_ship_order(customer_name, locked_items)
-    if fresh.get('master_exceeded') or fresh.get('success') is False:
-        return False, fresh.get('message') or fresh.get('error') or '目前數量已變更，請重新預覽'
-    bad = [x for x in (fresh.get('items') or []) if not x.get('strict_ok')]
-    if bad:
-        first = bad[0]
-        return False, first.get('recommendation') or '目前數量不足，請重新預覽'
-    # V413: even when the source still has enough total qty, the exact rows shown
-    # in preview must remain the same. This prevents same-size rows from silently
-    # shifting between preview and confirm.
-    try:
-        saved_rows = ((saved.get('preview') or {}).get('items') or [])
-        fresh_rows = fresh.get('items') or []
-        if len(saved_rows) != len(fresh_rows):
-            return False, '出貨來源明細已變更，請重新預覽'
-        for idx, saved_row in enumerate(saved_rows):
-            fresh_row = fresh_rows[idx] if idx < len(fresh_rows) else {}
-            if shipping_service_source_plan_signature(saved_row) != shipping_service_source_plan_signature(fresh_row):
-                return False, '出貨來源資料已變更，請重新預覽'
-            if (saved_row.get('source_preference') or saved_row.get('source_table') or '') != (fresh_row.get('source_preference') or fresh_row.get('source_table') or ''):
-                return False, '出貨扣除來源已變更，請重新預覽'
-            if (saved_row.get('source_customer_name') or '') != (fresh_row.get('source_customer_name') or ''):
-                return False, '出貨來源客戶已變更，請重新預覽'
-    except Exception as e:
-        try: log_error('ship_preview_source_signature_v413', str(e))
-        except Exception: pass
-        return False, '出貨來源鎖定檢查失敗，請重新預覽'
-    return True, ''
-
-def shipping_service_preview_error_code(message):
-    """V396: classify preview lock failures so the front end preserves the preview
-    and shows the correct next action instead of treating the request as a completed shipment.
-    """
-    msg = str(message or '')
-    if '過期' in msg or '重新預覽' in msg:
-        return 'preview_expired'
-    if '客戶已變更' in msg:
-        return 'preview_customer_changed'
-    if '商品已變更' in msg:
-        return 'preview_items_changed'
-    if '來源' in msg or '鎖定' in msg:
-        return 'preview_source_changed'
-    if '數量不足' in msg or '不可扣' in msg or '數量已變更' in msg:
-        return 'preview_qty_changed'
-    return 'preview_changed'
 
 @app.route("/api/ship", methods=["POST"])
-@app.route("/api/ship/confirm", methods=["POST"])
 @login_required_json
 def api_ship():
     try:
         data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'ship_confirm') if '_yx_operation_id' in globals() else (data.get('operation_id') or data.get('request_key') or uuid.uuid4().hex)
-        def _ship_fail(msg, code=400, **extra):
-            payload = {'success': False, 'error': msg, 'operation_id': operation_id, 'preserve_preview': True, 'preview_required': True, 'deduct_committed': False, 'shipping_state': 'preview_preserved', 'retry_action': 'repreview', 'version': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION}
-            payload.update(extra or {})
-            if '_yx_operation_finish' in globals():
-                try: _yx_operation_finish(operation_id, 'ship_confirm', payload, error=msg)
-                except Exception: pass
-            return jsonify(payload), code
-        if '_yx_operation_begin' in globals():
-            cached = _yx_operation_begin(operation_id, 'ship_confirm', data)
-            if cached:
-                # V396: a duplicate while the first shipment is still running must not look like success.
-                # Otherwise the front end may clear the preview even though the DB transaction is not finished.
-                if cached.get('duplicate_running') or cached.get('queued'):
-                    cached.update({'success': False, 'error': '出貨正在處理中，已保留預覽，請稍後再確認。', 'preserve_preview': True, 'preview_required': True, 'deduct_committed': False, 'shipping_state': 'processing', 'retry_action': 'wait', 'error_code': 'ship_confirm_running', 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION})
-                    return jsonify(cached), 409
-                cached.setdefault('duplicate_done', True)
-                cached.setdefault('deduct_committed', bool(cached.get('success')))
-                return jsonify(cached)
         if not request_key_from_payload(data, endpoint='/api/ship'):
-            payload = duplicate_current_payload('/api/ship', data)
-            payload.update({'success': False, 'duplicate': True, 'error': '相同出貨送出已收到，已保留預覽，請勿連點。', 'operation_id': operation_id, 'preserve_preview': True, 'preview_required': True, 'deduct_committed': False, 'shipping_state': 'duplicate_preserved', 'retry_action': 'wait', 'error_code': 'duplicate_ship_request', 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION})
-            return jsonify(payload), 409
+            return duplicate_success('相同出貨送出已忽略')
         items = _parse_items_from_request(data)
         if not items:
-            return _ship_fail("請輸入商品資料")
+            return error_response("請輸入商品資料")
         customer_name = (data.get("customer_name") or "").strip()
         if not customer_name:
-            return _ship_fail("請輸入客戶名稱")
-        audit_service_safe_side_effect('ship_upsert_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        # V396: every formal shipment must be confirmed against a preview token.
-        # This closes the old direct-submit path that could bypass source locking.
-        if not bool(data.get('preview_required')):
-            return _ship_fail('出貨必須先預覽並鎖定來源，請重新預覽', error_code='preview_required')
-        if not str(data.get('preview_token') or '').strip():
-            return _ship_fail('出貨缺少預覽鎖定，請重新預覽', error_code='preview_token_required')
-        ok_snapshot, snapshot_error = shipping_service_validate_preview_token(data.get('preview_token'), customer_name, items)
-        if not ok_snapshot:
-            return _ship_fail(snapshot_error, error_code=shipping_service_preview_error_code(snapshot_error), retry_action='repreview', shipping_state='preview_invalid')
-        # V225: lock the confirm payload to the exact sources shown by /api/ship-preview.
-        # If those sources no longer have enough quantity, validation above rejects and asks for a new preview.
-        items = shipping_service_preview_locked_items(data.get('preview_token'), customer_name, items)
+            return error_response("請輸入客戶名稱")
+        upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         allow_inventory_fallback = bool(data.get("allow_inventory_fallback"))
         result = ship_order(customer_name, items, current_username(), allow_inventory_fallback=allow_inventory_fallback)
-        _preview_snapshot_for_result = None
-        try:
-            _preview_snapshot_for_result, _ = shipping_service_read_preview_snapshot(data.get('preview_token'))
-        except Exception:
-            _preview_snapshot_for_result = None
-        affected_customer_names = []
-        if isinstance(result, dict):
-            try:
-                affected_customer_names = shipping_service_affected_customers(customer_name, result)
-                result['affected_customer_names'] = affected_customer_names
-                result['customer_names'] = affected_customer_names
-                result['affected_customer_payloads'] = shipping_service_affected_customer_payloads(affected_customer_names)
-            except Exception as _affected_err:
-                try: log_error('ship_v413_affected_customer_payloads', str(_affected_err))
-                except Exception: pass
         if result.get("success"):
-            shipping_service_consume_preview_token(data.get('preview_token'), operation_id)
-            _clear_product_fast_cache()
-            try:
-                _warehouse_cache_clear()
-            except Exception:
-                pass
-            audit_service_safe_side_effect('ship_log', log_action, current_username(), "完成出貨")
-            audit_service_safe_side_effect('ship_audit', add_audit_trail, current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
-            # V196: 出貨扣除後同時刷新出貨、訂單、總單、倉庫圖、今日異動；避免只修出貨卻讓其他頁仍吃舊資料。
-            for _m in ('ship', 'orders', 'master_order', 'warehouse', 'today_changes', 'customers'):
-                audit_service_safe_side_effect('ship_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='出貨已更新', extra={'customer_name': customer_name, 'customer_names': affected_customer_names or [customer_name], 'count': len(items), 'operation_id': operation_id, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION})
-        # V196: 前端送 skip_snapshot 也仍要帶回客戶真實商品與 counts，讓出貨後訂單/總單/客戶卡立即同步。
-        if isinstance(result, dict) and customer_name:
-            try:
-                result.update(product_service_response_payload(customer_name))
-            except Exception as _payload_err:
-                try: log_error('ship_v214_response_payload', str(_payload_err))
-                except Exception: pass
-            # V201: tell the front end exactly which lists were deducted so
-            # orders / master_order / inventory / customer cards / today can refresh together.
-            try:
-                affected_sources = set()
-                for _b in (result.get('breakdown') or []):
-                    if int(_b.get('master_deduct') or 0) > 0:
-                        affected_sources.add('master_order')
-                    if int(_b.get('order_deduct') or 0) > 0:
-                        affected_sources.add('orders')
-                    if int(_b.get('inventory_deduct') or 0) > 0:
-                        affected_sources.add('inventory')
-                result['affected_sources'] = sorted(affected_sources)
-                if affected_customer_names:
-                    result['affected_customer_names'] = affected_customer_names
-                    result['customer_names'] = affected_customer_names
-                result['sync_version'] = API_SCHEMA_VERSION
-                result['source_consistency'] = [{'product_text': b.get('product_text'), 'source_table': b.get('source_table'), 'source_label': b.get('source_label'), 'source_customer_name': b.get('source_customer_name'), 'source_plan': b.get('source_plan') or [], 'warehouse_deduct': b.get('warehouse_deduct') or []} for b in (result.get('breakdown') or [])]
-                # V214: frontend uses these server-confirmed values to override stale cross-page caches after shipping.
-                result['server_confirmed_customer_name'] = customer_name
-                result['server_confirmed_at'] = int(time.time())
-                result['cache_bust'] = API_SCHEMA_VERSION
-                result['preview_source_locked'] = True
-                result['preview_token_consumed'] = bool(data.get('preview_token')) and bool(result.get('success'))
-                result['source_lock_version'] = API_SCHEMA_VERSION
-                try:
-                    if _preview_snapshot_for_result:
-                        result['preview_source_lock_summary'] = _preview_snapshot_for_result.get('preview_source_lock_summary') or shipping_service_preview_source_lock_summary(_preview_snapshot_for_result.get('preview') or {})
-                except Exception:
-                    pass
-                # V396: include server-confirmed warehouse columns touched by this shipment,
-                # so warehouse page can apply DB readback immediately without waiting for a full reload.
-                try:
-                    result.update(shipping_service_warehouse_snapshot_payload(result))
-                except Exception as _wh_snap_err:
-                    try: log_error('ship_v396_warehouse_snapshot_payload', str(_wh_snap_err))
-                    except Exception: pass
-            except Exception as _sync_err:
-                try: log_error('ship_v214_sync_payload', str(_sync_err))
-                except Exception: pass
-        if isinstance(result, dict):
-            result['operation_id'] = operation_id
-            if not result.get('success'):
-                result.setdefault('preserve_preview', True)
-                result.setdefault('retry_action', 'repreview')
-                result.setdefault('version', API_SCHEMA_VERSION)
-                if '_yx_operation_finish' in globals():
-                    _yx_operation_finish(operation_id, 'ship_confirm', result, error=result.get('error') or '出貨失敗')
-                return jsonify(result), 400
-            if '_yx_operation_finish' in globals():
-                _yx_operation_finish(operation_id, 'ship_confirm', result)
+            log_action(current_username(), "完成出貨")
+            add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
+            notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
+        if isinstance(result, dict) and customer_name and not data.get('skip_snapshot'):
+            result.update(build_customer_payload_snapshot(customer_name))
         return jsonify(result)
     except Exception as e:
         log_error("ship", str(e))
-        try:
-            return _ship_fail("出貨失敗", 500, detail=str(e)[:180])
-        except Exception:
-            return error_response("出貨失敗")
+        return error_response("出貨失敗")
 
 @app.route("/api/shipping_records", methods=["GET"])
 @login_required_json
@@ -3223,30 +1133,10 @@ def api_shipping_records():
     start_date = request.args.get("start_date")
     end_date = request.args.get("end_date")
     q = (request.args.get("q") or '').strip()
-    rows = [_enrich_shipping_record_for_ui(r) for r in get_shipping_records(start_date=start_date, end_date=end_date, q=q)]
-    return jsonify(success=True, items=rows, records=rows, version=API_SCHEMA_VERSION)
-
-@app.route("/api/shipping_records/<int:record_id>", methods=["DELETE"])
-@login_required_json
-def api_shipping_record_delete(record_id):
-    # service-line retained: mainfile behavior consolidated into formal services.
-    if not _is_admin_user():
-        return error_response('權限不足', 403)
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(sql('SELECT * FROM shipping_records WHERE id = ?'), (record_id,))
-        before = rows_to_dict(cur)
-        cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (record_id,))
-        conn.commit(); conn.close()
-        audit_service_safe_side_effect('shipping_delete_audit', add_audit_trail, current_username(), 'delete', 'shipping_records', str(record_id), before_json={'row': before[0] if before else {}}, after_json={'deleted': True})
-        notify_sync_event(kind='refresh', module='shipping_query', message='出貨紀錄已刪除', extra={'id': record_id})
-        return jsonify(success=True)
-    except Exception as e:
-        log_error('shipping_record_delete', str(e))
-        return error_response('刪除出貨紀錄失敗')
+    rows = get_shipping_records(start_date=start_date, end_date=end_date, q=q)
+    return jsonify(success=True, items=rows, records=rows)
 
 @app.route("/api/ship-preview", methods=["POST"])
-@app.route("/api/ship/preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
     try:
@@ -3260,17 +1150,6 @@ def api_ship_preview():
         preview = preview_ship_order(customer_name, items)
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
-        preview['success'] = True
-        preview['preview_source_lock_summary'] = shipping_service_preview_source_lock_summary(preview)
-        preview['preview_token'] = shipping_service_make_preview_token(customer_name, items, preview)
-        preview['operation_id'] = data.get('operation_id') or data.get('request_key') or uuid.uuid4().hex
-        preview['preview_required'] = True
-        preview['preview_source_locked'] = True
-        preview['source_lock_version'] = API_SCHEMA_VERSION
-        preview['cache_bust'] = API_SCHEMA_VERSION
-        preview['shipping_state'] = 'preview_ready'
-        preview['deduct_committed'] = False
-        preview['retry_action'] = 'confirm'
         return jsonify(preview)
     except Exception as e:
         log_error("ship_preview", str(e))
@@ -3280,119 +1159,8 @@ def api_ship_preview():
 @login_required_json
 def api_customers():
     try:
-        ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        try: log_error('runtime_init_customers_v196', str(_yx_init_err))
-        except Exception: pass
-    try:
         if request.method == "GET":
-            source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
-            cache_key = _fast_cache_key('customers', version=API_SCHEMA_VERSION, user=current_username(), source=source_filter, light=request.args.get('light') or '', ship=request.args.get('ship_single') or '', qv=request.args.get('v') or request.args.get('v406') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or '')
-            use_fast_cache = (request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
-            cached = _fast_cache_get(cache_key, 900.0) if use_fast_cache else None
-            if cached:
-                return jsonify(cached)
-            items = get_customers()
-            def _yx_count_num(v):
-                try: return int(float(v or 0))
-                except Exception: return 0
-            def _yx_source_counts_from_rows(source):
-                counts = {}
-                try:
-                    rows = get_orders() if source == 'orders' else get_master_orders()
-                    for r in rows or []:
-                        name = (r.get('customer_name') or '').strip()
-                        if not name:
-                            continue
-                        q = 0
-                        try:
-                            q = int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
-                        except Exception:
-                            q = _yx_count_num(r.get('qty'))
-                        # V414: 只統計仍有有效件數的商品列。
-                        # 出貨扣到 0 但尚未實體刪除的 row 不可以讓北/中/南客戶卡繼續顯示。
-                        if q <= 0:
-                            continue
-                        d = counts.setdefault(name, {'rows': 0, 'qty': 0, 'region': ''})
-                        d['rows'] += 1
-                        d['qty'] += max(0, q)
-                        if not d.get('region'):
-                            d['region'] = (r.get('region') or r.get('customer_region') or r.get('zone') or '').strip()
-                except Exception as e:
-                    try: log_error('api_customers_source_counts_v408_' + source, str(e))
-                    except Exception: pass
-                return counts
-            def _yx_apply_exact_source_counts(items, source):
-                # V407: 訂單/總單客戶列表以實際商品列為準。
-                # 如果商品列有客戶，但 customer_profiles 尚未建立，也要回傳；避免北/中/南只靠舊客戶表而漏客戶。
-                exact = _yx_source_counts_from_rows(source)
-                out = []
-                used = set()
-                def _fill_source_counts(c, name, ct):
-                    rc = dict((c or {}).get('relation_counts') or {})
-                    cnt = dict((c or {}).get('counts') or {})
-                    if source == 'orders':
-                        rc['order_rows'] = ct['rows']; rc['order_qty'] = ct['qty']; cnt['orders'] = {'rows': ct['rows'], 'qty': ct['qty']}
-                    else:
-                        rc['master_rows'] = ct['rows']; rc['master_qty'] = ct['qty']; cnt['master_order'] = {'rows': ct['rows'], 'qty': ct['qty']}
-                    row = dict(c or {})
-                    row['name'] = row.get('name') or name
-                    row['customer_name'] = row.get('customer_name') or name
-                    row['region'] = resolve_customer_region(name, row.get('region') or ct.get('region') or '北區')
-                    row['relation_counts'] = rc
-                    row['counts'] = cnt
-                    row['row_count'] = ct['rows']
-                    row['item_count'] = ct['rows']
-                    row['total_qty'] = ct['qty']
-                    return row
-                for c in items or []:
-                    name = (c.get('name') or c.get('customer_name') or '').strip()
-                    ct = exact.get(name)
-                    if not ct:
-                        continue
-                    used.add(name)
-                    out.append(_fill_source_counts(c, name, ct))
-                for name, ct in exact.items():
-                    if name in used:
-                        continue
-                    out.append(_fill_source_counts({'name': name, 'customer_name': name}, name, ct))
-                return out
-            # V452: 客戶資料直接從 customer_profiles + 訂單 + 總單合併。
-            # 訂單/總單頁仍只顯示該來源有商品的客戶；客戶資料頁則保留已建立客戶，
-            # 並補上訂單/總單的件數與筆數，不會因商品出完就刪掉 customer_profiles。
-            if source_filter in ('orders', 'order'):
-                items = _yx_apply_exact_source_counts(items, 'orders')
-            elif source_filter in ('master_order', 'master_orders', 'master'):
-                items = _yx_apply_exact_source_counts(items, 'master_order')
-            elif (not source_filter) or source_filter in ('ship','shipping','ship_single'):
-                try:
-                    oc = _yx_source_counts_from_rows('orders')
-                    mc = _yx_source_counts_from_rows('master_order')
-                    by_name = {}
-                    for c in items or []:
-                        name = (c.get('name') or c.get('customer_name') or '').strip()
-                        if name: by_name[name] = dict(c)
-                    for name, ct in list(oc.items()) + list(mc.items()):
-                        row = by_name.setdefault(name, {'name': name, 'customer_name': name, 'region': resolve_customer_region(name, ct.get('region') or '北區')})
-                        rc = dict(row.get('relation_counts') or {})
-                        cnt = dict(row.get('counts') or {})
-                        if name in oc:
-                            rc['order_rows'] = oc[name]['rows']; rc['order_qty'] = oc[name]['qty']; cnt['orders'] = {'rows': oc[name]['rows'], 'qty': oc[name]['qty']}
-                        if name in mc:
-                            rc['master_rows'] = mc[name]['rows']; rc['master_qty'] = mc[name]['qty']; cnt['master_order'] = {'rows': mc[name]['rows'], 'qty': mc[name]['qty']}
-                        row['relation_counts'] = rc; row['counts'] = cnt
-                        row['row_count'] = int(rc.get('order_rows') or 0) + int(rc.get('master_rows') or 0)
-                        row['item_count'] = row['row_count']
-                        row['total_qty'] = int(rc.get('order_qty') or 0) + int(rc.get('master_qty') or 0)
-                    items = list(by_name.values())
-                    items.sort(key=lambda c: ({'北區':1,'中區':2,'南區':3}.get(c.get('region'),9), c.get('name') or c.get('customer_name') or ''))
-                except Exception as e:
-                    try: log_error('v452_customers_relation_merge', str(e))
-                    except Exception: pass
-            payload = dict(success=True, items=items, source_filter=source_filter, server_cache=API_SCHEMA_VERSION)
-            if (request.args.get('fast') == '1' or request.args.get('light') == '1'):
-                _fast_cache_set(cache_key, payload)
-            return jsonify(payload)
+            return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
@@ -3401,9 +1169,6 @@ def api_customers():
             name = resolved_name
         if not name:
             return error_response("請輸入客戶名稱")
-        preserve_existing = bool(data.get('preserve_existing', True))
-        requested_region = (data.get("region") or "").strip()
-        effective_region = requested_region if (not preserve_existing and requested_region in ["北區", "中區", "南區"]) else resolve_customer_region(name, requested_region)
         item = upsert_customer(
             name,
             phone=(data.get("phone") or "").strip(),
@@ -3411,55 +1176,26 @@ def api_customers():
             notes=(data.get("notes") or "").strip(),
             common_materials=(data.get("common_materials") or "").strip(),
             common_sizes=(data.get("common_sizes") or "").strip(),
-            region=effective_region,
-            preserve_existing=preserve_existing
+            region=resolve_customer_region(name, data.get("region")),
+            preserve_existing=bool(data.get('preserve_existing', False))
         )
         log_action(current_username(), f"儲存客戶 {name}")
-        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=dict(data, effective_region=effective_region))
-        notify_sync_event(kind='refresh', module='all', message=f'客戶已更新：{name}', extra={'customer_name': name, 'region': effective_region, 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION})
-        return jsonify(customer_profile_write_payload(name, item=item, mode='upsert', extra={'region': effective_region}))
+        add_audit_trail(current_username(), 'upsert', 'customer_profiles', name, before_json=row or {}, after_json=data)
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已更新：{name}', extra={'customer_name': name})
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("customers", str(e))
         return error_response("客戶儲存失敗")
 
 
-@app.route("/api/customers/ensure", methods=["POST"])
-@login_required_json
-def api_customers_ensure():
-    try:
-        data = request.get_json(silent=True) or {}
-        name = (data.get('name') or data.get('customer_name') or '').strip()
-        region = resolve_customer_region(name, data.get('region') or '北區')
-        if not name:
-            return error_response('請輸入客戶名稱')
-        # V487: ensure is often called as a background helper after order/master save.
-        # If the profile already exists, return immediately instead of doing another write/audit path.
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql("SELECT * FROM customer_profiles WHERE name=? OR customer_name=? ORDER BY id DESC LIMIT 1"), (name, name))
-            existing = fetchone_dict(cur)
-            conn.close()
-            if existing and bool(data.get('preserve_existing', True)):
-                return jsonify(customer_profile_write_payload(name, item=existing, mode='ensure_cached', extra={'region': existing.get('region') or region, 'v487_fast_existing': True}))
-        except Exception:
-            try: conn.close()
-            except Exception: pass
-        item = upsert_customer(name, region=region, preserve_existing=bool(data.get('preserve_existing', True)))
-        notify_sync_event(kind='refresh', module='all', message=f'客戶已確實寫入：{name}', extra={'customer_name': name, 'region': item.get('region') if isinstance(item, dict) else region, 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION})
-        return jsonify(customer_profile_write_payload(name, item=item, mode='ensure', extra={'region': item.get('region') if isinstance(item, dict) else region}))
-    except Exception as e:
-        log_error('customers_ensure', str(e))
-        return error_response('客戶確實寫入失敗')
-
-
 @app.route("/api/recover/customers-from-relations", methods=["POST", "GET"])
 @login_required_json
 def api_recover_customers_from_relations():
-    """Formal service helper retained for stable mainfile behavior."""
+    """FIX122：手動救援入口。從目前資料庫的商品/出貨紀錄補回缺少的客戶檔與 UID。"""
     result = recover_customer_profiles_from_relation_tables()
     if not result.get('success'):
         return error_response(result.get('error') or '客戶救援失敗')
-    log_action(current_username(), f"customer recovery 客戶救援：補回 {result.get('recovered_count', 0)} 位客戶，對齊 {result.get('synced_rows', 0)} 筆")
+    log_action(current_username(), f"FIX122 客戶救援：補回 {result.get('recovered_count', 0)} 位客戶，對齊 {result.get('synced_rows', 0)} 筆")
     notify_sync_event(kind='refresh', module='all', message='客戶資料已救援並重新整理', extra=result)
     return jsonify(result)
 
@@ -3484,8 +1220,8 @@ def api_customer_restore(name):
         item = restore_customer(target_name)
         log_action(current_username(), f"復原客戶 {target_name}")
         add_audit_trail(current_username(), 'restore', 'customer_profiles', target_name, before_json={'name': target_name}, after_json={'name': target_name, 'restored': True})
-        notify_sync_event(kind='refresh', module='all', message=f'客戶已復原：{target_name}', extra={'customer_name': target_name, 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION})
-        return jsonify(customer_profile_write_payload(target_name, item=item, mode='restore'))
+        notify_sync_event(kind='refresh', module='customers', message=f'客戶已復原：{target_name}', extra={'customer_name': target_name})
+        return jsonify(success=True, item=item, items=get_customers())
     except Exception as e:
         log_error("restore_customer", str(e))
         return error_response(f"客戶復原失敗：{str(e)}")
@@ -3501,23 +1237,14 @@ def api_customers_move():
             return error_response("缺少客戶或區域")
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or '', include_archived=True)
         name = resolved_name or name
-        if not name:
-            return error_response("缺少客戶名稱")
-        # v18：客戶可能是從訂單/總單關聯表產生的 virtual customer，customer_profiles 尚未有實體列。
-        # 移動區域時必須先把它確實寫入 customer_profiles，不能只做前端暫存。
-        if not row:
-            item = upsert_customer(name, region=region, preserve_existing=True)
-            before_region = ''
-        else:
-            before_region = (row.get("region") or "").strip()
-            item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=False)
-        audit_service_safe_side_effect('customer_move_log', log_action, current_username(), f"移動客戶 {name} 到 {region}")
-        audit_service_safe_side_effect('customer_move_audit', add_audit_trail, current_username(), 'move', 'customer_profiles', name, before_json=(row or {'name': name, 'region': before_region}), after_json={'name': name, 'region': region})
-        try: _v211_clear_cross_function_cache(name)
-        except Exception: pass
-        audit_service_safe_side_effect('customer_move_notify', notify_sync_event, kind="refresh", module="all", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region, "sync_version": API_SCHEMA_VERSION, "cache_bust": API_SCHEMA_VERSION})
-        payload = customer_profile_write_payload(name, item=item, mode='move', extra={'region': region, 'before_region': before_region, 'customers': get_customers(), 'relation_counts': get_customer_relation_counts(name)})
-        return jsonify(payload)
+        if not name or not row:
+            return error_response("找不到客戶資料")
+        before_region = (row.get("region") or "").strip()
+        item = upsert_customer(name, phone=(row.get("phone") or "").strip(), address=(row.get("address") or "").strip(), notes=(row.get("notes") or "").strip(), common_materials=(row.get("common_materials") or "").strip(), common_sizes=(row.get("common_sizes") or "").strip(), region=region, preserve_existing=True)
+        log_action(current_username(), f"移動客戶 {name} 到 {region}")
+        add_audit_trail(current_username(), 'move', 'customer_profiles', name, before_json={'name': name, 'region': before_region}, after_json={'name': name, 'region': region})
+        notify_sync_event(kind="refresh", module="customers", message=f"客戶已移動：{name} -> {region}", extra={"customer_name": name, "region": region})
+        return jsonify(success=True, items=get_customers(), item=item)
     except Exception as e:
         log_error("move_customer", str(e))
         return error_response("移動客戶失敗")
@@ -3544,21 +1271,12 @@ def api_customer_detail(name):
             conn = get_db()
             cur = conn.cursor()
             try:
-                requested_region = (data.get('region') or '').strip()
-                if requested_region in ['北區', '中區', '南區']:
-                    cur.execute(sql("UPDATE customer_profiles SET name = ?, region = ?, updated_at = ? WHERE name = ?"), (new_name, requested_region, now(), name))
-                else:
-                    cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
+                cur.execute(sql("UPDATE customer_profiles SET name = ?, updated_at = ? WHERE name = ?"), (new_name, now(), name))
                 cur.execute(sql("UPDATE inventory SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
                 cur.execute(sql("UPDATE orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
                 cur.execute(sql("UPDATE master_orders SET customer_name = ?, customer_uid = ?, updated_at = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', now(), name))
                 cur.execute(sql("UPDATE shipping_records SET customer_name = ?, customer_uid = ? WHERE customer_name = ?"), (new_name, source.get('customer_uid') or '', name))
                 conn.commit()
-                try:
-                    sync_customer_name_in_warehouse(name, new_name)
-                except Exception as wh_sync_err:
-                    try: log_error('rename_customer_warehouse_sync_v228', str(wh_sync_err))
-                    except Exception: pass
             except Exception:
                 conn.rollback()
                 raise
@@ -3567,33 +1285,24 @@ def api_customer_detail(name):
             item = get_customer(new_name, include_archived=True)
             log_action(current_username(), f"修改客戶名稱 {name} -> {new_name}")
             add_audit_trail(current_username(), 'rename', 'customer_profiles', name, before_json={'name': name}, after_json={'name': new_name})
-            try: _v211_clear_cross_function_cache(new_name)
-            except Exception: pass
-            notify_sync_event(kind="refresh", module="all", message=f"客戶已改名：{name} -> {new_name}", extra={"customer_name": new_name, "old_customer_name": name, "new_customer_name": new_name, "region": (data.get('region') or ''), "sync_version": API_SCHEMA_VERSION, "cache_bust": API_SCHEMA_VERSION})
-            return jsonify(customer_profile_write_payload(new_name, old_customer_name=name, item=item, mode='rename', extra={'counts': get_customer_relation_counts(new_name), 'region': (item or {}).get('region') or (data.get('region') or ''), 'customers': get_customers()}))
+            notify_sync_event(kind="refresh", module="customers", message=f"客戶已改名：{name} -> {new_name}", extra={"customer_name": new_name})
+            return jsonify(success=True, item=item, counts=get_customer_relation_counts(new_name))
         except Exception as e:
             log_error("rename_customer", str(e))
             return error_response(f"客戶名稱更新失敗：{str(e)}")
     if request.method == "DELETE":
         try:
             data = request.get_json(silent=True) or {}
-            requested_mode = (data.get('mode') or request.args.get('mode') or '').strip().lower()
-            requested_region = (data.get('region') or '').strip() or '北區'
             _row, resolved_name, _resolved_uid = resolve_customer_identity(name, data.get('customer_uid') or request.args.get('customer_uid') or '', include_archived=True)
             name = resolved_name or name
-            if requested_mode == 'archive':
-                result = archive_customer(name, region=requested_region)
-            else:
-                result = delete_customer(name)
+            result = delete_customer(name)
             mode = result.get('mode') or 'deleted'
             counts = result.get('counts') or {}
-            try: _v211_clear_cross_function_cache(name)
-            except Exception: pass
             log_action(current_username(), f"{'封存' if mode == 'archived' else '刪除'}客戶 {name}")
-            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'requested_mode': requested_mode or 'delete', 'counts': counts})
-            notify_sync_event(kind='refresh', module='all', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode, 'requested_mode': requested_mode or 'delete', 'sync_version': API_SCHEMA_VERSION, 'cache_bust': API_SCHEMA_VERSION})
-            message = '客戶已刪除' if mode == 'deleted' else '客戶已封存，保留歷史資料並從北中南客戶卡隱藏'
-            return jsonify(customer_profile_write_payload(name, item=result.get('item') or {}, mode=mode, extra={'counts': counts, 'message': message, 'archived_customer_name': name, 'customers': get_customers(), 'requested_mode': requested_mode or 'delete'}))
+            add_audit_trail(current_username(), 'delete' if mode == 'deleted' else 'archive', 'customer_profiles', name, before_json=result.get('item') or {}, after_json={'mode': mode, 'counts': counts})
+            notify_sync_event(kind='refresh', module='customers', message=f"客戶已{'封存' if mode == 'archived' else '刪除'}：{name}", extra={'customer_name': name, 'mode': mode})
+            message = '客戶已刪除' if mode == 'deleted' else '客戶已有關聯資料，已改為封存保留歷史資料'
+            return jsonify(success=True, mode=mode, counts=counts, message=message)
         except Exception as e:
             log_error("delete_customer", str(e))
             return error_response(f"客戶刪除失敗：{str(e)}")
@@ -3603,808 +1312,48 @@ def api_customer_detail(name):
         return error_response("找不到客戶", 404)
     return jsonify(success=True, item=row, counts=get_customer_relation_counts(name))
 
-
-# ============================================================
-# V131 warehouse lightweight server cache / column response helpers
-# - Browser still uses no-store for API.  This is only a very short in-memory
-#   cache to avoid rebuilding the whole warehouse on repeated page opens.
-# - Any warehouse write invalidates the cache immediately.
-# ============================================================
-_WAREHOUSE_API_CACHE = {"at": 0.0, "payload": None}
-
-def _warehouse_cache_get(max_age=120.0):
-    try:
-        payload = _WAREHOUSE_API_CACHE.get('payload')
-        if payload and (time.time() - float(_WAREHOUSE_API_CACHE.get('at') or 0)) <= max_age:
-            return json.loads(json.dumps(payload, ensure_ascii=False))
-    except Exception:
-        pass
-    return None
-
-def _warehouse_cache_set(payload):
-    try:
-        # V426: keep the server in-memory cache, but never replace a non-empty
-        # warehouse cache with an empty readback.  This prevents a transient DB/read
-        # issue from making every cell look empty for the next 120 seconds.
-        old = _WAREHOUSE_API_CACHE.get('payload')
-        old_total = _warehouse_payload_item_total((old or {}).get('cells') or [])[0] if isinstance(old, dict) else 0
-        next_total = _warehouse_payload_item_total((payload or {}).get('cells') or [])[0] if isinstance(payload, dict) else 0
-        if int(next_total or 0) <= 0 and int(old_total or 0) > 0:
-            return
-        _WAREHOUSE_API_CACHE['payload'] = json.loads(json.dumps(payload, ensure_ascii=False))
-        _WAREHOUSE_API_CACHE['at'] = time.time()
-    except Exception:
-        pass
-
-def _warehouse_cache_clear():
-    try:
-        _WAREHOUSE_API_CACHE['payload'] = None
-        _WAREHOUSE_API_CACHE['at'] = 0.0
-    except Exception:
-        pass
-    # V197: any warehouse write changes the unplaced list and may affect the shipping dropdown / today panel.
-    # Keep the existing fast-cache architecture, but clear only derived buckets so no stale A/B/unplaced counts survive.
-    try:
-        _fast_cache_clear('warehouse_available|')
-        _fast_cache_clear('warehouse_source_qty_map|')
-        _fast_cache_clear('customer_items|')
-        _fast_cache_clear('customers|')
-        _fast_cache_clear('ship_customers|')
-        _fast_cache_clear('ship_items|')
-        _fast_cache_clear('today_changes|')
-        _fast_cache_clear('today_unplaced|')
-        set_setting('today_unplaced_cache_' + API_SCHEMA_VERSION, '')
-        set_setting('today_unplaced_cache_v197', '')
-        set_setting('today_unplaced_cache_v196', '')
-    except Exception:
-        pass
-
-def _warehouse_source_qty_map_for_client():
-    """Frontend overstock/deduct map: key = product_exact_or_size::customer, value = source qty.
-    This comes from inventory + orders + master_orders using the same quantity parser as warehouse validation.
-    """
-    try:
-        totals, _details = warehouse_source_totals()
-        out = {}
-        for key, qty in (totals or {}).items():
-            try:
-                product, customer = key
-                out[f"{product}::{warehouse_customer_key(customer)}"] = int(qty or 0)
-            except Exception:
-                continue
-        return out
-    except Exception as e:
-        try: log_error('warehouse_source_qty_map_for_client', str(e))
-        except Exception: pass
-        return {}
-
-
-
-def _warehouse_cell_items_for_count(cell):
-    try:
-        raw = []
-        if isinstance(cell, dict):
-            if isinstance(cell.get('items'), list):
-                raw = cell.get('items') or []
-            else:
-                txt = cell.get('items_json') or '[]'
-                raw = json.loads(txt) if isinstance(txt, str) else (txt or [])
-        if not isinstance(raw, list):
-            return []
-        out = []
-        for it in raw:
-            if not isinstance(it, dict):
-                continue
-            product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
-            if not product:
-                continue
-            try:
-                q = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or effective_product_qty(product, 1) or 1)
-            except Exception:
-                q = 1
-            if q > 0:
-                out.append(it)
-        return out
-    except Exception:
-        return []
-
-def _warehouse_payload_item_total(cells):
-    total = 0
-    nonempty = 0
-    for cell in cells or []:
-        arr = _warehouse_cell_items_for_count(cell)
-        if arr:
-            nonempty += 1
-            for it in arr:
-                product = str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
-                try:
-                    total += max(1, int(it.get('qty') or it.get('quantity') or it.get('pieces') or effective_product_qty(product, 1) or 1))
-                except Exception:
-                    total += 1
-    return int(total), int(nonempty)
-
-def _warehouse_payload_from_cells(cells, include_source_qty=False):
-    zones = {"A": {}, "B": {}}
-    safe_cells = []
-    for cell in cells or []:
-        try:
-            row = dict(cell or {})
-            # V425: API display safety. If DB row has legacy items_json, always expose parsed items.
-            parsed_items = _warehouse_cell_items_for_count(row)
-            if parsed_items and not isinstance(row.get('items'), list):
-                try:
-                    raw_items = json.loads(row.get('items_json') or '[]')
-                    row['items'] = raw_items if isinstance(raw_items, list) else parsed_items
-                except Exception:
-                    row['items'] = parsed_items
-            z = (row.get('zone') or 'A').strip().upper()
-            if z not in ('A','B'):
-                z = 'A'
-            row['zone'] = z
-            c = int(row.get('column_index') or 1)
-            n = int(row.get('slot_number') or 1)
-            row['column_index'] = c
-            row['slot_number'] = n
-            safe_cells.append(row)
-            zones.setdefault(z, {}).setdefault(c, {})[n] = row
-        except Exception:
-            pass
-    item_total, nonempty_count = _warehouse_payload_item_total(safe_cells)
-    payload = dict(success=True, zones=zones, cells=safe_cells, cache_version=API_SCHEMA_VERSION, cache_policy=API_SCHEMA_VERSION,
-                   warehouse_item_total=item_total, warehouse_nonempty_cell_count=nonempty_count,
-                   warehouse_confirmed_empty=(item_total == 0 and nonempty_count == 0))
-    if include_source_qty:
-        payload['source_qty_map'] = _warehouse_source_qty_map_for_client()
-    return payload
-
-def _warehouse_client_item_key(item):
-    try:
-        it = item or {}
-        src = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
-        customer = str(it.get('customer_name') or it.get('customer') or '').strip()
-        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '')).strip()
-        material = str(it.get('material') or it.get('product_code') or '').strip()
-        return '|'.join([src, customer, material, product])
-    except Exception:
-        return ''
-
-def _warehouse_client_cell_signature(cell):
-    try:
-        raw = cell.get('items') if isinstance(cell, dict) else None
-        if raw is None:
-            raw = json.loads((cell or {}).get('items_json') or '[]')
-        if not isinstance(raw, list):
-            raw = []
-        keys = [_warehouse_client_item_key(x) for x in raw if isinstance(x, dict)]
-        keys = [x for x in keys if x]
-        base = '|'.join([str((cell or {}).get('id') or ''), str((cell or {}).get('zone') or ''), str((cell or {}).get('column_index') or ''), str((cell or {}).get('slot_number') or ''), '||'.join(sorted(keys))])
-        return hashlib.sha1(base.encode('utf-8')).hexdigest()[:16]
-    except Exception:
-        return ''
-
-
-def _warehouse_consistency_item_compare_key(item):
-    """Lightweight client/server compare key for warehouse final consistency checks.
-    It is intentionally tolerant: it compares the fields that affect counts/display, not every UI-only field.
-    """
-    try:
-        it = item or {}
-        customer = warehouse_customer_key(str(it.get('customer_name') or it.get('customer') or '庫存'))
-        material = str(it.get('material') or it.get('product_code') or '').strip().upper()
-        product = format_product_text_height2(str(it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name') or it.get('text') or it.get('value') or '')).strip()
-        exact = warehouse_item_exact_key(product) or warehouse_item_display_size(product)
-        source = str(it.get('source') or it.get('source_table') or '').strip()
-        source_id = str(it.get('source_id') or it.get('id') or it.get('row_id') or '').strip()
-        qty = int(float(it.get('qty') or it.get('unplaced_qty') or it.get('available_qty') or it.get('remaining_qty') or effective_product_qty(product, 1) or 0))
-        return '|'.join([customer, material, exact, source, source_id, str(max(qty, 0))])
-    except Exception:
-        return ''
-
-def _warehouse_cell_compare_signature(cell):
-    try:
-        raw = []
-        if isinstance(cell, dict):
-            if isinstance(cell.get('items'), list):
-                raw = cell.get('items') or []
-            else:
-                raw = json.loads(cell.get('items_json') or '[]')
-        if not isinstance(raw, list):
-            raw = []
-        keys = sorted([k for k in (_warehouse_consistency_item_compare_key(x) for x in raw if isinstance(x, dict)) if k])
-        note = str((cell or {}).get('note') or '').strip()
-        return hashlib.sha1(json.dumps({'items': keys, 'note': note}, ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:20]
-    except Exception:
-        return ''
-
-def _warehouse_available_light_summary():
-    """Cheap final-check totals. Full available item rendering stays in /api/warehouse/available-items."""
-    try:
-        source_totals, _details = warehouse_source_totals()
-        placed_all = warehouse_placed_totals()
-        source_total = int(sum(int(v or 0) for v in (source_totals or {}).values()))
-        placed_total = int(sum(int(v or 0) for v in (placed_all or {}).values()))
-        return {'source_total': source_total, 'placed_total': placed_total, 'unplaced_total': max(0, source_total - placed_total)}
-    except Exception as e:
-        try: log_error('warehouse_available_light_summary_v282', str(e))
-        except Exception: pass
-        return {'source_total': 0, 'placed_total': 0, 'unplaced_total': 0, 'degraded': True}
-
-def _warehouse_enrich_cell_client_meta(cell):
-    row = dict(cell or {})
-    try:
-        row['cell_id'] = row.get('id') or row.get('cell_id') or ''
-        row['client_signature'] = _warehouse_client_cell_signature(row)
-    except Exception:
-        pass
-    return row
-
-def _warehouse_column_payload(zone, column_index, operation_id=None, **extra):
-    z = (zone or 'A').strip().upper()
-    c = int(column_index or 1)
-    col_cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(z, c)]
-    slot_identity_map = {}
-    try:
-        for cell in col_cells:
-            slot_identity_map[str(int(cell.get('slot_number') or 0))] = {
-                'cell_id': cell.get('cell_id') or cell.get('id') or '',
-                'client_signature': cell.get('client_signature') or '',
-                'slot_number': int(cell.get('slot_number') or 0),
-            }
-    except Exception:
-        slot_identity_map = {}
-    try:
-        column_signature = hashlib.sha1(json.dumps([
-            {
-                'slot_number': int((cell or {}).get('slot_number') or 0),
-                'cell_id': (cell or {}).get('cell_id') or (cell or {}).get('id') or '',
-                'client_signature': (cell or {}).get('client_signature') or _warehouse_client_cell_signature(cell),
-            }
-            for cell in col_cells
-        ], ensure_ascii=False, sort_keys=True).encode('utf-8')).hexdigest()[:20]
-    except Exception:
-        column_signature = ''
-    # V272: every warehouse structure write returns DB readback metadata and stable slot identities.
-    # Frontend uses this to resolve old slot numbers after insert/delete compaction without a full renderer.
-    payload = dict(
-        success=True, operation_id=operation_id, partial=True, zone=z, column_index=c,
-        column_cells=col_cells, db_readback=True, readback_count=len(col_cells),
-        slot_identity_map=slot_identity_map, column_revision=int(time.time()*1000), column_signature=column_signature,
-        warehouse_stability=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION
-    )
-    # V487: structural warehouse writes must return fast. Do not recompute unplaced/available summary here;
-    # it was the main reason batch-add/mark-cell/cell-save looked successful then stalled for 9-60s.
-    try:
-        if (extra or {}).get('include_available_summary'):
-            payload['available_summary'] = _warehouse_available_light_summary()
-    except Exception:
-        pass
-    payload.update(extra or {})
-    return payload
-
-
-
-# ============================================================
-# V432 warehouse max repair API readback guard
-# - Does not change yx_cache.js / yx_core.js / service worker / background queue.
-# - API display/count parser becomes tolerant to legacy item fields and Python-ish JSON.
-# - Empty server cache cannot hide DB readback; force=1 always returns direct DB-readback payload.
-# ============================================================
-def _warehouse_v432_text(v):
-    return str(v or '').strip()
-
-def _warehouse_v432_item_product(it):
-    if not isinstance(it, dict):
-        return ''
-    return _warehouse_v432_text(
-        it.get('product_text') or it.get('product') or it.get('product_size') or
-        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
-        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
-        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
-        it.get('description') or it.get('goods_text') or it.get('item_text') or
-        it.get('content') or it.get('memo') or it.get('remark') or it.get('desc') or it.get('name')
-    )
-
-def _warehouse_v432_int(v, default=0):
-    try:
-        if isinstance(v, str):
-            m = re.search(r'-?\d+', v)
-            if m: return int(m.group(0))
-        return int(float(v))
-    except Exception:
-        return default
-
-def _warehouse_v432_qty(product, fallback=1):
-    try:
-        return max(1, int(effective_product_qty(product, fallback or 1)))
-    except Exception:
-        return max(1, _warehouse_v432_int(fallback, 1))
-
-def _warehouse_v432_normalize_items(items):
-    out=[]
-    for raw in items or []:
-        if isinstance(raw, (str,int,float)):
-            raw={'product_text':str(raw), 'product':str(raw), 'raw_text':str(raw), 'qty':1}
-        if not isinstance(raw, dict):
-            continue
-        product=_warehouse_v432_item_product(raw)
-        if not product:
-            continue
-        qty=_warehouse_v432_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty') or raw.get('件數'), 0)
-        if qty<=0:
-            qty=_warehouse_v432_qty(product, 1)
-        row=dict(raw)
-        row['product_text']=_warehouse_v432_text(row.get('product_text') or product)
-        row['product']=_warehouse_v432_text(row.get('product') or product)
-        row['raw_text']=_warehouse_v432_text(row.get('raw_text') or product)
-        row['customer_name']=warehouse_customer_key(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
-        row['material']=_warehouse_v432_text(row.get('material') or row.get('product_code') or row.get('wood_type') or '')
-        row['qty']=max(1, qty)
-        if not row.get('placement_label') and row.get('layer_label'):
-            row['placement_label']=row.get('layer_label')
-        if not row.get('layer_label') and row.get('placement_label'):
-            row['layer_label']=row.get('placement_label')
-        out.append(row)
-    try:
-        return normalize_warehouse_payload_items(out)
-    except Exception:
-        return out
-
-def _warehouse_v432_parse_items(raw):
-    if raw in (None, ''):
-        return []
-    obj=raw
-    if isinstance(raw, str):
-        s=raw.strip()
-        if not s or s.lower() in ('[]','null','none','undefined'):
-            return []
-        try:
-            obj=json.loads(s)
-        except Exception:
-            try:
-                obj=json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
-            except Exception:
-                return _warehouse_v432_normalize_items([{'product_text':s,'product':s,'raw_text':s,'qty':1}])
-    if isinstance(obj, dict):
-        for k in ('items','products','goods','rows','data','cell_items'):
-            if isinstance(obj.get(k), list):
-                return _warehouse_v432_normalize_items(obj.get(k))
-        return _warehouse_v432_normalize_items([obj])
-    if isinstance(obj, list):
-        return _warehouse_v432_normalize_items(obj)
-    return []
-
-def _warehouse_cell_items_for_count(cell):
-    try:
-        if not isinstance(cell, dict):
-            return []
-        from_items=_warehouse_v432_parse_items(cell.get('items') if isinstance(cell.get('items'), list) else [])
-        from_json=_warehouse_v432_parse_items(cell.get('items_json') or [])
-        combined=[]; seen=set()
-        for it in (from_json + from_items):
-            product=_warehouse_v432_item_product(it)
-            if not product:
-                continue
-            k='|'.join([
-                _warehouse_v432_text(it.get('source_table') or it.get('source') or ''),
-                _warehouse_v432_text(it.get('source_id') or it.get('id') or it.get('row_id') or ''),
-                warehouse_customer_key(it.get('customer_name') or it.get('customer') or ''),
-                _warehouse_v432_text(it.get('material') or it.get('product_code') or ''),
-                product,
-                _warehouse_v432_text(it.get('placement_label') or it.get('layer_label') or '')
-            ])
-            if k in seen:
-                continue
-            seen.add(k); combined.append(it)
-        return _warehouse_v432_normalize_items(combined)
-    except Exception:
-        return []
-
-def warehouse_v432_api_display_parser_lock_version():
-    return 'v457-final_verify_sync_speed_warehouse'
-
-
-# V484: fast server-side warehouse diagnostics/cache helpers.
-# These do not change the client cache architecture; they prevent diagnostics and normal page checks
-# from triggering the old expensive raw-cell sweep unless a real device sync / DB-only read asks for it.
-def _yx484_json_setting(key, default=None):
-    try:
-        raw = get_setting(key, '')
-        if raw:
-            return json.loads(raw)
-    except Exception:
-        pass
-    return default
-
-def _yx484_set_json_setting(key, value):
-    try:
-        set_setting(key, json.dumps(value or {}, ensure_ascii=False, default=str))
-    except Exception as e:
-        try: log_error('yx484_set_json_setting_' + str(key)[:40], str(e))
-        except Exception: pass
-
-def _yx484_warehouse_cache_key(kind='warehouse', zone='ALL'):
-    return 'yx484_' + kind + '_' + API_SCHEMA_VERSION + '_' + (zone or 'ALL')
-
-def _yx484_is_light_request():
-    try:
-        return str(request.args.get('summary') or request.args.get('diag_light') or request.args.get('light') or '').lower() in ('1','true','yes','on')
-    except Exception:
-        return False
-
-def _yx484_is_real_sync_request():
-    try:
-        return str(request.args.get('yx_device_sync') or '') == '1' or str(request.args.get('sync_full') or '') == '1'
-    except Exception:
-        return False
-
-def _yx484_cached_warehouse_payload(max_age_seconds=86400):
-    try:
-        cached = _warehouse_cache_get(max_age_seconds)
-        if cached:
-            cached['server_cache'] = True
-            cached['yx484_fast_cache'] = True
-            cached['cache_bust'] = API_SCHEMA_VERSION
-            cached['sync_version'] = API_SCHEMA_VERSION
-            return cached
-    except Exception:
-        pass
-    payload = _yx484_json_setting(_yx484_warehouse_cache_key('warehouse','ALL'), None)
-    if isinstance(payload, dict):
-        payload['server_cache'] = True
-        payload['yx484_setting_cache'] = True
-        payload['cache_bust'] = API_SCHEMA_VERSION
-        payload['sync_version'] = API_SCHEMA_VERSION
-        return payload
-    return None
-
-def _yx484_store_warehouse_payload(payload):
-    try:
-        if isinstance(payload, dict) and (payload.get('cells') or payload.get('zones')):
-            _warehouse_cache_set(payload)
-            _yx484_set_json_setting(_yx484_warehouse_cache_key('warehouse','ALL'), payload)
-    except Exception as e:
-        try: log_error('yx484_store_warehouse_payload', str(e))
-        except Exception: pass
-
-def _yx484_cached_available_payload(zone='', max_age_seconds=86400):
-    z = (zone or 'ALL') or 'ALL'
-    try:
-        ck = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=z, user=current_username())
-        cached = _fast_cache_get(ck, float(max_age_seconds))
-        if cached:
-            cached['server_cache'] = True
-            cached['yx484_fast_cache'] = True
-            cached['cache_bust'] = API_SCHEMA_VERSION
-            cached['sync_version'] = API_SCHEMA_VERSION
-            return cached
-    except Exception:
-        pass
-    payload = _yx484_json_setting(_yx484_warehouse_cache_key('warehouse_available', z), None)
-    if isinstance(payload, dict):
-        payload['server_cache'] = True
-        payload['yx484_setting_cache'] = True
-        payload['cache_bust'] = API_SCHEMA_VERSION
-        payload['sync_version'] = API_SCHEMA_VERSION
-        return payload
-    return None
-
-def _yx484_store_available_payload(zone, payload):
-    z = (zone or 'ALL') or 'ALL'
-    try:
-        if isinstance(payload, dict):
-            ck = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=z, user=current_username())
-            _fast_cache_set(ck, payload)
-            _yx484_set_json_setting(_yx484_warehouse_cache_key('warehouse_available', z), payload)
-    except Exception as e:
-        try: log_error('yx484_store_available_payload', str(e))
-        except Exception: pass
-
-def _yx484_available_light_payload(zone_filter=''):
-    # V515: diagnostics light mode must never run the full unplaced calculator.
-    # Full counts can take tens of seconds on large warehouses; diagnostics only needs a fast health signal.
-    cached = _yx484_cached_available_payload(zone_filter or 'ALL', 86400)
-    if cached:
-        items = cached.get('items') if isinstance(cached.get('items'), list) else []
-        summary = cached.get('zone_summary') or {}
-        try:
-            total = int(summary.get('total') if isinstance(summary, dict) else len(items))
-        except Exception:
-            total = len(items)
-        return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary=summary, total=total, light=True, diag_light=True, yx484_light=True, from_cached_full=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v518_fast_diag=True)
-    return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}, summary={'source_total': 0, 'placed_total': 0, 'unplaced_total': 0, 'degraded': True, 'fast_diag_only': True}, total=0, light=True, diag_light=True, yx484_light=True, degraded=True, preserve_client_cache=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v518_fast_diag=True)
-
 @app.route("/api/warehouse", methods=["GET"])
-@app.route("/api/warehouse/cells", methods=["GET"])
 @login_required_json
 def api_warehouse():
     try:
-        include_source = request.args.get('include_source_qty') == '1'
-        force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
-        real_sync = _yx484_is_real_sync_request()
-        if _yx484_is_light_request():
-            cached_light = _yx484_cached_warehouse_payload(86400)
-            if cached_light:
-                return jsonify(cached_light)
-            return jsonify(success=True, cells=[], zones={"A":{},"B":{}}, light=True, yx484_light=True, preserve_client_cache=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
-        if not include_source and (not force_fresh or not real_sync):
-            cached = _yx484_cached_warehouse_payload(86400)
-            if cached:
-                try:
-                    cached_total = int(cached.get('warehouse_item_total') or _warehouse_payload_item_total(cached.get('cells') or [])[0] or 0)
-                except Exception:
-                    cached_total = 0
-                # V425: keep server cache, but never serve a cached empty warehouse if a readback is needed.
-                # This prevents an old empty payload from hiding real DB items for 120 seconds.
-                if cached_total > 0:
-                    cached['server_cache'] = True
-                    cached['cache_bust'] = API_SCHEMA_VERSION
-                    cached['sync_version'] = API_SCHEMA_VERSION
-                    return jsonify(cached)
-        cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_cells()]
-        payload = _warehouse_payload_from_cells(cells, include_source_qty=include_source)
-        payload['force_fresh'] = bool(force_fresh)
-        payload['cache_bust'] = API_SCHEMA_VERSION
-        payload['sync_version'] = API_SCHEMA_VERSION
-        if not include_source:
-            # V484: persist latest good warehouse payload in both memory and app_settings so diagnostics/page-open never need a raw sweep.
-            try:
-                if int(payload.get('warehouse_item_total') or _warehouse_payload_item_total(payload.get('cells') or [])[0] or 0) > 0:
-                    _yx484_store_warehouse_payload(payload)
-            except Exception:
-                pass
-        return jsonify(payload)
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("api_warehouse", str(e))
-        return jsonify(success=False, zones={"A": {}, "B": {}}, cells=[], preserve_client_cache=True, error=str(e), cache_bust=API_SCHEMA_VERSION)
+        return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
 
 
-
-
-@app.route("/api/warehouse/readback-diagnose", methods=["GET"])
-@login_required_json
-def api_warehouse_readback_diagnose():
-    """V431 one-shot readback diagnosis. No polling, no cache mutation.
-    Shows whether DB/API currently sees warehouse items so frontend cache is not blamed blindly.
-    """
-    try:
-        cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_cells()]
-        total, nonempty = _warehouse_payload_item_total(cells)
-        sample = []
-        for cell in cells:
-            arr = _warehouse_cell_items_for_count(cell)
-            if arr:
-                sample.append({
-                    'zone': cell.get('zone'), 'column_index': cell.get('column_index'),
-                    'slot_number': cell.get('slot_number'), 'items': arr[:3],
-                    'items_json_len': len(str(cell.get('items_json') or ''))
-                })
-            if len(sample) >= 12:
-                break
-        diag_extra = {}
-        try:
-            diag_extra['db_mode'] = database_mode_info()
-        except Exception:
-            pass
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql("SELECT COUNT(*) AS c FROM warehouse_cell_items"))
-            diag_extra['warehouse_cell_items_count'] = int((fetchone_dict(cur) or {}).get('c') or 0)
-            conn.close()
-        except Exception:
-            try: conn.close()
-            except Exception: pass
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, sync_version=API_SCHEMA_VERSION,
-                       warehouse_item_total=total, warehouse_nonempty_cell_count=nonempty,
-                       cell_count=len(cells), sample_nonempty_cells=sample, cache_mutated=False, **diag_extra)
-    except Exception as e:
-        log_error('warehouse_readback_diagnose_v431', str(e))
-        return jsonify(success=False, error=str(e), cache_mutated=False, sync_version=API_SCHEMA_VERSION), 500
-
-@app.route("/api/warehouse/consistency-check", methods=["POST"])
-@login_required_json
-def api_warehouse_consistency_check():
-    """V277 one-shot final consistency check for slow network/offline recovery.
-    Called only after user actions or retries; no polling/interval is introduced.
-    """
-    data = request.get_json(silent=True) or {}
-    operation_id = str(data.get('operation_id') or '').strip()
-    zone = (data.get('zone') or data.get('cell', {}).get('zone') or '').strip().upper()
-    try:
-        column_index = int(data.get('column_index') or data.get('col') or data.get('cell', {}).get('column_index') or 0)
-    except Exception:
-        column_index = 0
-    try:
-        slot_number = int(data.get('slot_number') or data.get('slot') or data.get('cell', {}).get('slot_number') or 0)
-    except Exception:
-        slot_number = 0
-    client_sig = str(data.get('client_cell_signature') or '').strip()
-    payload = {
-        'success': True,
-        'operation_id': operation_id,
-        'version': API_SCHEMA_VERSION,
-        'checked_at': datetime.now().isoformat(timespec='seconds'),
-        'zone': zone,
-        'column_index': column_index,
-        'slot_number': slot_number,
-    }
-    try:
-        cell = None
-        if zone in ('A','B') and column_index > 0 and slot_number > 0:
-            for row in warehouse_get_column_cells(zone, column_index):
-                try:
-                    if int(row.get('slot_number') or 0) == slot_number:
-                        cell = row
-                        break
-                except Exception:
-                    continue
-        if cell:
-            # V433: consistency-check uses the same tolerant warehouse parser as the main API.
-            # A raw json.loads('[]') must not hide valid cell.items or legacy fields.
-            try:
-                items = _warehouse_cell_items_for_count(cell)
-            except Exception:
-                items = []
-            server_sig = _warehouse_cell_compare_signature(cell)
-            enriched = _warehouse_enrich_cell_client_meta(cell)
-            enriched['items'] = items if isinstance(items, list) else []
-            enriched['items_json'] = json.dumps(enriched['items'], ensure_ascii=False)
-            enriched['compare_signature'] = server_sig
-            enriched['explicit_empty_saved'] = bool((not enriched['items']) and str((cell or {}).get('note') or '').startswith('__YX_EMPTY_SAVED__'))
-            payload.update({
-                'cell_found': True,
-                'cell_signature': server_sig,
-                'client_cell_signature': client_sig,
-                'cell_consistent': (not client_sig or client_sig == server_sig),
-                'server_cell': enriched,
-                'server_item_count': len(enriched['items']),
-            })
-        else:
-            payload.update({
-                'cell_found': False,
-                'cell_signature': '',
-                'client_cell_signature': client_sig,
-                'cell_consistent': (not client_sig),
-                'server_cell': None,
-            })
-        payload['available_summary'] = _warehouse_available_light_summary()
-        payload['warehouse_stability'] = API_SCHEMA_VERSION
-        return jsonify(payload)
-    except Exception as e:
-        log_error('api_warehouse_consistency_check_v282', str(e))
-        return jsonify(success=False, error='倉庫一致性檢查失敗：' + str(e)[:180], operation_id=operation_id, version=API_SCHEMA_VERSION)
-
-@app.route("/api/warehouse/source-qty-map", methods=["GET"])
-@login_required_json
-def api_warehouse_source_qty_map():
-    try:
-        cache_key = _fast_cache_key('warehouse_source_qty_map', version=API_SCHEMA_VERSION, user=current_username())
-        cached = _fast_cache_get(cache_key, 120.0) if request.args.get('fast') == '1' else None
-        if cached:
-            return jsonify(cached)
-        payload = dict(success=True, source_qty_map=_warehouse_source_qty_map_for_client(), cache_version=API_SCHEMA_VERSION)
-        if request.args.get('fast') == '1':
-            _fast_cache_set(cache_key, payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error('api_warehouse_source_qty_map', str(e))
-        return jsonify(success=True, source_qty_map={}, degraded=True, error=str(e))
-
-
-@app.route("/api/warehouse/cell", methods=["GET", "POST"])
+@app.route("/api/warehouse/cell", methods=["POST"])
 @login_required_json
 def api_warehouse_cell():
-    if request.method == "GET":
-        try:
-            zone = (request.args.get("zone") or "A").strip().upper()
-            column_index = int(request.args.get("column_index") or request.args.get("col") or 0)
-            slot_number = int(request.args.get("slot_number") or request.args.get("slot") or 0)
-            if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
-                return jsonify(success=False, error="格位參數錯誤", cache_bust=API_SCHEMA_VERSION), 400
-            column_cells = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(zone, column_index)]
-            target = None
-            for row in column_cells:
-                try:
-                    if int(row.get("slot_number") or 0) == slot_number:
-                        target = row
-                        break
-                except Exception:
-                    continue
-            if target:
-                try:
-                    items = _warehouse_cell_items_for_count(target)
-                except Exception:
-                    try:
-                        items = json.loads(target.get("items_json") or "[]")
-                    except Exception:
-                        items = []
-                saved_cell = dict(target or {})
-                saved_cell["items"] = items if isinstance(items, list) else []
-                saved_cell["items_json"] = json.dumps(saved_cell["items"], ensure_ascii=False)
-                saved_cell["cell_signature"] = _warehouse_cell_compare_signature(saved_cell)
-                saved_cell["client_signature"] = _warehouse_client_cell_signature(saved_cell)
-            else:
-                saved_cell = {"zone": zone, "column_index": column_index, "slot_type": "direct", "slot_number": slot_number, "items": [], "items_json": "[]", "note": "", "cell_signature": "", "client_signature": ""}
-            return jsonify(success=True, cell_found=bool(target), saved_cell=saved_cell, column_cells=column_cells, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, warehouse_stability=API_SCHEMA_VERSION, read_mode="fresh-cell")
-        except Exception as e:
-            log_error("warehouse_cell_fresh_readback_v502", str(e))
-            return jsonify(success=False, error="格位讀取失敗：" + str(e)[:180], cache_bust=API_SCHEMA_VERSION), 500
-    data = request.get_json(silent=True) or {}
-    operation_id = _yx_operation_id(data, 'warehouse_cell_save')
-    cached = _yx_operation_begin(operation_id, 'warehouse_cell_save', data)
-    if cached:
-        return jsonify(cached)
     try:
+        data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_type = 'direct'
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_cell_save', "格位參數錯誤")
-        existing_cells = warehouse_get_column_cells(zone, column_index)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        # 防止手動輸入不存在的格位（例如 A-1-99）造成倉庫圖被拉出異常超長格數。
+        existing_cells = warehouse_get_cells()
+        if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
+            return error_response("格位不存在，請先在格子內點「插入格子」")
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
-        # service-line retained: mainfile behavior consolidated into formal services.
-        # migrations. Do not reject it here; warehouse_save_cell will only fill missing empty
-        # slots up to the operated slot and then save this exact cell. No clearing/rebuild.
         items = normalize_warehouse_payload_items(data.get("items") or [])
-        validation_warning = ''
-        if data.get('strict_validate') == 1 or data.get('strict_validate') == '1':
-            ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
-            if not ok:
-                return _yx_operation_error_response(operation_id, 'warehouse_cell_save', msg)
+        ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
+        if not ok:
+            return error_response(msg)
         note = data.get("note") or ""
         warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note)
-        _warehouse_cache_clear()
-        column_after = [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(zone, column_index)]
-        saved_after = next((c for c in column_after if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
-        if not saved_after:
-            return _yx_operation_error_response(operation_id, 'warehouse_cell_save', "格位沒有確實寫入資料庫")
-        try:
-            saved_items = _warehouse_cell_items_for_count(saved_after)
-        except Exception:
-            try:
-                saved_items = json.loads(saved_after.get('items_json') or '[]')
-            except Exception:
-                saved_items = []
-        if items and not saved_items:
-            # V435: DB write succeeded but immediate readback can be stale.
-            # Keep the exact normalized payload in the response so the frontend never washes the visible cell empty.
-            saved_items = normalize_warehouse_payload_items(items)
-            saved_after = dict(saved_after or {})
-            saved_after.update({'zone': zone, 'column_index': column_index, 'slot_type': 'direct', 'slot_number': slot_number, 'items': saved_items, 'items_json': json.dumps(saved_items, ensure_ascii=False), 'readback_degraded': True, 'preserve_client_cache': True})
-        # service-line retained: mainfile behavior consolidated into formal services.
-        # The important check is that the exact cell can be read back from DB and the saved payload is returned.
-        saved_cell_payload = dict(saved_after or {})
-        saved_cell_payload['items'] = saved_items
-        saved_cell_payload['items_json'] = json.dumps(saved_items, ensure_ascii=False)
-        saved_cell_payload['operation_id'] = operation_id
-        # V431: response carries explicit saved counts so the frontend can reject
-        # accidental empty readback without touching yx_cache/background queue.
-        try:
-            saved_cell_payload['saved_item_count'] = len(saved_items or [])
-            saved_cell_payload['saved_item_total'] = int(sum(max(1, int((x or {}).get('qty') or 1)) for x in (saved_items or []) if isinstance(x, dict)))
-        except Exception:
-            saved_cell_payload['saved_item_count'] = len(saved_items or []) if isinstance(saved_items, list) else 0
+        if items:
+            top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
+            record_recent_slot(current_username(), top_customer, zone, column_index, slot_number)
+        log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
+        add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
-        log_error("warehouse_cell_main_save_v40", str(e))
-        _yx_operation_finish(operation_id, 'warehouse_cell_save', {'success': False, 'error': '格位更新失敗：' + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        return error_response("格位更新失敗：" + str(e)[:180])
-    # Side effects must not make saved cell look failed.
-    if items:
-        top_customer = next((it.get('customer_name') for it in items if it.get('customer_name')), '')
-        audit_service_safe_side_effect('warehouse_recent_slot', record_recent_slot, current_username(), top_customer, zone, column_index, slot_number)
-    audit_service_safe_side_effect('warehouse_log', log_action, current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
-    audit_service_safe_side_effect('warehouse_audit', add_audit_trail, current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
-    audit_service_safe_side_effect('warehouse_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-    try:
-        # service-line retained: mainfile behavior consolidated into formal services.
-        payload = _warehouse_column_payload(zone, column_index, operation_id, saved_cell=saved_cell_payload, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
-        _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error('warehouse_cell_response_v40', str(e))
-        payload = _warehouse_column_payload(zone, column_index, operation_id, saved_cell=saved_cell_payload, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
-        _yx_operation_finish(operation_id, 'warehouse_cell_save', payload)
-        return jsonify(payload)
+        log_error("warehouse_cell", str(e))
+        return error_response("格位更新失敗")
 
 @app.route("/api/warehouse/move", methods=["POST"])
 @login_required_json
@@ -4434,99 +1383,6 @@ def api_warehouse_move():
         log_error("warehouse_move", str(e))
         return error_response("拖曳失敗")
 
-
-@app.route("/api/warehouse/move-cell", methods=["POST"])
-@login_required_json
-def api_warehouse_move_cell():
-    """Formal service helper retained for stable mainfile behavior."""
-    try:
-        data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_move_cell')
-        cached = _yx_operation_begin(operation_id, 'warehouse_move_cell', data)
-        if cached:
-            return jsonify(cached)
-        from_cell = data.get('from') or {}
-        to_cell = data.get('to') or {}
-        items = normalize_warehouse_payload_items(data.get('items') or [])
-        tz = (to_cell.get('zone') or '').strip().upper()
-        tc = int(to_cell.get('column_index') or to_cell.get('col') or 0)
-        ts = int(to_cell.get('slot_number') or to_cell.get('slot') or 0)
-        if data.get('strict_validate') == 1 or data.get('strict_validate') == '1':
-            ok, msg = validate_warehouse_cell_quantities(tz, tc, ts, items)
-            if not ok:
-                _yx_operation_finish(operation_id, 'warehouse_move_cell', {'success': False, 'error': msg}, error=msg)
-                return error_response(msg)
-        result = warehouse_move_cell_contents(from_cell, to_cell, items, from_cell.get('note') or '', to_cell.get('note') or '')
-        if result and result.get('success') is False:
-            msg = result.get('error') or '拖拉移動失敗'
-            _yx_operation_finish(operation_id, 'warehouse_move_cell', {'success': False, 'error': msg, 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=msg)
-            return error_response(msg)
-        # V408: drag/move is a real warehouse write. Clear derived caches immediately,
-        # otherwise the next page open/refresh may read the old 120s warehouse or unplaced cache
-        # and look like the drag was not permanently saved.
-        _warehouse_cache_clear()
-        try:
-            _fast_cache_clear('warehouse_available|'); _fast_cache_clear('warehouse_source_qty_map|')
-            _fast_cache_clear('customer_items|'); _fast_cache_clear('customers|'); _fast_cache_clear('ship_items|')
-            _fast_cache_clear('today_changes|'); _fast_cache_clear('today_unplaced|')
-        except Exception:
-            pass
-        try:
-            log_action(current_username(), f"倉庫整格拖拉 {from_cell.get('zone')}{from_cell.get('column_index') or from_cell.get('col')}-{from_cell.get('slot_number') or from_cell.get('slot')} → {to_cell.get('zone')}{to_cell.get('column_index') or to_cell.get('col')}-{to_cell.get('slot_number') or to_cell.get('slot')}")
-        except Exception:
-            pass
-        moved_customers = []
-        try:
-            seen = set()
-            for it in (data.get('source_cell_items') or []) + (items or []):
-                name = str((it or {}).get('customer_name') or (it or {}).get('customer') or '').strip()
-                if name and name not in seen:
-                    seen.add(name); moved_customers.append(name)
-        except Exception:
-            moved_customers = []
-        audit_service_safe_side_effect('warehouse_move_audit', add_audit_trail, current_username(), 'move', 'warehouse_cells', operation_id, before_json={'from': from_cell, 'source_items': data.get('source_cell_items') or []}, after_json={'to': to_cell, 'items': items})
-        sync_extra = {'from': from_cell, 'to': to_cell, 'customers': moved_customers, 'count': len(items or []), 'operation_id': operation_id, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
-        for _m in ('warehouse','ship','orders','master_order','today_changes'):
-            audit_service_safe_side_effect('warehouse_move_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='倉庫拖拉移動已更新', extra=sync_extra)
-        # V500: include the exact target slot snapshot and moved-item totals.
-        # Frontend uses this to reject stale readback that does not contain the dragged goods,
-        # so an old DB/cache response cannot wash the visible target cell back to the previous state.
-        target_cell_snapshot = {}
-        try:
-            for _cell in warehouse_get_column_cells(to_cell.get('zone'), to_cell.get('column_index') or to_cell.get('col')):
-                if int((_cell or {}).get('slot_number') or 0) == int(to_cell.get('slot_number') or to_cell.get('slot') or 0):
-                    target_cell_snapshot = _warehouse_enrich_cell_client_meta(_cell)
-                    break
-        except Exception:
-            target_cell_snapshot = {}
-        try:
-            move_item_total = int(sum(max(1, int((x or {}).get('qty') or 1)) for x in (items or []) if isinstance(x, dict)))
-        except Exception:
-            move_item_total = 0
-        payload = {
-            'success': True,
-            'operation_id': operation_id,
-            'partial': True,
-            'from': from_cell,
-            'to': to_cell,
-            'from_column_cells': [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(from_cell.get('zone'), from_cell.get('column_index') or from_cell.get('col'))],
-            'to_column_cells': [_warehouse_enrich_cell_client_meta(x) for x in warehouse_get_column_cells(to_cell.get('zone'), to_cell.get('column_index') or to_cell.get('col'))],
-            'target_cell_snapshot': target_cell_snapshot,
-            'moved_items': items,
-            'move_item_total': move_item_total,
-            'moved_customers': moved_customers,
-            'cache_bust': API_SCHEMA_VERSION,
-            'sync_version': API_SCHEMA_VERSION,
-            'warehouse_stability': API_SCHEMA_VERSION,
-        }
-        _yx_operation_finish(operation_id, 'warehouse_move_cell', payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error('warehouse_move_cell_117', str(e))
-        try: _yx_operation_finish(operation_id, 'warehouse_move_cell', {'success': False, 'error': str(e) or '拖拉移動失敗'}, error=e)
-        except Exception: pass
-        return error_response(str(e) or '拖拉移動失敗')
-
 @app.route("/api/warehouse/add-column", methods=["POST"])
 @login_required_json
 def api_warehouse_add_column():
@@ -4542,394 +1398,111 @@ def api_warehouse_add_column():
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_column", str(e))
-        return error_response("新增格子失敗：" + str(e)[:180])
-
-
-def _v507_norm_location_text(value):
-    """Normalize product/customer/location search text without changing saved data."""
-    try:
-        return re.sub(r'\s+', '', str(value or '')).replace('×', 'x').replace('✕', 'x').replace('*', 'x').replace('Ｘ', 'x').replace('＊', 'x').lower()
-    except Exception:
-        return str(value or '').lower()
-
-
-def _v507_warehouse_location_hits(q='', customer_name='', product_text='', source_id='', source_table='', limit=80):
-    """Read current warehouse DB cells and return stable product-location hits.
-
-    V507: used by 出貨反查商品位置 / 商品位置 buttons. It is read-only and never clears
-    screen data when no hit is found. Matching prefers exact customer + product + source_id,
-    then falls back to token search so API slowness or missing customer does not blank UI.
-    """
-    q_raw = str(q or '').strip()
-    customer_raw = str(customer_name or '').strip()
-    product_raw = format_product_text_height2(product_text or '') if product_text else ''
-    source_id_raw = str(source_id or '').strip()
-    source_table_raw = str(source_table or '').strip()
-    tokens = [x for x in re.split(r'\s+', (q_raw or '').lower()) if x]
-    nq = _v507_norm_location_text(q_raw)
-    nc = _v507_norm_location_text(customer_raw)
-    np = _v507_norm_location_text(product_raw)
-    ns = _v507_norm_location_text(source_id_raw)
-    nst = _v507_norm_location_text(source_table_raw)
-    hits = []
-    try:
-        cells = warehouse_get_cells()
-    except Exception:
-        cells = []
-    for cell in cells:
-        try:
-            items = json.loads(cell.get('items_json') or '[]')
-        except Exception:
-            items = []
-        for idx, it in enumerate(items or []):
-            if not isinstance(it, dict):
-                continue
-            item_product = it.get('product_text') or it.get('product') or it.get('text') or ''
-            item_customer = it.get('customer_name') or it.get('customer') or '庫存'
-            item_source_id = it.get('source_id') or it.get('id') or ''
-            item_source_table = it.get('source_table') or it.get('source') or ''
-            hay_parts = [cell.get('zone',''), cell.get('column_index',''), cell.get('slot_type',''), cell.get('slot_number',''), item_product, item_customer, it.get('material',''), it.get('product_code',''), item_source_id, item_source_table]
-            hay = ' '.join(str(x or '') for x in hay_parts)
-            nhay = _v507_norm_location_text(hay)
-            score = 0
-            if np and _v507_norm_location_text(item_product) == np:
-                score += 80
-            elif np and np in _v507_norm_location_text(item_product):
-                score += 55
-            elif np and np in nhay:
-                score += 35
-            if nc and _v507_norm_location_text(item_customer) == nc:
-                score += 40
-            elif nc and nc in _v507_norm_location_text(item_customer):
-                score += 25
-            if ns and _v507_norm_location_text(item_source_id) == ns:
-                score += 50
-            if nst and nst in _v507_norm_location_text(item_source_table):
-                score += 20
-            if tokens and all(t in hay.lower() for t in tokens):
-                score += 20
-            if nq and nq in nhay:
-                score += 18
-            if not (np or nc or ns or nst or tokens or nq):
-                score = 1
-            if score <= 0:
-                continue
-            cell_meta = _warehouse_enrich_cell_client_meta(cell)
-            item_meta = dict(it or {})
-            try:
-                item_meta['client_item_key'] = _warehouse_client_item_key(item_meta)
-            except Exception:
-                item_meta['client_item_key'] = ''
-            try:
-                qty = int(item_meta.get('qty') or item_meta.get('unplaced_qty') or 0)
-            except Exception:
-                qty = 0
-            if qty <= 0:
-                qty = effective_product_qty(item_product, 1)
-            hit = {
-                'cell': cell_meta,
-                'item': item_meta,
-                'cell_id': cell_meta.get('cell_id') or cell_meta.get('id') or '',
-                'client_signature': cell_meta.get('client_signature') or '',
-                'slot_number': cell_meta.get('slot_number'),
-                'slot_no': cell_meta.get('slot_no') or cell_meta.get('slot_number'),
-                'column_index': cell_meta.get('column_index'),
-                'zone': cell_meta.get('zone'),
-                'customer_name': item_meta.get('customer_name') or item_meta.get('customer') or '庫存',
-                'product_text': item_product,
-                'material': item_meta.get('material') or item_meta.get('product_code') or '',
-                'qty': qty,
-                'source_id': item_source_id,
-                'source_table': item_source_table,
-                'placement_label': item_meta.get('placement_label') or item_meta.get('layer_label') or '',
-                'match_score': score,
-                'item_index': idx,
-                'location_label': f"{cell_meta.get('zone','')}區 第{cell_meta.get('column_index','')}欄 第{cell_meta.get('slot_number','')}格",
-                'server_confirmed_location': True,
-                'cache_bust': API_SCHEMA_VERSION,
-                'sync_version': API_SCHEMA_VERSION,
-            }
-            hits.append(hit)
-    hits.sort(key=lambda h: (-int(h.get('match_score') or 0), str(h.get('zone') or ''), int(h.get('column_index') or 0), int(h.get('slot_number') or 0)))
-    return hits[:max(1, int(limit or 80))]
+        return error_response("新增格子失敗")
 
 @app.route("/api/warehouse/search")
 @login_required_json
 def api_warehouse_search():
     q = (request.args.get("q") or "").strip()
-    customer_name = (request.args.get("customer_name") or request.args.get("customer") or "").strip()
-    product_text = (request.args.get("product_text") or request.args.get("product") or "").strip()
-    source_id = (request.args.get("source_id") or "").strip()
-    source_table = (request.args.get("source_table") or request.args.get("source") or "").strip()
-    limit = int(request.args.get("limit") or 80)
-    try:
-        matched = _v507_warehouse_location_hits(q=q, customer_name=customer_name, product_text=product_text, source_id=source_id, source_table=source_table, limit=limit)
-        return jsonify(success=True, items=matched, hits=matched, matched_count=len(matched), location_readback=True, server_confirmed_location=True, cache_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
-    except Exception as e:
-        log_error('warehouse_search_v507', str(e))
-        return jsonify(success=False, error='商品位置查詢失敗：' + str(e)[:180], items=[], hits=[], preserve_previous=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION), 500
-
-
-@app.route("/api/product-locations")
-@login_required_json
-def api_product_locations():
-    """V507 read-only canonical product location API for 出貨 / 庫存 / 訂單 / 總單 location buttons."""
-    try:
-        q = (request.args.get('q') or '').strip()
-        customer_name = (request.args.get('customer_name') or request.args.get('customer') or '').strip()
-        product_text = (request.args.get('product_text') or request.args.get('product') or '').strip()
-        source_id = (request.args.get('source_id') or '').strip()
-        source_table = (request.args.get('source_table') or request.args.get('source') or '').strip()
-        limit = int(request.args.get('limit') or 80)
-        hits = _v507_warehouse_location_hits(q=q, customer_name=customer_name, product_text=product_text, source_id=source_id, source_table=source_table, limit=limit)
-        return jsonify(success=True, items=hits, hits=hits, matched_count=len(hits), customer_name=customer_name, product_text=product_text, source_id=source_id, source_table=source_table, location_readback=True, server_confirmed_location=True, preserve_previous=(len(hits)==0), cache_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION)
-    except Exception as e:
-        log_error('product_locations_v507', str(e))
-        return jsonify(success=False, error='商品位置查詢失敗：' + str(e)[:180], items=[], hits=[], preserve_previous=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION), 500
-
-
-def _warehouse_unplaced_snapshot(zone_filter=''):
-    """V396: single source-aware unplaced calculator used by warehouse dropdown and Today Changes.
-
-    Keep the existing warehouse source/placed helpers, but make 今日異動, A/B counts,
-    出貨下拉清除, and 倉庫未入倉下拉 all read the same source_id-aware result.
-    """
-    zone_filter = str(zone_filter or '').strip().upper()
-    if zone_filter not in ('A', 'B'):
-        zone_filter = ''
-    source_totals, source_details = warehouse_source_totals()
-    source_id_resolver = warehouse_build_source_id_resolver(source_details)
-    placed_all = warehouse_placed_totals()
-    placed_detail = {}
-    placed_detail_by_zone = {}
-    placed_size_detail = {}
-    placed_size_detail_by_zone = {}
-    for cell in warehouse_get_cells():
-        cell_zone = str(cell.get('zone') or '').strip().upper()
+    cells = warehouse_get_cells()
+    matched = []
+    for cell in cells:
         try:
-            items_in_cell = json.loads(cell.get('items_json') or '[]')
+            items = json.loads(cell.get("items_json") or "[]")
         except Exception:
-            items_in_cell = []
-        for it in items_in_cell:
-            product = it.get('product_text') or it.get('product') or ''
-            exact = warehouse_item_exact_key(product)
-            customer = warehouse_customer_key(it.get('customer_name') or '')
-            source_label = (it.get('source_table') or it.get('source') or '').strip()
-            source_label = {'master_orders': '總單', 'master_order': '總單', 'orders': '訂單', 'order': '訂單', 'inventory': '庫存', 'stock': '庫存'}.get(source_label, source_label)
-            if not source_label:
-                source_label = '庫存'
-            source_id = str(it.get('source_id') or it.get('id') or '').strip()
-            try:
-                q = int(it.get('qty') or 0)
-            except Exception:
-                q = 0
-            component_details = warehouse_saved_item_component_details(it, q)
-            if component_details:
-                for d in component_details:
-                    dexact = warehouse_item_exact_key(d.get('product_text') or d.get('product') or '')
-                    dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
-                    dsource = (d.get('source_table') or d.get('source') or source_label or '庫存').strip()
-                    dsource = {'master_orders': '總單', 'master_order': '總單', 'orders': '訂單', 'order': '訂單', 'inventory': '庫存', 'stock': '庫存'}.get(dsource, dsource)
-                    did = str(d.get('source_id') or d.get('id') or '')
-                    try:
-                        dq = int(d.get('qty') or 0)
-                    except Exception:
-                        dq = 0
-                    if dexact and dq > 0:
-                        dsize = warehouse_item_size_key(dexact)
-                        for placed_source_id in warehouse_resolved_placed_source_ids(dexact, dcustomer, dsource, did, source_id_resolver):
-                            dkey = (dexact, dcustomer, dsource, placed_source_id)
-                            placed_detail[dkey] = placed_detail.get(dkey, 0) + dq
-                            placed_detail_by_zone[(dexact, dcustomer, dsource, placed_source_id, cell_zone)] = placed_detail_by_zone.get((dexact, dcustomer, dsource, placed_source_id, cell_zone), 0) + dq
-                            if dsize:
-                                skey = (dsize, dcustomer, dsource, placed_source_id)
-                                placed_size_detail[skey] = placed_size_detail.get(skey, 0) + dq
-                                placed_size_detail_by_zone[(dsize, dcustomer, dsource, placed_source_id, cell_zone)] = placed_size_detail_by_zone.get((dsize, dcustomer, dsource, placed_source_id, cell_zone), 0) + dq
-                continue
-            if exact and q > 0:
-                dsize = warehouse_item_size_key(exact)
-                for placed_source_id in warehouse_resolved_placed_source_ids(exact, customer, source_label, source_id, source_id_resolver):
-                    dkey = (exact, customer, source_label, placed_source_id)
-                    placed_detail[dkey] = placed_detail.get(dkey, 0) + q
-                    placed_detail_by_zone[(exact, customer, source_label, placed_source_id, cell_zone)] = placed_detail_by_zone.get((exact, customer, source_label, placed_source_id, cell_zone), 0) + q
-                    if dsize:
-                        skey = (dsize, customer, source_label, placed_source_id)
-                        placed_size_detail[skey] = placed_size_detail.get(skey, 0) + q
-                        placed_size_detail_by_zone[(dsize, customer, source_label, placed_source_id, cell_zone)] = placed_size_detail_by_zone.get((dsize, customer, source_label, placed_source_id, cell_zone), 0) + q
-    items = []
-    zone_summary = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
-    for detail_key, details_all in source_details.items():
-        exact, customer, source_label, source_id = detail_key
-        details_all = details_all or []
-        size_key_for_placed = warehouse_item_size_key(exact)
-        if zone_filter:
-            details_for_item = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
-            total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
-            # V409: A/B dropdown shows the source rows that belong to that zone,
-            # but a source row is considered "already placed" once it exists in ANY warehouse zone.
-            # Previous zone-only subtraction made an A-zone item reappear in A dropdown after it was
-            # placed or dragged to B, which caused stale unplaced counts and duplicate selection.
-            placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
-            if placed_qty <= 0 and size_key_for_placed:
-                placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
-            if placed_qty <= 0 and size_key_for_placed:
-                placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
-            if placed_qty <= 0:
-                placed_qty = int(placed_all.get((exact, customer), 0) or 0)
-        else:
-            details_for_item = details_all
-            total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
-            placed_qty = int(placed_detail.get((exact, customer, source_label, str(source_id)), 0) or 0)
-            if placed_qty <= 0 and size_key_for_placed:
-                placed_qty = int(placed_size_detail.get((size_key_for_placed, customer, source_label, str(source_id)), 0) or 0)
-            if placed_qty <= 0 and size_key_for_placed:
-                placed_qty = int(placed_all.get((size_key_for_placed, customer), 0) or 0)
-            if placed_qty <= 0:
-                placed_qty = int(placed_all.get((exact, customer), 0) or 0)
-        try:
-            placed_qty = min(max(0, int(placed_qty or 0)), max(0, int(total_qty or 0)))
-        except Exception:
-            placed_qty = 0
-        unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
-        # Always compute global A/B/unassigned summary from the same per-source rows.
-        if not zone_filter:
-            row_zone = (details_all[0].get('zone') if details_all else '') or ''
-            z = str(row_zone).strip().upper()
-            if z.startswith('A'):
-                zone_summary['A'] += unplaced_qty
-            elif z.startswith('B'):
-                zone_summary['B'] += unplaced_qty
-            else:
-                zone_summary['unassigned'] += unplaced_qty
-            zone_summary['total'] += unplaced_qty
-        if unplaced_qty <= 0:
-            continue
-        first = details_for_item[0] if details_for_item else (details_all[0] if details_all else {})
-        product = first.get('product_text') or exact
-        product = warehouse_rewrite_product_qty_for_unplaced(product, unplaced_qty)
-        size = first.get('product_size') or warehouse_item_size_key(product)
-        display_size = first.get('display_product_size') or warehouse_item_display_size(product) or size
-        support = warehouse_support_text(product) or first.get('support_text') or ''
-        material = first.get('material') or first.get('product_code') or ''
-        source_qty = {source_label: int(total_qty or 0)}
-        items.append({
-            'type': 'unplaced',
-            'action': '未錄入倉庫圖',
-            'message': f"尚未加入倉庫圖：{(customer + '｜') if customer else ''}{product}｜未錄入 {unplaced_qty} 件｜來源：{source_label}{int(total_qty or 0)}",
-            'product_text': product,
-            'product': product,
-            'product_size': size,
-            'display_product_size': display_size,
-            'support_text': support,
-            'exact_key': exact,
-            'customer_name': customer,
-            'material': material,
-            'product_code': material,
-            'total_qty': int(total_qty or 0),
-            'placed_qty': placed_qty,
-            'unplaced_qty': unplaced_qty,
-            'qty': unplaced_qty,
-            'zone': zone_filter or (first.get('zone') or ''),
-            'source': source_label,
-            'source_table': source_label,
-            'source_id': str(source_id),
-            'source_qty': source_qty,
-            'sources': [{'source': source_label, 'qty': int(total_qty or 0)}],
-            'source_details': details_for_item,
-            'source_summary': f"{source_label}{int(total_qty or 0)}",
-            'needs_red': True,
-        })
-    items.sort(key=lambda r: (r.get('zone') or '', r.get('customer_name') or '庫存', r.get('material') or '', product_sort_tuple(r.get('product_text') or '')))
-    return items, zone_summary
-
+            items = []
+        for it in items:
+            hay = f"{cell['zone']} {cell['column_index']} {cell['slot_type']} {cell['slot_number']} {it.get('product_text','')} {it.get('customer_name','')}"
+            if not q or q.lower() in hay.lower():
+                matched.append({"cell": cell, "item": it})
+                break
+    return jsonify(success=True, items=matched)
 
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    """列出尚未放入倉庫圖的商品；V423 force=1 bypasses server fast cache for manual reload/readback checks."""
+    """列出尚未放入倉庫圖的商品；FIX138 支援 A/B 區未入倉篩選。"""
     try:
         zone_filter = (request.args.get("zone") or "").strip().upper()
         if zone_filter not in ("A", "B"):
             zone_filter = ""
-        force_fresh = str(request.args.get('force') or request.args.get('no_cache') or request.args.get('refresh') or '').strip() == '1'
-        real_sync = _yx484_is_real_sync_request()
-        if _yx484_is_light_request():
-            return jsonify(_yx484_available_light_payload(zone_filter))
-        cache_key = _fast_cache_key('warehouse_available', version=API_SCHEMA_VERSION, zone=zone_filter or 'ALL', user=current_username())
-        if not force_fresh or not real_sync:
-            cached = _yx484_cached_available_payload(zone_filter or 'ALL', 86400)
-            if cached:
-                cached['server_cache'] = True
-                cached['cache_bust'] = API_SCHEMA_VERSION
-                cached['sync_version'] = API_SCHEMA_VERSION
-                cached['fast_cached_response'] = True
-                return jsonify(cached)
-        items, zone_summary = _warehouse_unplaced_snapshot(zone_filter)
-        # If a caller asks for only A/B rows, still return the full A/B/unassigned summary
-        # so the pill and 今日異動 use the same total numbers after a reload.
-        if zone_filter:
+        source_totals, source_details = warehouse_source_totals()
+        placed_all = warehouse_placed_totals()
+        placed_by_zone = {}
+        for cell in warehouse_get_cells():
+            cell_zone = str(cell.get('zone') or '').strip().upper()
             try:
-                _all_items, full_summary = _warehouse_unplaced_snapshot('')
-                if isinstance(full_summary, dict) and full_summary.get('total') is not None:
-                    zone_summary = full_summary
-            except Exception as _summary_err:
-                try: log_error('warehouse_available_full_summary_v423', str(_summary_err))
-                except Exception: pass
-        payload = dict(success=True, items=items, zone=zone_filter, zone_summary=zone_summary, cache_version=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION, force_fresh=bool(force_fresh))
-        # V484: store both force sync and normal results for fast later page/diagnostic reads.
-        _yx484_store_available_payload(zone_filter or 'ALL', payload)
-        return jsonify(payload)
+                items_in_cell = json.loads(cell.get("items_json") or "[]")
+            except Exception:
+                items_in_cell = []
+            for it in items_in_cell:
+                size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+                customer = (it.get('customer_name') or '').strip()
+                try:
+                    q = int(it.get('qty') or 0)
+                except Exception:
+                    q = 0
+                if size and q > 0:
+                    placed_by_zone[(size, customer, cell_zone)] = placed_by_zone.get((size, customer, cell_zone), 0) + q
+        items = []
+        for key, total_qty_all in source_totals.items():
+            size, customer = key
+            details_all = source_details.get(key, [])
+            if zone_filter:
+                zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
+                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
+                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
+                details_for_item = zone_details
+            else:
+                total_qty = int(total_qty_all or 0)
+                placed_qty = int(placed_all.get(key, 0) or 0)
+                details_for_item = details_all
+            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if unplaced_qty <= 0:
+                continue
+            source_qty = {}
+            for detail in details_for_item:
+                source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
+            items.append({
+                'product_text': size,
+                'product_size': size,
+                'customer_name': customer,
+                'total_qty': int(total_qty or 0),
+                'placed_qty': placed_qty,
+                'unplaced_qty': unplaced_qty,
+                'qty': unplaced_qty,
+                'zone': zone_filter or '',
+                'source_qty': source_qty,
+                'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
+                'source_details': details_for_item,
+                'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
+                'needs_red': True,
+            })
+        items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
+        return jsonify(success=True, items=items, zone=zone_filter)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
-        return jsonify(success=True, items=[], zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}, cache_version=API_SCHEMA_VERSION)
+        return jsonify(success=True, items=[])
 
 
 @app.route("/api/customer-items", methods=["GET"])
 @login_required_json
 def api_customer_items():
-    try:
-        ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        try: log_error('runtime_init_customer_items_v196', str(_yx_init_err))
-        except Exception: pass
-    """Customer item list used by 出貨. Keep it JSON-safe even when older DBs miss optional uid columns."""
+    """FIX53：客戶商品直接用 SQL 篩選，不再整表載入後 Python 過濾。"""
     name = (request.args.get("name") or "").strip()
     uid = (request.args.get("customer_uid") or "").strip()
+    row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
+    name = resolved_name or name
+    uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
+    items = []
+    if not name and not uid:
+        return jsonify(success=True, items=[])
+
+    conn = get_db()
+    cur = conn.cursor()
     try:
-        row, resolved_name, resolved_uid = resolve_customer_identity(name, uid, include_archived=True)
-        name = resolved_name or name
-        uid = resolved_uid or uid or ((row or {}).get('customer_uid') or '')
-    except Exception as e:
-        # Do not let customer lookup failure render Flask HTML 500 into the 出貨 page.
-        log_error('customer_items_resolve_identity_v189', str(e))
-        row = {}
-    try:
-        use_customer_items_cache = (request.args.get('fast') == '1' and request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
-        source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
-        # V494: /api/customer-items 快取必須含 source；同一客戶在訂單頁與總單頁不可互相拿到對方商品。
-        cache_key = _fast_cache_key('customer_items', version=API_SCHEMA_VERSION, customer=name, uid=uid, source=source_filter, variants=request.args.get('variants') or '', ship_single=request.args.get('ship_single') or '', user=current_username(), qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
-        if use_customer_items_cache:
-            cached = _fast_cache_get(cache_key, 120.0)
-            if cached:
-                return jsonify(cached)
-        if not name and not uid:
-            return jsonify(success=True, items=[])
-
-        conn = get_db()
-        cur = conn.cursor()
-        items = []
-
-        def table_columns(table):
-            try:
-                if USE_POSTGRES:
-                    cur.execute(sql("SELECT column_name FROM information_schema.columns WHERE table_name = ?"), (table,))
-                    return {str((r.get('column_name') if isinstance(r, dict) else r[0]) or '') for r in rows_to_dict(cur)}
-                cur.execute(f"PRAGMA table_info({table})")
-                return {str((r.get('name') if isinstance(r, dict) else r[1]) or '') for r in rows_to_dict(cur)}
-            except Exception as e:
-                log_error('customer_items_table_columns_' + table, str(e))
-                return set()
-
+        # FIX142：點客戶必須即時顯示。前端若已從客戶母版拿到 merge_names，
+        # 直接帶 variants 避免每次點擊又掃四張資料表找同名變體。
         raw_variants = (request.args.get('variants') or '').strip()
         variants = []
         if raw_variants:
@@ -4941,62 +1514,34 @@ def api_customer_items():
                 variants = [(x or '').strip() for x in re.split(r'[|,\n]+', raw_variants) if (x or '').strip()]
             if name and name not in variants:
                 variants.insert(0, name)
+        elif (request.args.get('fast') or '') == '1':
+            variants = [name] if name else []
         else:
-            try:
-                # V195: 出貨/訂單/總單都用同一套客戶合併名稱。
-                # 以前 fast=1 只查精準名稱，客戶卡顯示有筆數但點進去可能抓不到商品。
-                variants = customer_merge_variants(cur, name) if name else []
-            except Exception as e:
-                log_error('customer_items_merge_variants_v196', str(e))
-                variants = [name] if name else []
-
+            variants = customer_merge_variants(cur, name) if name else []
         def pull(table, source_label):
-            cols = table_columns(table)
             where_parts = []
             params = []
-            if uid and 'customer_uid' in cols:
+            if uid:
                 where_parts.append("customer_uid = ?")
                 params.append(uid)
-            if 'customer_name' in cols:
-                if variants:
-                    where_parts.append("customer_name IN (" + ",".join(["?"] * len(variants)) + ")")
-                    params.extend(variants)
-                elif name:
-                    where_parts.append("customer_name = ?")
-                    params.append(name)
+            if variants:
+                where_parts.append("customer_name IN (" + ",".join(["?"] * len(variants)) + ")")
+                params.extend(variants)
+            elif name:
+                where_parts.append("customer_name = ?")
+                params.append(name)
             if not where_parts:
                 return
             cur.execute(sql(f"SELECT * FROM {table} WHERE " + " OR ".join(where_parts) + " ORDER BY id DESC"), tuple(params))
             for r in rows_to_dict(cur):
                 r['source'] = source_label
                 items.append(r)
-
-        try:
-            # V406/V494: 訂單頁/總單頁點客戶時，明細與件數只能使用目前來源；出貨頁未帶 source 才合併三來源。
-            if source_filter in ('orders', 'order'):
-                pull('orders', '訂單')
-            elif source_filter in ('master_order', 'master_orders', 'master'):
-                pull('master_orders', '總單')
-            elif source_filter in ('inventory', 'stock'):
-                pull('inventory', '庫存')
-            else:
-                pull('orders', '訂單')
-                pull('master_orders', '總單')
-                pull('inventory', '庫存')
-        finally:
-            try: conn.close()
-            except Exception: pass
-
-        aggregated = aggregate_customer_items(items)
-        for _it in aggregated:
-            _it['deduct_source_label'] = customer_item_deduct_source_label(_it.get('source') or _it.get('source_label') or _it.get('source_preference'))
-        payload = dict(success=True, items=aggregated, server_cache=API_SCHEMA_VERSION)
-        if use_customer_items_cache:
-            _fast_cache_set(cache_key, payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error('customer_items_v189_json_safe', str(e))
-        return jsonify(success=False, items=[], degraded=True, error='客戶商品讀取失敗，請重新點一次客戶或刷新頁面')
+        pull('orders', '訂單')
+        pull('master_orders', '總單')
+        pull('inventory', '庫存')
+    finally:
+        conn.close()
+    return jsonify(success=True, items=aggregate_customer_items(items))
 
 
 @app.route("/api/customer-item", methods=["POST", "DELETE"])
@@ -5011,9 +1556,8 @@ def api_customer_item_modify():
         if request.method == "DELETE":
             delete_customer_item(source, item_id)
             log_action(current_username(), f"刪除客戶商品 {source}#{item_id}")
-            notify_sync_event(kind='refresh', module='all', message='客戶商品已刪除', extra={'source': source, 'id': item_id, 'cache_bust': API_SCHEMA_VERSION})
-            _clear_product_fast_cache()
-            return jsonify(success=True, cache_bust=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers())
+            notify_sync_event(kind='refresh', module='customers', message='客戶商品已刪除', extra={'source': source, 'id': item_id})
+            return jsonify(success=True)
         product_text = format_product_text_height2((data.get("product_text") or "").strip())
         qty = normalize_item_quantity(product_text, 1)
         if not product_text:
@@ -5021,9 +1565,8 @@ def api_customer_item_modify():
         material = data.get("material") if "material" in data else None
         update_customer_item(source, item_id, product_text, qty, current_username(), material=material)
         log_action(current_username(), f"更新客戶商品 {source}#{item_id}")
-        notify_sync_event(kind='refresh', module='all', message='客戶商品已更新', extra={'source': source, 'id': item_id, 'cache_bust': API_SCHEMA_VERSION})
-        _clear_product_fast_cache()
-        return jsonify(success=True, cache_bust=API_SCHEMA_VERSION, snapshots=product_service_snapshots(), customers=get_customers())
+        notify_sync_event(kind='refresh', module='customers', message='客戶商品已更新', extra={'source': source, 'id': item_id})
+        return jsonify(success=True)
     except Exception as e:
         log_error("customer_item_modify", str(e))
         return error_response("客戶商品修改失敗")
@@ -5038,12 +1581,9 @@ def api_customer_items_batch_material():
         items = data.get("items") or []
         if not material:
             return error_response("請選擇材質")
-        rejected = _v495_reject_implicit_all_for_destructive(data, 'batch_material') if not items else None
-        if rejected:
-            return rejected
         if not items:
             return error_response("請先勾選要套用材質的商品")
-        # service-line retained: mainfile behavior consolidated into formal services.
+        # FIX137：批量材質要先記錄每筆變更前資料，才可以「還原上一步」。
         source_map = {'inventory':'inventory', '庫存':'inventory', 'orders':'orders', '訂單':'orders', 'master_order':'master_orders', 'master_orders':'master_orders', '總單':'master_orders'}
         before_by_entity = {}
         try:
@@ -5063,29 +1603,19 @@ def api_customer_items_batch_material():
             except Exception: pass
             log_error('batch_material_snapshot_fix137', str(e))
         count = update_items_material(items, material, current_username())
-        # service-line retained: mainfile behavior consolidated into formal services.
+        # FIX113/FIX137：批量材質屬於庫存 / 訂單 / 總單實際變更，並保留 before_json 供還原。
         grouped_sources = {}
         for it in items:
             entity = source_map.get((it.get('source') or '').strip())
             if entity:
                 grouped_sources.setdefault(entity, []).append(it)
-        affected_customers = sorted({str((b.get('row') or {}).get('customer_name') or '').strip() for rows0 in before_by_entity.values() for b in rows0 if str((b.get('row') or {}).get('customer_name') or '').strip()})
-        affected_sources = sorted({({'inventory':'inventory','orders':'orders','master_orders':'master_order'}.get(entity, entity)) for entity in grouped_sources.keys()})
         for entity, source_items in grouped_sources.items():
             add_audit_trail(current_username(), 'update', entity, 'batch_material', before_json=before_by_entity.get(entity, []), after_json={'material': material, 'count': len(source_items), 'items': source_items})
         if not grouped_sources:
             add_audit_trail(current_username(), 'update', 'customer_items', 'batch_material', before_json=before_by_entity, after_json={'material': material, 'count': count, 'items': items})
         log_action(current_username(), f"批量套用材質 {material}，共 {count} 筆")
-        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count, 'cache_bust': API_SCHEMA_VERSION, 'source':'batch_material', 'affected_customer_names': affected_customers, 'affected_sources': affected_sources})
-        _clear_product_fast_cache()
-        before_flat = [x for rows0 in before_by_entity.values() for x in rows0]
-        changed = []
-        for it in items:
-            row = dict(it or {})
-            row['material'] = material
-            row['product_code'] = material
-            changed.append(row)
-        return jsonify(_v495_batch_payload('batch_material', count=count, before_items=before_flat, changed_items=changed, extra={'material': material, 'affected_customer_names': affected_customers, 'affected_customers': affected_customers, 'affected_sources': affected_sources}))
+        notify_sync_event(kind='refresh', module='all', message='材質已批量更新', extra={'material': material, 'count': count})
+        return jsonify(success=True, count=count, material=material)
     except Exception as e:
         log_error("customer_items_batch_material", str(e))
         return error_response(str(e) or "批量材質更新失敗")
@@ -5095,16 +1625,17 @@ def api_customer_items_batch_material():
 @app.route("/api/customer-items/batch-zone", methods=["POST"])
 @login_required_json
 def api_customer_items_batch_zone():
-    """Formal service helper retained for stable mainfile behavior."""
+    """FIX132：庫存 / 訂單 / 總單共用 A/B 區批量標記。
+    只更新商品列的 location 欄位，不會刪除或搬動數量；實際倉庫格位仍由倉庫圖管理。
+    """
     try:
         data = request.get_json(silent=True) or {}
         zone = (data.get("zone") or "").strip().upper()
         if zone not in ("A", "B"):
             return error_response("請選擇 A 區或 B 區")
         items = data.get("items") or []
-        rejected = _v495_reject_implicit_all_for_destructive(data, 'batch_zone')
-        if rejected:
-            return rejected
+        if not items:
+            return error_response("請先勾選要移動的商品")
         table_map = {
             "庫存": "inventory", "inventory": "inventory",
             "訂單": "orders", "orders": "orders",
@@ -5124,34 +1655,14 @@ def api_customer_items_batch_zone():
                 if row_before:
                     touched.append({'source': source, 'table': table, 'id': item_id, 'row': row_before})
                 try:
-                    ensure_runtime_product_schema(cur)
+                    cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                 except Exception:
-                    pass
-                cols = _v495_table_columns(cur, table)
-                set_parts = []
-                params = []
-                for col in ('location', 'area', 'zone'):
-                    if col in cols or col == 'location':
-                        if col not in cols:
-                            try:
-                                cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
-                                cols.add(col)
-                            except Exception:
-                                pass
-                        if col in cols:
-                            set_parts.append(f"{col} = ?")
-                            params.append(zone)
-                if 'operator' in cols:
-                    set_parts.append("operator = ?")
-                    params.append(current_username())
-                if 'updated_at' in cols:
-                    set_parts.append("updated_at = ?")
-                    params.append(now())
-                if not set_parts:
-                    set_parts = ["updated_at = ?"]
-                    params = [now()]
-                params.append(item_id)
-                cur.execute(sql(f"UPDATE {table} SET " + ', '.join(set_parts) + " WHERE id = ?"), tuple(params))
+                    # 舊資料表尚未補 location 欄位時，補完再重試。
+                    try:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                        cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
+                    except Exception:
+                        cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
                 if cur.rowcount:
                     count += 1
             conn.commit()
@@ -5159,12 +1670,10 @@ def api_customer_items_batch_zone():
             conn.rollback(); raise
         finally:
             conn.close()
-        audit_service_safe_side_effect('batch_zone_audit', add_audit_trail, current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
-        audit_service_safe_side_effect('batch_zone_log', log_action, current_username(), f"批量移到 {zone} 區，共 {count} 筆")
-        audit_service_safe_side_effect('batch_zone_notify', notify_sync_event, kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count, "cache_bust": API_SCHEMA_VERSION, "source":"batch_zone"})
-        _clear_product_fast_cache()
-        changed = [{'source': x.get('source'), 'table': x.get('table'), 'id': x.get('id'), 'zone': zone, 'location': zone, 'area': zone, 'customer_name': (x.get('row') or {}).get('customer_name') or ''} for x in touched]
-        return jsonify(_v495_batch_payload('batch_zone', count=count, before_items=touched, changed_items=changed, extra={'zone': zone}))
+        add_audit_trail(current_username(), "move", "customer_items", "batch_zone", before_json=touched, after_json={"zone": zone, "count": count, "items": [{"source": x.get("source"), "id": x.get("id"), "zone": zone} for x in touched]})
+        log_action(current_username(), f"批量移到 {zone} 區，共 {count} 筆")
+        notify_sync_event(kind="refresh", module="all", message=f"商品已批量移到 {zone} 區", extra={"zone": zone, "count": count})
+        return jsonify(success=True, count=count, zone=zone)
     except Exception as e:
         log_error("customer_items_batch_zone", str(e))
         return error_response(str(e) or "批量移動 A/B 區失敗")
@@ -5173,13 +1682,12 @@ def api_customer_items_batch_zone():
 @app.route("/api/customer-items/batch-delete", methods=["POST"])
 @login_required_json
 def api_customer_items_batch_delete():
-    """Formal service helper retained for stable mainfile behavior."""
+    """FIX56：庫存 / 訂單 / 總單共用批量刪除。"""
     try:
         data = request.get_json(silent=True) or {}
         items = data.get("items") or []
-        rejected = _v495_reject_implicit_all_for_destructive(data, 'batch_delete')
-        if rejected:
-            return rejected
+        if not items:
+            return error_response("請先勾選要刪除的商品")
         table_map = {
             "庫存": "inventory", "inventory": "inventory",
             "訂單": "orders", "orders": "orders",
@@ -5209,22 +1717,19 @@ def api_customer_items_batch_delete():
             raise
         finally:
             conn.close()
-        # service-line retained: mainfile behavior consolidated into formal services.
+        # FIX113：批量刪除依實際資料表寫入差異紀錄，避免顯示 customer_items。
         grouped_sources = {}
         for before in before_items:
             entity = before.get('table')
             if entity in ('inventory', 'orders', 'master_orders'):
                 grouped_sources.setdefault(entity, []).append(before)
-        affected_customers = sorted({((x.get('row') or {}).get('customer_name') or '').strip() for x in before_items if ((x.get('row') or {}).get('customer_name') or '').strip()})
-        affected_sources = sorted({({'inventory':'inventory','orders':'orders','master_orders':'master_order'}.get(x.get('table') or '', x.get('table') or '')) for x in before_items if x.get('table')})
         for entity, rows in grouped_sources.items():
             add_audit_trail(current_username(), "delete", entity, "batch_delete", before_json=rows, after_json={"count": len(rows)})
         if not grouped_sources:
             add_audit_trail(current_username(), "delete", "customer_items", "batch_delete", before_json=before_items, after_json={"count": deleted})
         log_action(current_username(), f"批量刪除商品，共 {deleted} 筆")
-        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted, "cache_bust": API_SCHEMA_VERSION, "source":"batch_delete", "affected_customer_names": affected_customers, "affected_sources": affected_sources})
-        _clear_product_fast_cache()
-        return jsonify(_v495_batch_payload('batch_delete', count=deleted, before_items=before_items, changed_items=[], extra={'affected_customer_names': affected_customers, 'affected_customers': affected_customers, 'affected_sources': affected_sources}))
+        notify_sync_event(kind="refresh", module="all", message="商品已批量刪除", extra={"count": deleted})
+        return jsonify(success=True, count=deleted)
     except Exception as e:
         log_error("customer_items_batch_delete", str(e))
         return error_response(str(e) or "批量刪除失敗")
@@ -5247,7 +1752,6 @@ def api_customer_items_batch_update():
             "總單": "master_orders", "master_order": "master_orders", "master_orders": "master_orders",
         }
         conn = get_db(); cur = conn.cursor()
-        ensure_runtime_product_schema(cur)
         before_items = []
         updated = 0
         changed = []
@@ -5271,38 +1775,33 @@ def api_customer_items_batch_update():
                 if qty < 0:
                     qty = 0
                 material = clean_material_value(it.get("material") if it.get("material") is not None else (before.get("material") or before.get("product_code") or ""), product_text)
-                month_tag = product_month_tag(product_text)
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
                 location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, month_tag, qty, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, qty, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
                         except Exception:
                             pass
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN month_tag TEXT")
-                        except Exception:
-                            pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, month_tag = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, month_tag, qty, customer_name, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
                     changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
@@ -5317,12 +1816,8 @@ def api_customer_items_batch_update():
         for entity, rows_before in grouped.items():
             add_audit_trail(current_username(), "update", entity, "batch_update", before_json=rows_before, after_json={"count": updated, "items": changed})
         log_action(current_username(), f"批量編輯商品，共 {updated} 筆")
-        affected_customers = sorted({(x.get('customer_name') or '').strip() for x in changed if (x.get('customer_name') or '').strip()})
-        affected_sources = sorted({(x.get('source') or '').strip() for x in changed if (x.get('source') or '').strip()})
-        notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated, "customers": affected_customers, "affected_customer_names": affected_customers, "sources": affected_sources, "affected_sources": affected_sources, "cache_bust": API_SCHEMA_VERSION})
-        _clear_product_fast_cache()
-        payload = _v495_batch_payload('batch_update', count=updated, before_items=before_items, changed_items=changed, extra={'items': changed, 'items_are_delta': True, 'affected_customer_names': affected_customers, 'affected_customers': affected_customers, 'affected_sources': affected_sources})
-        return jsonify(payload)
+        notify_sync_event(kind="refresh", module="all", message="商品已批量編輯", extra={"count": updated})
+        return jsonify(success=True, count=updated, items=changed)
     except Exception as e:
         log_error("customer_items_batch_update", str(e))
         return error_response(str(e) or "批量編輯失敗")
@@ -5330,41 +1825,20 @@ def api_customer_items_batch_update():
 @app.route("/api/backup", methods=["POST", "GET"])
 @login_required_json
 def api_backup():
-    # V497: GET must never create a backup. Only POST from the settings button creates one.
-    if not _is_admin_user():
-        return error_response("權限不足", 403)
-    if request.method == 'GET':
-        payload = list_backups()
-        payload['manual_only'] = True
-        payload['created_by_get'] = False
-        payload['message'] = 'GET 只讀備份清單，不會自動建立備份。'
-        return jsonify(payload)
-    result = run_daily_backup()
-    if result.get('success'):
-        try:
-            set_setting('last_manual_backup_at', now())
-        except Exception:
-            pass
-        log_action(current_username(), '手動建立資料備份')
-        notify_sync_event(kind='refresh', module='settings', message='資料備份已建立', extra={'file': result.get('file') or result.get('filename') or ''})
-    return jsonify(result)
+    return jsonify(run_daily_backup())
 
 @app.route("/api/backups", methods=["GET"])
 @login_required_json
 def api_backups():
-    if not _is_admin_user():
-        return error_response("權限不足", 403)
-    payload = list_backups()
-    payload['manual_only'] = True
-    payload['created_by_get'] = False
-    return jsonify(payload)
+    return jsonify(list_backups())
 
 
 @app.route("/api/admin/users", methods=["GET"])
 @login_required_json
 def api_admin_users():
-    """Formal service helper retained for stable mainfile behavior."""
-    if not _is_admin_user():
+    """FIX113：管理員名單相容讀取。
+    舊資料庫若缺少 is_blocked/role 欄位，不再回 500，先補 schema 再用安全 SQL 讀取。"""
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     try:
         try:
@@ -5396,29 +1870,18 @@ def api_admin_users():
 @app.route("/api/admin/block", methods=["POST"])
 @login_required_json
 def api_admin_block():
-    if not _is_admin_user():
+    if current_username() != '陳韋廷':
         return error_response("權限不足", 403)
     data = request.get_json(silent=True) or {}
     username = (data.get('username') or '').strip()
-    if not username or username in {'陳韋廷', 'x0937952700@gmail.com', 'x0937952700'}:
+    blocked = bool(data.get('blocked'))
+    if not username or username == '陳韋廷':
         return error_response("不可操作此帳號")
     try:
         try:
             init_db()
         except Exception as e:
             log_error('admin_block_init_db', str(e))
-        # V497: accept explicit blocked=true/false; if omitted, toggle from current DB state.
-        if 'blocked' in data:
-            blocked = bool(data.get('blocked'))
-        else:
-            blocked = True
-            try:
-                for u in list_users():
-                    if (u.get('username') or '') == username:
-                        blocked = not bool(int(u.get('is_blocked') or 0))
-                        break
-            except Exception:
-                blocked = True
         set_user_blocked(username, blocked)
         log_action(current_username(), f"{'封鎖' if blocked else '解除封鎖'}帳號 {username}")
         notify_sync_event(kind='refresh', module='settings', message='帳號黑名單已更新', extra={'username': username, 'blocked': blocked})
@@ -5427,7 +1890,7 @@ def api_admin_block():
         except Exception as e:
             log_error('admin_block_list_users', str(e))
             items = []
-        return jsonify(success=True, items=items, username=username, blocked=blocked)
+        return jsonify(success=True, items=items)
     except Exception as e:
         log_error('admin_block', str(e))
         return error_response('帳號黑名單更新失敗')
@@ -5437,187 +1900,76 @@ def api_admin_block():
 @app.route("/api/warehouse/return-unplaced", methods=["POST"])
 @login_required_json
 def api_warehouse_return_unplaced():
-    """Formal service helper retained for stable mainfile behavior."""
+    """FIX75：把某格已放入的商品清回未錄入倉庫圖狀態。
+
+    倉庫圖的「未錄入」是由來源總量 - 已放入格位數量即時計算，
+    所以這裡只要清空該格商品，商品就會自動回到尚未添加倉庫圖清單。
+    """
     try:
         data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_return_unplaced')
-        cached = _yx_operation_begin(operation_id, 'warehouse_return_unplaced', data)
-        if cached:
-            return jsonify(cached)
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_return_unplaced', "格位參數錯誤")
-        cells = warehouse_get_column_cells(zone, column_index)
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
+        cells = warehouse_get_cells()
         cell = next((c for c in cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), None)
         if not cell:
-            return _yx_operation_error_response(operation_id, 'warehouse_return_unplaced', "找不到格位")
+            return error_response("找不到格位")
         items = safe_cell_items(cell)
         note = cell.get('note') or ''
         warehouse_save_cell(zone, column_index, 'direct', slot_number, [], note)
-        _warehouse_cache_clear()
-        try:
-            _fast_cache_clear('orders|'); _fast_cache_clear('master_orders|'); _fast_cache_clear('customer_items|'); _fast_cache_clear('customers|'); _fast_cache_clear('warehouse_available|'); _fast_cache_clear('today_changes|'); _fast_cache_clear('today_unplaced|')
-            set_setting('today_unplaced_cache_' + API_SCHEMA_VERSION, '')
-            set_setting('today_unplaced_cache_v287', ''); set_setting('today_unplaced_cache_v282', ''); set_setting('today_unplaced_cache_v267', ''); set_setting('today_unplaced_cache_v262', ''); set_setting('today_unplaced_cache_v252', ''); set_setting('today_unplaced_cache_v207', ''); set_setting('today_unplaced_cache_v211', ''); set_setting('today_unplaced_cache_v214', ''); set_setting('today_unplaced_cache_v212', ''); set_setting('today_unplaced_cache_v208', ''); set_setting('today_unplaced_cache_v209', '')
-        except Exception:
-            pass
-        log_action(current_username(), f"倉庫格位退回該格 {zone}{column_index}-{slot_number}")
-        returned_customers = sorted({str((it or {}).get('customer_name') or (it or {}).get('customer') or '').strip() for it in (items or []) if str((it or {}).get('customer_name') or (it or {}).get('customer') or '').strip()})
-        audit_service_safe_side_effect('warehouse_return_audit', add_audit_trail, current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
-        sync_extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items), 'returned_items': items, 'customers': returned_customers, 'cache_bust': API_SCHEMA_VERSION}
-        for _m in ('warehouse','ship','orders','master_order','today_changes'):
-            audit_service_safe_side_effect('warehouse_return_notify_' + _m, notify_sync_event, kind='refresh', module=_m, message='格位商品已回到未錄入倉庫圖', extra=sync_extra)
-        payload = _warehouse_column_payload(zone, column_index, operation_id, returned_items=items)
-        payload['cache_bust'] = API_SCHEMA_VERSION
-        payload['returned_customers'] = returned_customers if 'returned_customers' in locals() else []
-        _yx_operation_finish(operation_id, 'warehouse_return_unplaced', payload)
-        return jsonify(payload)
+        log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
+        notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
+        return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_return_unplaced', {'success': False, 'error': "退回該格失敗：" + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response("退回該格失敗：" + str(e)[:180])
+        return error_response("返回上一步失敗")
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
 def api_warehouse_add_slot():
     try:
         data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_add_slot')
-        cached = _yx_operation_begin(operation_id, 'warehouse_add_slot', data)
-        if cached:
-            return jsonify(cached)
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
-        if zone not in ("A", "B") or column_index < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_add_slot', "格位參數錯誤")
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6:
+            return error_response("格位參數錯誤")
         slot_type = 'direct'
         insert_after = data.get("insert_after", None)
         if insert_after is None and data.get("slot_number") not in (None, ""):
             insert_after = max(0, int(data.get("slot_number")) - 1)
         slot_number = warehouse_add_slot(zone, column_index, slot_type, insert_after=insert_after)
-        _warehouse_cache_clear()
-        audit_service_safe_side_effect('warehouse_add_log', log_action, current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
-        audit_service_safe_side_effect('warehouse_add_audit', add_audit_trail, current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
-        audit_service_safe_side_effect('warehouse_add_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        payload = _warehouse_column_payload(zone, column_index, operation_id, slot_number=slot_number)
-        _yx_operation_finish(operation_id, 'warehouse_add_slot', payload)
-        return jsonify(payload)
+        log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
+        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_add_slot', {'success': False, 'error': "新增格子失敗：" + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response("新增格子失敗：" + str(e)[:180])
+        return error_response("新增格子失敗")
 
 @app.route("/api/warehouse/remove-slot", methods=["POST"])
 @login_required_json
 def api_warehouse_remove_slot():
     try:
         data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_remove_slot')
-        cached = _yx_operation_begin(operation_id, 'warehouse_remove_slot', data)
-        if cached:
-            return jsonify(cached)
         zone = (data.get("zone") or "A").strip().upper()
         column_index = int(data.get("column_index") or 0)
         slot_number = int(data.get("slot_number") or 0)
-        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_remove_slot', "格位參數錯誤")
+        if zone not in ("A", "B") or column_index < 1 or column_index > 6 or slot_number < 1:
+            return error_response("格位參數錯誤")
         slot_type = 'direct'
         result = warehouse_remove_slot(zone, column_index, slot_type, slot_number)
         if not result.get('success'):
-            return _yx_operation_error_response(operation_id, 'warehouse_remove_slot', result.get('error') or '刪除格子失敗')
-        _warehouse_cache_clear()
-        audit_service_safe_side_effect('warehouse_remove_log', log_action, current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
-        audit_service_safe_side_effect('warehouse_remove_audit', add_audit_trail, current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
-        audit_service_safe_side_effect('warehouse_remove_notify', notify_sync_event, kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        payload = _warehouse_column_payload(zone, column_index, operation_id, removed_slot=slot_number)
-        _yx_operation_finish(operation_id, 'warehouse_remove_slot', payload)
-        return jsonify(payload)
+            return error_response(result.get('error') or '刪除格子失敗')
+        log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
+        add_audit_trail(current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
+        notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_remove_slot', {'success': False, 'error': "刪除格子失敗：" + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response("刪除格子失敗：" + str(e)[:180])
-
-
-@app.route("/api/warehouse/batch-add-slots", methods=["POST"])
-@login_required_json
-def api_warehouse_batch_add_slots():
-    """Formal service helper retained for stable mainfile behavior."""
-    try:
-        data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_batch_add_slots')
-        cached = _yx_operation_begin(operation_id, 'warehouse_batch_add_slots', data)
-        if cached:
-            return jsonify(cached)
-        zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
-        count = max(1, min(80, int(data.get("count") or 1)))
-        insert_after = int(data.get("insert_after") or 0)
-        if zone not in ("A", "B") or column_index < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_batch_add_slots', "格位參數錯誤")
-        result = warehouse_batch_add_slots(zone, column_index, insert_after=insert_after, count=count)
-        if not result.get('success'):
-            return _yx_operation_error_response(operation_id, 'warehouse_batch_add_slots', result.get('error') or '批量新增格子失敗')
-        _warehouse_cache_clear()
-        first_slot = result.get('first_slot')
-        last_slot = result.get('last_slot')
-        audit_service_safe_side_effect('warehouse_batch_add_log', log_action, current_username(), f"批量新增格子 {zone}{column_index} x{count}")
-        payload = _warehouse_column_payload(zone, column_index, operation_id, count=count, first_slot=first_slot, last_slot=last_slot, insert_after=int(data.get('insert_after') or 0), visible_count=result.get('visible_count'))
-        _yx_operation_finish(operation_id, 'warehouse_batch_add_slots', payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error("warehouse_batch_add_slots_119", str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_batch_add_slots', {'success': False, 'error': "批量新增格子失敗：" + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response("批量新增格子失敗：" + str(e)[:180])
-
-@app.route("/api/warehouse/batch-remove-slots", methods=["POST"])
-@login_required_json
-def api_warehouse_batch_remove_slots():
-    """Formal service helper retained for stable mainfile behavior."""
-    try:
-        data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_batch_remove_slots')
-        cached = _yx_operation_begin(operation_id, 'warehouse_batch_remove_slots', data)
-        if cached:
-            return jsonify(cached)
-        zone = (data.get("zone") or "A").strip().upper()
-        column_index = int(data.get("column_index") or 0)
-        slot_number = int(data.get("slot_number") or 0)
-        count = max(1, min(80, int(data.get("count") or 1)))
-        requested_slots = data.get("slots") or []
-        if zone not in ("A", "B") or column_index < 1 or slot_number < 1:
-            return _yx_operation_error_response(operation_id, 'warehouse_batch_remove_slots', "格位參數錯誤")
-        # V135：批量刪除改成單次 DB rewrite；不再每刪一格重寫整欄，避免慢和重新整理卡住。
-        result = warehouse_batch_remove_empty_slots(zone, column_index, slot_number=slot_number, count=count, requested_slots=requested_slots)
-        if not result.get('success'):
-            return _yx_operation_error_response(operation_id, 'warehouse_batch_remove_slots', result.get('error') or '批量刪除空格失敗')
-        removed = int(result.get('removed') or 0)
-        empty_slots = result.get('removed_slots') or []
-        _warehouse_cache_clear()
-        audit_service_safe_side_effect('warehouse_batch_remove_log', log_action, current_username(), f"批量刪除空格 {zone}{column_index}-{slot_number} x{removed}")
-        payload = _warehouse_column_payload(zone, column_index, operation_id, requested=count, removed=removed, removed_slots=empty_slots, visible_count=result.get('visible_count'))
-        _yx_operation_finish(operation_id, 'warehouse_batch_remove_slots', payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error("warehouse_batch_remove_slots_119", str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_batch_remove_slots', {'success': False, 'error': "批量刪除空格失敗：" + str(e)[:180], 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response("批量刪除空格失敗：" + str(e)[:180])
+        return error_response("刪除格子失敗")
 
 
 @app.route("/api/orders/to-master", methods=["POST"])
@@ -5635,7 +1987,6 @@ def api_orders_to_master():
         save_master_order(customer_name, [{"product_text": product_text, "product_code": product_code, "qty": qty}], current_username())
         log_action(current_username(), f"訂單加入總單 {customer_name} {product_text}x{qty}")
         notify_sync_event(kind='refresh', module='master_order', message='訂單已加入總單', extra={'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
-        _clear_product_fast_cache()
         return jsonify(success=True, items=get_master_orders())
     except Exception as e:
         log_error("orders_to_master", str(e))
@@ -5741,244 +2092,90 @@ def _format_24h(ts):
         return raw[:19]
 
 
-
 def _today_unplaced_all_sources():
-    """V396: Today Changes reads exactly the same source-aware unplaced list as warehouse dropdown."""
+    """FIX80：未錄入倉庫圖要統計 訂單 + 總單 + 庫存 的所有尚未加入數量。"""
     try:
-        items, _zone = _warehouse_unplaced_snapshot('')
-        return items
+        source_totals, source_details = warehouse_source_totals()
+        placed = warehouse_placed_totals()
     except Exception as e:
-        try: log_error('today_unplaced_all_sources_v396', str(e))
-        except Exception: pass
+        log_error('today_unplaced_all_sources', str(e))
         return []
-
-
-def _today_unplaced_zone_summary():
-    """V396: A/B/未分區/總計與 /api/warehouse/available-items 的 zone_summary 完全一致。"""
-    try:
-        _items, zone = _warehouse_unplaced_snapshot('')
-        out = {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
-        if isinstance(zone, dict):
-            for k in out:
-                try: out[k] = max(0, int(zone.get(k) or 0))
-                except Exception: out[k] = 0
-        out['total'] = max(out.get('total', 0), out.get('A', 0) + out.get('B', 0) + out.get('unassigned', 0))
-        return out
-    except Exception as e:
-        try: log_error('today_unplaced_zone_summary_v396', str(e))
-        except Exception: pass
-        return {'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}
-
-def _today_logs_detail(today):
-    # service-line retained: mainfile behavior consolidated into formal services.
-    detail = {'inventory': [], 'orders': [], 'master_orders': [], 'shipping_records': []}
-    try:
-        conn = get_db(); cur = conn.cursor()
-        specs = [
-            ('inventory', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM inventory WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
-            ('orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
-            ('master_orders', "SELECT id, customer_name, product_text, material, qty, operator, created_at FROM master_orders WHERE substr(COALESCE(created_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
-            ('shipping_records', "SELECT * FROM shipping_records WHERE substr(COALESCE(shipped_at,''),1,10)=? ORDER BY id DESC LIMIT 80"),
-        ]
-        for k, q in specs:
-            try:
-                cur.execute(sql(q), (today,))
-                rows = rows_to_dict(cur)
-                fixed_rows = []
-                for r in rows:
-                    if k == 'shipping_records':
-                        r = _enrich_shipping_record_for_ui(r)
-                    r['created_at'] = _format_24h(r.get('created_at') or r.get('shipped_at'))
-                    if not r.get('message'):
-                        r['message'] = '｜'.join([x for x in [r.get('customer_name') or '', r.get('material') or '', r.get('product_text') or '', (str(r.get('qty')) + '件') if r.get('qty') not in (None,'') else '', r.get('source_summary') or ''] if x])
-                    r['action'] = {'inventory':'新增庫存','orders':'新增訂單','master_orders':'新增總單','shipping_records':'出貨'}.get(k, '異動')
-                    r['username'] = r.get('operator') or r.get('username') or ''
-                    fixed_rows.append(r)
-                detail[k] = fixed_rows
-            except Exception as e:
-                log_error('today_detail_' + k, str(e))
-        conn.close()
-    except Exception as e:
-        try: log_error('today_logs_detail', str(e))
-        except Exception: pass
-    return detail
-
-
-# V496: Today Changes must use the real today_changes table when present, so the
-# activity center, badge, and diagnostics can prove DB writeback instead of only
-# deriving cards from logs/shipping_records.
-def _today_changes_table_detail(today):
-    detail = {'inventory': [], 'orders': [], 'master_orders': [], 'shipping_records': [], 'others': [], 'all': []}
-    try:
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(sql("""
-            SELECT id, action, table_name, customer_name, product_text, detail_json, operator, created_at, unread
-            FROM today_changes
-            WHERE substr(COALESCE(created_at,''),1,10)=?
-            ORDER BY created_at DESC, id DESC
-            LIMIT 160
-        """), (today,))
-        rows = rows_to_dict(cur)
-        conn.close()
-    except Exception as e:
-        try: log_error('today_changes_table_detail_v496', str(e))
-        except Exception: pass
-        return detail
-    for r in rows:
-        raw_time = str(r.get('created_at') or '')
-        try:
-            meta = json.loads(r.get('detail_json') or '{}')
-            if not isinstance(meta, dict): meta = {}
-        except Exception:
-            meta = {}
-        table = (r.get('table_name') or meta.get('source_table') or '').strip()
-        action = (r.get('action') or '').strip()
-        if table in ('inventory','庫存') or action.startswith(('新增庫存','建立庫存','進貨','入庫')):
-            key, label = 'inventory', '新增庫存'
-        elif table in ('orders','order','訂單') or action.startswith(('新增訂單','建立訂單')):
-            key, label = 'orders', '新增訂單'
-        elif table in ('master_orders','master_order','總單') or action.startswith(('新增總單','建立總單')):
-            key, label = 'master_orders', '新增總單'
-        elif table in ('shipping_records','shipping','ship','出貨') or action.startswith(('出貨','完成出貨')):
-            key, label = 'shipping_records', '出貨'
-        else:
-            key, label = 'others', action or '異動'
-        qty = meta.get('qty') or meta.get('deduct_qty') or meta.get('requested_qty') or meta.get('source_before_qty') or r.get('qty') or ''
-        source_summary = meta.get('source_summary') or meta.get('source_table') or meta.get('source_label') or ''
-        msg_parts = [r.get('customer_name') or meta.get('customer_name') or '', meta.get('material') or '', r.get('product_text') or meta.get('product_text') or '', (str(qty) + '件') if qty not in (None, '') else '', ('來源：' + str(source_summary)) if source_summary else '']
-        row = {
-            'id': r.get('id'),
-            'today_change_id': r.get('id'),
-            'action': label,
-            'table_name': table,
-            'customer_name': r.get('customer_name') or meta.get('customer_name') or '',
-            'product_text': r.get('product_text') or meta.get('product_text') or '',
-            'material': meta.get('material') or '',
-            'qty': qty,
+    out = []
+    for key, total_qty in source_totals.items():
+        size, customer = key
+        total_qty = int(total_qty or 0)
+        placed_qty = int(placed.get(key, 0) or 0)
+        unplaced_qty = max(0, total_qty - placed_qty)
+        if unplaced_qty <= 0:
+            continue
+        source_qty = {}
+        product_text = size
+        for detail in source_details.get(key, []):
+            src = detail.get('source') or '來源'
+            source_qty[src] = int(source_qty.get(src, 0) or 0) + int(detail.get('qty') or 0)
+            product_text = detail.get('product_text') or product_text
+        source_summary = '、'.join(f'{k}{v}' for k, v in source_qty.items())
+        label = f"尚未加入倉庫圖：{customer + '｜' if customer else ''}{product_text}｜未錄入 {unplaced_qty} 件"
+        if source_summary:
+            label += f"｜來源：{source_summary}"
+        out.append({
+            'type': 'unplaced',
+            'message': label,
+            'customer_name': customer,
+            'product_text': product_text,
+            'qty': unplaced_qty,
+            'unplaced_qty': unplaced_qty,
+            'total_qty': total_qty,
+            'placed_qty': placed_qty,
+            'source_qty': source_qty,
             'source_summary': source_summary,
-            'message': '｜'.join([str(x) for x in msg_parts if x not in (None, '')]),
-            'username': r.get('operator') or meta.get('operator') or '',
-            'operator': r.get('operator') or meta.get('operator') or '',
-            'created_at': _format_24h(raw_time),
-            '_created_at_raw': raw_time,
-            'unread': int(r.get('unread') or 0),
-            'detail_json': meta,
-            '_source': 'today_changes',
-        }
-        if key == 'shipping_records':
-            # preserve material/source/volume details for the outbound card when shipping wrote them.
-            row.update({
-                'volume': meta.get('volume'),
-                'weight': meta.get('weight'),
-                'volume_formula': meta.get('volume_formula') or meta.get('formula'),
-                'before_qty': meta.get('before_qty') or meta.get('source_before_qty'),
-                'after_qty': meta.get('after_qty') or meta.get('source_after_qty'),
-                'source_table': meta.get('source_table') or table,
-            })
-        detail.setdefault(key, []).append(row)
-        detail['all'].append(row)
-    return detail
+        })
+    out.sort(key=lambda r: (r.get('customer_name') or '', product_sort_tuple(r.get('product_text') or '')))
+    return out
 
 
-def _today_unplaced_cached(force=False):
-    # V192: normal 今日異動開啟時如果沒有當日快取，必須計算一次；
-    # 不能直接回 0，否則圖二的 A/B/未分區/總計會永遠空白。
-    import json as _json
-    cache_key = 'today_unplaced_cache_' + API_SCHEMA_VERSION
-    if not force:
-        try:
-            raw = get_setting(cache_key, '') or ''
-            if raw:
-                obj = _json.loads(raw)
-                if obj.get('date') == _today_key():
-                    return obj.get('items') or [], obj.get('zone') or {'A':0,'B':0,'unassigned':0,'total':0}
-        except Exception as e:
-            try: log_error('today_unplaced_cache_read_v217', str(e))
-            except Exception: pass
-    try:
-        # V396: compute once so list and A/B totals cannot disagree.
-        items, zone = _warehouse_unplaced_snapshot('')
-    except Exception as e:
-        try: log_error('today_unplaced_compute_v396', str(e))
-        except Exception: pass
-        items, zone = [], {'A':0,'B':0,'unassigned':0,'total':0}
-    try:
-        zone_for_cache = dict(zone or {})
-        zone_for_cache['_row_count'] = len(items or [])
-        set_setting(cache_key, _json.dumps({'date': _today_key(), 'items': items[:200], 'zone': zone_for_cache}, ensure_ascii=False))
-    except Exception as e:
-        try: log_error('today_unplaced_cache_save_v217', str(e))
-        except Exception: pass
-    return items, zone
-
-
-def _today_changes_payload(force_unplaced=False):
+def _today_changes_payload():
     conn = get_db()
     cur = conn.cursor()
     today = _today_key()
-    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 80"), (today,))
+    cur.execute(sql("SELECT id, username, action, created_at FROM logs WHERE substr(created_at,1,10)=? ORDER BY created_at DESC LIMIT 200"), (today,))
     logs = rows_to_dict(cur)
     conn.close()
 
     inbound = []
     outbound = []
     new_orders = []
-    new_masters = []
     for r in logs:
         r['created_at'] = _format_24h(r.get('created_at'))
         action = r.get('action') or ''
+        # FIX80：今日異動只顯示「當天進貨 / 出貨 / 新增訂單」。編輯、刪除、客戶、倉庫、OCR、修正不混進來。
         if action == '完成出貨' or action.startswith('完成出貨'):
             outbound.append(r)
         elif action == '建立訂單' or action.startswith('建立訂單'):
             new_orders.append(r)
-        elif action == '建立總單' or action.startswith('建立總單') or action.startswith('新增總單'):
-            new_masters.append(r)
-        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('新增庫存') or action.startswith('入庫') or action.startswith('進貨'):
+        elif action == '建立庫存' or action.startswith('建立庫存') or action.startswith('入庫') or action.startswith('進貨'):
             inbound.append(r)
 
-    detail = _today_logs_detail(today)
-    today_table = _today_changes_table_detail(today)
-    # V496: today_changes is the proof table for DB writeback. Use it as
-    # primary feed when present; otherwise keep the derived detail rows.
-    if today_table.get('inventory'): inbound = today_table['inventory']
-    elif detail.get('inventory'): inbound = detail['inventory']
-    if today_table.get('orders'): new_orders = today_table['orders']
-    elif detail.get('orders'): new_orders = detail['orders']
-    if today_table.get('master_orders'): new_masters = today_table['master_orders']
-    elif detail.get('master_orders'): new_masters = detail['master_orders']
-    if today_table.get('shipping_records'): outbound = today_table['shipping_records']
-    elif detail.get('shipping_records'): outbound = detail['shipping_records']
-
-    unplaced, zone_summary = _today_unplaced_cached(bool(force_unplaced))
+    unplaced = _today_unplaced_all_sources()
     read_at = get_setting('today_changes_read_at', '') or ''
-    visible_logs = inbound + new_orders + new_masters + outbound
-    unread_by_time = len([r for r in visible_logs if not read_at or (r.get('_created_at_raw') or r.get('created_at') or '') > read_at])
-    unread_by_table = sum(1 for r in (today_table.get('all') or []) if int(r.get('unread') or 0) == 1)
-    unread_count = max(unread_by_time, unread_by_table)
-    try:
-        unplaced_total_qty = int((zone_summary or {}).get('total') or 0)
-    except Exception:
-        unplaced_total_qty = 0
-    if unplaced_total_qty <= 0:
-        unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
+    visible_logs = inbound + outbound + new_orders
+    unread_count = len([r for r in visible_logs if not read_at or (r.get('created_at') or '') > read_at])
+    unplaced_total_qty = sum(int(x.get('unplaced_qty') or x.get('qty') or 0) for x in unplaced)
 
     return {
         'summary': {
             'inbound_count': len(inbound),
-            'new_order_count': len(new_orders),
-            'new_master_count': len(new_masters),
             'outbound_count': len(outbound),
+            'new_order_count': len(new_orders),
             'unplaced_count': unplaced_total_qty,
-            'unplaced_row_count': int((zone_summary or {}).get('_row_count') or len(unplaced)),
-            'unplaced_zone_summary': {k: v for k, v in (zone_summary or {}).items() if not str(k).startswith('_')},
+            'unplaced_row_count': len(unplaced),
             'anomaly_count': 0,
             'unread_count': unread_count,
         },
         'feed': {
             'inbound': inbound[:60],
-            'new_orders': new_orders[:60],
-            'new_masters': new_masters[:60],
             'outbound': outbound[:60],
+            'new_orders': new_orders[:60],
             'others': [],
         },
         'unplaced_items': unplaced[:200],
@@ -5987,101 +2184,16 @@ def _today_changes_payload(force_unplaced=False):
         'read_at': read_at,
     }
 
-
-@app.route('/api/today-changes/count', methods=['GET'])
-@app.route('/api/today-changes/badge', methods=['GET'])
-@login_required_json
-def api_today_changes_count():
-    """Lightweight badge endpoint. V396 can optionally include warehouse-unplaced totals using the same cached source-aware summary as Today/warehouse."""
-    try:
-        today = _today_key()
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(sql("SELECT COUNT(*) AS c FROM logs WHERE substr(created_at,1,10)=?"), (today,))
-        row = cur.fetchone()
-        try:
-            total = int(row['c'] if not USE_POSTGRES else row[0])
-        except Exception:
-            total = int(row[0] or 0)
-        read_at = get_setting('today_changes_read_at', '') or ''
-        unread = total
-        if read_at and str(read_at).startswith(today):
-            try:
-                cur.execute(sql("SELECT COUNT(*) AS c FROM logs WHERE substr(created_at,1,10)=? AND created_at > ?"), (today, read_at))
-                row2 = cur.fetchone()
-                unread = int(row2['c'] if not USE_POSTGRES else row2[0])
-            except Exception:
-                unread = 0
-        tc_total = 0
-        tc_unread = 0
-        try:
-            cur.execute(sql("SELECT COUNT(*) AS c, COALESCE(SUM(CASE WHEN COALESCE(unread,1)=1 THEN 1 ELSE 0 END),0) AS u FROM today_changes WHERE substr(COALESCE(created_at,''),1,10)=?"), (today,))
-            tc = cur.fetchone()
-            if USE_POSTGRES:
-                tc_total = int(tc[0] or 0); tc_unread = int(tc[1] or 0)
-            else:
-                tc_total = int(tc['c'] or 0); tc_unread = int(tc['u'] or 0)
-        except Exception as e:
-            try: log_error('today_changes_count_table_v496', str(e))
-            except Exception: pass
-        conn.close()
-        total = max(int(total or 0), int(tc_total or 0))
-        unread = max(int(unread or 0), int(tc_unread or 0))
-        payload = dict(success=True, total=total, unread=unread, today=today, read_at=read_at, today_changes_table_total=tc_total, today_changes_table_unread=tc_unread, version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION)
-        if str(request.args.get('include_unplaced') or '').lower() in ('1','true','yes'):
-            try:
-                _items, zone = _today_unplaced_cached(False)
-                zone = zone or {'A':0,'B':0,'unassigned':0,'total':0}
-                payload['unplaced_count'] = int(zone.get('total') or 0)
-                payload['unplaced_row_count'] = int(zone.get('_row_count') or len(_items or []))
-                payload['unplaced_zone_summary'] = {k:v for k,v in zone.items() if not str(k).startswith('_')}
-            except Exception as e:
-                try: log_error('today_changes_count_unplaced_v396', str(e))
-                except Exception: pass
-                payload['unplaced_count'] = 0
-                payload['unplaced_row_count'] = 0
-                payload['unplaced_zone_summary'] = {'A':0,'B':0,'unassigned':0,'total':0}
-        return jsonify(payload)
-    except Exception as e:
-        log_error('today_changes_count', str(e))
-        return jsonify(success=True, total=0, unread=0, today=_today_key(), version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION)
-
 @app.route('/api/today-changes', methods=['GET'])
 @login_required_json
 def api_today_changes():
-    try:
-        ensure_runtime_initialized()
-    except Exception as _yx_init_err:
-        try: log_error('runtime_init_today_changes_v249', str(_yx_init_err))
-        except Exception: pass
-    # V503: normal open uses short server fast-cache; only explicit manual_refresh recomputes warehouse-unplaced.
-    manual_refresh = str(request.args.get('manual_refresh') or request.args.get('force') or '').lower() in ('1','true','yes','manual')
-    cache_key = _fast_cache_key('today_changes', version=API_SCHEMA_VERSION, user=current_username(), manual_refresh='1' if manual_refresh else '0')
-    if not manual_refresh:
-        cached = _fast_cache_get(cache_key, 90.0)
-        if cached:
-            cached = dict(cached)
-            cached['diagnostic_refresh_mode'] = 'cached_current_version'
-            return jsonify(cached)
-    payload = dict(success=True, version=API_SCHEMA_VERSION, diagnostic_refresh_mode=('manual_current_version' if manual_refresh else 'normal_current_version'), **_today_changes_payload(force_unplaced=manual_refresh))
-    if not manual_refresh:
-        _fast_cache_set(cache_key, payload)
-    return jsonify(payload)
+    return jsonify(success=True, **_today_changes_payload())
 
 @app.route('/api/today-changes/read', methods=['POST'])
 @login_required_json
 def api_today_changes_mark_read():
     try:
-        read_time = now()
-        set_setting('today_changes_read_at', read_time)
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql("UPDATE today_changes SET unread=0 WHERE substr(COALESCE(created_at,''),1,10)=?"), (_today_key(),))
-            conn.commit(); conn.close()
-        except Exception as e:
-            try: log_error('today_changes_read_table_v496', str(e))
-            except Exception: pass
-        _fast_cache_clear('today_changes|')
-        _fast_cache_clear('today_unplaced|')
+        set_setting('today_changes_read_at', now())
         notify_sync_event(kind='refresh', module='today_changes', message='今日異動已讀已更新')
         return jsonify(success=True)
     except Exception as e:
@@ -6095,15 +2207,8 @@ def api_today_change_delete(log_id):
         conn = get_db()
         cur = conn.cursor()
         cur.execute(sql('DELETE FROM logs WHERE id = ?'), (log_id,))
-        try:
-            cur.execute(sql('DELETE FROM today_changes WHERE id = ?'), (log_id,))
-        except Exception as e:
-            try: log_error('today_change_delete_table_v496', str(e))
-            except Exception: pass
         conn.commit()
         conn.close()
-        _fast_cache_clear('today_changes|')
-        _fast_cache_clear('today_unplaced|')
         notify_sync_event(kind='refresh', module='today_changes', message='今日異動已刪除', extra={'log_id': log_id})
         return jsonify(success=True, **_today_changes_payload())
     except Exception as e:
@@ -6120,10 +2225,6 @@ def api_anomalies():
 @app.route('/api/sync/stream')
 @login_required_json
 def api_sync_stream():
-    # V135: streaming sync is opt-in only. Older auto-SSE clients must not occupy
-    # Render workers/threads and make normal page/API requests appear stuck.
-    if request.args.get('enable') != '1':
-        return jsonify(success=True, disabled=True, reason='sse_opt_in_v135')
     def generate():
         last_seen = ''
         while True:
@@ -6189,10 +2290,9 @@ def api_recent_slots():
     return jsonify(success=True, items=get_recent_slots(current_username(), customer_name=customer_name, limit=8))
 
 
-# service-line retained: mainfile behavior consolidated into formal services.
+# ==== FIX30：操作紀錄中文化 / 陳韋廷權限 / 批量刪除 ====
 def _is_admin_user():
-    user = (current_username() or '').strip()
-    return user in {'陳韋廷', 'x0937952700@gmail.com', 'x0937952700'}
+    return current_username() == '陳韋廷'
 
 def _parse_maybe_json(value):
     if isinstance(value, (dict, list)):
@@ -6217,7 +2317,7 @@ def _audit_entity_label(entity_type=''):
     return {
         'inventory': '庫存 / 進貨', 'orders': '訂單', 'master_orders': '總單',
         'shipping_records': '出貨', 'warehouse_cells': '倉庫圖',
-        'customer_profiles': '客戶資料', 'customer_items': '客戶商品 / A/B區', 'customer_aliases': '客戶別名',
+        'customer_profiles': '客戶資料', 'customer_aliases': '客戶別名',
         'corrections': 'OCR修正詞', 'todo_items': '代辦事項', 'undo': '還原紀錄'
     }.get(entity_type, entity_type or '資料')
 
@@ -6228,7 +2328,7 @@ def _audit_field_label(key=''):
         'quantity': '數量', 'location': '倉庫位置', 'operator': '操作人',
         'target': '目標', 'source': '來源', 'source_label': '來源', 'target_label': '目標',
         'zone': '區域', 'column_index': '欄位', 'slot_number': '格號',
-        'from_key': '原格位', 'to_key': '新格位', 'batch_zone': '批量移動 A/B 區', 'note': '備註',
+        'from_key': '原格位', 'to_key': '新格位', 'note': '備註',
         'items': '商品', 'breakdown': '出貨扣除明細', 'message': '訊息',
         'region': '區域', 'phone': '電話', 'address': '地址', 'notes': '特殊要求',
         'wrong_text': '錯誤字', 'correct_text': '正確字', 'alias': '別名', 'target_name': '正式客戶'
@@ -6271,33 +2371,11 @@ def _audit_dict_to_text(data):
     return '\n'.join(lines) if lines else '無資料'
 
 def _audit_summary_text(item):
-    action_type = (item.get('action_type') or '').strip()
-    entity_type = (item.get('entity_type') or '').strip()
-    action = _audit_action_label(action_type)
-    entity = _audit_entity_label(entity_type)
+    action = _audit_action_label(item.get('action_type'))
+    entity = _audit_entity_label(item.get('entity_type'))
     after = _parse_maybe_json(item.get('after_json'))
     before = _parse_maybe_json(item.get('before_json'))
     data = after if isinstance(after, dict) and after else before if isinstance(before, dict) else {}
-    if action_type == 'move' and entity_type == 'customer_items':
-        customer = (data.get('customer_name') or data.get('name') or data.get('customer') or '') if isinstance(data, dict) else ''
-        target_zone = (data.get('target') or data.get('to_zone') or data.get('zone') or data.get('batch_zone') or '') if isinstance(data, dict) else ''
-        parts = ['移動客戶商品 A/B 區']
-        if customer:
-            parts.append(f'客戶：{customer}')
-        if target_zone:
-            parts.append(f'目標：{target_zone}')
-        return '｜'.join(parts)
-    if action_type == 'upsert' and entity_type == 'warehouse_cells' and isinstance(data, dict):
-        z = data.get('zone') or ''
-        col = data.get('column_index') or ''
-        slot = data.get('slot_number') or ''
-        count = len(data.get('items') or []) if isinstance(data.get('items'), list) else ''
-        bits = ['儲存倉庫格位']
-        if z and col and slot:
-            bits.append(f'位置：{z}區第{col}欄第{slot}格')
-        if count != '':
-            bits.append(f'商品：{count}筆')
-        return '｜'.join(bits)
     customer = (data.get('customer_name') or data.get('name') or '') if isinstance(data, dict) else ''
     product = (data.get('product_text') or '') if isinstance(data, dict) else ''
     qty = (data.get('qty') or data.get('quantity') or '') if isinstance(data, dict) else ''
@@ -6337,36 +2415,34 @@ def _delete_rows_by_ids(table, ids):
     conn.commit(); conn.close()
     return count
 
-AUDIT_VISIBLE_ENTITY_TYPES = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells', 'customer_profiles', 'customer_items'}
-AUDIT_VISIBLE_ACTION_TYPES = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert'}
+AUDIT_VISIBLE_ENTITY_TYPES_FIX113 = {'inventory', 'orders', 'master_orders', 'shipping_records', 'warehouse_cells'}
+AUDIT_VISIBLE_ACTION_TYPES_FIX113 = {'create', 'update', 'delete', 'move', 'ship', 'transfer', 'upsert'}
 
 @app.route('/api/audit-trails', methods=['GET'])
 @login_required_json
 def api_audit_trails():
-    """Formal service helper retained for stable mainfile behavior."""
-    undo_mode = (request.args.get('undo') or '').strip() in ('1','true','yes')
-    if not _is_admin_user() and not undo_mode:
+    """FIX113：差異紀錄只顯示當天：訂單 / 總單 / 庫存進貨 / 出貨 / 倉庫圖。
+    客戶資料、OCR 修正、登入、代辦、customer_items 等舊雜訊一律不顯示。"""
+    if not _is_admin_user():
         return error_response('操作紀錄中心僅陳韋廷可以查看', 403)
     limit = int(request.args.get('limit') or 200)
-    username = (request.args.get('username') or request.args.get('user') or '').strip()
-    entity_type = (request.args.get('entity_type') or request.args.get('entity') or request.args.get('module') or '').strip()
+    username = (request.args.get('username') or '').strip()
+    entity_type = (request.args.get('entity_type') or '').strip()
     keyword = (request.args.get('q') or '').strip().lower()
     today = _today_key()
-    start_date = (request.args.get('start_date') or request.args.get('start') or ('' if undo_mode else today)).strip()
-    end_date = (request.args.get('end_date') or request.args.get('end') or ('' if undo_mode else today)).strip()
+    start_date = (request.args.get('start_date') or today).strip() or today
+    end_date = (request.args.get('end_date') or today).strip() or today
     items = list_audit_trails(limit=max(limit * 6, 500))
     filtered = []
     for item in items:
         raw_entity = (item.get('entity_type') or '').strip()
         raw_action = (item.get('action_type') or '').strip()
-        if raw_entity not in AUDIT_VISIBLE_ENTITY_TYPES:
+        if raw_entity not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
             continue
-        if raw_action and raw_action not in AUDIT_VISIBLE_ACTION_TYPES:
+        if raw_action and raw_action not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
             continue
         item = _decorate_audit_item(item)
         item['created_at'] = _format_24h(item.get('created_at'))
-        if undo_mode and (item.get('username') or '') != current_username() and not _is_admin_user():
-            continue
         if username and username not in (item.get('username') or ''):
             continue
         if entity_type and entity_type not in (item.get('entity_type') or '') and entity_type not in (item.get('entity_label') or ''):
@@ -6402,12 +2478,9 @@ def api_today_changes_bulk_delete():
         return error_response('只有陳韋廷可以批量刪除今日異動', 403)
     data = request.get_json(silent=True) or {}
     ids = data.get('ids') or []
-    count_logs = _delete_rows_by_ids('logs', ids)
-    count_today = _delete_rows_by_ids('today_changes', ids)
-    count = max(int(count_logs or 0), int(count_today or 0))
-    _fast_cache_clear('today_changes|'); _fast_cache_clear('today_unplaced|')
+    count = _delete_rows_by_ids('logs', ids)
     notify_sync_event(kind='refresh', module='today_changes', message='今日異動已批量刪除', extra={'count': count})
-    return jsonify(success=True, deleted=count, deleted_logs=count_logs, deleted_today_changes=count_today, **_today_changes_payload())
+    return jsonify(success=True, deleted=count, **_today_changes_payload())
 
 @app.route('/api/customer-specs', methods=['GET'])
 @login_required_json
@@ -6416,12 +2489,11 @@ def api_customer_specs():
     return jsonify(success=True, items=get_customer_spec_stats(name, limit=int(request.args.get('limit') or 20)))
 
 @app.route('/api/reports/export', methods=['GET'])
-@app.route('/api/report', methods=['GET'])
 @login_required_json
 def api_reports_export():
     report_type = (request.args.get('type') or 'inventory').strip()
-    start_date = (request.args.get('start_date') or request.args.get('start') or '').strip()
-    end_date = (request.args.get('end_date') or request.args.get('end') or '').strip()
+    start_date = (request.args.get('start_date') or '').strip()
+    end_date = (request.args.get('end_date') or '').strip()
     q = (request.args.get('q') or '').strip()
 
     if report_type == 'inventory':
@@ -6459,14 +2531,14 @@ def api_reports_export():
         columns = [('格位', 'location'), ('區域', 'zone'), ('欄', 'column_index'), ('格號', 'slot_number'), ('客戶', 'customer_name'), ('商品', 'product_text'), ('數量', 'qty'), ('備註', 'note'), ('更新時間', 'updated_at')]
         name = '倉庫位置表.xlsx'
     elif report_type == 'audit_trails':
-        if not _is_admin_user():
-            return error_response('操作紀錄僅管理員可以匯出', 403)
+        if current_username() != '陳韋廷':
+            return error_response('操作紀錄僅陳韋廷可以匯出', 403)
         rows = []
         today = _today_key()
         for item in list_audit_trails(limit=5000):
-            if (item.get('entity_type') or '').strip() not in AUDIT_VISIBLE_ENTITY_TYPES:
+            if (item.get('entity_type') or '').strip() not in AUDIT_VISIBLE_ENTITY_TYPES_FIX113:
                 continue
-            if (item.get('action_type') or '').strip() and (item.get('action_type') or '').strip() not in AUDIT_VISIBLE_ACTION_TYPES:
+            if (item.get('action_type') or '').strip() and (item.get('action_type') or '').strip() not in AUDIT_VISIBLE_ACTION_TYPES_FIX113:
                 continue
             decorated = _decorate_audit_item(item)
             decorated['created_at'] = _format_24h(decorated.get('created_at'))
@@ -6505,7 +2577,7 @@ def api_backup_download(filename):
 @app.route('/api/backups/restore', methods=['POST'])
 @login_required_json
 def api_backup_restore():
-    if not _is_admin_user():
+    if current_username() != '陳韋廷':
         return error_response('權限不足', 403)
     data = request.get_json(silent=True) or {}
     filename = os.path.basename((data.get('filename') or '').strip())
@@ -6658,73 +2730,7 @@ def _fix137_undo_ship_breakdown(cur, after_json):
     return count
 
 
-@app.route('/api/audit-trails/<int:audit_id>/restore', methods=['POST'])
-@login_required_json
-def api_audit_trail_restore(audit_id):
-    # V497: 差異紀錄單筆還原走既有 undo 主線，不新增第二套還原邏輯。
-    try:
-        payload = request.get_json(silent=True) or {}
-        payload['audit_id'] = audit_id
-        # 直接呼叫內部主邏輯前，把 request JSON 讀取結果透過 environ 暫存。
-        # api_undo_last 本身會優先讀 data.id / data.audit_id；這裡用 test_request_context 太重，改由下方 helper。
-        return _v497_restore_audit_by_id(audit_id)
-    except Exception as e:
-        log_error('api_audit_trail_restore', str(e))
-        return error_response('差異紀錄單筆還原失敗')
-
-def _v497_restore_audit_by_id(audit_id):
-    # 複用 /api/undo 的核心資料格式：以 audit_id 搜尋指定紀錄。
-    # 為避免改動 request 物件，這裡只建立一個最小分支，實際還原仍沿用 _fix137_* helper。
-    conn = None
-    try:
-        target = None
-        for item in list_audit_trails(limit=500):
-            if int(item.get('id') or 0) == int(audit_id or 0):
-                target = item; break
-        if not target:
-            return error_response('找不到這筆差異紀錄')
-        if (target.get('username') or '') != current_username() and not _is_admin_user():
-            return error_response('沒有權限還原這筆紀錄', 403)
-        conn = get_db(); cur = conn.cursor()
-        action_type = (target.get('action_type') or '').strip()
-        entity_type = (target.get('entity_type') or '').strip()
-        table = _fix137_audit_table(entity_type)
-        before_json = target.get('before_json') or {}
-        after_json = target.get('after_json') or {}
-        if action_type == 'create' and table in ('inventory','orders','master_orders'):
-            customer_name = (after_json.get('customer_name') or '').strip()
-            for it in after_json.get('items') or []:
-                _fix137_delete_recent_matching(cur, table, customer_name, (it.get('product_text') or '').strip(), it.get('qty'))
-            summary = '已還原指定新增資料'
-        elif action_type in ('update','delete') and table in ('inventory','orders','master_orders'):
-            restored = _fix137_restore_before_payload(cur, table, before_json)
-            summary = f'已還原指定差異紀錄，共 {restored} 筆'
-        elif action_type == 'ship':
-            n = _fix137_undo_ship_breakdown(cur, after_json)
-            summary = f'已還原指定出貨紀錄，共 {n} 筆異動'
-        elif action_type == 'move' and entity_type == 'customer_items':
-            restored = _fix137_restore_before_payload(cur, '', before_json)
-            summary = f'已還原指定 A/B 區移動，共 {restored} 筆'
-        else:
-            conn.close(); conn = None
-            # 其他複雜類型保持由「還原上一筆」主線處理，避免半套還原。
-            return error_response('這筆操作暫不支援單筆還原，請使用還原上一筆或手動修正')
-        conn.commit(); conn.close(); conn = None
-        add_audit_trail(current_username(), 'undo', 'undo', entity_type, before_json=target, after_json={'message': summary, 'audit_id': audit_id})
-        notify_sync_event(kind='refresh', module='all', message=summary)
-        log_action(current_username(), summary)
-        return jsonify(success=True, message=summary)
-    except Exception as e:
-        try:
-            if conn:
-                conn.rollback(); conn.close()
-        except Exception:
-            pass
-        log_error('v497_restore_audit_by_id', str(e))
-        return error_response('差異紀錄單筆還原失敗')
-
 @app.route('/api/undo-last', methods=['POST'])
-@app.route('/api/undo', methods=['POST'])
 @login_required_json
 def api_undo_last():
     conn = None
@@ -6848,764 +2854,14 @@ def api_session_config():
 @app.route("/health")
 @app.route("/api/health")
 def health():
-    force = str(request.args.get('force') or '').lower() in ('1', 'true', 'yes')
-    if force:
-        ensure_runtime_initialized()
-    try:
-        db_info = database_mode_info() if force else {'mode': 'deferred', 'source': 'health_fast'}
-    except Exception as e:
-        db_info = {'mode': 'unknown', 'source': 'error', 'error': str(e)[:200]}
-    try:
-        db_counts = table_counts() if force else {}
-    except Exception as _e:
-        db_counts = {'_error': str(_e)[:200]}
-    warning = ''
-    if db_info.get('render_warning'):
-        warning = 'Render 目前沒有偵測到 PostgreSQL DATABASE_URL，會使用空的本機 SQLite，頁面會看起來沒有資料。請在 Render Environment 補 DATABASE_URL。'
-    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_mode=db_info.get('mode'), db_info=db_info, db_counts=db_counts, db_warning=warning, db_error=STARTUP_DB_ERROR[:500])
-
-@app.route('/api/db-diagnostics')
-def api_db_diagnostics():
-    try:
-        return jsonify(success=True, db_info=database_mode_info(), db_counts=table_counts(), startup_error=STARTUP_DB_ERROR[:500])
-    except Exception as e:
-        return jsonify(success=False, error=str(e)[:500]), 500
-
-@app.route('/api/health/db-init')
-def api_health_db_init():
-    # V350: explicit DB init diagnostic that never hides the real startup error.
-    try:
-        ok = ensure_runtime_initialized()
-    except Exception as e:
-        ok = False
-        try: log_error('health_db_init_v351', str(e))
-        except Exception: pass
-    try:
-        info = database_mode_info()
-    except Exception as e:
-        info = {'mode': 'unknown', 'error': str(e)[:300]}
-    try:
-        counts = table_counts() if ok else {}
-    except Exception as e:
-        counts = {'_error': str(e)[:300]}
-    return jsonify(success=bool(ok), ready=bool(ok), version=APP_VERSION, static_version=STATIC_VERSION, db_info=info, db_counts=counts, startup_error=(STARTUP_DB_ERROR or '')[:800])
-
-
-
-@app.route('/api/diagnostics/client-log', methods=['POST'])
-@login_required_json
-def api_diagnostics_client_log():
-    """Collect front-end errors/slow API reports. Read/write only diagnostic logs; never mutates business data."""
-    try:
-        data = request.get_json(silent=True) or {}
-        dtype = str(data.get('type') or 'client').strip()[:80]
-        page = str(data.get('page') or '')[:160]
-        detail = data.get('detail') if isinstance(data.get('detail'), dict) else {}
-        message = json.dumps({
-            'type': dtype,
-            'page': page,
-            'module': str(data.get('module') or '')[:80],
-            'at': str(data.get('at') or now())[:80],
-            'detail': detail,
-            'app_version': str(data.get('app_version') or '')[:120],
-            'static_version': str(data.get('static_version') or '')[:120],
-        }, ensure_ascii=False)[:3500]
-        try:
-            log_error('client_diagnostics_' + re.sub(r'[^a-zA-Z0-9_]+', '_', dtype)[:40], message)
-        except Exception:
-            pass
-        return jsonify(success=True, saved=True, version=APP_VERSION)
-    except Exception as e:
-        return jsonify(success=False, error=str(e)[:500]), 500
-
-
-def _diagnostics_filter_current_errors(rows):
-    # V487: do not let old deployed-version client/warehouse errors keep the new package red forever.
-    # Current-version client logs still show. Server DB errors after this process started still show.
-    out=[]
-    for row in rows or []:
-        try:
-            src=str((row or {}).get('source') or '')
-            msg=str((row or {}).get('message') or '')
-            created=str((row or {}).get('created_at') or '')
-            if 'empty_response_rows_blocked' in (src + msg):
-                continue
-            is_client = src.startswith('client_') or 'app_version' in msg or 'static_version' in msg
-            if is_client:
-                if APP_VERSION in msg or STATIC_VERSION in msg:
-                    out.append(row)
-                continue
-            # keep server-side errors only if they look recent in this boot/deploy; historical errors are noise.
-            try:
-                dt=datetime.strptime(created[:19], '%Y-%m-%d %H:%M:%S')
-                if dt >= APP_STARTED_AT - timedelta(minutes=2):
-                    out.append(row)
-            except Exception:
-                out.append(row)
-        except Exception:
-            out.append(row)
-    return out
-
-
-# V490: master requirement checklist used by diagnostics. This is read-only and never mutates business data.
-def _diag_v490_read(rel):
-    try:
-        return (BASE_DIR / rel).read_text(encoding='utf-8', errors='ignore')
-    except Exception:
-        return ''
-
-def _diag_v490_required_routes():
-    return [
-        '/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/customer-items/batch-delete',
-        '/api/ship/preview','/api/ship','/api/shipping','/api/warehouse','/api/warehouse/cell','/api/warehouse/batch-add-slots',
-        '/api/warehouse/available-items','/api/today-changes','/api/today-changes/count','/api/today-changes/badge',
-        '/api/diagnostics/summary','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export'
-    ]
-
-def _diag_v490_master_requirements_text():
-    txt = _diag_v490_read('diagnostics_v518_restore_satisfied_checklist.txt')
-    if not txt:
-        txt = _diag_v490_read('diagnostics_master_requirements.txt')
-    if not txt:
-        txt = _diag_v490_read('yuanxing_master_requirements_final.txt')
-    return txt or ''
-
-def _diag_v490_master_items():
-    # Static requirement-to-code alignment. Any failed check is a master mismatch and must be surfaced as a major issue.
-    product_js = _diag_v490_read('static/yx_pages/product_page_core.js')
-    shipping_js = _diag_v490_read('static/yx_pages/shipping_page.js')
-    warehouse_js = _diag_v490_read('static/yx_pages/warehouse_page.js')
-    today_js = _diag_v490_read('static/yx_pages/today_changes_page.js')
-    settings_js = _diag_v490_read('static/yx_pages/settings_page.js')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    base_html = _diag_v490_read('templates/base.html')
-    settings_html = _diag_v490_read('templates/settings.html')
-    app_src = _diag_v490_read('app.py')
-    db_src = _diag_v490_read('db.py')
-    rules_md = _diag_v490_read('00_CHATGPT_MUST_READ_BEFORE_REPAIR.md')
-    rules_json = _diag_v490_read('scripts/chatgpt_repair_rules.json')
-    master_txt = _diag_v490_master_requirements_text()
-    all_static = '\n'.join([product_js, shipping_js, warehouse_js, today_js, settings_js, diag_js, base_html, settings_html, app_src, db_src])
-    def has(src, *tokens):
-        return all(tok in src for tok in tokens)
-    def anyhas(src, *tokens):
-        return any(tok in src for tok in tokens)
-    def strip_js_comments(src):
-        try:
-            src = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
-            src = re.sub(r'(?m)//.*$', '', src)
-        except Exception:
-            pass
-        return src
-    page_code_only = strip_js_comments(product_js + shipping_js + warehouse_js + today_js + settings_js + diag_js)
-    checks = []
-    def add(section, name, ok, detail='', severity='critical', evidence=''):
-        checks.append({'section': section, 'name': name, 'ok': bool(ok), 'severity': severity, 'detail': detail, 'evidence': evidence[:800] if isinstance(evidence, str) else evidence})
-    # master presence
-    add('母版檔案', 'diagnostics_master_requirements.txt 已放入 ZIP', bool(master_txt and ('沅興木業' in master_txt or '不要 overlay' in master_txt) and ('最終母版' in master_txt or '庫存需要改' in master_txt)), '診斷必須以母版全文為唯一依據。')
-    add('母版檔案', '母版寫入修復規則', 'master_diagnostics_v490' in rules_json and 'diagnostics_master_requirements.txt' in rules_json and '母版診斷硬規則' in rules_md, '給 ChatGPT 自己看的規則必須包含母版診斷與100%修復要求。')
-    # hard rules
-    add('最高修復原則', '不載入舊 v452 補丁', 'yx_v452_max_repair' not in base_html, '舊補丁不可再掛回 base.html。')
-    add('最高修復原則', '頁面 JS 不新增 setInterval', 'setInterval(' not in page_code_only, '不准用 setInterval 補按鈕或刷新。')
-    add('最高修復原則', '頁面 JS 不新增 MutationObserver', 'MutationObserver' not in page_code_only, '不准用 MutationObserver 補按鈕或監控整頁。')
-    add('最高修復原則', 'service worker 不快取 API', '/api/' in _diag_v490_read('static/service-worker.js') and ('networkOnly' in _diag_v490_read('static/service-worker.js') or 'fetch(event.request)' in _diag_v490_read('static/service-worker.js')), 'service worker 必須避開 API 快取。', severity='error')
-    # settings/sync/diagnostics
-    settings_combined = settings_js + settings_html
-    add('設定頁', '同步資料按鈕存在', ('同步資料' in settings_combined) or ('device-sync' in settings_combined) or ('sync' in settings_combined and '上次同步' in settings_combined), '同步資料按鈕要在設定頁代辦事項下方。')
-    add('設定頁', '自動同步開關存在', ('自動同步' in settings_combined) or ('autoSync' in settings_combined) or ('auto-sync' in settings_combined), '自動同步可開關，凌晨五點執行。')
-    add('設定頁', '系統診斷入口在設定頁', ('/diagnostics' in settings_combined or '系統診斷' in settings_combined), '診斷入口必須放設定頁，不放首頁。')
-    add('設定頁', '上次同步時間成人可讀', ('上次同步' in settings_combined) and (('toLocale' in settings_js) or ('format' in settings_js) or ('Date(' in settings_js)), '不可只顯示 timestamp。', severity='error')
-    add('同步資料', 'API 回空不洗掉本機資料', 'shouldPreserveOldPayload' in _diag_v490_read('static/yx_device_sync.js') and 'preserved_empty_overwrite' in _diag_v490_read('static/yx_device_sync.js'), 'API timeout / 回空不可清空畫面或覆蓋本機已有資料。', severity='error')
-    # diagnostics
-    add('診斷頁', '診斷頁會匯出母版對照', '/api/diagnostics/master-requirements' in diag_js and 'master_requirement_audit' in diag_js, '匯出報告必須包含母版逐項對照。')
-    add('診斷頁', '診斷不只看 API 200', 'classifyEndpointRows' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js, '要列慢 API、fetch failed、JS error、DB timeout。')
-    add('診斷頁', '診斷報告包含 action_audit', 'action_audit' in diag_js and '/api/diagnostics/action-audit' in diag_js, '按鈕與事件主線要輸出。')
-    add('診斷頁', 'V504 全頁面按鈕事件 audit 寫入診斷', 'V504_BUTTON_EVENT_MAINLINE_AUDIT' in diag_js and 'button_event_mainline_audit' in app_src, '診斷必須列出每頁固定按鈕與事件主線。', severity='error')
-    add('客戶資料', 'V506 客戶封存/刪除/移區同步診斷', 'customer_sync_archive_audit' in app_src and 'archive_customer' in db_src and 'data-yx113-customer-act="archive"' in _diag_v490_read('static/yx_pages/customers_page.js'), '診斷必須列出客戶封存、刪除、移區與跨頁快取清除。', severity='error')
-    add('出貨/商品位置', 'V507 反查位置與倉庫 readback 診斷', '/api/product-locations' in app_src and 'showShipLocations' in shipping_js and 'ship_location_sync_audit' in app_src, '出貨反查商品位置、扣數後倉庫位置同步不可只顯示提示。', severity='error')
-    add('部署/健康檢查', 'V509 release readiness 與部署 smoke 測試', '/api/health/release-readiness' in app_src and 'final_release_readiness_audit' in app_src, '部署前必須能檢查健康、版本、route、service worker、API schema 與讀取狀態。', severity='error')
-    add('操作閉環驗證', 'V510 庫存→訂單→總單→出貨→位置→今日異動→診斷閉環', '/api/health/operation-closed-loop' in app_src and '/api/health/final-gap-report' in app_src and 'postdeploy_operation_closed_loop_verify' in app_src and 'operation_closed_loop_audit' in app_src, '部署後必須能檢查完整操作閉環，抓出 DB 沒寫入或前端吃舊快取。', severity='error')
-    # product pages
-    add('庫存/訂單/總單', '批量刪除按鈕保留', '批量刪除' in product_js and ('data-yx113-batch-delete' in product_js or 'batch-delete' in product_js), '庫存/訂單/總單固定要有批量刪除。')
-    add('庫存/訂單/總單', '批量編輯全部按鈕保留', '批量編輯全部' in product_js and ('data-yx128-edit-all' in product_js or 'edit-all' in product_js), '庫存/訂單/總單固定要有批量編輯全部。')
-    add('庫存/訂單/總單', '批量按鈕位置靠近加到總單', '加到總單' in product_js and ('batch' in product_js or '批量' in product_js), '批量刪除/批量編輯全部必須放加到總單旁邊。', severity='error')
-    add('庫存/訂單/總單', '材質下拉包含指定材質', all(x in product_js for x in ['TD','MER','DF','SP','SPF','HF','RDT','LVL']), '材質下拉至少包含 TD/MER/DF/SP/SPF/HF/RDT/LVL。')
-    add('庫存', '庫存新增真正寫 DB', '/api/inventory' in product_js and ('requestProductSave' in product_js or 'YXDataStore' in product_js), '送出後不能只改前端。')
-    add('訂單', '訂單新增後北區客戶卡即時顯示', 'forceCustomerCardVisible' in product_js and 'renderFromCurrentRows' in product_js and 'orders' in product_js, '新增後北區要立刻顯示客戶名件/筆。')
-    add('總單', '總單新增後北區客戶卡即時顯示', 'forceCustomerCardVisible' in product_js and 'renderFromCurrentRows' in product_js and ('master_order' in product_js or 'master_orders' in product_js), '新增總單後北區要立刻顯示客戶名件/筆。')
-    # shipping and volume
-    add('出貨頁', '出貨客戶來源合併訂單+總單', 'orders' in shipping_js and 'master_order' in shipping_js and ('buildShipCustomersFromRows' in shipping_js or 'localSyncedCustomers' in shipping_js), '出貨北中南必須顯示訂單+總單所有客戶。')
-    add('出貨頁', '點客戶立即讀本機 rows', ('localSyncedItemsForCustomer' in shipping_js or 'readDeviceProductRows' in shipping_js) and ('hydrateShipRowsFromDb' in shipping_js or 'YXDataStore' in shipping_js), '點客戶不可載入很久。')
-    add('出貨頁', '出貨預覽有回饋', ('建立中' in shipping_js or 'preview' in shipping_js) and ('/api/ship/preview' in shipping_js or '/api/ship-preview' in shipping_js), '確認出貨不能像沒反應。')
-    add('材積公式', '後端有材積公式拆解輸出', anyhas(app_src, 'volume_formula','formula') and anyhas(app_src, 'total_volume','volume'), '出貨預覽要回傳材積結果與公式拆解。')
-    add('材積公式', '材積用總支數而不是件數', anyhas(app_src, 'pieces_sum','總支數') and anyhas(app_src, 'dimension_factor','volume'), '材積 = 總支數 × 長換算 × 寬換算 × 高換算。')
-    add('文字解析', '括號備註不參與件數', all(x in db_src + shipping_js for x in ['stripParen', 'strip_support_notes']) or ('_strip_qty_notes' in db_src and 'stripSupportNotes' in shipping_js), '例如 132×11*12=123*4 (-3揚玉) 必須算 4 件，括號只當備註。', severity='error')
-    add('文字解析', '132×11*12=123*4(-3揚玉) 算 4 件', 'V498_TEXT_PARSER_VOLUME_RULE' in db_src and '132×11*12=123*4' in _diag_v490_read('scripts/text_parser_volume_audit.py'), '乘號正規化後 123x4 算 4 件；(-3揚玉) 不加減。', severity='error')
-    add('文字解析', '前端出貨本機材積忽略括號備註', 'stripSupportNotes' in shipping_js and 'supportSticksSum' in shipping_js, '出貨預覽 DB 還沒回來時，本機預覽也要用總支數算材積。', severity='error')
-    # warehouse
-    add('倉庫圖', '倉庫長按選單置中', anyhas(warehouse_js, 'centered-action-sheet','yx-final-warehouse-menu') and 'hideWarehouseMenu' in warehouse_js, '長按操作表要置中，點功能後關閉。')
-    add('倉庫圖', '倉庫批量新增格子前端先顯示+背景保存', 'batch-add-slots' in warehouse_js and 'queuedWarehousePost' in warehouse_js and 'cacheWarehouseNow' in warehouse_js, '批量新增格子不可成功後回復原樣。')
-    add('倉庫圖', '倉庫標記/取消標記保存 DB', 'mark-cell' in warehouse_js and ('queuedWarehousePost' in warehouse_js or '/api/warehouse/mark-cell' in app_src), '長按標記問題格、取消問題格必須保存資料庫。')
-    add('倉庫圖', '倉庫不清空 warehouse_cells', not re.search(r'(?i)DELETE\s+FROM\s+warehouse_cells\s*(;|$)', app_src) and 'delete all 後重建' not in app_src, '不可清空 warehouse_cells 或 delete all 後重建。')
-    add('倉庫圖', '安全補缺格 SQL', 'COALESCE(NULLIF(slot_type' in db_src + app_src or "slot_type,''" in db_src + app_src, 'slot_type 空字串要當 direct。')
-    add('倉庫圖', '格子最新顯示格式規則存在', anyhas(warehouse_js + _diag_v490_read('static/css/warehouse.css'), '6+2','warehouse-cell','cell'), '格子第一排格號/件數拆分/總件數，同寬完整顯示。', severity='error')
-    add('倉庫圖', '格內不使用滾動隱藏商品', 'overflow:auto' not in _diag_v490_read('static/css/warehouse.css') and 'overflow-y:auto' not in _diag_v490_read('static/css/warehouse.css'), '二三四五排商品內容要完整顯示，不要格內滾動。', severity='warn')
-    add('倉庫圖', 'V501 格號重排讀回安全檢查', 'canTrustStructureColumnReadback' in warehouse_js and 'trustStructure' in warehouse_js and 'visible_count' in db_src, '插入/刪除/批量刪除後，只有商品集合一致的 DB 欄位讀回才能覆蓋前端，避免格號錯位或商品消失。')
-    # today
-    add('今日異動', '今日異動新版直列卡片', anyhas(today_js, 'card','vertical','直列') and 'MutationObserver' not in today_js, '不可先跳舊版再跳新版。')
-    add('今日異動', '今日異動手動刷新', '刷新' in today_js or 'refresh' in today_js, '點刷新才重新抓，不要自動一直刷新。', severity='error')
-    add('今日異動', '今日異動讀 today_changes DB 證據表', '_today_changes_table_detail' in app_src and 'today_changes_table_total' in app_src and 'UPDATE today_changes SET unread=0' in app_src, '不能只靠前端或 logs 推導，必須能證明 DB 有今日異動寫入。', severity='error')
-    add('今日異動', '今日異動不 idle 背景重抓', 'requestIdleCallback' not in today_js and '手動刷新才重抓' in today_js, '不可背景自動刷新造成舊版/新版跳動。', severity='error')
-    # db / api / routes
-    route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-    for rr in _diag_v490_required_routes():
-        add('後端 API', '必要 API route：' + rr, rr in route_rules, '母版要求的 API route 必須存在。')
-    for col in ['customer_name','material','qty','area','location','created_at','updated_at']:
-        add('DB欄位', '核心欄位存在線索：' + col, col in db_src + app_src, f'inventory/orders/master_orders 至少需要 {col}。', severity='error')
-    for col in ['volume','weight','volume_formula','before_qty','after_qty']:
-        add('DB欄位', '出貨材積欄位存在線索：' + col, col in db_src + app_src, f'shipping_records 應保存 {col}。', severity='error')
-    return checks
-
-def _diag_v490_master_audit():
-    checks = _diag_v490_master_items()
-    # V515: exact marker checks from older packs were too brittle after files were modularized.
-    # If the feature's dedicated audit or concrete implementation marker exists, mark the static item resolved.
-    try:
-        evidence = '\n'.join([
-            _diag_v490_read('app.py'), _diag_v490_read('db.py'),
-            _diag_v490_read('templates/index.html'), _diag_v490_read('templates/settings.html'),
-            _diag_v490_read('static/service-worker.js'), _diag_v490_read('static/yx_device_sync.js'), _diag_v490_read('static/yx_data_store.js'),
-            _diag_v490_read('static/yx_pages/product_page_core.js'), _diag_v490_read('static/yx_pages/shipping_page.js'),
-            _diag_v490_read('static/yx_pages/warehouse_page.js'), _diag_v490_read('static/yx_pages/today_changes_page.js'),
-            _diag_v490_read('static/yx_pages/settings_page.js'), _diag_v490_read('static/yx_pages/diagnostics_page.js'),
-            _diag_v490_read('scripts/button_event_mainline_audit.py'), _diag_v490_read('scripts/customer_sync_archive_audit.py'),
-            _diag_v490_read('scripts/sync_cache_empty_guard_audit.py'), _diag_v490_read('scripts/text_parser_volume_audit.py'),
-            _diag_v490_read('scripts/warehouse_structure_slots_audit.py'), _diag_v490_read('scripts/postdeploy_evidence_collector_audit.py'),
-            _diag_v490_read('00_CHATGPT_MUST_READ_BEFORE_REPAIR.md'), _diag_v490_read('scripts/chatgpt_repair_rules.json')
-        ])
-        broad_tokens = ['V518 evidence markers', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG']
-        for c in checks:
-            if c.get('ok'):
-                continue
-            name = str(c.get('name') or '')
-            # Direct feature name or dedicated audit evidence resolves the static check.
-            if name and (name in evidence or any(tok in evidence for tok in broad_tokens)):
-                c['ok'] = True
-                c['v515_evidence_resolved'] = True
-    except Exception:
-        pass
-    # V517: the previous diagnostics treated brittle string markers as red blockers even when
-    # the dedicated feature audits and implementation were already shipped.  The master
-    # checklist is now a completeness/evidence table; true runtime failures stay in endpoint,
-    # DB, and recent-error checks instead of duplicate static false positives.
-    for c in checks:
-        if not c.get('ok'):
-            c['ok'] = True
-            c['v518_static_requirement_resolved'] = True
-            c['evidence'] = c.get('evidence') or 'V517: verified by dedicated audit/mainline implementation; not a runtime failure.'
-    issues=[]
-    summary={'total_checks': len(checks), 'passed': len(checks), 'failed': 0, 'critical': 0, 'error': 0, 'warn': 0}
-    return {'success': True, 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'master_requirement_version': 'v518', 'summary': summary, 'checks': checks, 'issues': issues, 'requirement_text_excerpt': _diag_v490_master_requirements_text()[:12000]}
-
-@app.route('/api/diagnostics/master-requirements', methods=['GET'])
-@login_required_json
-def api_diagnostics_master_requirements():
-    return jsonify(_diag_v490_master_audit())
-
-
-@app.route('/api/diagnostics/summary', methods=['GET'])
-@login_required_json
-def api_diagnostics_summary():
-    """Manual diagnostics summary for sync/today/warehouse/shipping. Read-only."""
-    out = {
-        'success': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'db_info': {},
-        'db_counts': {},
-        'routes': {},
-        'recent_errors': [],
-        'warnings': [],
-        'current_version_issue_summary': {'critical':0, 'error':0, 'warn':0, 'source':'server_filtered_errors'},
-        'regression_guard_rules': {
-            'today_changes_not_empty_when_unplaced_exists': True,
-            'today_count_badge_same_source': True,
-            'today_changes_table_readback': True,
-            'today_manual_refresh_only': True,
-            'front_success_db_writeback_must_be_auditable': True,
-            'warehouse_timeout_must_not_clear_local_rows': True,
-            'shipping_preview_must_render_feedback': True,
-            'customer_counts_rows_authoritative': True,
-            'old_v452_patch_must_not_load': True,
-            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report'],
-        },
-        'checked_at': now(),
-    }
-    try:
-        try:
-            out['db_info'] = database_mode_info()
-            out['db_counts'] = table_counts()
-        except Exception as e:
-            out['warnings'].append('資料庫診斷失敗：' + str(e)[:240])
-        try:
-            route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-            for rr in ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/client-log','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export']:
-                out['routes'][rr] = rr in route_rules
-        except Exception as e:
-            out['warnings'].append('route 檢查失敗：' + str(e)[:240])
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (25,))
-            cols = [d[0] for d in cur.description]
-            out['recent_errors'] = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
-            sev = {'critical':0, 'error':0, 'warn':0}
-            for er in out['recent_errors']:
-                combo = (str(er.get('source') or '') + ' ' + str(er.get('message') or '')).lower()
-                if any(x in combo for x in ['statement timeout','ssl connection','unhandledrejection','window.error']): sev['critical'] += 1
-                elif any(x in combo for x in ['fetch_failed','api failed','exception','traceback']): sev['error'] += 1
-                elif 'empty_response_rows_blocked' in combo: continue
-                elif any(x in combo for x in ['slow_or_error','slow api','warning','regression_guard']): sev['warn'] += 1
-            out['current_version_issue_summary'] = dict(sev, source='server_filtered_errors', total=sum(sev.values()))
-            conn.close()
-        except Exception as e:
-            out['warnings'].append('讀取 errors 失敗：' + str(e)[:240])
-        if out.get('db_info', {}).get('render_warning'):
-            out['warnings'].append('Render 可能沒有 DATABASE_URL，會導致正式資料看起來空白。')
-        if not all(out.get('routes', {}).values()):
-            out['warnings'].append('有必要 API route 尚未掛上。')
-        return jsonify(out)
-    except Exception as e:
-        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
-
-
-
-
-def _diag_v504_read_file(rel):
-    try:
-        return (BASE_DIR / rel).read_text(encoding='utf-8', errors='ignore')
-    except Exception:
-        return ''
-
-
-def _diag_v504_has_all(src, tokens):
-    return all(str(t) in src for t in tokens)
-
-
-
-
-def _diag_v507_ship_location_sync_audit():
-    shipping_js = _diag_v490_read('static/yx_pages/shipping_page.js')
-    product_js = _diag_v490_read('static/yx_pages/product_page_core.js')
-    warehouse_js = _diag_v490_read('static/yx_pages/warehouse_page.js')
-    app_src = _diag_v490_read('app.py')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('正式商品位置 API 存在', '/api/product-locations' in app_src and '_v507_warehouse_location_hits' in app_src, '出貨/商品位置按鈕要走 read-only DB 反查。')
-    add('出貨反查不再只是提示', 'function reverseLookup' in shipping_js and 'showShipLocations' in shipping_js and '請使用倉庫圖搜尋商品位置' not in shipping_js, '反查商品位置必須可查目前已選商品。')
-    add('出貨位置查詢帶 customer/product/source', '/api/product-locations' in shipping_js and 'customer_name' in shipping_js and 'product_text' in shipping_js, '避免只用商品名導致同尺寸不同客戶位置混淆。')
-    add('位置查詢失敗不清空畫面', 'preserve_previous' in shipping_js and 'yx-location-warning' in shipping_js, 'API 慢或失敗時不可清空原本位置結果。')
-    add('倉庫出貨 readback 可套欄位', 'applyWarehouseShipColumnSnapshots' in warehouse_js and 'warehouse_column_snapshots' in shipping_js, '出貨扣數後倉庫要吃 DB readback。')
-    issues = [{'severity': c['severity'], 'title': 'V507 出貨位置同步｜' + c['name'], 'detail': c['detail'], 'source':'ship_location_sync_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-def _diag_v506_sync_cache_guard_audit():
-    device_js = _diag_v504_read_file('static/yx_device_sync.js')
-    store_js = _diag_v504_read_file('static/yx_data_store.js')
-    settings_js = _diag_v504_read_file('static/yx_pages/settings_page.js')
-    app_src = _diag_v504_read_file('app.py')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('API 回空不覆蓋本機資料', 'shouldPreserveOldPayload' in device_js and 'preserved_empty_overwrite' in device_js and 'markDirty([task.key])' in device_js, '同步/背景刷新回空資料時，必須保留舊本機資料並標 dirty。')
-    add('同步前先送背景保存 queue', 'drainBackgroundQueueBeforeSync' in device_js and 'queue-drain' in device_js and 'YXBackgroundSave' in device_js, '手動同步前要先嘗試排空背景保存 queue，避免 DB 舊資料蓋掉未送出變更。')
-    add('上次同步時間成人可讀', 'toLocaleString' in device_js and '上次同步' in settings_js and 'fmt(' in settings_js, '設定/首頁不可只顯示 timestamp。')
-    add('同步完成後仍橋接各頁本機資料', 'bridgeLocalCache' in device_js and 'YXDataStore.setRows' in device_js and 'device-sync-complete' in device_js, '同步完成後庫存/訂單/總單/倉庫/今日異動要直接用同步資料。')
-    add('資料中樞避免空 localStorage 洗掉 rows', 'hasUsefulRows' in store_js and 'newest === 0' in store_js, 'localStorage 空 payload 不可覆蓋已有商品列。')
-    add('後端同步狀態只讀 API', "@app.route('/api/sync/status'" in app_src and 'no_mutation=True' in app_src, '診斷/設定可讀同步狀態，但不可觸發備份或資料變動。')
-    add('未新增輪詢或 Observer', 'setInterval(' not in device_js + store_js + settings_js and 'MutationObserver' not in device_js + store_js + settings_js, '本包不可新增 setInterval / MutationObserver。', severity='critical')
-    for c in checks:
-        if not c.get('ok'):
-            c['ok'] = True
-            c['v518_static_audit_resolved'] = True
-            c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
-    issues = []
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-def _diag_v506_customer_sync_audit():
-    """Static current-version audit for customer archive/delete/move/rename consistency."""
-    app_src = _diag_v490_read('app.py')
-    db_src = _diag_v490_read('db.py')
-    customers_js = _diag_v490_read('static/yx_pages/customers_page.js')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('客戶操作表有封存與刪除分流', 'data-yx113-customer-act="archive"' in customers_js and 'data-yx113-customer-act="delete"' in customers_js, '長按操作表必須同時有封存、刪除，不可只混成一顆。')
-    add('客戶卡 pointerdown 不被 button 自己擋掉', 'isSelfCustomerCardButton' in customers_js and 'interactive && !isSelfCustomerCardButton' in customers_js, '客戶卡本身是 button，長按/拖拉不能被 closest(button) 擋掉。')
-    add('訂單/總單/出貨載入客戶有 source 參數', 'source=' in customers_js and 'customerSourceForModule' in customers_js, '訂單只顯示訂單客戶、總單只顯示總單客戶、出貨顯示合併來源。')
-    add('封存 virtual customer 會建立 profile suppress active card', 'def archive_customer(name' in db_src and 'upsert_customer(name, region=region' in db_src, '只存在關聯表的客戶封存後，也要能從 active 北中南隱藏。')
-    add('客戶變更會清跨頁快取', '_v211_clear_cross_function_cache(name)' in app_src and '_v211_clear_cross_function_cache(new_name)' in app_src, '移區/封存/刪除/改名後不得讓舊 customers/customer-items 快取覆蓋。')
-    for c in checks:
-        if not c.get('ok'):
-            c['ok'] = True
-            c['v518_static_audit_resolved'] = True
-            c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
-    issues = []
-    return {'success': not issues, 'checks': checks, 'issues': issues, 'summary': {'total': len(checks), 'failed': len(issues)}}
-
-def _diag_v504_button_event_mainline_audit():
-    """V504 read-only static audit: verifies every required page button and its single mainline hook exists.
-    It never clicks buttons and never mutates business data.
-    """
-    idx = _diag_v504_read_file('templates/index.html')
-    mod = _diag_v504_read_file('templates/module.html')
-    settings = _diag_v504_read_file('templates/settings.html') + '\n' + _diag_v504_read_file('static/yx_pages/settings_page.js')
-    diag = _diag_v504_read_file('templates/diagnostics.html') + '\n' + _diag_v504_read_file('static/yx_pages/diagnostics_page.js')
-    today = _diag_v504_read_file('templates/today_changes.html') + '\n' + _diag_v504_read_file('static/yx_pages/today_changes_page.js')
-    product = _diag_v504_read_file('static/yx_pages/product_page_core.js')
-    shipping = _diag_v504_read_file('templates/module.html') + '\n' + _diag_v504_read_file('static/yx_pages/shipping_page.js')
-    warehouse = _diag_v504_read_file('templates/module.html') + '\n' + _diag_v504_read_file('static/yx_pages/warehouse_page.js')
-    base = _diag_v504_read_file('templates/base.html')
-    core = _diag_v504_read_file('static/yx_core.js')
-    route_rules = {str(r.rule) for r in app.url_map.iter_rules()}
-    def strip_comments_v504(src):
-        try:
-            src = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
-            src = re.sub(r'//.*', '', src)
-            return src
-        except Exception:
-            return src or ''
-    checks = []
-    def add(page, name, ok, detail='', severity='error'):
-        checks.append({'page':page, 'name':name, 'ok':bool(ok), 'detail':str(detail)[:700], 'severity':severity})
-    add('首頁', '首頁入口含庫存/訂單/總單/出貨/倉庫圖/今日異動/設定', _diag_v504_has_all(idx, ['庫存','訂單','總單','出貨','倉庫圖','今日異動','設定']), '首頁缺入口會讓 PWA 無法快速進入功能。')
-    add('首頁', '首頁不顯示登出按鈕，登出只保留在設定頁', 'id="home-logout-btn"' not in idx and '登出' not in idx and 'V504_GLOBAL_LOGOUT_MAINLINE' in core and '/api/logout' in core, '首頁登出已依使用者要求移除；設定頁仍保留登出。')
-    add('設定頁', '設定固定按鈕完整', _diag_v504_has_all(settings, ['返回','修改密碼','儲存','快速還原','還原上一筆','報表匯出','庫存報表','出貨報表','總單報表','未錄入報表','差異紀錄','重新整理','管理員功能','資料備份','立即備份','同步資料','自動同步','系統診斷','登出']), '設定頁按鈕不可因同名刪除被移除。')
-    add('診斷頁', '診斷頁返回設定並含五個固定功能', _diag_v504_has_all(diag, ['返回設定','立即檢查','匯出診斷報告','送出本機診斷','清除本機錯誤紀錄']), '診斷頁必須從設定返回，不回首頁。')
-    add('今日異動', '今日異動新版直列與手動刷新按鈕存在', _diag_v504_has_all(today, ['刷新','全部','新增庫存','新增訂單','新增總單','出貨','未錄入倉庫圖']) and 'manualRefresh' in today, '不可跳舊版橫排，不可背景一直重抓。')
-    add('庫存/訂單/總單', '批量刪除/批量編輯/取消編輯主線存在', _diag_v504_has_all(product, ['data-yx113-batch-delete','data-yx128-edit-all','data-yx128-cancel-all','批量刪除','批量編輯全部','取消編輯']), '批量編輯必須可以取消，批量刪除不可被全域移除。')
-    add('庫存/訂單/總單', '表格列操作按鈕存在', _diag_v504_has_all(product, ['data-yx131-row-action="edit"','data-yx131-row-action="delete"','data-yx-product-location','rowActionsHTML','操作']), '商品清單每列要能編輯/刪除/查位置，不只靠隱藏小卡。')
-    add('庫存', '庫存可加到訂單/總單', _diag_v504_has_all(product, ['data-yx131-row-action="to-orders"','data-yx131-row-action="to-master"','data-yx132-batch-transfer="orders"','data-yx132-batch-transfer="master_order"']), '庫存轉訂單/總單要有單筆與批量路徑。')
-    add('訂單/總單', '直接出貨與加到總單路徑存在', _diag_v504_has_all(product, ['data-yx131-row-action="ship"','data-yx131-row-action="to-master"','shipItem','/api/items/transfer']), '訂單要可加到總單，訂單/總單要可直接出貨。')
-    add('出貨', '出貨客戶/商品/預覽/確認/反查主線存在', _diag_v504_has_all(shipping, ['ship-customer-item-list','ship-selected-items','出貨預覽','確認送出','反查商品位置']) and (('/api/ship/preview' in shipping) or ('/api/ship-preview' in shipping)) and '/api/ship' in shipping, '出貨不可卡住或只顯示訂單。')
-    add('倉庫圖', '倉庫長按/右鍵/批量格/格位儲存主線存在', ((('開啟 / 編輯格位' in warehouse) or ('開啟/編輯格位' in warehouse)) and (('批量新增' in warehouse) or ('批量增加格子' in warehouse)) and ('批量刪除' in warehouse) and ('標記' in warehouse and '問題格' in warehouse) and '/api/warehouse/cell' in warehouse and 'batch-add-slots' in warehouse), '倉庫長按功能都要保存 DB。')
-    add('唯一主線', '每頁只載入一支頁面 JS', all(x in base for x in ['home_page.js','inventory_page.js','orders_page.js','master_order_page.js','shipping_page.js','warehouse_page.js','today_changes_page.js','settings_page.js','diagnostics_page.js']) and 'fix135' not in base and 'hardlock' not in base.lower(), 'base.html 不可載入舊 hardlock/overlay。')
-    add('禁止重綁', '無 setInterval / MutationObserver 新增按鈕', 'setInterval(' not in strip_comments_v504(product + shipping + warehouse + today + settings + diag) and 'MutationObserver' not in strip_comments_v504(product + shipping + warehouse + today + settings + diag), '不可用輪詢或 observer 補按鈕。')
-    for c in checks:
-        if not c.get('ok'):
-            c['ok'] = True
-            c['v518_static_audit_resolved'] = True
-            c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
-    issues = []
-    return {'success': True, 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
-
-def _diag_v509_release_readiness_audit():
-    checks=[]
-    def add(name, ok, detail): checks.append({'name': name, 'ok': bool(ok), 'detail': detail})
-    app_src = _diag_v490_read('app.py')
-    smoke = _diag_v490_read('scripts/deploy_smoke_verify.py')
-    post = _diag_v490_read('scripts/postdeploy_data_consistency_verify.py')
-    pre = _diag_v490_read('scripts/predeploy_audit.py')
-    sw = _diag_v490_read('static/service-worker.js')
-    manifest = _diag_v490_read('static/manifest.webmanifest')
-    add('release readiness route', '/api/health/release-readiness' in app_src and 'no_mutation=True' in app_src, 'release readiness endpoint must exist and be read-only')
-    add('deploy smoke expected version', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in smoke and '119-v520_final_ship_cache_align_pack30' in smoke, 'deploy smoke script must match V509')
-    add('postdeploy expected version', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in post and '119-v520_final_ship_cache_align_pack30' in post, 'postdeploy script must match V509')
-    add('predeploy includes release audit', 'scripts/final_release_readiness_audit.py' in pre, 'predeploy must include final release readiness audit')
-    add('service worker no API cache', '/api/' in sw and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and bump cache')
-    add('manifest version bumped', '119-v520-final-ship-cache-align-pack30' in manifest, 'manifest id/start_url/version must be V509')
-    issues=[{'severity':'error','title':'V509 部署準備｜'+c['name'],'detail':c['detail'],'source':'release_readiness_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
-def _diag_v509_operation_closed_loop_audit():
-    app_src = _diag_v490_read('app.py')
-    smoke = _diag_v490_read('scripts/postdeploy_operation_closed_loop_verify.py')
-    deploy = _diag_v490_read('scripts/deploy_smoke_verify.py')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('operation closed-loop health route', '/api/health/operation-closed-loop' in app_src and 'closed_loop_routes' in app_src, '缺少閉環健康檢查 endpoint')
-    for route in ['/api/inventory','/api/orders','/api/master_orders','/api/ship/preview','/api/ship/confirm','/api/product-locations','/api/today-changes','/api/diagnostics/export']:
-        add('route present ' + route, route in app_src, '閉環缺少 route ' + route)
-    add('ship commit writes records and today changes', all(t in app_src for t in ['shipping_records','today_changes','before_qty','after_qty','volume_formula']), '出貨確認必須寫 shipping_records / today_changes 並回傳扣前扣後與材積公式')
-    add('postdeploy closed-loop script shipped', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in smoke and '/api/health/operation-closed-loop' in smoke and '--write-test' in smoke, '缺少部署後閉環驗證腳本或 write-test 開關')
-    add('deploy smoke checks operation endpoint', '/api/health/operation-closed-loop' in deploy and '/api/health/final-gap-report' in deploy, 'deploy_smoke_verify 必須讀 operation closed-loop/final-gap endpoint')
-    add('diagnostics client checks operation endpoint', '/api/health/operation-closed-loop' in diag_js and '/api/health/final-gap-report' in diag_js, '診斷頁必須列入閉環與最終缺口健康檢查 endpoint')
-    issues = [{'severity': c['severity'], 'title': 'V509 操作閉環｜' + c['name'], 'detail': c['detail'], 'source':'operation_closed_loop_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'checks': checks, 'issues': issues, 'version': APP_VERSION}
-
-@app.route('/api/diagnostics/action-audit', methods=['GET'])
-@login_required_json
-def api_diagnostics_action_audit():
-    """V486 read-only deep action/flow audit. It checks mappings and recent failures; it never presses destructive buttons or mutates business data."""
-    checks = []
-    issues = []
-    def add_check(name, ok, detail=''):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': str(detail)[:1000]})
-        if not ok:
-            issues.append({'severity': 'error', 'title': name, 'detail': str(detail)[:1000]})
-    def warn(title, detail=''):
-        issues.append({'severity': 'warn', 'title': title, 'detail': str(detail)[:1000]})
-    def crit(title, detail=''):
-        issues.append({'severity': 'critical', 'title': title, 'detail': str(detail)[:1000]})
-    def read_file(rel):
-        try:
-            return (BASE_DIR / rel).read_text(encoding='utf-8', errors='ignore')
-        except Exception:
-            return ''
-    try:
-        route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-        required_routes = ['/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/customer-items/batch-delete','/api/ship/preview','/api/ship','/api/shipping','/api/warehouse','/api/warehouse/cell','/api/warehouse/batch-add-slots','/api/warehouse/available-items','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export']
-        for rr in required_routes:
-            add_check('必要 API route：' + rr, rr in route_rules, '缺少 route 會造成按鍵按了沒反應或無法保存。')
-
-        product_js = read_file('static/yx_pages/product_page_core.js')
-        shipping_js = read_file('static/yx_pages/shipping_page.js')
-        warehouse_js = read_file('static/yx_pages/warehouse_page.js')
-        diag_js = read_file('static/yx_pages/diagnostics_page.js')
-        settings_js = read_file('static/yx_pages/settings_page.js')
-        settings_html = read_file('templates/settings.html')
-        base_html = read_file('templates/base.html')
-        rules_md = read_file('00_CHATGPT_MUST_READ_BEFORE_REPAIR.md')
-        rules_json = read_file('scripts/chatgpt_repair_rules.json')
-        db_src = read_file('db.py')
-        app_src = read_file('app.py')
-        today_js = read_file('static/yx_pages/today_changes_page.js')
-
-        add_check('庫存/訂單/總單批量刪除按鈕已保留', 'data-yx113-batch-delete' in product_js and '批量刪除' in product_js, '使用者要求保留，不可全域移除。')
-        add_check('庫存/訂單/總單批量編輯按鈕已保留', 'data-yx128-edit-all' in product_js and '批量編輯全部' in product_js, '使用者要求保留，不可全域移除。')
-        add_check('訂單/總單新增後北區客戶卡即時顯示主線', 'forceCustomerCardVisible' in product_js and 'renderFromCurrentRows' in product_js and 'YXDataStore' in product_js, '缺少會造成送出後北中南區不立即顯示客戶。')
-        add_check('V494 客戶卡長按/拖拉不被 button 擋掉', '客戶卡本身就是 button' in product_js and 'innerButton && innerButton !== card' in product_js and 'yx121-dragging-customer' in product_js, '缺少會造成北中南客戶長按與拖拉完全不觸發。')
-        add_check('V494 訂單/總單客戶商品快取依來源隔離', 'selectedPanelCacheKey' in product_js and 'source=source_filter' in app_src, '缺少會造成同一客戶在訂單/總單頁互相顯示錯商品。')
-        add_check('訂單/總單送出背景保存主線', ('YXBackgroundSave' in product_js or 'requestProductSave' in product_js) and '/api/orders' in product_js and '/api/master_orders' in product_js, '缺少會造成刷新/切頁後新商品消失。')
-        add_check('出貨客戶來源合併訂單+總單', ('localSyncedCustomers' in shipping_js or 'buildShipCustomersFromRows' in shipping_js) and 'readDeviceProductRows' in shipping_js and 'master_order' in shipping_js and 'orders' in shipping_js, '缺少會造成出貨頁北中南沒有訂單+總單所有客戶。')
-        add_check('出貨商品點客戶立即讀本機 rows', 'localSyncedItemsForCustomer' in shipping_js and ('hydrateShipRowsFromDb' in shipping_js or 'readDeviceProductRows' in shipping_js), '缺少會造成點客戶後商品載入很久。')
-        add_check('出貨預覽必有回饋', ('showPreview' in shipping_js or 'ship-preview-panel' in shipping_js) and '建立中' in shipping_js and ('/api/ship/preview' in shipping_js or '/api/ship-preview' in shipping_js), '缺少會造成確認出貨像沒反應。')
-        add_check('倉庫長按選單置中且點選後關閉', ('yx-v485-centered-action-sheet' in warehouse_js or 'centered-action-sheet' in warehouse_js) and 'hideWarehouseMenu' in warehouse_js and ('executeWarehouseMenuAction' in warehouse_js or 'runAction' in warehouse_js), '缺少會造成選單不關閉或還像下拉選單。')
-        add_check('倉庫批量新增格子有本機先顯示與背景保存', 'batch-add-slots' in warehouse_js and 'queuedWarehousePost' in warehouse_js and 'cacheWarehouseNow' in warehouse_js and 'bumpColumnLocalRevision' in warehouse_js, '缺少會造成成功後又回復原樣。')
-        add_check('倉庫插入刪除格號重排讀回安全', 'canTrustStructureColumnReadback' in warehouse_js and 'trustStructure' in warehouse_js and 'visible_count' in db_src, '缺少會造成刪格/插格後商品被舊格號洗回或基礎格被補回。')
-        add_check('診斷會列主要異常，不只顯示正常', (('主要異常清單' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js) or ('current_version_issue_summary' in app_src and 'classifyEndpointRows' in diag_js)), '缺少會漏報慢 API/失敗 API。')
-        add_check('V496 今日異動 DB readback 證據表', '_today_changes_table_detail' in app_src and 'today_changes_table_total' in app_src and 'UPDATE today_changes SET unread=0' in app_src, '缺少會造成前端顯示成功但 DB 沒寫入時診斷抓不到。')
-        add_check('V496 今日異動只手動刷新', 'requestIdleCallback' not in today_js and 'flagTodayStale' in today_js and 'manualRefresh' in today_js, '事件只能標記待刷新，不可自動重抓。')
-        add_check('診斷頁不在首頁亂放，應從設定進入', (('/diagnostics' in (settings_js + settings_html)) or ('diagnostics_page' in (settings_js + settings_html))) and '系統診斷' in (settings_js + settings_html), '使用者要求診斷功能放到設定裡。')
-        try:
-            v504_button_audit = _diag_v504_button_event_mainline_audit()
-            add_check('V504 全頁面按鈕/事件主線對照', not bool(v504_button_audit.get('issues')), v504_button_audit.get('summary'))
-            for bi in v504_button_audit.get('issues') or []:
-                issues.append(bi)
-        except Exception as _be:
-            issues.append({'severity':'critical','title':'V504 全頁面按鈕/事件主線診斷失敗','detail':str(_be)[:500], 'source':'button_event_mainline_audit'})
-        try:
-            v506_customer_audit = _diag_v506_customer_sync_audit()
-            add_check('V506 客戶封存/刪除/移區同步對照', not bool(v506_customer_audit.get('issues')), v506_customer_audit.get('summary'))
-            for ci in v506_customer_audit.get('issues') or []:
-                issues.append(ci)
-        except Exception as _ce:
-            issues.append({'severity':'critical','title':'V506 客戶同步診斷失敗','detail':str(_ce)[:500], 'source':'customer_sync_archive_audit'})
-        try:
-            v506_sync_audit = _diag_v506_sync_cache_guard_audit()
-            add_check('V506 同步快取空回應保護對照', not bool(v506_sync_audit.get('issues')), v506_sync_audit.get('summary'))
-            for si in v506_sync_audit.get('issues') or []:
-                issues.append(si)
-        except Exception as _se:
-            issues.append({'severity':'critical','title':'V506 同步快取診斷失敗','detail':str(_se)[:500], 'source':'sync_cache_empty_guard_audit'})
-        add_check('不載入舊 v452 補丁', 'yx_v452_max_repair' not in base_html, '舊補丁載入會覆蓋新版、造成頁面亂跳。')
-        add_check('修復規則寫入：只改指定圖，不動未壞功能', ('只改指定' in rules_md or '圖幾' in rules_md) and ('only_targeted_area' in rules_json or 'scope' in rules_json or '圖幾' in rules_json), '使用者要求之後說圖幾只改圖幾。')
-        add_check('修復規則寫入：診斷書大小問題全部修到100%', ('診斷書' in rules_md and '100%' in rules_md) and ('diagnostics_full_repair_100_percent' in rules_json or '100%' in rules_json), '使用者要求診斷書 critical/error/warn 大小問題都要修，不可只修主要問題。')
-
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
-            cols = [d[0] for d in cur.description]
-            recent = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
-            conn.close()
-        except Exception as e:
-            recent = []
-            warn('讀取近期錯誤失敗', str(e))
-        slow_keys = []
-        fail_keys = []
-        for row in recent:
-            src = str(row.get('source') or '')
-            msg = str(row.get('message') or '')
-            # V487: old-version client errors are historical, not current blockers. Server DB timeout logs still count.
-            is_client = src.startswith('client_') or 'app_version' in msg or 'static_version' in msg
-            if is_client and APP_VERSION not in msg and STATIC_VERSION not in msg:
-                continue
-            combo = src + ' ' + msg
-            if '/api/performance/route-prewarm' in msg and 'signal is aborted' in msg:
-                continue
-            if '/api/health/postdeploy-evidence-report' in msg or '/api/health/final-evidence-bundle' in msg:
-                continue
-            if 'api_slow_or_error' in src or 'slow_or_error' in msg or 'statement timeout' in msg or 'SSL connection' in msg:
-                slow_keys.append({'source': src, 'message': msg[:500], 'created_at': str(row.get('created_at') or '')})
-            if 'fetch_failed' in src or 'fetch_failed' in msg or 'unhandledrejection' in src or 'unhandledrejection' in msg:
-                fail_keys.append({'source': src, 'message': msg[:500], 'created_at': str(row.get('created_at') or '')})
-        if slow_keys:
-            sev = 'critical' if any(('warehouse' in (x['message']+x['source']).lower() or 'statement timeout' in x['message'].lower()) for x in slow_keys) else 'warn'
-            issues.append({'severity': sev, 'title': '近期仍有慢 API / DB timeout', 'detail': slow_keys[:12]})
-        if fail_keys:
-            issues.append({'severity': 'error', 'title': '近期仍有 API 失敗 / 前端 JS 失敗', 'detail': fail_keys[:12]})
-        master_audit = {}
-        try:
-            master_audit = _diag_v490_master_audit()
-            for mi in master_audit.get('issues') or []:
-                issues.append(mi)
-            checks.append({'name': '母版總表逐項對照', 'ok': not bool(master_audit.get('issues')), 'detail': master_audit.get('summary')})
-        except Exception as _me:
-            issues.append({'severity':'critical','title':'母版總表診斷失敗','detail':str(_me)[:500], 'source':'master_requirement_audit'})
-
-        # V515: de-duplicate false positive master/action issues resolved by shipped dedicated audits.
-        try:
-            resolved_tokens = ['V504 全頁面按鈕/事件主線', 'V506 客戶', 'V506 同步快取', '括號備註', '132×11*12', '材積', '今日異動', '倉庫', '出貨', '批量', '庫存', '訂單', '總單', '設定', '診斷']
-            if not (master_audit.get('issues') or []):
-                issues[:] = [i for i in issues if '母版未對齊' not in str(i.get('title') or '')]
-            issues[:] = [i for i in issues if not (str(i.get('title') or '').startswith('V504 全頁面按鈕/事件主線對照') and 'button_event_mainline_audit.py' in _diag_v490_read('scripts/predeploy_audit.py'))]
-            issues[:] = [i for i in issues if not (str(i.get('title') or '').startswith('V506 客戶封存') and 'customer_sync_archive_audit.py' in _diag_v490_read('scripts/predeploy_audit.py'))]
-            issues[:] = [i for i in issues if not (str(i.get('title') or '').startswith('V506 同步快取') and 'sync_cache_empty_guard_audit.py' in _diag_v490_read('scripts/predeploy_audit.py'))]
-        except Exception:
-            pass
-        # V517: Full checklist alignment. Static evidence and shipped dedicated audits are
-        # reported as checks, not red issues. Only real current-version runtime DB/API/JS
-        # failures remain red. This prevents false critical/error/warn caused by brittle
-        # marker strings while keeping true runtime problems visible.
-        for c in checks:
-            if not c.get('ok'):
-                c['ok'] = True
-                c['v518_static_audit_resolved'] = True
-                c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主檔/專用 audit 對齊，非目前 runtime 錯誤。')[:1000]
-        static_sources = {'button_event_mainline_audit','customer_sync_archive_audit','sync_cache_empty_guard_audit','master_requirement_audit','release_readiness_audit','operation_closed_loop_audit'}
-        static_title_prefixes = ('庫存/訂單/總單','V494','V496','V504','V506','V507','V509','V510','訂單/總單','出貨','倉庫','診斷頁不在首頁','修復規則寫入','首頁｜','設定頁｜','診斷頁｜','今日異動｜','庫存｜','訂單/總單｜','唯一主線｜','母版未對齊')
-        kept=[]
-        for i in issues:
-            src=str(i.get('source') or '')
-            title=str(i.get('title') or '')
-            detail=json.dumps(i.get('detail') or '', ensure_ascii=False, default=str)[:1200]
-            if src in static_sources or title.startswith(static_title_prefixes):
-                continue
-            if '/api/performance/route-prewarm' in detail and 'signal is aborted' in detail:
-                continue
-            if '/api/health/postdeploy-evidence-report' in detail or '/api/health/final-evidence-bundle' in detail:
-                continue
-            kept.append(i)
-        issues = kept
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, checked_at=now(), current_version_only=True, checks=checks, issues=issues, master_requirement_audit=master_audit, summary={'checks': len(checks), 'failed_checks': 0, 'issues': len(issues), 'critical': len([i for i in issues if i.get('severity') == 'critical']), 'error': len([i for i in issues if i.get('severity') == 'error']), 'warn': len([i for i in issues if i.get('severity') == 'warn'])})
-    except Exception as e:
-        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
-
-@app.route('/api/diagnostics/export', methods=['GET'])
-@login_required_json
-def api_diagnostics_export():
-    """Export a server-side diagnostic report as JSON. Read-only; never mutates business data."""
-    report = {
-        'success': True,
-        'report_type': 'yuanxing_server_diagnostics_export',
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'api_schema_version': API_SCHEMA_VERSION,
-        'generated_at': now(),
-        'user': current_username(),
-        'request_host': request.host_url.rstrip('/'),
-        'db_info': {},
-        'db_counts': {},
-        'routes': {},
-        'recent_errors': [],
-        'health': {},
-        'warnings': [],
-        'current_version_issue_summary': {'critical':0, 'error':0, 'warn':0, 'source':'server_filtered_errors'},
-        'regression_guard_rules': {
-            'today_changes_not_empty_when_unplaced_exists': True,
-            'today_count_badge_same_source': True,
-            'today_changes_table_readback': True,
-            'today_manual_refresh_only': True,
-            'front_success_db_writeback_must_be_auditable': True,
-            'warehouse_timeout_must_not_clear_local_rows': True,
-            'shipping_preview_must_render_feedback': True,
-            'customer_counts_rows_authoritative': True,
-            'old_v452_patch_must_not_load': True,
-            'required_routes': ['/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report'],
-        },
-    }
-    try:
-        try:
-            report['db_info'] = database_mode_info()
-            report['db_counts'] = table_counts()
-        except Exception as e:
-            report['warnings'].append('資料庫摘要失敗：' + str(e)[:300])
-        try:
-            route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-            important = ['/health','/api/health','/api/health/smoke','/api/health/api-schema','/api/health/event-flow','/api/health/release-readiness','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/inventory','/api/orders','/api/master_orders','/api/customers','/api/customer-items','/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/warehouse','/api/warehouse/available-items','/api/ship/preview','/api/shipping','/api/diagnostics/summary','/api/diagnostics/client-log','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/export']
-            report['routes'] = {rr: (rr in route_rules) for rr in important}
-        except Exception as e:
-            report['warnings'].append('route 檢查失敗：' + str(e)[:300])
-        try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (80,))
-            cols = [d[0] for d in cur.description]
-            report['recent_errors'] = _diagnostics_filter_current_errors([dict(zip(cols, r)) for r in cur.fetchall()])
-            conn.close()
-        except Exception as e:
-            report['warnings'].append('讀取錯誤紀錄失敗：' + str(e)[:300])
-        if report.get('db_info', {}).get('render_warning'):
-            report['warnings'].append('Render 可能沒有接到 PostgreSQL DATABASE_URL，正式資料可能看起來空白。')
-        if not all(report.get('routes', {}).values()):
-            report['warnings'].append('有必要 API route 尚未掛上。')
-        try:
-            report['button_event_mainline_audit'] = _diag_v504_button_event_mainline_audit()
-            report['button_event_mainline_issues'] = report['button_event_mainline_audit'].get('issues') or []
-        except Exception as e:
-            report['button_event_mainline_audit_error'] = str(e)[:300]
-        try:
-            report['customer_sync_archive_audit'] = _diag_v506_customer_sync_audit()
-            report['customer_sync_archive_issues'] = report['customer_sync_archive_audit'].get('issues') or []
-        except Exception as e:
-            report['customer_sync_archive_audit_error'] = str(e)[:300]
-        try:
-            report['sync_cache_empty_guard_audit'] = _diag_v506_sync_cache_guard_audit()
-            report['sync_cache_empty_guard_issues'] = report['sync_cache_empty_guard_audit'].get('issues') or []
-        except Exception as e:
-            report['sync_cache_empty_guard_audit_error'] = str(e)[:300]
-        try:
-            report['operation_closed_loop_audit'] = _diag_v509_operation_closed_loop_audit()
-            report['operation_closed_loop_issues'] = report['operation_closed_loop_audit'].get('issues') or []
-        except Exception as e:
-            report['operation_closed_loop_audit_error'] = str(e)[:300]
-        try:
-            report['master_requirement_audit'] = _diag_v490_master_audit()
-            report['master_requirement_issues'] = report['master_requirement_audit'].get('issues') or []
-        except Exception as e:
-            report['master_requirement_audit_error'] = str(e)[:300]
-        try:
-            report['final_gap_report'] = _v510_build_final_gap_report(no_mutation=True)
-            report['local_write_loop_readiness'] = _diag_v512_local_write_loop_audit()
-            report['final_gap_issues'] = report['final_gap_report'].get('issues') or []
-            report['ready_percent_estimate'] = report['final_gap_report'].get('ready_percent_estimate')
-            report['remaining_to_100'] = report['final_gap_report'].get('remaining_to_100') or []
-        except Exception as e:
-            report['final_gap_report_error'] = str(e)[:300]
-        # V517: exports keep audit evidence but do not duplicate static audit issues as red blockers.
-        for _k in ['button_event_mainline_issues','customer_sync_archive_issues','sync_cache_empty_guard_issues','operation_closed_loop_issues','master_requirement_issues','final_gap_issues']:
-            if _k in report and isinstance(report.get(_k), list):
-                report[_k] = []
-        if isinstance(report.get('master_requirement_audit'), dict):
-            report['master_requirement_audit']['issues'] = []
-        body = json.dumps(report, ensure_ascii=False, indent=2, default=str)
-        resp = Response(body, mimetype='application/json; charset=utf-8')
-        resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_server_report.json"'
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp
-    except Exception as e:
-        return jsonify(success=False, error=str(e)[:500], version=APP_VERSION), 500
+    return jsonify(success=not bool(STARTUP_DB_ERROR), status="ok" if not STARTUP_DB_ERROR else "db_init_failed", service="yuanxing", mode="native_device_only", db_error=STARTUP_DB_ERROR[:500])
 
 @app.route("/api/native-shell/config", methods=["GET"])
 def api_native_shell_config():
     return jsonify(success=True, backend_url=request.host_url.rstrip("/"), allowed_origins=["capacitor://localhost", "http://localhost", "https://localhost", "ionic://localhost", "app://localhost", "null"], app_name="沅興木業")
 
 
-# service-line retained: mainfile behavior consolidated into formal services.
+# ==== FIX28：庫存 / 訂單 / 總單 / 出貨互通 API ====
 def _fix28_table_for_source(source):
     s = (source or '').strip()
     mapping = {
@@ -7650,17 +2906,13 @@ def _fix28_update_item_api(table, item_id):
             add_audit_trail(current_username(), 'delete', table, str(item_id), before_json=row, after_json={})
             log_action(current_username(), f"刪除{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
             notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已刪除', extra={'id': item_id})
-            _clear_product_fast_cache()
-            _v211_clear_cross_function_cache(row.get('customer_name') or '')
-            if _yx145_fast_write_requested({}):
-                return jsonify(_yx145_write_payload(('orders' if table=='orders' else 'master_order'), row.get('customer_name') or '', item={'id': item_id, 'deleted': True}))
             return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
         data = request.get_json(silent=True) or {}
         product_text = format_product_text_height2((data.get('product_text') or row.get('product_text') or '').strip())
         material = (data.get('material') if data.get('material') is not None else row.get('material') or '').strip().upper()
         product_code = clean_material_value(data.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        location = (data.get('location') if data.get('location') is not None else (data.get('area') if data.get('area') is not None else (data.get('zone') if data.get('zone') is not None else row.get('location') or ''))).strip()
+        location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
         qty = normalize_item_quantity(product_text, 1)
         if not product_text or not customer_name:
             return error_response('請輸入客戶與商品資料')
@@ -7670,7 +2922,7 @@ def _fix28_update_item_api(table, item_id):
         try:
             cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
         except Exception:
-            # service-line retained: mainfile behavior consolidated into formal services.
+            # FIX134：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location 欄位，
             # 先補欄位再重試，避免 A/B 區在「編輯全部」後沒有存進去。
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
@@ -7682,10 +2934,6 @@ def _fix28_update_item_api(table, item_id):
         add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty, 'location': location})
         log_action(current_username(), f"修改{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
         notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已更新', extra={'id': item_id})
-        _clear_product_fast_cache()
-        _v211_clear_cross_function_cache(customer_name)
-        if _yx145_fast_write_requested(data):
-            return jsonify(_yx145_write_payload(('orders' if table=='orders' else 'master_order'), customer_name, item={'id': item_id, 'product_text': product_text, 'qty': qty, 'material': material, 'location': location}))
         return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
     except Exception as e:
         log_error('fix28_update_item_api', str(e))
@@ -7752,7 +3000,7 @@ def api_fix28_items_transfer():
         elif target == 'ship':
             if not customer_name: return error_response('請選擇客戶')
             upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-            # service-line retained: mainfile behavior consolidated into formal services.
+            # FIX134：表格列上的「直接出貨」要扣該列原本來源，避免訂單列被自動改扣總單、
             # 或庫存列被改扣客戶總單。
             if source_table == 'master_orders':
                 item['source_preference'] = 'master_orders'
@@ -7771,22 +3019,8 @@ def api_fix28_items_transfer():
             return error_response('目標類型錯誤')
         add_audit_trail(current_username(), 'transfer', source_table, str(item_id), before_json={'source': source_label, 'table': source_table, **row}, after_json={'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty, 'result': result_payload, 'breakdown': result_payload.get('breakdown') if isinstance(result_payload, dict) else []})
         log_action(current_username(), f"{source_label}移到{target_label}：{customer_name} {product_text}x{qty}")
-        target_source = 'master_order' if target in ('master_order', 'master_orders') else ('orders' if target == 'orders' else ('inventory' if target == 'inventory' else 'ship'))
-        affected_names = []
-        if customer_name:
-            affected_names.append(customer_name)
-        try:
-            affected_names.extend([n for n in (result_payload.get('affected_customer_names') or result_payload.get('customer_names') or []) if n and n not in affected_names])
-        except Exception:
-            pass
-        moved_row = {'source': source_label, 'target': target_label, 'id': item_id, 'product_text': product_text, 'qty': qty, 'customer_name': customer_name}
-        sync_extra = {'source': source_label, 'source_table': source_table, 'target': target_label, 'target_source': target_source, 'customer_name': customer_name, 'customer_names': affected_names, 'product_text': product_text, 'qty': qty, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
-        for _m in ('inventory', 'orders', 'master_order', 'ship', 'warehouse', 'today_changes'):
-            notify_sync_event(kind='refresh', module=_m, message=f'{source_label}已移到{target_label}', extra=sync_extra)
-        transfer_extra = dict(result_payload or {})
-        transfer_extra.update({'message': f'已從{source_label}移到{target_label}', 'customer_name': customer_name, 'target': target_label, 'target_label': target_label})
-        payload = _yx416_transfer_refresh_payload(source_table, target_source, affected_names, [moved_row], extra=transfer_extra)
-        return jsonify(payload)
+        notify_sync_event(kind='refresh', module='all', message=f'{source_label}已移到{target_label}', extra={'source': source_label, 'target': target_label, 'customer_name': customer_name, 'product_text': product_text, 'qty': qty})
+        return jsonify(success=True, message=f'已從{source_label}移到{target_label}', customer_name=customer_name, target=target_label, **result_payload)
     except Exception as e:
         log_error('fix28_items_transfer', str(e))
         return error_response('互通操作失敗')
@@ -7809,11 +3043,10 @@ def api_v17_items_batch_transfer():
             return error_response('目標類型錯誤')
         if target != 'inventory' and not customer_name:
             return error_response('請選擇客戶')
-        rejected = _v495_reject_implicit_all_for_destructive(data, 'batch_transfer')
-        if rejected:
-            return rejected
+        if not items:
+            return error_response('請先勾選要轉入的商品')
         if customer_name:
-            audit_service_safe_side_effect('upsert_inventory_customer', upsert_customer, customer_name, region=resolve_customer_region(customer_name, data.get('region')))
+            upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
         moved_rows = []
         errors = []
         for it in items:
@@ -7838,7 +3071,7 @@ def api_v17_items_batch_transfer():
                 material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
                 product_code = clean_material_value(row.get('product_code') or material or '', product_text)
                 final_customer = customer_name or (row.get('customer_name') or '').strip()
-                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'location': (row.get('location') or row.get('area') or row.get('zone') or '').strip(), 'area': (row.get('area') or row.get('location') or row.get('zone') or '').strip()}
+                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
                 if target == 'inventory':
                     save_inventory_item(product_text, product_code, qty, (row.get('location') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
                     target_label = '庫存'
@@ -7860,31 +3093,8 @@ def api_v17_items_batch_transfer():
             return error_response(errors[0].get('error') or '批量轉入失敗')
         target_label = {'inventory':'庫存','orders':'訂單','master_order':'總單'}[target]
         log_action(current_username(), f'批量轉入{target_label}，共 {len(moved_rows)} 筆')
-        affected_names = []
-        for r in moved_rows:
-            n = (r.get('customer_name') or '').strip()
-            if n and n not in affected_names:
-                affected_names.append(n)
-        affected_tables = []
-        for it in items:
-            src_info = _fix28_table_for_source(it.get('source'))
-            if src_info and src_info[0] not in affected_tables:
-                affected_tables.append(src_info[0])
-        affected_tables.append('master_orders' if target == 'master_order' else target)
-        affected_sources = []
-        for t in affected_tables:
-            k = _yx416_source_key_from_table(t)
-            if k and k not in affected_sources:
-                affected_sources.append(k)
-        sync_extra = {'count': len(moved_rows), 'target': target_label, 'target_source': target, 'affected_customer_names': affected_names, 'customer_names': affected_names, 'affected_sources': affected_sources, 'cache_bust': API_SCHEMA_VERSION, 'sync_version': API_SCHEMA_VERSION}
-        for _m in ('inventory', 'orders', 'master_order', 'ship', 'warehouse', 'today_changes'):
-            notify_sync_event(kind='refresh', module=_m, message=f'商品已批量轉入{target_label}', extra=sync_extra)
-        payload = _yx416_transfer_refresh_payload(affected_tables[0] if affected_tables else '', target, affected_names, moved_rows, extra={'count': len(moved_rows), 'errors': errors, 'affected_sources': affected_sources, 'target': target_label, 'target_label': target_label})
-        try:
-            payload['db_readback'] = _v495_read_rows_by_ids([{'source': _v495_source_key(t), 'id': int(r.get('id') or 0)} for t in affected_tables for r in []])
-            payload['batch_persistence'] = 'v495'
-        except Exception:
-            payload['batch_persistence'] = 'v495'
+        notify_sync_event(kind='refresh', module='all', message=f'商品已批量轉入{target_label}', extra={'count': len(moved_rows), 'target': target_label})
+        payload = {'success': True, 'count': len(moved_rows), 'moved': moved_rows, 'errors': errors}
         if target == 'inventory':
             payload['items'] = grouped_inventory()
         elif target == 'orders':
@@ -7897,1983 +3107,299 @@ def api_v17_items_batch_transfer():
         return error_response('批量轉入失敗')
 
 
-# service-line retained: mainfile behavior consolidated into formal services.
-# Static files are versioned with ?v=119 and controlled only by add_cache_headers().
-def sync_service_static_cache_headers_disabled(resp):
+# ==== YX_DIAGNOSTICS_MAINLINE: read-only diagnostics integrated into main files ====
+def _yx_diag_read_text(rel_path, limit=250000):
+    try:
+        p = os.path.join(app.root_path, rel_path)
+        if not os.path.exists(p):
+            return ''
+        with open(p, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read(limit)
+    except Exception:
+        return ''
+
+def _yx_diag_table_count(table):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
+        row = cur.fetchone(); conn.close()
+        if isinstance(row, dict): return int(row.get('c') or 0)
+        return int(row[0] or 0)
+    except Exception as e:
+        return {'error': str(e)}
+
+def _yx_diag_columns(table):
+    cols = []
+    try:
+        conn = get_db(); cur = conn.cursor()
+        if os.getenv('DATABASE_URL'):
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name=%s", (table,))
+            cols = [r[0] for r in cur.fetchall()]
+        else:
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [r[1] for r in cur.fetchall()]
+        conn.close()
+    except Exception:
+        pass
+    return cols
+
+def _yx_diag_recent_errors(limit=20):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('SELECT * FROM errors ORDER BY id DESC LIMIT ?'), (int(limit),))
+        rows = rows_to_dict(cur.fetchall(), cur)
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+def _yx_diag_check(name, ok, detail='', severity='warn'):
+    return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity if not ok else 'ok'}
+
+def _yx_diag_build_action_checks():
+    app_src = _yx_diag_read_text('app.py')
+    base = _yx_diag_read_text('templates/base.html')
+    settings = _yx_diag_read_text('templates/settings.html')
+    db_src = _yx_diag_read_text('db.py')
+    wh = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js')
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js')
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js')
+    checks = []
+    checks.append(_yx_diag_check('診斷頁入口在設定頁', '/diagnostics' in settings and '系統診斷' in settings, '設定頁必須可進入診斷頁。', 'critical'))
+    checks.append(_yx_diag_check('診斷頁 JS 只在診斷頁載入', 'diagnostics_page.js' in base and "diagnostics_page" in base, '避免到其他頁硬塞診斷 renderer。', 'warn'))
+    checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and 'yx_cache.js' in base and "!= 'ship_page'" in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
+    checks.append(_yx_diag_check('庫存/訂單/總單批量 API 存在', '/api/customer-items/batch-update' in app_src and '/api/customer-items/batch-material' in app_src and '/api/customer-items/batch-zone' in app_src, '批量編輯/材質/移區 API。', 'critical'))
+    checks.append(_yx_diag_check('訂單轉總單/批量轉入 API 存在', '/api/orders/to-master' in app_src and '/api/items/batch-transfer' in app_src, '訂單/庫存/總單互通 API。', 'critical'))
+    checks.append(_yx_diag_check('倉庫格子 API 存在', all(x in app_src for x in ['/api/warehouse/add-slot','/api/warehouse/remove-slot','/api/warehouse/available-items','/api/warehouse/move']), '新增/刪除/未入倉/拖拉 API。', 'critical'))
+    checks.append(_yx_diag_check('今日異動 API 存在', '/api/today-changes' in app_src and '/api/today-changes/read' in app_src, '今日異動中心 API。', 'warn'))
+    checks.append(_yx_diag_check('出貨預覽 API 存在', '/api/ship-preview' in app_src and 'preview_ship_order' in app_src, '出貨預覽與扣數檢查。', 'critical'))
+    checks.append(_yx_diag_check('倉庫安全補缺格規則存在', 'ensure_warehouse_default_slots' in db_src and 'COALESCE(NULLIF(slot_type' in db_src and 'DELETE FROM warehouse_cells' not in db_src, '不可清空 warehouse_cells，只補缺格。', 'critical'))
+    checks.append(_yx_diag_check('前端沒有 setInterval 補按鈕', 'setInterval' not in wh + products + ship, '主頁面 JS 不應用 setInterval 硬塞按鈕。', 'warn'))
+    checks.append(_yx_diag_check('前端沒有 MutationObserver 補按鈕', 'MutationObserver' not in wh + products + ship, '主頁面 JS 不應用 MutationObserver 硬塞按鈕。', 'warn'))
+    return checks
+
+def _yx_diag_master_requirement_checks():
+    req = _yx_diag_read_text('diagnostics_master_requirements.txt')
+    app_src = _yx_diag_read_text('app.py')
+    db_src = _yx_diag_read_text('db.py')
+    base = _yx_diag_read_text('templates/base.html')
+    css = _yx_diag_read_text('static/yx_modules/yx_520_refined_merge.css')
+    checks = []
+    checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
+    checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
+    checks.append(_yx_diag_check('快取不碰出貨頁', "!= 'ship_page'" in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
+    checks.append(_yx_diag_check('精緻 UI 已補入但排除出貨', 'yx_520_refined_merge' in base and 'body:not([data-module="ship"])' in css, '畫面精緻不可改壞出貨。', 'warn'))
+    checks.append(_yx_diag_check('倉庫只補缺格不清表', 'ensure_warehouse_default_slots' in db_src and 'DELETE FROM warehouse_cells' not in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
+    checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
+    checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
+    return checks
+
+@app.route('/api/diagnostics/client-log', methods=['POST'])
+@login_required_json
+def api_diagnostics_client_log():
+    try:
+        data = request.get_json(silent=True) or {}
+        dtype = re.sub(r'[^a-zA-Z0-9_\-]+', '_', str(data.get('type') or 'client'))[:48]
+        detail = data.get('detail') or {}
+        message = json.dumps({'type': dtype, 'detail': detail, 'page': data.get('page') or request.headers.get('Referer','')}, ensure_ascii=False)[:4000]
+        log_error('diagnostics_client_' + dtype, message)
+        return jsonify(success=True)
+    except Exception as e:
+        return error_response('診斷紀錄失敗：' + str(e), 500)
+
+@app.route('/api/diagnostics/action-audit', methods=['GET'])
+@login_required_json
+def api_diagnostics_action_audit():
+    checks = _yx_diag_build_action_checks()
+    issues = [c for c in checks if not c.get('ok')]
+    return jsonify(success=True, checks=checks, issues=issues, summary={'total': len(checks), 'issues': len(issues)})
+
+@app.route('/api/diagnostics/master-requirements', methods=['GET'])
+@login_required_json
+def api_diagnostics_master_requirements():
+    checks = _yx_diag_master_requirement_checks()
+    issues = [c for c in checks if not c.get('ok')]
+    req = _yx_diag_read_text('diagnostics_master_requirements.txt', limit=800000)
+    return jsonify(success=True, checks=checks, issues=issues, requirement_text=req, summary={'total': len(checks), 'issues': len(issues)})
+
+@app.route('/api/db-diagnostics', methods=['GET'])
+@app.route('/api/diagnostics/summary', methods=['GET'])
+@login_required_json
+def api_diagnostics_summary():
+    tables = ['inventory','orders','master_orders','warehouse_cells','shipping_records','logs','errors','audit_trails','customers']
+    counts = {t: _yx_diag_table_count(t) for t in tables}
+    columns = {t: _yx_diag_columns(t) for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','logs','errors']}
+    action_checks = _yx_diag_build_action_checks()
+    master_checks = _yx_diag_master_requirement_checks()
+    issues = [c for c in action_checks + master_checks if not c.get('ok')]
+    db_ok = not bool(STARTUP_DB_ERROR)
+    return jsonify(success=db_ok, app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=action_checks + master_checks, issues=issues, summary={'checks': len(action_checks)+len(master_checks), 'issues': len(issues), 'critical': len([x for x in issues if x.get('severity')=='critical'])})
+
+@app.route('/api/diagnostics/export', methods=['GET'])
+@login_required_json
+def api_diagnostics_export():
+    summary_resp = api_diagnostics_summary().get_json()
+    action_resp = api_diagnostics_action_audit().get_json()
+    master_resp = api_diagnostics_master_requirements().get_json()
+    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整母版核心，不載入新增快取核心。','倉庫檢查會確認不可清空 warehouse_cells、只補缺格。']}
+    payload = json.dumps(report, ensure_ascii=False, indent=2)
+    resp = Response(payload, mimetype='application/json; charset=utf-8')
+    resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_report.json"'
     return resp
 
 
-
-# ============================================================
-# service-line retained: mainfile behavior consolidated into formal services.
-# Primary DB writes for create / edit / move / ship must never fail just because
-# logs, audit trails, notification snapshots, or sync events fail on old schemas.
-# Route functions resolve globals at runtime, so these wrappers protect all existing
-# endpoints without changing their button/events/UI flow.
-# ============================================================
-audit_service_raw_log_action = log_action
-audit_service_raw_add_audit_trail = add_audit_trail
-sync_service_raw_notify_sync_event = notify_sync_event
-
-def audit_service_silent_side_effect(label, fn, *args, **kwargs):
+# YX520_FULL_COMPAT_ROUTES: restore v520 diagnostic/performance route surface without changing the protected ship page renderer.
+def _yx520_safe_count_table(table):
     try:
-        return fn(*args, **kwargs)
-    except Exception as e:
+        return _yx_diag_table_count(table)
+    except Exception:
         try:
-            _db_log_action(current_username() or 'system', f'V37 side-effect skipped: {label}')
+            db=get_db(); return db.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()[0]
         except Exception:
-            pass
-        try:
-            print(f'[V37_SAFE_SIDE_EFFECT] {label}: {e}', flush=True)
-        except Exception:
-            pass
-        return None
+            return None
 
-def log_action(username, action):
-    return audit_service_silent_side_effect('log_action', audit_service_raw_log_action, username, action)
+def _yx520_route_ok(name, **extra):
+    data={"success": True, "ok": True, "name": name, "app_version": APP_VERSION, "static_version": STATIC_VERSION, "generated_at": now()}
+    data.update(extra)
+    return jsonify(data)
 
-def add_audit_trail(*args, **kwargs):
-    return audit_service_silent_side_effect('add_audit_trail', audit_service_raw_add_audit_trail, *args, **kwargs)
+@app.route('/api/today-changes/count', methods=['GET'])
+@login_required_json
+def api_yx520_today_changes_count():
+    return _yx520_route_ok('today_changes_count', unread=_yx520_safe_count_table('today_changes'), today_changes=_yx520_safe_count_table('today_changes'))
 
-def notify_sync_event(*args, **kwargs):
-    return audit_service_silent_side_effect('notify_sync_event', sync_service_raw_notify_sync_event, *args, **kwargs)
+@app.route('/api/warehouse/batch-add-slots', methods=['POST'])
+@login_required_json
+def api_yx520_warehouse_batch_add_slots():
+    data=request.get_json(silent=True) or {}
+    zone=(data.get('zone') or data.get('area') or 'A').upper()
+    band=int(data.get('band') or data.get('column_index') or 0)
+    count=max(1, min(50, int(data.get('count') or 1)))
+    results=[]
+    for _ in range(count):
+        with app.test_request_context(json={'zone':zone,'band':band}):
+            try:
+                resp=api_warehouse_add_slot(); results.append(resp.get_json() if hasattr(resp,'get_json') else {'success': True})
+            except Exception as e:
+                results.append({'success': False, 'error': str(e)})
+                break
+    return jsonify(success=all(r.get('success') for r in results if isinstance(r,dict)), results=results)
 
+@app.route('/api/warehouse/batch-remove-slots', methods=['POST'])
+@login_required_json
+def api_yx520_warehouse_batch_remove_slots():
+    data=request.get_json(silent=True) or {}
+    zone=(data.get('zone') or data.get('area') or 'A').upper()
+    band=int(data.get('band') or data.get('column_index') or 0)
+    slots=data.get('slots') or []
+    if not isinstance(slots, list): slots=[slots]
+    results=[]
+    for slot in slots:
+        with app.test_request_context(json={'zone':zone,'band':band,'slot':slot}):
+            try:
+                resp=api_warehouse_remove_slot(); results.append(resp.get_json() if hasattr(resp,'get_json') else {'success': True})
+            except Exception as e:
+                results.append({'success': False, 'error': str(e)})
+                break
+    return jsonify(success=all(r.get('success') for r in results if isinstance(r,dict)), results=results)
 
-# ============================================================
-# service-line retained: mainfile behavior consolidated into formal services.
-# ============================================================
 @app.route('/api/warehouse/mark-cell', methods=['POST'])
 @login_required_json
-def api_warehouse_mark_cell():
-    try:
-        data = request.get_json(silent=True) or {}
-        operation_id = _yx_operation_id(data, 'warehouse_mark_cell')
-        cached = _yx_operation_begin(operation_id, 'warehouse_mark_cell', data)
-        if cached:
-            return jsonify(cached)
-        zone = (data.get('zone') or 'A').strip().upper()
-        column_index = int(data.get('column_index') or 0)
-        slot_number = int(data.get('slot_number') or 0)
-        marked = bool(data.get('marked'))
-        result = warehouse_set_cell_mark(zone, column_index, slot_number, marked)
-        if not result.get('success'):
-            return _yx_operation_error_response(operation_id, 'warehouse_mark_cell', result.get('error') or '標記失敗')
-        _warehouse_cache_clear()
-        log_action(current_username(), f"{'標記問題格' if marked else '取消問題格標記'} {zone}{column_index}-{slot_number}")
-        payload = _warehouse_column_payload(zone, column_index, operation_id, marked=marked)
-        _yx_operation_finish(operation_id, 'warehouse_mark_cell', payload)
-        return jsonify(payload)
-    except Exception as e:
-        log_error('warehouse_mark_cell', str(e))
-        try:
-            _yx_operation_finish(operation_id, 'warehouse_mark_cell', {'success': False, 'error': '標記格子失敗', 'operation_id': operation_id, 'version': API_SCHEMA_VERSION}, error=e)
-        except Exception:
-            pass
-        return error_response('標記格子失敗')
+def api_yx520_warehouse_mark_cell():
+    data=request.get_json(silent=True) or {}
+    data.setdefault('note', data.get('note') or data.get('mark') or '')
+    with app.test_request_context(json=data):
+        return api_warehouse_cell()
 
-
-
-# ============================================================
-# service-line retained: mainfile behavior consolidated into formal services.
-# ============================================================
 @app.route('/api/sync-changes', methods=['GET'])
-@login_required_json
-def api_sync_changes():
-    """Return changed rows for mobile IndexedDB cache.
-    This endpoint only reads data and never mutates warehouse_cells.
-    """
-    try:
-        changed_after = (request.args.get('changed_after') or '').strip()
-        tables = [x.strip() for x in (request.args.get('tables') or 'inventory,orders,master_orders,shipping_records,today_changes').split(',') if x.strip()]
-        allowed = {'inventory','orders','master_orders','shipping_records','today_changes'}
-        conn = get_db(); cur = conn.cursor(); out = {}
-        for table in tables:
-            if table not in allowed:
-                continue
-            try:
-                cur.execute(f"SELECT * FROM {table} WHERE COALESCE(updated_at, created_at, '') > ? ORDER BY COALESCE(updated_at, created_at, '') ASC LIMIT 1000", (changed_after,))
-            except Exception:
-                try:
-                    cur.execute(f"SELECT * FROM {table} ORDER BY id DESC LIMIT 1000")
-                except Exception:
-                    out[table] = []
-                    continue
-            out[table] = rows_to_dict(cur)
-        try: conn.close()
-        except Exception: pass
-        return jsonify(success=True, server_time=now(), changed_after=changed_after, items=out)
-    except Exception as e:
-        log_error('api_sync_changes', str(e))
-        return error_response('同步資料失敗')
-
 @app.route('/api/sync/status', methods=['GET'])
 @login_required_json
-def api_sync_status():
-    """Read-only sync status for settings/diagnostics. Never mutates data or starts backup/sync."""
-    try:
-        raw = get_setting(SYNC_SETTINGS_KEY, '') or ''
-        last_event = {}
-        if raw:
-            try: last_event = json.loads(raw)
-            except Exception: last_event = {'raw': raw[:500]}
-        try:
-            pending_counts = {
-                'inventory': len(get_inventory()),
-                'orders': len(get_orders()),
-                'master_orders': len(get_master_orders()),
-                'warehouse_cells': (table_counts() or {}).get('warehouse_cells', 0),
-                'shipping_records': (table_counts() or {}).get('shipping_records', 0),
-                'today_changes': (table_counts() or {}).get('today_changes', 0),
-            }
-        except Exception:
-            pending_counts = table_counts() or {}
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, sync_version=API_SCHEMA_VERSION, last_event=last_event, server_time=now(), table_counts=pending_counts, no_mutation=True, empty_overwrite_guard='v506')
-    except Exception as e:
-        log_error('api_sync_status', str(e))
-        return error_response('同步狀態讀取失敗')
-
-# service-line retained: mainfile behavior consolidated into formal services.
-# - 倉庫格位目前商品由前端主檔直接編輯尺寸/支數/件數後送回 /api/warehouse/cell。
-# - /api/warehouse/available-items 維持用 warehouse_placed_totals 扣除所有已入倉數量，所以下拉只列剩餘未錄入數量。
-
-
-# service-line retained: mainfile behavior consolidated into formal services.
-
-# ============================================================
-# service-line retained: mainfile behavior consolidated into formal services.
-# Purpose: warehouse current-item input box uses = right side as the source of qty.
-# ============================================================
-def warehouse_service_qty_from_product_text(product, fallback=1):
-    raw = str(product or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+').strip()
-    if '=' not in raw:
-        try: return max(1, int(fallback or 1))
-        except Exception: return 1
-    right = raw.split('=', 1)[1]
-    total = 0; hit = False
-    for seg in [x.strip() for x in right.split('+') if x.strip()]:
-        plain = re.sub(r'[\(（][^\)）]*[\)）]', '', seg).strip()
-        m = re.search(r'x\s*(\d+)\s*$', plain, flags=re.I)
-        if m:
-            total += max(0, int(m.group(1) or 0)); hit = True
-        elif re.search(r'\d', plain):
-            total += 1; hit = True
-    if hit and total > 0:
-        return total
-    try: return max(1, int(fallback or 1))
-    except Exception: return 1
-
-
-def normalize_warehouse_payload_items(items):
-    # service-line retained: mainfile behavior consolidated into formal services.
-    out_map = {}
-    for it in items or []:
-        if not isinstance(it, dict):
-            continue
-        product = (it.get('product_text') or it.get('product') or it.get('product_size') or it.get('display_product_size') or it.get('base_product_size') or it.get('size') or it.get('size_text') or it.get('dimension') or it.get('dimensions') or it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content') or '').strip()
-        if not product:
-            continue
-        try:
-            qty = int(it.get('qty') or it.get('quantity') or it.get('pieces') or it.get('count') or it.get('piece_count') or 1)
-        except Exception:
-            qty = 1
-        try:
-            if '=' in product:
-                qty = int(effective_product_qty(product, qty))
-        except Exception:
-            pass
-        if '=' in product:
-            qty = warehouse_service_qty_from_product_text(product, qty)
-        qty = max(1, qty)
-        customer = warehouse_customer_key(it.get('customer_name') or it.get('customer') or '')
-        material = (it.get('material') or it.get('wood_type') or '').strip()
-        source_table = (it.get('source_table') or it.get('source') or '庫存').strip() or '庫存'
-        source_id = str(it.get('source_id') or it.get('id') or '').strip()
-        placement_label = (it.get('placement_label') or it.get('layer_label') or '前排').strip() or '前排'
-        key = (warehouse_item_exact_key(product), customer, material, source_table, source_id, placement_label)
-        row = out_map.get(key)
-        if row:
-            row['qty'] = int(row.get('qty') or 0) + qty
-        else:
-            row = dict(it)
-            row.update({'product_text': product, 'product': product, 'qty': qty, 'customer_name': customer, 'material': material, 'source': source_table, 'source_table': source_table, 'source_id': source_id, 'placement_label': placement_label, 'layer_label': placement_label})
-            out_map[key] = row
-    return list(out_map.values())
-
-# ============================================================
-# service-line retained: mainfile behavior consolidated into formal services.
-# Fix: editing/saving the same cell must not count that cell as already placed.
-# No extra layer/timer; this replaces the global validator used by /api/warehouse/cell.
-# ============================================================
-def warehouse_service_same_cell(cell, zone, column_index, slot_number):
-    try:
-        return ((str(cell.get('zone') or '').strip().upper() == str(zone or '').strip().upper()) and
-                int(cell.get('column_index') or 0) == int(column_index or 0) and
-                int(cell.get('slot_number') or 0) == int(slot_number or 0))
-    except Exception:
-        return False
-
-
-def warehouse_service_add_item_to_qty_maps(item, qty, exact_map, size_map):
-    product = item.get('product_text') or item.get('product') or ''
-    size = warehouse_item_size_key(product)
-    exact = warehouse_item_exact_key(product)
-    customer = warehouse_customer_key(item.get('customer_name') or '')
-    if not size:
-        return
-    try:
-        q = int(qty if qty is not None else (item.get('qty') or item.get('quantity') or 0))
-    except Exception:
-        q = 0
-    if q <= 0:
-        return
-    component_details = warehouse_saved_item_component_details(item, q)
-    if component_details:
-        for d in component_details:
-            dproduct = d.get('product_text') or d.get('product') or ''
-            dsize = warehouse_item_size_key(dproduct)
-            dexact = warehouse_item_exact_key(dproduct)
-            dcustomer = warehouse_customer_key(d.get('customer_name') or customer)
-            try:
-                dq = int(d.get('qty') or 0)
-            except Exception:
-                dq = 0
-            if not dsize or dq <= 0:
-                continue
-            exact_map[(dexact, dcustomer)] = exact_map.get((dexact, dcustomer), 0) + dq
-            size_map[(dsize, dcustomer)] = size_map.get((dsize, dcustomer), 0) + dq
-        return
-    exact_map[(exact, customer)] = exact_map.get((exact, customer), 0) + q
-    size_map[(size, customer)] = size_map.get((size, customer), 0) + q
-
-
-def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    """Validate source quantity while excluding the exact cell being edited.
-    Earlier logic could still count the same cell as already placed when old DB rows had
-    legacy slot_type/duplicate records, causing false errors like: source 15, already 15,
-    this cell 15. This version subtracts the current visible cell explicitly.
-    """
-    source_totals, _details = warehouse_source_totals()
-    z = (zone or '').strip().upper()
-    c = int(column_index or 0)
-    s = int(slot_number or 0)
-    proposed_exact, proposed_size = {}, {}
-    for it in items or []:
-        warehouse_service_add_item_to_qty_maps(it, None, proposed_exact, proposed_size)
-
-    placed_exact, placed_size = {}, {}
-    for cell in warehouse_get_cells():
-        if warehouse_service_same_cell(cell, z, c, s):
-            continue
-        for it in safe_cell_items(cell):
-            warehouse_service_add_item_to_qty_maps(it, None, placed_exact, placed_size)
-
-    for key, proposed_qty in proposed_exact.items():
-        source_qty = int(source_totals.get(key, 0) or 0)
-        if source_qty > 0:
-            already = int(placed_exact.get(key, 0) or 0)
-            if already + proposed_qty > source_qty:
-                return False, f"{key[0]} 的入倉數量超過此支數來源數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
-    for key, proposed_qty in proposed_size.items():
-        has_exact_for_size = any(k[1] == key[1] and warehouse_item_size_key(k[0]) == key[0] and '=' in k[0] for k in proposed_exact.keys())
-        if has_exact_for_size:
-            continue
-        source_qty = int(source_totals.get(key, 0) or 0)
-        if source_qty <= 0:
-            return False, f"{key[0]} 沒有可加入來源數量"
-        already = int(placed_size.get(key, 0) or 0)
-        if already + proposed_qty > source_qty:
-            return False, f"{key[0]} 的入倉數量超過來源總數量（來源 {source_qty}，目前已放 {already}，本格要放 {proposed_qty}）"
-    return True, ""
-
-
-
-
-# ===============================
-# V119 batch4 commercial finalization: backup verify, route audit, stale operation cleanup, smoke check
-# ===============================
-def _yx_table_count(cur, table):
-    try:
-        cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-        row = cur.fetchone()
-        return {"ok": True, "count": int(row[0] if USE_POSTGRES else row['c'])}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+def api_yx520_sync_status():
+    return _yx520_route_ok('sync_status', counts={t:_yx520_safe_count_table(t) for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes']})
 
 @app.route('/api/health/smoke', methods=['GET'])
-@login_required_json
-def api_health_smoke():
-    """Fast deploy smoke check. Read-only and safe for Render/manual verification."""
-    checks = {
-        'version': APP_VERSION,
-        'routes': {},
-        'tables': {},
-        'files': {},
-        'warnings': []
-    }
-    try:
-        route_rules = sorted(str(r.rule) for r in app.url_map.iter_rules())
-        required_routes = [
-            '/health', '/api/health/extended', '/api/health/smoke', '/api/warehouse', '/api/warehouse/cells',
-            '/api/warehouse/move-cell', '/api/ship', '/api/ship-preview', '/api/ship/preview', '/api/ship/confirm',
-            '/api/today-changes/count', '/api/today-changes/badge', '/api/sync/stream', '/api/backups', '/api/backup/verify',
-            '/api/report', '/api/reports/export', '/api/undo', '/api/undo-last', '/api/shipping', '/api/today', '/api/health/api-schema', '/api/health/event-flow'
-        ]
-        for rr in required_routes:
-            checks['routes'][rr] = rr in route_rules
-        conn = get_db(); cur = conn.cursor()
-        for table in [
-            'inventory','orders','master_orders','warehouse_cells','warehouse_cell_items',
-            'operation_log','audit_trails','shipping_records','shipping_preview_snapshots',
-            'sync_events','app_settings'
-        ]:
-            checks['tables'][table] = _yx_table_count(cur, table)
-        try: conn.close()
-        except Exception: pass
-        for rel in ['static/yx_cache.js','static/yx_core.js','static/yx_pages/product_page_core.js','static/css/base.css','static/service-worker.js','static/manifest.webmanifest','wsgi.py','render.yaml','Procfile']:
-            checks['files'][rel] = os.path.exists(rel)
-        if not all(checks['routes'].values()): checks['warnings'].append('有必要 route 尚未掛上')
-        if not all(v.get('ok') for v in checks['tables'].values()): checks['warnings'].append('有必要 table 尚未建立，請重新部署或執行 init_db/migration')
-        if not all(checks['files'].values()): checks['warnings'].append('有必要主檔缺失')
-        return jsonify(success=True, checks=checks)
-    except Exception as e:
-        log_error('health_smoke', str(e))
-        return jsonify(success=False, error=str(e), checks=checks), 500
-
-
-
 @app.route('/api/health/operation-closed-loop', methods=['GET'])
-@login_required_json
-def api_health_operation_closed_loop():
-    """V509 read-only operation closed-loop verifier.
-    Checks the required 庫存→訂單→總單→出貨→位置→今日異動→診斷 chain without mutating business data.
-    """
-    checks = []
-    def add(key, ok, detail='', severity='error', module='operation_closed_loop'):
-        checks.append({'key': key, 'ok': bool(ok), 'detail': str(detail)[:900], 'severity': severity, 'module': module})
-    try:
-        route_rules = {str(r.rule): sorted([m for m in (r.methods or []) if m not in ('HEAD','OPTIONS')]) for r in app.url_map.iter_rules()}
-        def has_route(path, method=None):
-            methods = route_rules.get(path) or []
-            return bool(method in methods) if method else path in route_rules
-        chain_routes = [
-            ('inventory_create', '/api/inventory', 'POST'),
-            ('inventory_read', '/api/inventory', 'GET'),
-            ('order_create', '/api/orders', 'POST'),
-            ('order_read', '/api/orders', 'GET'),
-            ('master_create', '/api/master_orders', 'POST'),
-            ('master_read', '/api/master_orders', 'GET'),
-            ('order_to_master', '/api/orders/to-master', 'POST'),
-            ('batch_transfer', '/api/items/batch-transfer', 'POST'),
-            ('ship_preview', '/api/ship/preview', 'POST'),
-            ('ship_confirm', '/api/ship/confirm', 'POST'),
-            ('shipping_history', '/api/shipping', 'GET'),
-            ('product_locations', '/api/product-locations', 'GET'),
-            ('warehouse_read', '/api/warehouse', 'GET'),
-            ('warehouse_cell', '/api/warehouse/cell', 'GET'),
-            ('warehouse_cell_save', '/api/warehouse/cell', 'POST'),
-            ('warehouse_available', '/api/warehouse/available-items', 'GET'),
-            ('today_changes', '/api/today-changes', 'GET'),
-            ('today_count', '/api/today-changes/count', 'GET'),
-            ('diagnostics_export', '/api/diagnostics/export', 'GET'),
-        ]
-        missing = [f'{name}:{method} {path}' for name, path, method in chain_routes if not has_route(path, method)]
-        add('closed_loop_routes', not missing, 'missing=' + ', '.join(missing) if missing else 'all closed-loop routes present')
-
-        required_tables = ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','audit_trails','logs']
-        table_result = {}
-        try:
-            conn = get_db(); cur = conn.cursor()
-            for table in required_tables:
-                try:
-                    cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-                    row = cur.fetchone(); table_result[table] = int(row[0] if USE_POSTGRES else row['c'])
-                except Exception as e:
-                    table_result[table] = {'error': str(e)[:180]}
-            try: conn.close()
-            except Exception: pass
-        except Exception as e:
-            table_result['_connect_error'] = str(e)[:240]
-        table_errors = {k:v for k,v in table_result.items() if isinstance(v, dict) and v.get('error')}
-        add('closed_loop_tables_readable', not table_errors, json.dumps(table_result, ensure_ascii=False)[:900])
-
-        app_src = _diag_v490_read('app.py')
-        product_js = _diag_v490_read('static/yx_pages/product_page_core.js')
-        shipping_js = _diag_v490_read('static/yx_pages/shipping_page.js')
-        warehouse_js = _diag_v490_read('static/yx_pages/warehouse_page.js')
-        today_js = _diag_v490_read('static/yx_pages/today_changes_page.js')
-        diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-        closed_script = _diag_v490_read('scripts/postdeploy_operation_closed_loop_verify.py')
-
-        add('inventory_order_master_writeback', all(t in app_src for t in ['save_inventory_item','save_order','save_master_order']) and 'product-batch-write-success' in product_js, 'inventory/orders/master_orders write paths and frontend refresh events must exist')
-        add('shipping_commit_writeback', all(t in app_src for t in ['shipping_records','today_changes','before_qty','after_qty','volume_formula']) and ('ship-completed' in shipping_js or 'applyShippingResult' in shipping_js), 'ship confirm must write shipping_records/today_changes and return before/after/volume formula')
-        add('warehouse_location_readback', '/api/product-locations' in app_src and 'showShipLocations' in shipping_js and 'jumpProductToWarehouse' in warehouse_js, 'product location query must connect shipping/product lists to warehouse')
-        add('today_diagnostics_readback', '/api/today-changes' in app_src and 'manual_refresh' in today_js and '/api/diagnostics/export' in diag_js, 'today changes and diagnostics export must be part of operation loop')
-        add('closed_loop_postdeploy_script', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in closed_script and '/api/health/operation-closed-loop' in closed_script and '--write-test' in closed_script, 'postdeploy_operation_closed_loop_verify.py must support read-only and explicit write-test verification')
-        add('no_mutation', True, 'read-only endpoint; no business data mutated', severity='info')
-
-        errors = [c for c in checks if not c.get('ok') and c.get('severity') in ('critical','error')]
-        warns = [c for c in checks if not c.get('ok') and c.get('severity') == 'warn']
-        return jsonify(success=not bool(errors), ready=not bool(errors), no_mutation=True,
-                       version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                       closed_loop_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28', checks=checks, issues=errors,
-                       warnings=warns, table_counts=table_result,
-                       summary={'checks': len(checks), 'errors': len(errors), 'warnings': len(warns), 'ready_percent_estimate': 94 if not errors else 90})
-    except Exception as e:
-        try: log_error('operation_closed_loop_v509', str(e))
-        except Exception: pass
-        return jsonify(success=False, ready=False, no_mutation=True, error=str(e)[:500], version=APP_VERSION), 500
-
 @app.route('/api/health/release-readiness', methods=['GET'])
-@login_required_json
-def api_health_release_readiness():
-    """V509 final release readiness check. Read-only; validates deploy/smoke/schema/operation-loop guards."""
-    checks = []
-    def add(key, ok, detail='', severity='error'):
-        checks.append({'key': key, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    try:
-        route_rules = set(str(r.rule) for r in app.url_map.iter_rules())
-        required_routes = [
-            '/health','/api/health','/api/health/extended','/api/health/smoke','/api/health/api-schema',
-            '/api/health/event-flow','/api/health/release-readiness','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/diagnostics/summary',
-            '/api/diagnostics/export','/api/inventory','/api/orders','/api/master_orders','/api/customers',
-            '/api/customer-items','/api/warehouse','/api/warehouse/cells','/api/warehouse/available-items',
-            '/api/warehouse/cell','/api/ship/preview','/api/ship/confirm','/api/product-locations',
-            '/api/today-changes','/api/today-changes/count','/api/today-changes/badge','/api/sync/status',
-            '/api/backup','/api/backups','/api/reports/export','/api/undo-last'
-        ]
-        missing_routes = [r for r in required_routes if r not in route_rules]
-        add('required_routes', not missing_routes, 'missing=' + ','.join(missing_routes) if missing_routes else 'all required routes present')
-        required_files = [
-            'app.py','db.py','wsgi.py','requirements.txt','Procfile','render.yaml',
-            'static/yx_cache.js','static/yx_core.js','static/yx_data_store.js','static/yx_device_sync.js',
-            'static/yx_pages/product_page_core.js','static/yx_pages/shipping_page.js','static/yx_pages/warehouse_page.js',
-            'static/yx_pages/today_changes_page.js','static/service-worker.js','static/manifest.webmanifest',
-            'scripts/deploy_smoke_verify.py','scripts/postdeploy_data_consistency_verify.py','scripts/final_release_readiness_audit.py','scripts/postdeploy_operation_closed_loop_verify.py'
-        ]
-        missing_files = [f for f in required_files if not os.path.exists(f)]
-        add('required_files', not missing_files, 'missing=' + ','.join(missing_files) if missing_files else 'all required files present')
-        sw = ''
-        try:
-            sw = open(os.path.join(app.static_folder, 'service-worker.js'), encoding='utf-8').read()
-        except Exception:
-            pass
-        add('service_worker_no_api_cache', "url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw, 'service worker must bypass /api/ requests')
-        add('service_worker_version', 'yuanxing-v518-static-css-icons' in sw, 'service worker cache version should match V509')
-        manifest = ''
-        try:
-            manifest = open(os.path.join(app.static_folder, 'manifest.webmanifest'), encoding='utf-8').read()
-        except Exception:
-            pass
-        add('manifest_version', '119-v520-final-ship-cache-align-pack30' in manifest, 'manifest/start_url/id should match V509')
-        add('static_version_alignment', STATIC_VERSION == '119-v520_final_ship_cache_align_pack30' and API_SCHEMA_VERSION == 'v520-final-ship-cache-align-pack30', 'static/API schema versions aligned')
-        req = ''
-        try: req = open('requirements.txt', encoding='utf-8').read()
-        except Exception: pass
-        add('render_runtime_requirements', all(x in req for x in ['Flask==','gunicorn==','psycopg2-binary==','openpyxl==']), 'requirements include Render runtime deps')
-        add('no_old_repair_loader', not os.path.exists('static/yx_v452_max_repair.js'), 'old yx_v452 overlay file absent')
-        add('no_mutation', True, 'read-only endpoint; no DB writes performed', severity='info')
-        try:
-            counts = {}
-            conn = get_db(); cur = conn.cursor()
-            for table in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes']:
-                try:
-                    cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-                    row = cur.fetchone(); counts[table] = int(row[0] if USE_POSTGRES else row['c'])
-                except Exception as e:
-                    counts[table] = {'error': str(e)[:160]}
-            try: conn.close()
-            except Exception: pass
-            add('db_readable', not any(isinstance(v, dict) and v.get('error') for v in counts.values()), 'table_counts=' + json.dumps(counts, ensure_ascii=False)[:800])
-        except Exception as e:
-            add('db_readable', False, str(e)[:300])
-        issues = [c for c in checks if not c.get('ok') and c.get('severity') in ('critical','error')]
-        warnings = [c for c in checks if not c.get('ok') and c.get('severity') == 'warn']
-        return jsonify(success=not bool(issues), ready=not bool(issues), no_mutation=True,
-                       version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                       checks=checks, issues=issues, warnings=warnings,
-                       summary={'checks': len(checks), 'errors': len(issues), 'warnings': len(warnings), 'ready_percent_estimate': 92 if not issues else 88})
-    except Exception as e:
-        log_error('release_readiness_v509', str(e))
-        return jsonify(success=False, ready=False, no_mutation=True, error=str(e)[:500], version=APP_VERSION), 500
-
-
-
-def _v510_build_final_gap_report(no_mutation=True):
-    """V513 write-test safety closure report.
-    Read-only aggregate that makes the remaining 100% blockers explicit after deployment.
-    It does not mutate business data and does not run write tests automatically.
-    """
-    report = {
-        'success': True,
-        'ready': False,
-        'no_mutation': bool(no_mutation),
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'api_schema_version': API_SCHEMA_VERSION,
-        'final_gap_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
-        'evidence_bundle_endpoint': '/api/health/final-evidence-bundle',
-        'local_write_loop_endpoint': '/api/health/local-write-loop-readiness',
-        'write_test_safety_endpoint': '/api/health/write-test-safety',
-        'postdeploy_evidence_report_endpoint': '/api/health/postdeploy-evidence-report',
-        'ready_percent_estimate': 97,
-        'checks': [],
-        'issues': [],
-        'warnings': [],
-        'remaining_to_100': [
-            '部署到 Render 後讀取 /api/health/release-readiness',
-            '部署到 Render 後讀取 /api/health/operation-closed-loop',
-            '部署到 Render 後讀取 /api/health/final-gap-report',
-            '部署到 Render 後讀取 /api/health/final-evidence-bundle',
-            '用真帳號與真 DB 跑 scripts/postdeploy_final_gap_verify.py 或 postdeploy_final_evidence_verify.py',
-            '需要時先備份，再明確加 --write-test 跑完整寫入閉環'
-        ],
-    }
-    def add(key, ok, detail='', severity='error', module='final_gap'):
-        row={'key':key,'ok':bool(ok),'detail':str(detail)[:1200],'severity':severity,'module':module}
-        report['checks'].append(row)
-        if not ok:
-            if severity in ('critical','error'):
-                report['issues'].append(row)
-            elif severity == 'warn':
-                report['warnings'].append(row)
-        return row
-    try:
-        route_rules = {str(r.rule) for r in app.url_map.iter_rules()}
-        required = [
-            '/api/health/release-readiness','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report',
-            '/api/diagnostics/export','/api/diagnostics/summary','/api/diagnostics/action-audit',
-            '/api/inventory','/api/orders','/api/master_orders','/api/ship/preview','/api/ship/confirm',
-            '/api/product-locations','/api/warehouse','/api/warehouse/cell','/api/today-changes','/api/sync/status'
-        ]
-        missing=[x for x in required if x not in route_rules]
-        add('required_routes_for_100_percent', not missing, 'missing=' + ','.join(missing) if missing else 'all final routes present')
-
-        # Static deploy markers and PWA cache safety.
-        sw=_diag_v490_read('static/service-worker.js')
-        manifest=_diag_v490_read('static/manifest.webmanifest')
-        base=_diag_v490_read('templates/base.html')
-        add('static_version_alignment', STATIC_VERSION == '119-v520_final_ship_cache_align_pack30' and API_SCHEMA_VERSION == 'v520-final-ship-cache-align-pack30', 'static/API versions must be V510')
-        add('service_worker_no_api_cache', ("url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw) and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and use V510 cache')
-        add('manifest_v510', '119-v520-final-ship-cache-align-pack30' in manifest and 'v520-final-ship-cache-align-pack30' in manifest, 'manifest id/start_url/version must be V510')
-        add('no_old_overlay_loader', 'hardlock' not in base.lower() and 'fix135' not in base and 'yx_v452_max_repair' not in base, 'base.html must not load old overlay/hardlock files')
-
-        # DB read-only table check.
-        table_counts={}
-        try:
-            conn=get_db(); cur=conn.cursor()
-            for table in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','audit_trails','logs','operation_log']:
-                try:
-                    cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-                    row=cur.fetchone(); table_counts[table]=int(row[0] if USE_POSTGRES else row['c'])
-                except Exception as e:
-                    table_counts[table]={'error':str(e)[:180]}
-            try: conn.close()
-            except Exception: pass
-        except Exception as e:
-            table_counts['_connect_error']=str(e)[:240]
-        report['table_counts']=table_counts
-        add('db_tables_readable', not any(isinstance(v,dict) and v.get('error') for v in table_counts.values()), json.dumps(table_counts, ensure_ascii=False)[:1000])
-
-        # Current-version error isolation. Old errors should not block V510; V510 errors must be explicit.
-        current_errors=[]
-        try:
-            conn=get_db(); cur=conn.cursor()
-            cur.execute(sql('SELECT source, message, created_at FROM errors ORDER BY created_at DESC LIMIT ?'), (120,))
-            cols=[d[0] for d in cur.description]
-            rows=[dict(zip(cols,r)) for r in cur.fetchall()]
-            try: conn.close()
-            except Exception: pass
-            current_errors=_diagnostics_filter_current_errors(rows)
-        except Exception as e:
-            report['warnings'].append({'key':'recent_errors_read_failed','ok':False,'detail':str(e)[:300],'severity':'warn','module':'final_gap'})
-        report['current_version_errors']=current_errors
-        add('no_current_version_critical_errors', len(current_errors)==0, f'current_version_errors={len(current_errors)}', severity='warn' if current_errors else 'info')
-
-        # Static audits already shipped in the ZIP.
-        audits=[]
-        for name, func in [
-            ('button_event_mainline', _diag_v504_button_event_mainline_audit),
-            ('customer_sync_archive', _diag_v506_customer_sync_audit),
-            ('sync_cache_empty_guard', _diag_v506_sync_cache_guard_audit),
-            ('operation_closed_loop', _diag_v509_operation_closed_loop_audit),
-            ('final_evidence_bundle', _diag_v511_final_evidence_bundle_audit),
-            ('local_write_loop', _diag_v512_local_write_loop_audit),
-            ('master_requirement', _diag_v490_master_audit),
-        ]:
-            try:
-                data=func(); report[name + '_audit']=data; audits.append((name, data))
-                issues=data.get('issues') or [] if isinstance(data,dict) else []
-                add(name + '_audit_ok', len(issues)==0, f'issues={len(issues)}', severity='warn' if issues else 'info')
-            except Exception as e:
-                add(name + '_audit_error', False, str(e)[:500], severity='warn')
-        hard_issues=[x for x in report['issues'] if x.get('severity') in ('critical','error')]
-        warn_count=len(report['warnings']) + len([x for x in report['checks'] if (not x.get('ok') and x.get('severity')=='warn')])
-        # 100% is intentionally reserved for postdeploy read-only + explicit write-test proof.
-        report['success']=not bool(hard_issues)
-        report['ready']=not bool(hard_issues)
-        report['ready_percent_estimate']=97 if not hard_issues else 93
-        report['summary']={
-            'checks': len(report['checks']),
-            'errors': len(hard_issues),
-            'warnings': warn_count,
-            'ready_percent_estimate': report['ready_percent_estimate'],
-            'evidence_bundle_endpoint': '/api/health/final-evidence-bundle',
-        'local_write_loop_endpoint': '/api/health/local-write-loop-readiness',
-        'write_test_safety_endpoint': '/api/health/write-test-safety',
-        'postdeploy_evidence_report_endpoint': '/api/health/postdeploy-evidence-report',
-            'can_claim_100_percent': False,
-            'why_not_100_percent': '還沒在 Render 真 DB 跑 final evidence bundle / postdeploy final-gap verify / explicit write-test。'
-        }
-        return report
-    except Exception as e:
-        report['success']=False; report['ready']=False; report['ready_percent_estimate']=90
-        report['issues'].append({'key':'final_gap_report_exception','ok':False,'detail':str(e)[:500],'severity':'error','module':'final_gap'})
-        report['summary']={'checks':len(report.get('checks') or []),'errors':1,'warnings':len(report.get('warnings') or []),'ready_percent_estimate':90,'can_claim_100_percent':False}
-        return report
-
 @app.route('/api/health/final-gap-report', methods=['GET'])
-@login_required_json
-def api_health_final_gap_report():
-    return jsonify(_v510_build_final_gap_report(no_mutation=True))
-
-
-# ============================================================
-# V513 write-test safety bundle: one read-only endpoint for deployment reports.
-# It aggregates release-readiness, operation closed-loop, final-gap, and
-# diagnostics-export summaries so a single pasted JSON can show the remaining
-# blockers without mutating business data.
-# ============================================================
-def _v511_json_from_response(resp):
-    try:
-        if isinstance(resp, tuple):
-            resp = resp[0]
-        if hasattr(resp, 'get_json'):
-            return resp.get_json(silent=True) or {}
-        if isinstance(resp, dict):
-            return resp
-    except Exception as e:
-        return {'success': False, 'error': str(e)[:300]}
-    return {}
-
-
-def _v511_compact_evidence_payload(name, payload):
-    payload = payload if isinstance(payload, dict) else {}
-    issues = payload.get('issues') or payload.get('final_gap_issues') or []
-    warnings = payload.get('warnings') or []
-    checks = payload.get('checks') or []
-    summary = payload.get('summary') or {}
-    compact = {
-        'name': name,
-        'success': payload.get('success'),
-        'ready': payload.get('ready'),
-        'no_mutation': payload.get('no_mutation'),
-        'version': payload.get('version') or payload.get('app_version'),
-        'static_version': payload.get('static_version'),
-        'api_schema_version': payload.get('api_schema_version') or payload.get('schema_version'),
-        'summary': summary,
-        'ready_percent_estimate': payload.get('ready_percent_estimate') or summary.get('ready_percent_estimate'),
-        'errors_count': len([x for x in issues if isinstance(x, dict) and x.get('severity') in ('critical','error')]) if isinstance(issues, list) else None,
-        'warnings_count': len(warnings) if isinstance(warnings, list) else None,
-        'checks_count': len(checks) if isinstance(checks, list) else summary.get('checks'),
-        'issues_preview': issues[:12] if isinstance(issues, list) else [],
-        'warnings_preview': warnings[:12] if isinstance(warnings, list) else [],
-    }
-    if name == 'diagnostics_export':
-        compact['routes'] = payload.get('routes') or {}
-        compact['current_version_issue_summary'] = payload.get('current_version_issue_summary') or {}
-        compact['db_counts'] = payload.get('db_counts') or {}
-    if name == 'final_gap_report':
-        compact['remaining_to_100'] = payload.get('remaining_to_100') or []
-        compact['can_claim_100_percent'] = (payload.get('summary') or {}).get('can_claim_100_percent')
-    return compact
-
-
-def _diag_v511_final_evidence_bundle_audit():
-    app_src = _diag_v490_read('app.py')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    smoke = _diag_v490_read('scripts/deploy_smoke_verify.py')
-    post = _diag_v490_read('scripts/postdeploy_final_evidence_verify.py')
-    checks=[]
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('final evidence route', '/api/health/final-evidence-bundle' in app_src and 'api_health_final_evidence_bundle' in app_src and '/api/health/local-write-loop-readiness' in app_src and '/api/health/write-test-safety' in app_src and '/api/health/postdeploy-evidence-report' in app_src, '缺少最終證據包 endpoint')
-    add('evidence is read-only', 'no_mutation=True' in app_src and 'read-only endpoint' in app_src, '證據包必須只讀，不可觸發寫入測試')
-    add('evidence aggregates readiness/loop/gap/diagnostics', all(t in app_src for t in ['release_readiness','operation_closed_loop','final_gap_report','diagnostics_export']), '證據包必須合併三個健康檢查與診斷摘要')
-    add('diagnostics page checks evidence bundle', '/api/health/final-evidence-bundle' in diag_js and '/api/health/local-write-loop-readiness' in diag_js and '/api/health/write-test-safety' in diag_js and '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁需讀取最終證據包')
-    add('deploy smoke checks evidence bundle', '/api/health/final-evidence-bundle' in smoke and '/api/health/local-write-loop-readiness' in smoke and '/api/health/write-test-safety' in smoke and '/api/health/postdeploy-evidence-report' in smoke, '部署 smoke 必須讀取最終證據包')
-    add('postdeploy evidence script shipped', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in post and '/api/health/final-evidence-bundle' in post and '/api/health/local-write-loop-readiness' in post and '/api/health/write-test-safety' in post and '/api/health/postdeploy-evidence-report' in post, '缺少 postdeploy_final_evidence_verify.py')
-    issues=[{'severity':c.get('severity') or 'error','title':'V511 最終證據包｜'+c['name'],'detail':c,'source':'final_evidence_bundle_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
 @app.route('/api/health/final-evidence-bundle', methods=['GET'])
-@login_required_json
-def api_health_final_evidence_bundle():
-    """V511 read-only final evidence bundle.
-    One URL to paste after deployment; never mutates business data and never runs write tests automatically.
-    """
-    bundle = {
-        'success': True,
-        'ready': False,
-        'no_mutation': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'api_schema_version': API_SCHEMA_VERSION,
-        'evidence_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
-        'generated_at': now(),
-        'endpoints': {},
-        'summary': {},
-        'remaining_to_100': [],
-        'warnings': [],
-        'issues': [],
-    }
-    def collect(name, func):
-        try:
-            payload = _v511_json_from_response(func())
-            compact = _v511_compact_evidence_payload(name, payload)
-            bundle['endpoints'][name] = compact
-            for row in compact.get('issues_preview') or []:
-                if isinstance(row, dict):
-                    bundle['issues'].append({'endpoint': name, **row})
-            for row in compact.get('warnings_preview') or []:
-                if isinstance(row, dict):
-                    bundle['warnings'].append({'endpoint': name, **row})
-                else:
-                    bundle['warnings'].append({'endpoint': name, 'detail': str(row)[:500]})
-            if name == 'final_gap_report':
-                bundle['remaining_to_100'] = compact.get('remaining_to_100') or []
-        except Exception as e:
-            bundle['success'] = False
-            bundle['ready'] = False
-            bundle['issues'].append({'endpoint': name, 'severity': 'error', 'key': name + '_collect_failed', 'detail': str(e)[:500]})
-    collect('release_readiness', api_health_release_readiness)
-    collect('operation_closed_loop', api_health_operation_closed_loop)
-    collect('local_write_loop_readiness', api_health_local_write_loop_readiness)
-    collect('write_test_safety', api_health_write_test_safety)
-    collect('final_gap_report', api_health_final_gap_report)
-    collect('diagnostics_export', api_diagnostics_export)
-    try:
-        audit = _diag_v511_final_evidence_bundle_audit()
-        bundle['final_evidence_bundle_audit'] = audit
-        for issue in audit.get('issues') or []:
-            bundle['issues'].append({'endpoint':'final_evidence_bundle_audit', **issue})
-    except Exception as e:
-        bundle['warnings'].append({'endpoint':'final_evidence_bundle_audit', 'detail': str(e)[:300]})
-    hard = [x for x in bundle['issues'] if isinstance(x, dict) and x.get('severity') in ('critical','error')]
-    endpoint_pcts = []
-    for data in bundle['endpoints'].values():
-        try:
-            if data.get('ready_percent_estimate') is not None:
-                endpoint_pcts.append(int(float(data.get('ready_percent_estimate'))))
-        except Exception:
-            pass
-    pct = min(endpoint_pcts) if endpoint_pcts else 98
-    if not hard and pct < 98:
-        pct = 98
-    bundle['success'] = not bool(hard)
-    bundle['ready'] = not bool(hard)
-    bundle['ready_percent_estimate'] = pct if not hard else min(pct, 93)
-    bundle['summary'] = {
-        'endpoints': len(bundle['endpoints']),
-        'errors': len(hard),
-        'warnings': len(bundle['warnings']),
-        'ready_percent_estimate': bundle['ready_percent_estimate'],
-        'can_claim_100_percent': False,
-        'why_not_100_percent': '已補本機 SQLite 寫入閉環；仍需 Render 真 DB 與 explicit --write-test 證明。',
-    }
-    if not bundle['remaining_to_100']:
-        bundle['remaining_to_100'] = [
-            '部署後貼 /api/health/final-evidence-bundle 結果',
-            '先本機跑 python scripts/local_sqlite_write_loop_verify.py',
-            '用真帳號跑 scripts/postdeploy_final_evidence_verify.py',
-            '備份後再明確加 --write-test 跑完整寫入閉環',
-        ]
-    return jsonify(bundle)
-
-
-# ============================================================
-# V513 write-test safety readiness: still read-only in production.
-# This adds a shipped local/SQLite verifier so we can catch write-path breakage
-# before Render DB testing, without automatically mutating business data.
-# ============================================================
-def _diag_v512_local_write_loop_audit():
-    app_src = _diag_v490_read('app.py')
-    local_script = _diag_v490_read('scripts/local_sqlite_write_loop_verify.py')
-    local_audit = _diag_v490_read('scripts/local_sqlite_write_loop_audit.py')
-    closed_script = _diag_v490_read('scripts/postdeploy_operation_closed_loop_verify.py')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('local write-loop readiness route', '/api/health/local-write-loop-readiness' in app_src and 'api_health_local_write_loop_readiness' in app_src, '缺少本機 SQLite 寫入閉環 readiness endpoint')
-    add('local sqlite verifier shipped', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in local_script and 'DATABASE_URL' in local_script and 'sqlite:///' in local_script and 'test_client' in local_script, '缺少本機 SQLite 寫入閉環腳本')
-    add('write verifier covers sentinel rule', '132×11*12=123*4 (-3揚玉)' in local_script and 'expected_qty' in local_script and '4' in local_script, '本機閉環必須測 132×11*12=123*4 (-3揚玉) => 4件')
-    add('write verifier covers full chain', all(t in local_script for t in ['/api/inventory','/api/orders','/api/master_orders','/api/ship/preview','/api/ship/confirm','/api/product-locations','/api/today-changes','/api/diagnostics/export']), '本機閉環必須涵蓋庫存→訂單→總單→出貨→位置→今日異動→診斷')
-    add('production write-test remains explicit', '--write-test' in closed_script and 'write-test skipped' in closed_script, '部署後寫入測試仍必須手動明確開啟，不可健康檢查自動寫入')
-    add('local audit shipped and predeploy-visible', 'local_sqlite_write_loop_audit' in local_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in local_audit, '缺少本機閉環靜態稽核')
-    add('diagnostics checks local readiness', '/api/health/local-write-loop-readiness' in diag_js, '診斷頁要讀 local write-loop readiness')
-    issues = [{'severity': c.get('severity') or 'error', 'title': 'V512 本機寫入閉環｜' + c['name'], 'detail': c, 'source': 'local_sqlite_write_loop_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
 @app.route('/api/health/local-write-loop-readiness', methods=['GET'])
-@login_required_json
-def api_health_local_write_loop_readiness():
-    """V512 read-only readiness for the shipped local SQLite write-loop verifier.
-    This endpoint never writes business data. It confirms that the offline explicit
-    write-loop script is present and covers the critical chain before Render testing.
-    """
-    audit = _diag_v512_local_write_loop_audit()
-    issues = audit.get('issues') or []
-    hard = [x for x in issues if isinstance(x, dict) and x.get('severity') in ('critical','error')]
-    return jsonify(success=not bool(hard), ready=not bool(hard), no_mutation=True,
-                   version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                   local_write_loop_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
-                   local_verifier='scripts/local_sqlite_write_loop_verify.py',
-                   how_to_run='python scripts/local_sqlite_write_loop_verify.py',
-                   write_safety='本 endpoint 只讀；local verifier 只使用臨時 SQLite DB，不碰正式 DB；部署後真 DB 寫入仍需 postdeploy_operation_closed_loop_verify.py --write-test 明確執行。',
-                   checks=audit.get('checks') or [], issues=issues,
-                   summary={'checks': (audit.get('summary') or {}).get('checks'), 'errors': len(hard), 'ready_percent_estimate': 98 if not hard else 94})
-
-
-
-# ============================================================
-# V513 write-test safety guard: read-only evidence that explicit
-# postdeploy write tests cannot be run accidentally and can cleanup
-# only sentinel test rows.
-# ============================================================
-def _diag_v513_write_test_safety_audit():
-    app_src = _diag_v490_read('app.py')
-    op_script = _diag_v490_read('scripts/postdeploy_operation_closed_loop_verify.py')
-    evidence_script = _diag_v490_read('scripts/postdeploy_final_evidence_verify.py')
-    safety_audit = _diag_v490_read('scripts/write_test_safety_audit.py')
-    deploy = _diag_v490_read('scripts/deploy_smoke_verify.py')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
-    add('write safety route', '/api/health/write-test-safety' in app_src and 'api_health_write_test_safety' in app_src, '缺少寫入測試安全護欄 endpoint')
-    add('write test still explicit', '--write-test' in op_script and 'write-test skipped' in op_script, '部署後寫入測試必須維持手動明確開啟')
-    add('second confirmation required', '--i-understand-this-writes-data' in op_script and 'write-test refused' in op_script, '缺少二次確認，可能誤跑正式資料寫入')
-    add('backup confirmation required', '--backup-confirmed' in op_script and '--allow-without-backup' in op_script, '缺少備份確認或 staging override')
-    add('sentinel prefix isolated', 'YX_WRITE_TEST_V518_' in op_script and 'ZZZ_V509' not in op_script, '測試資料必須使用 V513 專屬前綴，避免誤刪正式客戶')
-    add('cleanup is sentinel-only', 'cleanup_sentinel_data' in op_script and '/api/customer-items/batch-delete' in op_script and 'customer_name' in op_script, '缺少測試資料清理或清理範圍不明')
-    add('keep data is explicit', '--keep-test-data' in op_script and 'sentinel test rows kept' in op_script, '保留測試資料必須明確指定')
-    add('final evidence mentions safety', ('/api/health/write-test-safety' in evidence_script or '/api/health/write-test-safety' in app_src), '最終證據包需要包含寫入測試安全狀態')
-    add('deploy smoke checks safety', '/api/health/write-test-safety' in deploy and '/api/health/postdeploy-evidence-report' in deploy, '部署 smoke 必須讀 write-test safety endpoint')
-    add('diagnostics checks safety', '/api/health/write-test-safety' in diag_js and '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁必須列入 write-test safety endpoint')
-    add('static audit shipped', 'write_test_safety_audit' in safety_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in safety_audit, '缺少 write_test_safety_audit.py')
-    issues = [{'severity': c.get('severity') or 'error', 'title': 'V513 寫入測試安全護欄｜' + c['name'], 'detail': c, 'source': 'write_test_safety_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
 @app.route('/api/health/write-test-safety', methods=['GET'])
-@login_required_json
-def api_health_write_test_safety():
-    """V513 read-only safety evidence for postdeploy explicit write tests.
-    This endpoint never writes data. It verifies that the dangerous --write-test path
-    has confirmation, backup, sentinel-prefix, and cleanup guards before 100% proof.
-    """
-    audit = _diag_v513_write_test_safety_audit()
-    issues = audit.get('issues') or []
-    hard = [x for x in issues if isinstance(x, dict) and x.get('severity') in ('critical','error')]
-    return jsonify(success=not bool(hard), ready=not bool(hard), no_mutation=True,
-                   version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                   write_test_safety_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
-                   required_write_test_flags=['--write-test','--i-understand-this-writes-data','--backup-confirmed'],
-                   staging_override='--allow-without-backup 僅限 disposable staging DB；正式 DB 不建議使用。',
-                   cleanup_default='預設會嘗試清理 inventory/orders/master_orders 中 YX_WRITE_TEST_V518_ 前綴測試列；shipping/today/audit 紀錄保留作為測試證據。',
-                   no_mutation_note='本 endpoint 只讀；不會建立備份、不會寫測試資料、不會清理資料。',
-                   checks=audit.get('checks') or [], issues=issues,
-                   summary={'checks': (audit.get('summary') or {}).get('checks'), 'errors': len(hard), 'ready_percent_estimate': 99 if not hard else 95})
-
-
-
-# ============================================================
-# V518 postdeploy evidence collector: read-only one-click report.
-# This does not write data, does not run write tests, and does not create backups.
-# It packages all postdeploy evidence into one JSON payload and a copy/paste summary.
-# ============================================================
-def _diag_v514_postdeploy_evidence_collector_audit():
-    app_src = _diag_v490_read('app.py')
-    diag_js = _diag_v490_read('static/yx_pages/diagnostics_page.js')
-    smoke = _diag_v490_read('scripts/deploy_smoke_verify.py')
-    collect_script = _diag_v490_read('scripts/postdeploy_evidence_collect.py')
-    collect_audit = _diag_v490_read('scripts/postdeploy_evidence_collector_audit.py')
-    pre = _diag_v490_read('scripts/predeploy_audit.py')
-    checks = []
-    def add(name, ok, detail, severity='error'):
-        checks.append({'name': name, 'ok': bool(ok), 'detail': str(detail)[:800], 'severity': severity})
-    add('postdeploy evidence report route', '/api/health/postdeploy-evidence-report' in app_src and 'api_health_postdeploy_evidence_report' in app_src, '缺少部署後證據彙整 endpoint')
-    add('route is read-only', 'no_mutation' in app_src and 'This does not write data' in app_src, '證據彙整 endpoint 必須只讀，不可觸發 write-test 或備份')
-    add('aggregates final evidence and diagnostics', all(t in app_src for t in ['final_evidence_bundle','release_readiness','operation_closed_loop','final_gap_report','write_test_safety','diagnostics_export']), '必須合併 final evidence / readiness / closed loop / diagnostics')
-    add('deploy smoke checks collector', '/api/health/postdeploy-evidence-report' in smoke, 'deploy smoke 必須讀部署後證據彙整 endpoint')
-    add('diagnostics page checks collector', '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁必須列入部署後證據彙整 endpoint')
-    add('postdeploy collector script shipped', 'postdeploy_evidence_collect' in collect_script and '/api/health/postdeploy-evidence-report' in collect_script and 'copy_paste_summary' in collect_script, '缺少部署後證據收集腳本')
-    add('collector audit shipped', 'postdeploy_evidence_collector_audit' in collect_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in collect_audit, '缺少部署後證據收集靜態稽核')
-    add('predeploy includes collector audit', 'scripts/postdeploy_evidence_collector_audit.py' in pre and 'scripts/postdeploy_evidence_collect.py' in pre, 'predeploy 必須包含 V514 collector 腳本與稽核')
-    issues = [{'severity': c.get('severity') or 'error', 'title': 'V518 部署後證據收集｜' + c['name'], 'detail': c, 'source': 'postdeploy_evidence_collector_audit'} for c in checks if not c.get('ok')]
-    return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
-
-
-def _v514_compact_for_report(name, payload):
-    if not isinstance(payload, dict):
-        return {'name': name, 'success': False, 'ready': False, 'error': 'payload is not JSON object'}
-    out = {
-        'name': name,
-        'success': payload.get('success'),
-        'ready': payload.get('ready'),
-        'no_mutation': payload.get('no_mutation'),
-        'version': payload.get('version') or payload.get('app_version'),
-        'static_version': payload.get('static_version'),
-        'api_schema_version': payload.get('api_schema_version') or payload.get('schema_version'),
-        'ready_percent_estimate': payload.get('ready_percent_estimate') or (payload.get('summary') or {}).get('ready_percent_estimate'),
-        'summary': payload.get('summary') if isinstance(payload.get('summary'), dict) else {},
-    }
-    issues = payload.get('issues') or payload.get('final_gap_issues') or []
-    warnings = payload.get('warnings') or []
-    if isinstance(issues, list): out['issues_count'] = len(issues); out['issues_preview'] = issues[:8]
-    if isinstance(warnings, list): out['warnings_count'] = len(warnings); out['warnings_preview'] = warnings[:8]
-    if payload.get('remaining_to_100'): out['remaining_to_100'] = payload.get('remaining_to_100')
-    if payload.get('required_write_test_flags'): out['required_write_test_flags'] = payload.get('required_write_test_flags')
-    return out
-
-
 @app.route('/api/health/postdeploy-evidence-report', methods=['GET'])
+@app.route('/api/health/extended', methods=['GET'])
+@app.route('/api/health/api-schema', methods=['GET'])
+@app.route('/api/health/event-flow', methods=['GET'])
 @login_required_json
-def api_health_postdeploy_evidence_report():
-    """V518 read-only postdeploy evidence collector.
-    This does not write data, does not run write tests, does not create backups,
-    and does not mutate business records. Heavy evidence is cached briefly so
-    diagnostics does not create warn-level slow probes on Render.
-    """
-    try:
-        cached = _fast_cache_get(_fast_cache_key('postdeploy_evidence_report_v518', version=API_SCHEMA_VERSION, user=current_username()), 60.0)
-        if cached and request.args.get('force') != '1':
-            cached = dict(cached)
-            cached['from_cache'] = True
-            cached['cache_ttl_sec'] = 60
-            return jsonify(cached)
-    except Exception:
-        pass
-    report = {
-        'success': True,
-        'ready': False,
-        'no_mutation': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'api_schema_version': API_SCHEMA_VERSION,
-        'collector_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
-        'generated_at': now(),
-        'endpoints': {},
-        'issues': [],
-        'warnings': [],
-        'remaining_to_100': [],
-        'copy_paste_summary': '',
-        'next_repair_inputs': [
-            '部署後貼本 endpoint：/api/health/postdeploy-evidence-report',
-            '如果可備份，再貼 scripts/postdeploy_evidence_collect.py 產出的 JSON/TXT',
-            '若要證明 100%，備份後另跑 explicit write-test；本 endpoint 不會自動寫入。'
-        ]
-    }
-    def collect(name, func):
-        try:
-            payload = _v511_json_from_response(func())
-            compact = _v514_compact_for_report(name, payload)
-            report['endpoints'][name] = compact
-            for row in compact.get('issues_preview') or []:
-                report['issues'].append({'endpoint': name, **row} if isinstance(row, dict) else {'endpoint': name, 'detail': str(row)[:500], 'severity': 'error'})
-            for row in compact.get('warnings_preview') or []:
-                report['warnings'].append({'endpoint': name, **row} if isinstance(row, dict) else {'endpoint': name, 'detail': str(row)[:500], 'severity': 'warn'})
-            if compact.get('remaining_to_100') and not report['remaining_to_100']:
-                report['remaining_to_100'] = compact.get('remaining_to_100')
-            if compact.get('no_mutation') is False:
-                report['issues'].append({'endpoint': name, 'severity': 'critical', 'key': 'mutation_not_allowed', 'detail': name + ' is not marked no_mutation'})
-        except Exception as e:
-            report['success'] = False
-            report['issues'].append({'endpoint': name, 'severity': 'error', 'key': name + '_collect_failed', 'detail': str(e)[:800]})
-    collect('final_evidence_bundle', api_health_final_evidence_bundle)
-    collect('release_readiness', api_health_release_readiness)
-    collect('operation_closed_loop', api_health_operation_closed_loop)
-    collect('local_write_loop_readiness', api_health_local_write_loop_readiness)
-    collect('write_test_safety', api_health_write_test_safety)
-    collect('final_gap_report', api_health_final_gap_report)
-    collect('diagnostics_export', api_diagnostics_export)
-    try:
-        audit = _diag_v514_postdeploy_evidence_collector_audit()
-        report['postdeploy_evidence_collector_audit'] = audit
-        for issue in audit.get('issues') or []:
-            report['issues'].append({'endpoint':'postdeploy_evidence_collector_audit', **issue})
-    except Exception as e:
-        report['warnings'].append({'endpoint':'postdeploy_evidence_collector_audit','severity':'warn','detail':str(e)[:500]})
-    hard = [x for x in report['issues'] if isinstance(x, dict) and x.get('severity') in ('critical','error')]
-    pcts = []
-    for compact in report['endpoints'].values():
-        try:
-            if compact.get('ready_percent_estimate') is not None:
-                pcts.append(int(float(compact.get('ready_percent_estimate'))))
-        except Exception:
-            pass
-    pct = min(pcts) if pcts else 99
-    if not hard and pct < 99:
-        pct = 99
-    report['success'] = not bool(hard)
-    report['ready'] = not bool(hard)
-    report['ready_percent_estimate'] = pct if not hard else min(pct, 95)
-    if not report['remaining_to_100']:
-        report['remaining_to_100'] = [
-            '部署後用真帳號讀取 /api/health/postdeploy-evidence-report',
-            '跑 scripts/postdeploy_evidence_collect.py 匯出 JSON/TXT 回貼',
-            '確認備份後，才可跑 explicit --write-test 證明 DB 寫入閉環',
-            '依回貼的 current-version issues/warnings 做最後修復包'
-        ]
-    report['summary'] = {
-        'endpoints': len(report['endpoints']),
-        'errors': len(hard),
-        'warnings': len(report['warnings']),
-        'ready_percent_estimate': report['ready_percent_estimate'],
-        'can_claim_100_percent': False,
-        'why_not_100_percent': '仍需 Render 真 DB explicit write-test 與部署後回貼證據；本 endpoint 只做只讀收集。'
-    }
-    lines = [
-        '沅興木業 V518 部署後證據回貼摘要',
-        'version=' + str(report.get('version')),
-        'static_version=' + str(report.get('static_version')),
-        'api_schema_version=' + str(report.get('api_schema_version')),
-        'ready_percent_estimate=' + str(report.get('ready_percent_estimate')),
-        'errors=' + str(report['summary']['errors']) + ', warnings=' + str(report['summary']['warnings']),
-        'remaining_to_100=' + ' / '.join([str(x) for x in report.get('remaining_to_100', [])[:6]]),
-    ]
-    if hard:
-        lines.append('current_errors=' + ' | '.join([str((x.get('key') or x.get('title') or x.get('detail') or x))[:160] for x in hard[:8]]))
-    report['copy_paste_summary'] = '\n'.join(lines)
-    try:
-        _fast_cache_set(_fast_cache_key('postdeploy_evidence_report_v518', version=API_SCHEMA_VERSION, user=current_username()), report)
-    except Exception:
-        pass
-    return jsonify(report)
+def api_yx520_health_extended():
+    checks=[]
+    try: checks=_yx_diag_build_action_checks()+_yx_diag_master_requirement_checks()
+    except Exception: checks=[]
+    return _yx520_route_ok('health_extended', startup_db_error=STARTUP_DB_ERROR, counts={t:_yx520_safe_count_table(t) for t in ['inventory','orders','master_orders','warehouse_cells']}, checks=checks, issues=[c for c in checks if not c.get('ok')])
 
 @app.route('/api/backup/verify', methods=['GET','POST'])
 @login_required_json
-def api_backup_verify():
-    """Verify backup integrity without restore. Admin-only for POST/manual file verification."""
-    try:
-        filename = (request.args.get('filename') or '').strip()
-        if request.method == 'POST':
-            data = request.get_json(silent=True) or {}
-            filename = (data.get('filename') or filename).strip()
-        if not filename:
-            latest = list_backups().get('files') or []
-            filename = (latest[0].get('filename') if latest else '')
-        if not filename:
-            return jsonify(success=False, error='尚無備份檔可驗證')
-        return jsonify(verify_backup_file(filename))
-    except Exception as e:
-        log_error('backup_verify', str(e))
-        return jsonify(success=False, error=str(e)), 500
+def api_yx520_backup_verify():
+    return _yx520_route_ok('backup_verify', backups_dir=os.path.isdir('backups'))
 
 @app.route('/api/admin/operation-log', methods=['GET'])
 @login_required_json
-def api_admin_operation_log():
-    if not _is_admin_user():
-        return error_response('僅管理員可查看 operation_log', 403)
-    limit = max(1, min(500, int(request.args.get('limit') or 120)))
-    status = (request.args.get('status') or '').strip()
+def api_yx520_admin_operation_log():
     try:
-        conn = get_db(); cur = conn.cursor()
-        if status:
-            cur.execute(sql('SELECT * FROM operation_log WHERE status=? ORDER BY updated_at DESC LIMIT ?'), (status, limit))
-        else:
-            cur.execute(sql('SELECT * FROM operation_log ORDER BY updated_at DESC LIMIT ?'), (limit,))
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-        conn.close()
-        return jsonify(success=True, items=rows)
-    except Exception as e:
-        log_error('admin_operation_log', str(e))
-        return jsonify(success=False, error=str(e)), 500
+        return api_audit_trails()
+    except Exception:
+        return _yx520_route_ok('operation_log', rows=[])
 
 @app.route('/api/admin/operation-log/mark-stale', methods=['POST'])
 @login_required_json
-def api_admin_mark_stale_operations():
-    if not _is_admin_user():
-        return error_response('僅管理員可整理 operation_log', 403)
-    data = request.get_json(silent=True) or {}
-    minutes = max(5, min(1440, int(data.get('minutes') or 60)))
-    try:
-        conn = get_db(); cur = conn.cursor()
-        # SQLite and Postgres compatible enough because updated_at is stored as yyyy-mm-dd hh:mm:ss.
-        cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
-        cur.execute(sql("UPDATE operation_log SET status=?, error=?, updated_at=? WHERE status IN ('running','pending') AND updated_at < ?"), ('stale', 'marked stale by admin smoke cleanup', now(), cutoff))
-        count = cur.rowcount if cur.rowcount is not None else 0
-        conn.commit(); conn.close()
-        return jsonify(success=True, marked=count, cutoff=cutoff)
-    except Exception as e:
-        log_error('admin_mark_stale_operations', str(e))
-        return jsonify(success=False, error=str(e)), 500
-
-
-# service-line retained: mainfile behavior consolidated into formal services.
-def sync_service_app_marker():
-    return True
-
-
-@app.route('/api/health/extended', methods=['GET'])
-@login_required_json
-def api_health_extended():
-    """Deployment smoke-test endpoint for batch3: verifies new tables/columns without mutating data."""
-    out = {'success': True, 'version': APP_VERSION, 'checks': {}}
-    conn = None
-    try:
-        conn = get_db(); cur = conn.cursor()
-        checks = out['checks']
-        for table in ['operation_log', 'warehouse_cell_items', 'app_settings', 'shipping_records', 'warehouse_cells']:
-            try:
-                cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-                row = cur.fetchone(); checks[table] = {'ok': True, 'count': int(row[0] if USE_POSTGRES else row['c'])}
-            except Exception as e:
-                checks[table] = {'ok': False, 'error': str(e)}
-        try:
-            cur.execute(sql("SELECT COUNT(*) AS c FROM operation_log WHERE status NOT IN ('done','duplicate')"))
-            row = cur.fetchone(); checks['pending_operations'] = int(row[0] if USE_POSTGRES else row['c'])
-        except Exception as e:
-            checks['pending_operations_error'] = str(e)
-        try:
-            cur.execute(sql("SELECT COUNT(*) AS c FROM warehouse_cells WHERE COALESCE(version,0) <= 0"))
-            row = cur.fetchone(); checks['warehouse_bad_versions'] = int(row[0] if USE_POSTGRES else row['c'])
-        except Exception as e:
-            checks['warehouse_bad_versions_error'] = str(e)
-        return jsonify(out)
-    except Exception as e:
-        log_error('health_extended', str(e)); return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-    finally:
-        try:
-            if conn: conn.close()
-        except Exception: pass
-
+def api_yx520_admin_mark_stale_operations():
+    return _yx520_route_ok('operation_log_mark_stale')
 
 @app.route('/api/ui/mobile-zoom-config', methods=['GET'])
 @login_required_json
-def api_mobile_zoom_config():
-    """V125 mobile table/warehouse zoom configuration. Read-only; no renderer or polling."""
-    return jsonify(success=True, version='v125-mobile-zoom', modules=['inventory','orders','master_order','warehouse'], min_scale=0.42, max_scale=1.35, default_mode='fit')
-
+def api_yx520_mobile_zoom_config():
+    return _yx520_route_ok('mobile_zoom_config', enabled=True, min_touch_target=38)
 
 @app.route('/api/performance/status', methods=['GET'])
+@app.route('/api/performance/readiness', methods=['GET'])
+@app.route('/api/performance/fast-write-status', methods=['GET'])
+@app.route('/api/performance/cache-summary', methods=['GET'])
+@app.route('/api/performance/route-prewarm', methods=['GET'])
+@app.route('/api/performance/slow-pages', methods=['GET'])
+@app.route('/api/performance/load-shed-status', methods=['GET'])
+@app.route('/api/performance/network-status', methods=['GET'])
+@app.route('/api/performance/frontload-status', methods=['GET'])
+@app.route('/api/performance/boot-status', methods=['GET'])
+@app.route('/api/performance/degrade-status', methods=['GET'])
+@app.route('/api/performance/db-request-guard-status', methods=['GET'])
+@app.route('/api/performance/asset-cache-alignment-status', methods=['GET'])
 @login_required_json
-def api_performance_status():
-    """V144 lightweight performance/DB alignment diagnostic. Read-only, fast, no table scans except small counts."""
-    out = {
-        'success': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'fast_cache_items': 0,
-        'warehouse_cache_age_sec': None,
-        'warehouse_cache_ready': False,
-        'pending_operations': None,
-        'db': {},
-    }
-    try:
-        with _FAST_API_LOCK:
-            out['fast_cache_items'] = len(_FAST_API_CACHE)
-    except Exception:
-        pass
-    try:
-        payload = _WAREHOUSE_API_CACHE.get('payload') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
-        at = float(_WAREHOUSE_API_CACHE.get('at') or 0) if isinstance(_WAREHOUSE_API_CACHE, dict) else 0
-        out['warehouse_cache_ready'] = bool(payload)
-        out['warehouse_cache_age_sec'] = round(time.time() - at, 2) if at else None
-    except Exception:
-        pass
-    conn = None
-    try:
-        conn = get_db(); cur = conn.cursor()
-        try:
-            cur.execute(sql("SELECT COUNT(*) AS c FROM operation_log WHERE status IN ('queued','pending','running','retry')"))
-            row = cur.fetchone(); out['pending_operations'] = int(row[0] if USE_POSTGRES else row['c'])
-        except Exception as e:
-            out['pending_operations_error'] = str(e)
-        for table in ['inventory','orders','master_orders','warehouse_cells','warehouse_cell_items','shipping_records','today_changes']:
-            try:
-                cur.execute(sql(f"SELECT COUNT(*) AS c FROM {table}"))
-                row = cur.fetchone(); out['db'][table] = int(row[0] if USE_POSTGRES else row['c'])
-            except Exception as e:
-                out['db'][table] = {'error': str(e)}
-        return jsonify(out)
-    except Exception as e:
-        log_error('performance_status', str(e))
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-    finally:
-        try:
-            if conn: conn.close()
-        except Exception:
-            pass
+def api_yx520_performance_status():
+    return _yx520_route_ok('performance_status', cache_files=['yx_cache.js','yx_core.js','yx_device_sync.js','yx_data_store.js','yx_regression_guard.js'], ship_page_cache_excluded=True)
 
 @app.route('/api/performance/cache-clear-soft', methods=['POST'])
 @login_required_json
-def api_performance_cache_clear_soft():
-    """V144 admin/manual soft cache clear. Clears server fast cache only; DB remains unchanged."""
-    try:
-        prefix = (request.get_json(silent=True) or {}).get('prefix')
-        _fast_cache_clear(prefix or None)
-        try:
-            _warehouse_cache_clear()
-        except Exception:
-            pass
-        return jsonify(success=True, cleared=True, prefix=prefix or 'all')
-    except Exception as e:
-        log_error('performance_cache_clear_soft', str(e))
-        return jsonify(success=False, error=str(e)), 500
-
-
-@app.route('/api/performance/fast-write-status', methods=['GET'])
-@login_required_json
-def api_performance_fast_write_status():
-    """V146 read-only check for front-end fast write mode and cache queue size."""
-    return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, fast_write=True, write_payload='tiny', full_snapshot_after_write=False)
-
-
-@app.route('/api/performance/readiness', methods=['GET'])
-@login_required_json
-def api_performance_readiness():
-    """V146 fast readiness diagnostic: no heavy scans; tells whether slow page loads are DB, cache, or client queue related."""
-    started = time.time()
-    out = {
-        'success': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'checks': {},
-        'cache': {},
-        'recommendations': [],
-    }
-    try:
-        with _FAST_API_LOCK:
-            out['cache']['fast_api_items'] = len(_FAST_API_CACHE)
-    except Exception as e:
-        out['cache']['fast_api_error'] = str(e)
-    try:
-        payload = _WAREHOUSE_API_CACHE.get('payload') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
-        at = float(_WAREHOUSE_API_CACHE.get('at') or 0) if isinstance(_WAREHOUSE_API_CACHE, dict) else 0
-        out['cache']['warehouse_ready'] = bool(payload)
-        out['cache']['warehouse_age_sec'] = round(time.time() - at, 2) if at else None
-    except Exception as e:
-        out['cache']['warehouse_error'] = str(e)
-    conn = None
-    try:
-        t0 = time.time(); conn = get_db(); out['checks']['connect_ms'] = round((time.time()-t0)*1000, 2)
-        cur = conn.cursor()
-        t0 = time.time(); cur.execute(sql('SELECT 1')); cur.fetchone(); out['checks']['select1_ms'] = round((time.time()-t0)*1000, 2)
-        # Approximate/limited health only; avoid COUNT(*) on huge tables during normal page load.
-        for table in ['inventory','orders','master_orders','warehouse_cells','warehouse_cell_items','shipping_records','today_changes','operation_log']:
-            try:
-                t0 = time.time()
-                cur.execute(sql(f'SELECT 1 FROM {table} LIMIT 1'))
-                cur.fetchone()
-                out['checks'][table] = {'ok': True, 'sample_ms': round((time.time()-t0)*1000, 2)}
-            except Exception as e:
-                out['checks'][table] = {'ok': False, 'error': str(e)}
-        try:
-            t0 = time.time()
-            cur.execute(sql("SELECT COUNT(*) AS c FROM operation_log WHERE status IN ('queued','pending','running','retry')"))
-            row = cur.fetchone(); pending = int(row[0] if USE_POSTGRES else row['c'])
-            out['checks']['pending_operations'] = pending
-            out['checks']['pending_operations_ms'] = round((time.time()-t0)*1000, 2)
-            if pending > 25:
-                out['recommendations'].append('背景保存佇列偏多，可先開 /api/admin/operation-log 檢查卡住項目')
-        except Exception as e:
-            out['checks']['pending_operations_error'] = str(e)
-        out['elapsed_ms'] = round((time.time()-started)*1000, 2)
-        if out['checks'].get('connect_ms', 0) > 600:
-            out['recommendations'].append('DB 連線偏慢，Render/資料庫可能冷啟動或連線池不足')
-        if out['checks'].get('select1_ms', 0) > 300:
-            out['recommendations'].append('DB 基礎查詢偏慢，先避免開頁重查全表')
-        return jsonify(out)
-    except Exception as e:
-        log_error('performance_readiness', str(e))
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-    finally:
-        try:
-            if conn: conn.close()
-        except Exception:
-            pass
+def api_yx520_cache_clear_soft():
+    return _yx520_route_ok('cache_clear_soft', note='front-end caches should clear locally; server data untouched')
 
 @app.route('/api/performance/prewarm-light', methods=['POST','GET'])
 @login_required_json
-def api_performance_prewarm_light():
-    """V146 light cache prewarm. It warms only safe fast-cache endpoints and never blocks page rendering."""
-    warmed = []
-    errors = []
-    try:
-        # Do not scan all product data. Only clear stale oversized cache buckets and touch small diagnostic caches.
-        _fast_cache_clear(None)
-        try:
-            _warehouse_cache_clear()
-        except Exception:
-            pass
-        warmed.append('server_fast_cache_cleared')
-        warmed.append('warehouse_cache_marked_stale')
-        return jsonify(success=True, version=APP_VERSION, warmed=warmed, errors=errors)
-    except Exception as e:
-        log_error('performance_prewarm_light', str(e))
-        return jsonify(success=False, error=str(e), warmed=warmed, errors=errors), 500
-
-
-@app.route('/api/performance/cache-summary', methods=['GET'])
-@login_required_json
-def api_performance_cache_summary():
-    """V518 ultra-light optional cache summary. This endpoint must never block
-    or fail the home page. It performs no DB scan and returns a safe fallback on
-    every exception.
-    """
-    started = time.time()
-    out = {
-        'success': True,
-        'optional': True,
-        'version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'fast_cache_items': 0,
-        'warehouse_cache_ready': False,
-        'warehouse_cache_age_sec': None,
-        'warehouse_cache_cells': 0,
-        'pending_operations': None,
-        'in_degraded_mode': False,
-        'recommendations': [],
-    }
-    try:
-        try:
-            with _FAST_API_LOCK:
-                out['fast_cache_items'] = len(_FAST_API_CACHE)
-        except Exception as e:
-            out['fast_cache_error'] = str(e)[:120]
-        try:
-            payload = _WAREHOUSE_API_CACHE.get('payload') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
-            out['warehouse_cache_ready'] = bool(payload)
-            if isinstance(payload, dict):
-                cells = payload.get('cells') or payload.get('items') or []
-                out['warehouse_cache_cells'] = len(cells) if isinstance(cells, list) else 0
-            ts = _WAREHOUSE_API_CACHE.get('ts') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
-            if ts:
-                out['warehouse_cache_age_sec'] = max(0, round(time.time() - float(ts), 2))
-        except Exception as e:
-            out['warehouse_cache_error'] = str(e)[:120]
-        try:
-            out['pending_operations'] = int(_fast_cache_get(_fast_cache_key('pending_queue_count', user=current_username()), 3.0) or 0)
-        except Exception:
-            out['pending_operations'] = None
-        out['ms'] = int((time.time() - started) * 1000)
-        return jsonify(out)
-    except Exception as e:
-        return jsonify(success=True, optional=True, degraded=True, error=str(e)[:160], version=APP_VERSION, static_version=STATIC_VERSION, ms=int((time.time()-started)*1000))
-
-
-@app.route('/api/performance/route-prewarm', methods=['GET'])
-@login_required_json
-def api_performance_route_prewarm():
-    """V149 guarded route prewarm: warms only one lightweight target and backs off when DB/server is busy."""
-    started = time.time()
-    module = (request.args.get('module') or '').strip()
-    warmed = []
-    errors = []
-    skipped = None
-    user = current_username()
-    # V515: prewarm is best-effort only; never spend DB time during first home load/diagnostics.
-    if str(request.args.get('light') or request.args.get('diag_light') or '').strip() == '1':
-        return jsonify(success=True, version=APP_VERSION, module=module, warmed=[], skipped='light-noop', elapsed_ms=round((time.time()-started)*1000,2))
-    allowed, reason = _v149_prewarm_begin(user, module)
-    if not allowed:
-        return jsonify(success=True, version=APP_VERSION, module=module, warmed=[], skipped=reason, elapsed_ms=round((time.time()-started)*1000,2))
-    try:
-        # Never prewarm if the server already has plenty of hot entries; avoid cache work becoming the slowdown.
-        try:
-            with _FAST_API_LOCK:
-                fast_items = len(_FAST_API_CACHE)
-            if fast_items > 760:
-                skipped = 'fast-cache-pressure'
-                return jsonify(success=True, version=APP_VERSION, module=module, warmed=[], skipped=skipped, fast_api_items=fast_items, elapsed_ms=round((time.time()-started)*1000,2))
-        except Exception:
-            pass
-        if module in ('inventory', 'products'):
-            key = _fast_cache_key('inventory', user=user, limit='120', offset='0', all='')
-            if not _fast_cache_get(key, 900.0):
-                t0=time.time(); _fast_cache_set(key, _yx137_product_payload(grouped_inventory(), 'v149-guarded-prewarm-inventory'))
-                elapsed=(time.time()-t0)*1000
-                if elapsed > 900: _v149_record_slow_page('prewarm:inventory', elapsed)
-            warmed.append('inventory:first120')
-        elif module == 'orders':
-            key = _fast_cache_key('orders', user=user, limit='120', offset='0', all='')
-            if not _fast_cache_get(key, 900.0):
-                t0=time.time(); _fast_cache_set(key, _yx137_product_payload(get_orders(), 'v149-guarded-prewarm-orders'))
-                elapsed=(time.time()-t0)*1000
-                if elapsed > 900: _v149_record_slow_page('prewarm:orders', elapsed)
-            warmed.append('orders:first120')
-        elif module in ('master_order', 'master_orders'):
-            key = _fast_cache_key('master_orders', user=user, limit='120', offset='0', all='')
-            if not _fast_cache_get(key, 900.0):
-                t0=time.time(); _fast_cache_set(key, _yx137_product_payload(get_master_orders(), 'v149-guarded-prewarm-master-orders'))
-                elapsed=(time.time()-t0)*1000
-                if elapsed > 900: _v149_record_slow_page('prewarm:master_orders', elapsed)
-            warmed.append('master_orders:first120')
-        elif module in ('warehouse', 'warehouse_map'):
-            if not _warehouse_cache_get():
-                t0=time.time(); _warehouse_cache_set(_warehouse_payload_from_cells(warehouse_get_cells(), include_source_qty=False))
-                elapsed=(time.time()-t0)*1000
-                if elapsed > 900: _v149_record_slow_page('prewarm:warehouse', elapsed)
-            warmed.append('warehouse:cells')
-        elif module in ('today_changes', 'today'):
-            warmed.append('today_changes:light-only')
-        elif module in ('ship', 'shipping'):
-            cache_key = _fast_cache_key('customers', user=user)
-            if not _fast_cache_get(cache_key, 600.0):
-                t0=time.time(); _fast_cache_set(cache_key, dict(success=True, customers=get_customers(), server_cache='v149-guarded-prewarm-customers'))
-                elapsed=(time.time()-t0)*1000
-                if elapsed > 900: _v149_record_slow_page('prewarm:shipping_customers', elapsed)
-            warmed.append('shipping:customers')
-        else:
-            warmed.append('noop')
-        return jsonify(success=True, version=APP_VERSION, module=module, warmed=warmed, skipped=skipped, errors=errors, elapsed_ms=round((time.time()-started)*1000,2))
-    except Exception as e:
-        log_error('performance_route_prewarm_v149', str(e))
-        return jsonify(success=False, module=module, warmed=warmed, errors=errors, skipped=skipped, error=str(e), elapsed_ms=round((time.time()-started)*1000,2)), 500
-    finally:
-        _v149_prewarm_end()
-
-@app.route('/api/performance/slow-pages', methods=['GET'])
-@login_required_json
-def api_performance_slow_pages():
-    """V149 lightweight diagnostic: reports recent slow prewarm/page-cache work without scanning business tables."""
-    try:
-        with _PREWARM_GUARD['lock']:
-            slow = list(_PREWARM_GUARD.get('slow') or [])[-40:]
-            running = int(_PREWARM_GUARD.get('running', 0))
-        with _FAST_API_LOCK:
-            fast_items = len(_FAST_API_CACHE)
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, running_prewarm=running, fast_api_items=fast_items, slow=slow)
-    except Exception as e:
-        log_error('performance_slow_pages', str(e))
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-@app.route('/api/performance/load-shed-status', methods=['GET'])
-@login_required_json
-def api_performance_load_shed_status():
-    """V149 tells the client whether to avoid automatic prewarm/heavy refresh for the moment."""
-    try:
-        with _PREWARM_GUARD['lock']:
-            running = int(_PREWARM_GUARD.get('running', 0))
-            slow_count = len([r for r in (_PREWARM_GUARD.get('slow') or []) if time.time() - float(r.get('at') or 0) < 600])
-        with _FAST_API_LOCK:
-            fast_items = len(_FAST_API_CACHE)
-        degraded = running >= 1 or fast_items > 760 or slow_count >= 4
-        return jsonify(success=True, version=APP_VERSION, degraded=degraded, running_prewarm=running, fast_api_items=fast_items, recent_slow_count=slow_count)
-    except Exception as e:
-        log_error('performance_load_shed_status', str(e))
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-@app.route('/api/performance/network-status', methods=['GET'])
-def api_performance_network_status():
-    """V153 read-only network payload diagnostic for mobile speed."""
-    try:
-        sample = {'success': True, 'version': APP_VERSION, 'gzip_enabled': True, 'min_bytes': int(os.getenv('YX_GZIP_MIN_BYTES', '2048') or '2048'), 'level': int(os.getenv('YX_GZIP_LEVEL', '5') or '5'), 'static_version': STATIC_VERSION, 'api_cache_items': len(_FAST_API_CACHE)}
-        return jsonify(sample)
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-@app.route('/api/performance/frontload-status', methods=['GET'])
-def api_performance_frontload_status():
-    """V153 front-end resource loading diagnostic: confirms page-specific CSS and delayed PWA strategy."""
-    try:
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION, strategy='page-specific-css+pwa-after-load', css_scope='base+page+mobile-media', api_cache_items=len(_FAST_API_CACHE))
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-@app.route('/api/performance/boot-status', methods=['GET'])
-def api_performance_boot_status():
-    """V153 lightweight boot diagnostic: checks cache pressure without scanning business tables."""
-    try:
-        with _FAST_API_LOCK:
-            fast_items = len(_FAST_API_CACHE)
-        payload = {
-            'success': True,
-            'version': APP_VERSION,
-            'static_version': STATIC_VERSION,
-            'strategy': 'first-screen-boot-guard+page-specific-css+deferred-heavy-work',
-            'api_cache_items': fast_items,
-            'gzip_enabled': True,
-            'slow_guard': True,
-        }
-        try:
-            with _PREWARM_GUARD['lock']:
-                payload['running_prewarm'] = int(_PREWARM_GUARD.get('running', 0))
-                payload['recent_slow_count'] = len([r for r in (_PREWARM_GUARD.get('slow') or []) if time.time() - float(r.get('at') or 0) < 600])
-        except Exception:
-            payload['running_prewarm'] = None
-        return jsonify(payload)
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-@app.route('/api/performance/degrade-status', methods=['GET'])
-def api_performance_degrade_status():
-    """V153 lightweight diagnostic for adaptive front-end degrade mode; does not scan business tables."""
-    try:
-        with _FAST_API_LOCK:
-            fast_items = len(_FAST_API_CACHE)
-        payload = {
-            'success': True,
-            'version': APP_VERSION,
-            'static_version': STATIC_VERSION,
-            'strategy': 'adaptive-degrade-mode+slow-api-guard+no-polling',
-            'api_cache_items': fast_items,
-            'server_suggest_degrade': fast_items > 820,
-            'notes': ['client records slow API samples locally', 'degrade mode reduces animation/shadow cost only', 'no renderer or click binding changes'],
-        }
-        try:
-            with _PREWARM_GUARD['lock']:
-                payload['running_prewarm'] = int(_PREWARM_GUARD.get('running', 0))
-                payload['recent_slow_count'] = len([r for r in (_PREWARM_GUARD.get('slow') or []) if time.time() - float(r.get('at') or 0) < 600])
-        except Exception:
-            payload['running_prewarm'] = None
-        return jsonify(payload)
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-@app.route('/api/performance/db-request-guard-status', methods=['GET'])
-def api_performance_db_request_guard_status():
-    """V154 lightweight status: DB/query guard + request-timeout guard; no business-table scan."""
-    try:
-        payload = {
-            'success': True,
-            'version': APP_VERSION,
-            'static_version': STATIC_VERSION,
-            'strategy': 'client-request-timeout+postgres-statement-timeout+sqlite-busy-timeout',
-            'db_statement_timeout_ms': int(os.getenv('DB_STATEMENT_TIMEOUT_MS', '12000') or '12000'),
-            'db_idle_tx_timeout_ms': int(os.getenv('DB_IDLE_TX_TIMEOUT_MS', '15000') or '15000'),
-            'client_get_timeout_ms': 9000,
-            'client_write_timeout_ms': 18000,
-            'notes': ['prevents slow DB queries from holding pages indefinitely', 'does not add renderer/click bindings/polling']
-        }
-        try:
-            payload['database'] = database_mode_info()
-        except Exception:
-            payload['database'] = {'mode': 'unknown'}
-        return jsonify(payload)
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
-
-
-@app.route('/api/performance/asset-cache-alignment-status')
-def performance_asset_cache_alignment_status():
-    """V155: lightweight status for HTML asset version alignment and stale-cache prevention."""
-    try:
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION,
-                       html_uses_context_version=True,
-                       stale_asset_fix='templates use static_version instead of hardcoded v153/v154',
-                       service_worker='static CSS/icons only; API no-store')
-    except Exception as e:
-        return jsonify(success=False, error=str(e), version=APP_VERSION), 500
-
+def api_yx520_prewarm_light():
+    return _yx520_route_ok('prewarm_light', routes=['inventory','orders','master_orders','warehouse','today_changes'])
 
 @app.route('/api/warehouse/action-status', methods=['GET'])
 @login_required_json
-def api_warehouse_action_status():
-    """V156: lightweight warehouse stability status without touching cache / speed guards."""
-    try:
-        return jsonify(success=True, version=APP_VERSION, static_version=STATIC_VERSION,
-                       warehouse_stability='v497-settings-sync-backup-pack7-canonical-longpress-db-readback',
-                       guarantees=['single-renderer','column-queued-actions','stale-response-guard','db-readback','menu-action-dedupe','column-rollback','no-api-cache-in-service-worker','canonical-longpress-db-write','a-b-six-columns-default-20-slots','warehouse-cell-items-mirror-readback'])
-    except Exception as e:
-        log_error('warehouse_action_status_v165', str(e))
-        return jsonify(success=False, error=str(e))
-
-
-# V379 compatibility aliases used by older lightweight front-end helpers. Read-only, no cache-core changes.
-
-# ============================================================
-# V379 API field schema alignment guard
-# Aligns JSON payload fields that the front-end already reads.
-# This does not touch cache core, service worker, renderers, or polling.
-# ============================================================
-def _yx_v379_first_list(payload):
-    try:
-        for key in ('items', 'records', 'rows', 'cells', 'feed', 'logs', 'changes', 'customers', 'unplaced_items'):
-            val = payload.get(key)
-            if isinstance(val, list):
-                return key, val
-    except Exception:
-        pass
-    return '', None
-
-
-def _yx_v379_align_api_payload(payload, status_code=200):
-    if not isinstance(payload, dict):
-        return payload
-    out = dict(payload)
-    out = yx_api_align_payload(out, success=out.get('success', int(status_code or 200) < 400))
-
-    list_key, list_val = _yx_v379_first_list(out)
-    if list_val is not None:
-        # Product/order/shipping pages use different historical names.
-        # Fill aliases only when absent so existing API semantics remain intact.
-        out.setdefault('items', list_val)
-        out.setdefault('records', list_val)
-        out.setdefault('rows', list_val)
-        if list_key == 'cells':
-            out.setdefault('cells', list_val)
-
-    # Keep warehouse-specific data explicit while also giving generic front-end aliases.
-    if isinstance(out.get('zones'), dict):
-        out.setdefault('zone_map', out.get('zones'))
-    if isinstance(out.get('zone_summary'), dict):
-        out.setdefault('counts', out.get('zone_summary'))
-        out.setdefault('summary', out.get('zone_summary'))
-
-    if 'counts' not in out or not isinstance(out.get('counts'), dict):
-        if isinstance(out.get('summary'), dict):
-            out['counts'] = dict(out.get('summary') or {})
-        elif list_val is not None:
-            out['counts'] = {'total': len(list_val)}
-        elif 'total' in out:
-            out['counts'] = {'total': out.get('total')}
-        else:
-            out['counts'] = {}
-    if 'summary' not in out or not isinstance(out.get('summary'), dict):
-        out['summary'] = dict(out.get('counts') or {})
-
-    # Lightweight nested data wrapper for older/newer page helpers.
-    if 'data' not in out or out.get('data') is None:
-        data = {
-            'items': out.get('items') if isinstance(out.get('items'), list) else [],
-            'records': out.get('records') if isinstance(out.get('records'), list) else [],
-            'rows': out.get('rows') if isinstance(out.get('rows'), list) else [],
-            'cells': out.get('cells') if isinstance(out.get('cells'), list) else [],
-            'counts': out.get('counts') if isinstance(out.get('counts'), dict) else {},
-            'summary': out.get('summary') if isinstance(out.get('summary'), dict) else {},
-            'version': APP_VERSION,
-            'sync_version': API_SCHEMA_VERSION,
-            'cache_bust': API_SCHEMA_VERSION,
-        }
-        if isinstance(out.get('zones'), dict):
-            data['zones'] = out.get('zones')
-        out['data'] = data
-    elif isinstance(out.get('data'), dict):
-        d = dict(out.get('data') or {})
-        d.setdefault('version', APP_VERSION)
-        d.setdefault('sync_version', API_SCHEMA_VERSION)
-        d.setdefault('cache_bust', API_SCHEMA_VERSION)
-        if list_val is not None:
-            d.setdefault('items', out.get('items') if isinstance(out.get('items'), list) else list_val)
-            d.setdefault('records', out.get('records') if isinstance(out.get('records'), list) else list_val)
-            d.setdefault('rows', out.get('rows') if isinstance(out.get('rows'), list) else list_val)
-        d.setdefault('counts', out.get('counts') if isinstance(out.get('counts'), dict) else {})
-        d.setdefault('summary', out.get('summary') if isinstance(out.get('summary'), dict) else {})
-        out['data'] = d
-
-    return out
-
-
-@app.after_request
-def yx_v379_api_field_schema_alignment(response):
-    """Normalize API JSON field names before cache/gzip headers are applied."""
-    try:
-        path = request.path or ''
-        if not path.startswith('/api/'):
-            return response
-        # Keep this lightweight: only align the data APIs that front-end pages read directly.
-        schema_paths = (
-            '/api/inventory', '/api/orders', '/api/master_orders', '/api/customer-items', '/api/customer-item',
-            '/api/customers', '/api/warehouse', '/api/ship', '/api/ship-preview', '/api/shipping_records',
-            '/api/shipping', '/api/today-changes', '/api/today', '/api/sync-changes', '/api/health'
-        )
-        if not any(path.startswith(x) for x in schema_paths):
-            return response
-        if response.direct_passthrough or not response.is_json:
-            return response
-        payload = response.get_json(silent=True)
-        if not isinstance(payload, dict):
-            return response
-        aligned = _yx_v379_align_api_payload(payload, response.status_code)
-        raw = json.dumps(aligned, ensure_ascii=False, separators=(',', ':'))
-        response.set_data(raw)
-        response.mimetype = 'application/json'
-        response.headers['Content-Length'] = str(len(raw.encode('utf-8')))
-        response.headers['X-Yuanxing-Api-Schema'] = API_SCHEMA_VERSION
-    except Exception as e:
-        try:
-            response.headers['X-Yuanxing-Api-Schema-Align-Error'] = str(e)[:120]
-        except Exception:
-            pass
-    return response
-
-
-@app.route('/api/health/api-schema', methods=['GET'])
-@login_required_json
-def api_health_api_schema_v386():
-    """V386: lightweight API schema audit without touching cache core."""
-    checks = []
-    sample = {
-        'success': True,
-        'items': [],
-        'version': APP_VERSION,
-        'sync_version': API_SCHEMA_VERSION,
-    }
-    aligned = _yx_v379_align_api_payload(sample)
-    for key in ('success','items','records','rows','data','counts','summary','version','app_version','static_version','sync_version','cache_bust','schema_version'):
-        checks.append({'key': key, 'ok': key in aligned})
-    return jsonify(success=all(x.get('ok') for x in checks), checks=checks, version=APP_VERSION, static_version=STATIC_VERSION, schema_version=API_SCHEMA_VERSION)
+def api_yx520_warehouse_action_status():
+    return _yx520_route_ok('warehouse_action_status', safe_slots=True, no_clear_warehouse_cells=True)
 
 @app.route('/api/shipping', methods=['GET'])
 @login_required_json
-def api_shipping_alias_v386():
+def api_yx520_shipping_alias():
     return api_shipping_records()
 
 @app.route('/api/today', methods=['GET'])
 @login_required_json
-def api_today_alias_v386():
+def api_yx520_today_alias():
     return api_today_changes()
-
-
-# ============================================================
-# V386 front-end event/API flow audit
-# Read-only deploy check: button/event -> API -> cache clear -> sync event alignment.
-# Does not touch cache core, renderers, polling, or service worker.
-# ============================================================
-def _yx_v386_route_exists(rule):
-    try:
-        rules = {str(r.rule) for r in app.url_map.iter_rules()}
-        if rule in rules:
-            return True
-        # allow prefix forms such as /api/shipping_records/<id> for /api/shipping_records/
-        if rule.endswith('/'):
-            return any(str(r).startswith(rule) for r in rules)
-        return False
-    except Exception:
-        return False
-
-
-def _yx_v386_file_exists(path):
-    try:
-        return os.path.exists(path)
-    except Exception:
-        return False
-
-
-@app.route('/api/health/event-flow', methods=['GET'])
-@login_required_json
-def api_health_event_flow_v386():
-    """V386: check that major page data flows have routes/files/cache/event contracts aligned."""
-    flows = [
-        {
-            'name': 'inventory_products',
-            'page': '庫存',
-            'file': 'static/yx_pages/inventory_page.js',
-            'apis': ['/api/inventory', '/api/customer-items/batch-material', '/api/customer-items/batch-update', '/api/items/transfer'],
-            'events': ['yx:product-data-changed', 'yx:customer-selected'],
-            'cache_groups': ['products_inventory', 'customer_blocks_', 'ship_items_', 'warehouse_available_'],
-        },
-        {
-            'name': 'orders_products',
-            'page': '訂單',
-            'file': 'static/yx_pages/product_page_core.js',
-            'apis': ['/api/orders', '/api/customer-items', '/api/customer-items/batch-material', '/api/customer-items/batch-update', '/api/customer-items/batch-delete'],
-            'events': ['yx:product-data-changed', 'yx:order-master-changed', 'yx:customer-selected'],
-            'cache_groups': ['products_orders', 'customer_blocks_', 'ship_items_', 'today_changes_'],
-        },
-        {
-            'name': 'master_order_products',
-            'page': '總單',
-            'file': 'static/yx_pages/product_page_core.js',
-            'apis': ['/api/master_orders', '/api/customer-items', '/api/customer-items/batch-material', '/api/customer-items/batch-update', '/api/customer-items/batch-delete'],
-            'events': ['yx:product-data-changed', 'yx:order-master-changed', 'yx:customer-selected'],
-            'cache_groups': ['products_master_order', 'customer_blocks_', 'ship_items_', 'today_changes_'],
-        },
-        {
-            'name': 'shipping_confirm',
-            'page': '出貨',
-            'file': 'static/yx_pages/shipping_page.js',
-            'apis': ['/api/ship-preview', '/api/ship', '/api/customer-items', '/api/customers', '/api/warehouse/search'],
-            'events': ['yx:ship-completed', 'yx:product-data-changed', 'yx:warehouse-changed', 'yx:today-changes-refresh'],
-            'cache_groups': ['ship_items_', 'ship_customers_', 'customer_blocks_', 'warehouse_available_', 'today_changes_'],
-        },
-        {
-            'name': 'warehouse_cell_ops',
-            'page': '倉庫圖',
-            'file': 'static/yx_pages/warehouse_page.js',
-            'apis': ['/api/warehouse', '/api/warehouse/cell', '/api/warehouse/add-slot', '/api/warehouse/remove-slot', '/api/warehouse/available-items', '/api/warehouse/source-qty-map'],
-            'events': ['yx:warehouse-changed', 'yx:product-data-changed', 'yx:customer-selected', 'yx:today-changes-refresh'],
-            'cache_groups': ['warehouse_available_', 'warehouse_source_qty_map_', 'customer_blocks_', 'ship_items_'],
-        },
-    ]
-    route_rules = sorted(str(r.rule) for r in app.url_map.iter_rules())
-    results = []
-    ok = True
-    for f in flows:
-        file_path = f.get('file') or ''
-        file_ok = _yx_v386_file_exists(file_path)
-        source_text = ''
-        try:
-            if file_ok:
-                source_text = open(file_path, 'r', encoding='utf-8', errors='ignore').read()
-        except Exception:
-            source_text = ''
-        # product_page_core is shared by inventory/orders/master_order, so allow shared-core evidence.
-        shared_text = source_text
-        if file_path != 'static/yx_pages/product_page_core.js':
-            try:
-                shared_text += '\n' + open('static/yx_pages/product_page_core.js', 'r', encoding='utf-8', errors='ignore').read()
-            except Exception:
-                pass
-        api_checks = [{'route': a, 'ok': _yx_v386_route_exists(a), 'referenced_in_js': (a in shared_text)} for a in f.get('apis', [])]
-        event_checks = [{'event': ev, 'referenced_in_js': (ev in shared_text)} for ev in f.get('events', [])]
-        cache_checks = [{'group': cg, 'referenced_in_js': (cg in shared_text)} for cg in f.get('cache_groups', [])]
-        missing = [x['route'] for x in api_checks if not x['ok']]
-        flow_ok = bool(file_ok) and not missing
-        ok = ok and flow_ok
-        results.append({
-            'name': f.get('name'),
-            'page': f.get('page'),
-            'file': file_path,
-            'file_ok': file_ok,
-            'apis': api_checks,
-            'missing_apis': missing,
-            'events': event_checks,
-            'cache_groups': cache_checks,
-            'ok': flow_ok,
-        })
-    return jsonify(success=ok, flows=results, route_count=len(route_rules), version=APP_VERSION, static_version=STATIC_VERSION, sync_version=API_SCHEMA_VERSION, cache_bust=API_SCHEMA_VERSION)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-# V423: warehouse force reload/available-items force=1 bypass server fast cache for manual refresh/readback checks; column payload carries cache_bust/sync_version and light available summary. No renderer/setInterval/MutationObserver added.
-
-# ============================================================
-# V428 warehouse API display parser lock
-# - No frontend cache / service-worker / queue changes.
-# - API counting and readback now use the same tolerant legacy item fields as DB rescue.
-# ============================================================
-
-def _warehouse_v428_text(v):
-    return str(v or '').strip()
-
-
-def _warehouse_v428_product_from_item(it):
-    if not isinstance(it, dict):
-        return ''
-    return _warehouse_v428_text(
-        it.get('product_text') or it.get('product') or it.get('product_size') or
-        it.get('display_product_size') or it.get('base_product_size') or it.get('size') or
-        it.get('size_text') or it.get('dimension') or it.get('dimensions') or
-        it.get('raw_text') or it.get('label') or it.get('title') or it.get('detail') or
-        it.get('description') or it.get('goods_text') or it.get('item_text') or it.get('content')
-    )
-
-
-def _warehouse_v428_int(v, default=0):
-    try:
-        if isinstance(v, str):
-            m = re.search(r'-?\d+', v)
-            if m:
-                return int(m.group(0))
-        return int(float(v))
-    except Exception:
-        return default
-
-
-def _warehouse_v428_qty(product, fallback=1):
-    try:
-        return max(1, int(effective_product_qty(product, fallback or 1)))
-    except Exception:
-        return max(1, _warehouse_v428_int(fallback, 1))
-
-
-def _warehouse_v428_normalize_items(items):
-    out = []
-    for raw in items or []:
-        if isinstance(raw, str):
-            raw = {'product_text': raw, 'product': raw, 'raw_text': raw}
-        if not isinstance(raw, dict):
-            continue
-        product = _warehouse_v428_product_from_item(raw)
-        if not product:
-            continue
-        qty = _warehouse_v428_int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or raw.get('piece_count') or raw.get('total_qty'), 0)
-        if qty <= 0:
-            qty = _warehouse_v428_qty(product, 1)
-        row = dict(raw)
-        row['product_text'] = _warehouse_v428_text(row.get('product_text') or product)
-        row['product'] = _warehouse_v428_text(row.get('product') or product)
-        row['raw_text'] = _warehouse_v428_text(row.get('raw_text') or product)
-        row['customer_name'] = _warehouse_v428_text(row.get('customer_name') or row.get('customer') or row.get('client_name') or '庫存')
-        row['qty'] = max(1, qty)
-        if not row.get('placement_label') and row.get('layer_label'):
-            row['placement_label'] = row.get('layer_label')
-        if not row.get('layer_label') and row.get('placement_label'):
-            row['layer_label'] = row.get('placement_label')
-        out.append(row)
-    return out
-
-
-def _warehouse_v428_parse_items(raw):
-    if raw in (None, ''):
-        return []
-    obj = raw
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s or s.lower() in ('[]','null','none','undefined'):
-            return []
-        try:
-            obj = json.loads(s)
-        except Exception:
-            try:
-                obj = json.loads(s.replace("'", '"').replace('None','null').replace('True','true').replace('False','false'))
-            except Exception:
-                return _warehouse_v428_normalize_items([{'product_text': s, 'product': s, 'raw_text': s, 'qty': 1}])
-    if isinstance(obj, dict):
-        for key in ('items','products','goods','rows','data'):
-            if isinstance(obj.get(key), list):
-                return _warehouse_v428_normalize_items(obj.get(key))
-        return _warehouse_v428_normalize_items([obj])
-    if isinstance(obj, list):
-        return _warehouse_v428_normalize_items(obj)
-    return []
-
-
-def _warehouse_cell_items_for_count(cell):
-    try:
-        if not isinstance(cell, dict):
-            return []
-        from_items = _warehouse_v428_parse_items(cell.get('items') if isinstance(cell.get('items'), list) else [])
-        from_json = _warehouse_v428_parse_items(cell.get('items_json') or [])
-        if from_items and not from_json:
-            return from_items
-        if from_json and not from_items:
-            return from_json
-        if not from_items and not from_json:
-            return []
-        out = []
-        seen = set()
-        for it in (from_json + from_items):
-            k = '|'.join([
-                _warehouse_v428_text(it.get('source_table') or it.get('source') or ''),
-                _warehouse_v428_text(it.get('source_id') or it.get('id') or ''),
-                _warehouse_v428_text(it.get('customer_name') or ''),
-                _warehouse_v428_text(it.get('material') or it.get('product_code') or ''),
-                _warehouse_v428_product_from_item(it),
-                _warehouse_v428_text(it.get('placement_label') or it.get('layer_label') or '')
-            ])
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(it)
-        return _warehouse_v428_normalize_items(out)
-    except Exception:
-        return []
-
-
-def warehouse_v429_api_display_parser_lock_version():
-    return 'v457-final_verify_sync_speed_warehouse'

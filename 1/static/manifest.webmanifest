@@ -2,18 +2,18 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/v520-final-ship-cache-align-pack30",
-  "start_url": "/?v=v520-final-ship-cache-align-pack30",
+  "id": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": [
-    "window-controls-layer",
+    "window-controls-overlay",
     "standalone",
     "minimal-ui"
   ],
   "orientation": "any",
-  "background_color": "#eefcff",
-  "theme_color": "#d9a449",
+  "background_color": "#f6f1e9",
+  "theme_color": "#7b4a26",
   "lang": "zh-Hant",
   "dir": "ltr",
   "categories": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "119-v520_final_ship_cache_align_pack30"
+  "version": "v20-true-clean-master"
 }

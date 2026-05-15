@@ -1,48 +1,44 @@
-/* 沅興木業 V406: safe PWA cache registration.
-   Only static CSS/icons are cached by service-worker.js. API/data requests are never cached. */
-(function(){
-  'use strict';
-  const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v520_final_ship_cache_align_pack30';
-  root.enabled = true;
-  root.policy = 'static-css-icons-only-no-api-cache';
-
-  function cleanupStaleVersionCaches(){
-    const current = String(window.__YX_STATIC_VERSION__ || root.version || '');
-    try{
-      const prev = localStorage.getItem('yx_app_static_version');
-      if(prev && prev !== current){
-        try{ if(window.caches && caches.keys) caches.keys().then(keys => keys.filter(k => /^yuanxing-v/.test(k) && k.indexOf('v520') < 0).forEach(k => caches.delete(k))); }catch(_e){}
-        try{
-          const removePrefixes = ['ship_customers_','ship_items_','customer_blocks_','yx_v406_cache_products_'];
-          const removeKeys=[];
-          for(let i=0;i<localStorage.length;i++){
-            const k=localStorage.key(i)||'';
-            if(removePrefixes.some(prefix => k.startsWith(prefix))) removeKeys.push(k);
-          }
-          removeKeys.forEach(k => { try{ localStorage.removeItem(k); }catch(_e){} });
-        }catch(_e){}
-        try{ sessionStorage.removeItem('yx_v149_cache_summary_at'); }catch(_e){}
-      }
-      localStorage.setItem('yx_app_static_version', current);
-    }catch(_e){}
+(() => {
+  const PWA_VERSION = 'v20-true-clean-master';
+  let deferredInstallPrompt = null;
+  function ensureInstallButton(){
+    let btn=document.getElementById('pwa-install-btn');
+    if(btn) return btn;
+    btn=document.createElement('button');
+    btn.id='pwa-install-btn'; btn.type='button'; btn.className='pwa-install-btn hidden'; btn.textContent='安裝 App';
+    document.body.appendChild(btn);
+    btn.addEventListener('click',async()=>{
+      if(deferredInstallPrompt){ deferredInstallPrompt.prompt(); try{await deferredInstallPrompt.userChoice;}catch(_){} deferredInstallPrompt=null; btn.classList.add('hidden'); }
+      else if(/iphone|ipad|ipod/i.test(navigator.userAgent)){ alert('iPhone 安裝方式：點 Safari 下方分享按鈕 → 加入主畫面。'); }
+    });
+    return btn;
   }
-  async function register(){
-    try{
-      if(!('serviceWorker' in navigator)) return false;
-      const ver = encodeURIComponent(window.__YX_STATIC_VERSION__ || root.version || Date.now());
-      const reg = await navigator.serviceWorker.register('/sw.js?v=' + ver, {scope:'/'});
-      root.registration = reg;
-      return true;
-    }catch(e){ root.error = e && e.message; return false; }
+  function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
+  window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredInstallPrompt=e; if(!isStandalone()) ensureInstallButton().classList.remove('hidden'); });
+  window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}`,{scope:'/'}).then(reg=>{
+        const key = `YX_SW_LAST_UPDATE_${PWA_VERSION}`;
+        const now = Date.now();
+        const last = Number(localStorage.getItem(key) || 0);
+        // FIX110：不要每次開頁都 reg.update()，避免手機/Render 每頁都多一次網路檢查。
+        if(!last || now - last > 6 * 60 * 60 * 1000){
+          localStorage.setItem(key, String(now));
+          reg.update().catch(()=>{});
+        }
+        const clearKey = `YX_CLEAR_CACHE_DONE_${PWA_VERSION}`;
+        if(!localStorage.getItem(clearKey)){
+          try { (reg.active || reg.waiting || reg.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); } catch(_){}
+          localStorage.setItem(clearKey, '1');
+        }
+        if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+        reg.addEventListener('updatefound',()=>{
+          const worker=reg.installing; if(!worker) return;
+          worker.addEventListener('statechange',()=>{ if(worker.state==='installed'&&navigator.serviceWorker.controller) worker.postMessage({type:'SKIP_WAITING'}); });
+        });
+      }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
+    });
   }
-  function scheduleRegister(){
-    try{ (window.requestIdleCallback || function(fn){ return window.requestAnimationFrame(fn); })(register); }catch(_e){ register(); }
-  }
-  cleanupStaleVersionCaches();
-  root.register = register;
-  window.YXPWA = root;
-  // V406: base.html injects this file after window load. If load already fired, register immediately.
-  if(document.readyState === 'complete' || document.readyState === 'interactive') scheduleRegister();
-  else window.addEventListener('load', scheduleRegister, {once:true});
+  window.addEventListener('load',()=>{ if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()){ const btn=ensureInstallButton(); btn.textContent='加入主畫面'; btn.classList.remove('hidden'); } });
 })();
