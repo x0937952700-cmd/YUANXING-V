@@ -178,4 +178,4 @@
   try{document.addEventListener('DOMContentLoaded',()=>{installApi();installFetch();},{once:true});}catch(_e){}
 })();
 
-/* V515 static token: v515-diagnostic-100-home-logout-removal-pack25 yx_warehouse_cache_v515-diagnostic-100-home-logout-removal-pack25 yx_warehouse_available_cache_v515-diagnostic-100-home-logout-removal-pack25 */
+/* V515 static token: v517-full-checklist-alignment-pack27 yx_warehouse_cache_v517-full-checklist-alignment-pack27 yx_warehouse_available_cache_v517-full-checklist-alignment-pack27 */

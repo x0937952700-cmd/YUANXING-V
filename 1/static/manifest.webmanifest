@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/v515-diagnostic-100-home-logout-removal-pack25",
-  "start_url": "/?v=v515-diagnostic-100-home-logout-removal-pack25",
+  "id": "/v517-full-checklist-alignment-pack27",
+  "start_url": "/?v=v517-full-checklist-alignment-pack27",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "119-v515_diagnostic_100_home_logout_removal_pack25"
+  "version": "119-v517_full_checklist_alignment_pack27"
 }

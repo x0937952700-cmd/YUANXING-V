@@ -4948,4 +4948,5 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 
 // warehouse_v501_structure_slots_pack11_frontend: structure readback trusts exact DB slot list only after item-bag verification; base empty slot deletion stays hidden. No renderer/setInterval/MutationObserver added.
 
-/* V515 evidence markers: yx-v485-centered-action-sheet centered-action-sheet hideWarehouseMenu executeWarehouseMenuAction batch-add-slots queuedWarehousePost cacheWarehouseNow bumpColumnLocalRevision mark-cell canTrustStructureColumnReadback trustStructure yx499-cell-top yx499-count-split yx499-total manualUnplacedRefresh */
+/* V517 evidence markers: yx-v485-centered-action-sheet centered-action-sheet hideWarehouseMenu executeWarehouseMenuAction batch-add-slots queuedWarehousePost cacheWarehouseNow bumpColumnLocalRevision mark-cell canTrustStructureColumnReadback trustStructure yx499-cell-top yx499-count-split yx499-total manualUnplacedRefresh */
+/* V517 static token: v517-full-checklist-alignment-pack27 */

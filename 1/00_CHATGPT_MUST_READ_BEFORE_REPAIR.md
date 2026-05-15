@@ -231,3 +231,12 @@ python -m zipfile -t 你的輸出檔.zip
 
 
 V515 母版診斷硬規則：診斷書 critical/error/warn 大小問題全部修到 100%，使用者說圖幾只改指定圖幾，不動未壞功能。
+
+
+## V517 full checklist alignment rules
+- Use diagnostics_v517_full_alignment_checklist.txt as the latest checklist.
+- Do not use overlay, hardlock, setInterval, or MutationObserver to inject buttons.
+- Do not clear, rebuild, or reorder warehouse_cells with products.
+- Home page logout must stay removed; settings page logout remains.
+- Diagnostics must not mark shipped static evidence as critical/error; only real current-version runtime DB/API/JS failures stay red.
+- All critical/error/warn from diagnostics must be repair targets until zero in the deployed current version.

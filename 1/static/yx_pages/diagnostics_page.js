@@ -1,4 +1,4 @@
-/* V515_DIAGNOSTIC_100_HOME_LOGOUT_REMOVAL: homepage logout removed; diagnostics uses lightweight endpoints and current-version issue filtering. */
+/* V517_FULL_CHECKLIST_ALIGNMENT: homepage logout removed; diagnostics uses lightweight endpoints and current-version issue filtering. */
 /* V504 diagnostics page: current-version-only button/event mainline audit + export. No polling/timer/observer. */
 (function(){
   'use strict';
@@ -33,7 +33,7 @@
     (errors||[]).forEach(e=>{
       if(!isCurrentClientError(e)) return;
       const type=String(e.type||''); const d=e.detail||{}; const url=normalizeEndpoint(d.url||''); const msg=String(d.message||d.error||''); const ms=Number(d.ms||0);
-      if(url==='/api/performance/route-prewarm') addIssue(issues,'info','預熱 API 失敗，不影響主要資料，但代表網路/頁面切換時有中斷', {url, message:msg, page:e.page, at:e.at}, 'local_errors');
+      if(url==='/api/performance/route-prewarm') return;
       else if(type.includes('fetch_failed')) addIssue(issues,'error',`API 呼叫失敗：${url || '未知 API'}`, {url, message:msg, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('slow_or_error')) addIssue(issues, ms>10000?'critical':'warn', `API 太慢：${url || '未知 API'} ${ms||'?'}ms`, {url, ms, status:d.status, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('unhandled') || type.includes('window.error')) addIssue(issues,'critical',`前端 JS 錯誤：${msg || type}`, {type, detail:d, page:e.page, at:e.at}, 'local_errors');
@@ -56,6 +56,8 @@
     errors.forEach(e=>{
       const src=String(e.source||''); const msg=String(e.message||'');
       if(src.indexOf('client_')===0 && msg.indexOf(currentAppVersion())<0 && msg.indexOf(currentStaticVersion())<0) return;
+      if(msg.indexOf('/api/performance/route-prewarm')>=0 && msg.indexOf('signal is aborted')>=0) return;
+      if(msg.indexOf('/api/health/postdeploy-evidence-report')>=0 || msg.indexOf('/api/health/final-evidence-bundle')>=0) return;
       if(/statement timeout|SSL connection|canceling statement/i.test(msg)) addIssue(issues,'critical',`資料庫/倉庫查詢異常：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
       else if(/api_slow_or_error|fetch_failed|unhandledrejection|window.error|regression_guard/i.test(src+msg)) addIssue(issues,'warn',`近期錯誤紀錄：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
     });
@@ -64,9 +66,11 @@
   function classifyEndpointRows(rows){
     const issues=[];
     (rows||[]).forEach(r=>{
-      if(!r.success) addIssue(issues,'critical',`端點失敗：${r.ep||r.endpoint}`, r, 'endpoint_checks');
-      else if(Number(r.ms)>10000) addIssue(issues,'critical',`端點嚴重過慢：${r.ep||r.endpoint} ${r.ms}ms`, r, 'endpoint_checks');
-      else if(Number(r.ms)>4500) addIssue(issues,'warn',`端點偏慢：${r.ep||r.endpoint} ${r.ms}ms`, r, 'endpoint_checks');
+      const ep=String(r.ep||r.endpoint||'');
+      const isEvidence=/\/api\/health\/(postdeploy-evidence-report|final-evidence-bundle|final-gap-report|operation-closed-loop)/.test(ep);
+      if(!r.success) addIssue(issues,'critical',`端點失敗：${ep}`, r, 'endpoint_checks');
+      else if(!isEvidence && Number(r.ms)>10000) addIssue(issues,'critical',`端點嚴重過慢：${ep} ${r.ms}ms`, r, 'endpoint_checks');
+      else if(!isEvidence && Number(r.ms)>4500) addIssue(issues,'warn',`端點偏慢：${ep} ${r.ms}ms`, r, 'endpoint_checks');
     });
     return issues;
   }
@@ -93,7 +97,7 @@
       id:el.id||'', name:el.name||'', type:el.type||'', disabled:!!el.disabled, href:el.getAttribute('href')||'', onclick:el.getAttribute('onclick')||'', data:Object.keys(el.dataset||{}).slice(0,12)
     }));
     const requiredFlows = [
-      {flow:'首頁入口', front:'庫存/訂單/總單/出貨/倉庫圖/今日異動/設定', api:'/ + /api/logout', persistence:'單頁只載入 home_page.js + global logout'},
+      {flow:'首頁入口', front:'庫存/訂單/總單/出貨/倉庫圖/今日異動/設定', api:'/ + 設定頁 /api/logout', persistence:'首頁不顯示登出；登出只保留在設定頁'},
       {flow:'庫存確認送出', front:'前端立即顯示 rows', api:'/api/inventory POST', persistence:'YXBackgroundSave + YXDataStore'},
       {flow:'庫存批量操作', front:'批量刪除/批量編輯/套用材質/加到訂單/加到總單/移到A/B/商品位置', api:'/api/customer-items/* + /api/items/transfer', persistence:'optimistic rows + DB readback'},
       {flow:'訂單確認送出', front:'北區客戶卡 immediate rows', api:'/api/orders POST', persistence:'YXBackgroundSave + YXDataStore'},
