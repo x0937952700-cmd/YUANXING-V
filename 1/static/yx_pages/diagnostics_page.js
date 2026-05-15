@@ -1,3 +1,4 @@
+/* V515_DIAGNOSTIC_100_HOME_LOGOUT_REMOVAL: homepage logout removed; diagnostics uses lightweight endpoints and current-version issue filtering. */
 /* V504 diagnostics page: current-version-only button/event mainline audit + export. No polling/timer/observer. */
 (function(){
   'use strict';
@@ -74,7 +75,7 @@
     const critical=sorted.filter(i=>i.severity==='critical').length;
     const error=sorted.filter(i=>i.severity==='error').length;
     const warn=sorted.filter(i=>i.severity==='warn').length;
-    return {critical,error,warn,total:sorted.length, sorted};
+    const reportable=sorted.filter(i=>['critical','error','warn'].includes(i.severity)); return {critical,error,warn,total:reportable.length, sorted:reportable};
   }
   function renderIssues(issues){
     const sum=summarizeIssues(issues);
@@ -92,7 +93,7 @@
       id:el.id||'', name:el.name||'', type:el.type||'', disabled:!!el.disabled, href:el.getAttribute('href')||'', onclick:el.getAttribute('onclick')||'', data:Object.keys(el.dataset||{}).slice(0,12)
     }));
     const requiredFlows = [
-      {flow:'首頁入口', front:'庫存/訂單/總單/出貨/倉庫圖/今日異動/設定/登出', api:'/ + /api/logout', persistence:'單頁只載入 home_page.js + global logout'},
+      {flow:'首頁入口', front:'庫存/訂單/總單/出貨/倉庫圖/今日異動/設定', api:'/ + /api/logout', persistence:'單頁只載入 home_page.js + global logout'},
       {flow:'庫存確認送出', front:'前端立即顯示 rows', api:'/api/inventory POST', persistence:'YXBackgroundSave + YXDataStore'},
       {flow:'庫存批量操作', front:'批量刪除/批量編輯/套用材質/加到訂單/加到總單/移到A/B/商品位置', api:'/api/customer-items/* + /api/items/transfer', persistence:'optimistic rows + DB readback'},
       {flow:'訂單確認送出', front:'北區客戶卡 immediate rows', api:'/api/orders POST', persistence:'YXBackgroundSave + YXDataStore'},
@@ -104,7 +105,7 @@
       {flow:'設定/診斷', front:'同步/備份/差異/管理員/診斷/登出', api:'/api/backup + /api/audit-trails + /api/diagnostics/*', persistence:'read-only diagnostics + explicit actions only'}
     ];
     const requiredPages = [
-      {page:'home', required:['庫存','訂單','總單','出貨','倉庫圖','今日異動','設定','登出']},
+      {page:'home', required:['庫存','訂單','總單','出貨','倉庫圖','今日異動','設定']},
       {page:'settings', required:['返回','修改密碼','儲存','快速還原','還原上一筆','報表匯出','差異紀錄','管理員功能','資料備份','同步資料','自動同步','系統診斷','登出']},
       {page:'diagnostics', required:['返回設定','立即檢查','匯出診斷報告','送出本機診斷','清除本機錯誤紀錄']},
       {page:'today_changes', required:['返回','刷新','全部','新增庫存','新增訂單','新增總單','出貨','未錄入倉庫圖']},
@@ -135,11 +136,11 @@
     setStatus('正在做詳盡診斷：讀取本機錯誤、伺服器錯誤、必要 API、流程稽核…');
     const box = $('#diag-server'); box.innerHTML = '<div class="diag-card"><h3>伺服器檢查</h3><p>檢查中…</p></div>';
     let local={}; try{ local = await window.YXDiagnostics?.snapshot?.() || {}; renderLocal(local); }catch(_e){}
-    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/export','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/master-requirements','/api/health','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/postdeploy-evidence-report','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/inventory','/api/orders','/api/master_orders','/api/today-changes/count','/api/today-changes/badge','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1','/api/shipping'];
+    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/export','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/master-requirements','/api/health','/api/health/operation-closed-loop','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/postdeploy-evidence-report','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/inventory?diag_light=1','/api/orders?diag_light=1','/api/master_orders?diag_light=1','/api/today-changes/count','/api/today-changes/badge','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1','/api/shipping?diag_light=1'];
     const rows=[]; let server={}; let actionAudit={};
     for(const ep of endpoints){
       const t=Date.now();
-      try{ const r=await apiJson(ep); const row={ep,status:r.status,ms:Date.now()-t,success:r.data.success!==false && r.data.ok!==false, note:r.data.error||r.data.db_warning||''}; rows.push(row); if(ep==='/api/diagnostics/summary') server=r.data; if(ep==='/api/diagnostics/action-audit') actionAudit=r.data; }
+      try{ const r=await apiJson(ep); const row={ep,status:r.status,ms:Date.now()-t,success:r.data.success!==false && r.data.ok!==false, note:r.data.error||r.data.db_warning||'', data:r.data}; rows.push(row); if(ep==='/api/diagnostics/summary') server=r.data; if(ep==='/api/diagnostics/action-audit') actionAudit=r.data; }
       catch(e){ rows.push({ep,status:'ERR',ms:Date.now()-t,success:false,note:e.message||String(e)}); }
     }
     const endpointIssues = classifyEndpointRows(rows);
@@ -168,7 +169,7 @@
     try { server = (await apiJson('/api/diagnostics/export')).data || {}; } catch(e){ server = {success:false, error:String(e && e.message || e)}; }
     try { actionAudit = (await apiJson('/api/diagnostics/action-audit')).data || {}; } catch(e){ actionAudit = {success:false, error:String(e && e.message || e)}; }
     try { masterAudit = (await apiJson('/api/diagnostics/master-requirements')).data || {}; } catch(e){ masterAudit = {success:false, error:String(e && e.message || e)}; }
-    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/health','/api/today-changes/count','/api/today-changes/badge','/api/inventory','/api/orders','/api/master_orders','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1','/api/shipping'];
+    const endpoints = ['/api/diagnostics/summary','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/health','/api/today-changes/count','/api/today-changes/badge','/api/inventory?diag_light=1','/api/orders?diag_light=1','/api/master_orders?diag_light=1','/api/warehouse/available-items?diag_light=1','/api/warehouse?diag_light=1','/api/shipping?diag_light=1'];
     for(const ep of endpoints){ const t=Date.now(); try{ const r=await apiJson(ep); endpointChecks.push({endpoint:ep,status:r.status,ms:Date.now()-t,success:r.data.success!==false && r.data.ok!==false, sample:r.data}); } catch(e){ endpointChecks.push({endpoint:ep,status:'ERR',ms:Date.now()-t,success:false,error:String(e && e.message || e)}); } }
     const issues=[...classifyEndpointRows(endpointChecks.map(x=>({ep:x.endpoint,...x}))), ...classifyClientErrors(local.last_errors||[], local.regression_guard_events||[]), ...classifyServer(server), ...((actionAudit.issues||[]).map(x=>({severity:x.severity||'warn', title:x.title||x.name||'流程稽核問題', detail:x, source:'action_audit'}))), ...((masterAudit.issues||[]).map(x=>({severity:x.severity||'critical', title:x.title||x.name||'母版未對齊', detail:x, source:'master_requirement_audit'})))];
     const report = {report_type:'yuanxing_full_frontend_backend_diagnostics_export', current_version_only:true, generated_at:new Date().toISOString(), page:location.pathname, app_version:window.__YX_APP_VERSION__ || server.version || '', static_version:window.__YX_STATIC_VERSION__ || server.static_version || '', issue_summary:summarizeIssues(issues), current_version_issue_summary:summarizeIssues(issues), issues:issues.slice().sort(issueSort), local_snapshot:local, server_export:server, action_audit:actionAudit, master_requirement_audit:masterAudit, master_requirement_issues:masterAudit.issues||[], endpoint_checks:endpointChecks, button_audit:collectButtonAudit(), notes:['這份報告是讀取式詳盡診斷，不會自動新增/刪除真實資料。','會列出最近實際錯誤、慢 API、必要流程缺漏、每個核心按鍵/事件對應路徑。','V490 起會把最終母版需求總表全部納入對照；沒對齊的按鈕、事件、內容都列為重大異常。']};

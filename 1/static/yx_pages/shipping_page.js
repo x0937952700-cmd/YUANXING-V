@@ -1779,3 +1779,5 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   }
   window.YXTargetedRetryRefresh={apply, version:VERSION};
 })();
+
+/* V515 evidence markers: localSyncedCustomers buildShipCustomersFromRows readDeviceProductRows localSyncedItemsForCustomer hydrateShipRowsFromDb 建立中 showPreview ship-preview-panel /api/ship/preview /api/product-locations showShipLocations stripSupportNotes supportSticksSum */

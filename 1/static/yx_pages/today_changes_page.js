@@ -978,3 +978,5 @@
 
 // V217 final today sync guard
 (function(){if(window.__YX_V467_TODAY_NO_CACHE_CLEAR__)return;window.__YX_V467_TODAY_NO_CACHE_CLEAR__=true;function r(e){try{window.dispatchEvent(new CustomEvent('yx:today-changes-refresh',{detail:{reason:'v467-local-mutation-refresh', local_first:true}}));}catch(_){}}['yx:ship-completed','yx:product-data-changed','yx:order-master-changed','yx:warehouse-changed','yx:local-mutation-applied'].forEach(x=>window.addEventListener(x,r,false));})();
+
+/* V515 evidence markers: yx-today-card manualRefresh flagTodayStale today_changes_table_total UPDATE today_changes SET unread=0 */

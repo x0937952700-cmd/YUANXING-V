@@ -30,7 +30,7 @@ for rel, text in [('app.py', app), ('db.py', db)]:
     except SyntaxError as e:
         fail.append(f'{rel} syntax error: {e}')
 
-for token in ['V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24','119-v514_postdeploy_evidence_collector_pack24','v514-postdeploy-evidence-collector-pack24']:
+for token in ['V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25','119-v515_diagnostic_100_home_logout_removal_pack25','v515-diagnostic-100-home-logout-removal-pack25']:
     if token not in app and token not in core and token not in css:
         fail.append(f'missing V494 token {token}')
 

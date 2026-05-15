@@ -21,7 +21,7 @@ closed=read('scripts/postdeploy_operation_closed_loop_verify.py')
 deploy=read('scripts/deploy_smoke_verify.py')
 pre=read('scripts/predeploy_audit.py')
 
-for token in ['V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24','119-v514_postdeploy_evidence_collector_pack24','v514-postdeploy-evidence-collector-pack24']:
+for token in ['V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25','119-v515_diagnostic_100_home_logout_removal_pack25','v515-diagnostic-100-home-logout-removal-pack25']:
     if token not in app:
         fail.append('app.py missing version token '+token)
 for token in ['/api/health/operation-closed-loop','closed_loop_routes','closed_loop_tables_readable','no_mutation=True']:
@@ -44,7 +44,7 @@ if 'manual_refresh' not in today:
     fail.append('today_changes_page.js missing manual_refresh')
 if '/api/health/operation-closed-loop' not in diag:
     fail.append('diagnostics_page.js missing operation-loop endpoint')
-for token in ['V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24','--write-test','/api/health/operation-closed-loop','/api/ship/confirm']:
+for token in ['V515_DIAGNOSTIC_100_HOME_LOGOUT_REMOVAL_PACK25','--write-test','/api/health/operation-closed-loop','/api/ship/confirm']:
     if token not in closed:
         fail.append('postdeploy_operation_closed_loop_verify.py missing '+token)
 if '/api/health/operation-closed-loop' not in deploy:

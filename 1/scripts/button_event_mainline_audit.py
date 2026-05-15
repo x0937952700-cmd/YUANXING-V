@@ -27,7 +27,7 @@ all_page_js = product + shipping + warehouse + today + settings + diag
 
 def has_all(src, arr): return all(x in src for x in arr)
 
-ok('home has all entry buttons including logout', has_all(idx, ['庫存','訂單','總單','出貨','倉庫圖','今日異動','設定','登出']) and 'home-logout-btn' in idx)
+ok('home has all entry buttons and no homepage logout', has_all(idx, ['庫存','訂單','總單','出貨','倉庫圖','今日異動','設定']) and 'home-logout-btn' not in idx and '>登出<' not in idx)
 ok('global logout mainline is available outside settings page', 'V504_GLOBAL_LOGOUT_MAINLINE' in core and '/api/logout' in core)
 ok('diagnostics returns to settings and has required actions', has_all(diag, ['返回設定','立即檢查','匯出診斷報告','送出本機診斷','清除本機錯誤紀錄']))
 ok('settings keeps fixed buttons', has_all(settings, ['修改密碼','儲存','快速還原','還原上一筆','報表匯出','庫存報表','出貨報表','總單報表','未錄入報表','差異紀錄','管理員功能','資料備份','立即備份','同步資料','自動同步','系統診斷','登出']))

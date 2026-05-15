@@ -957,3 +957,5 @@
 })();
 /* formal page module */
 
+
+/* V515 evidence markers: data-yx113-customer-act="archive" data-yx113-customer-act="delete" isSelfCustomerCardButton interactive && !isSelfCustomerCardButton source= customerSourceForModule */

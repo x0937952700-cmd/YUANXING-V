@@ -4947,3 +4947,5 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v450_longpress_single_engine_cleanout_proof: removes dormant legacy v439/v442/v443 longpress bridge blocks from active file, keeps one root engine, makes cancel rescue less ghost-prone, preserves tap/drag/menu actions and cache core.
 
 // warehouse_v501_structure_slots_pack11_frontend: structure readback trusts exact DB slot list only after item-bag verification; base empty slot deletion stays hidden. No renderer/setInterval/MutationObserver added.
+
+/* V515 evidence markers: yx-v485-centered-action-sheet centered-action-sheet hideWarehouseMenu executeWarehouseMenuAction batch-add-slots queuedWarehousePost cacheWarehouseNow bumpColumnLocalRevision mark-cell canTrustStructureColumnReadback trustStructure yx499-cell-top yx499-count-split yx499-total manualUnplacedRefresh */

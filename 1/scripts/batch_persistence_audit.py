@@ -13,7 +13,7 @@ def read(rel):
 
 app=read('app.py')
 js=read('static/yx_pages/product_page_core.js')
-for token in ['V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24','119-v514_postdeploy_evidence_collector_pack24','v514-postdeploy-evidence-collector-pack24']:
+for token in ['V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25','119-v515_diagnostic_100_home_logout_removal_pack25','v515-diagnostic-100-home-logout-removal-pack25']:
     if token not in app:
         fail.append(f'missing version token {token}')
 for token in ['_v495_batch_payload','_v495_reject_implicit_all_for_destructive','_v495_read_rows_by_ids','db_readback']:

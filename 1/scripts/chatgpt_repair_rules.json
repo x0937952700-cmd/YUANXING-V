@@ -57,13 +57,11 @@
     "V488: only_targeted_area",
     "V488: warehouse structure actions must persist after refresh"
   ],
-  "master_diagnostics_v490": {
-    "master_file": "diagnostics_master_requirements.txt",
-    "requirement": "把母版總表全部加入診斷對照；缺任何按鈕、事件、內容、DB保存、queue、API、renderer、migration、材積、出貨、倉庫、今日異動、同步、快取，皆列重大異常。",
-    "repair_rule": "收到診斷報告後必須逐項修復 critical/error/warn 到 100%；無法一包完成必須說還有下一包。",
-    "severity_on_mismatch": "critical"
-  },
+  "master_diagnostics_v490": "diagnostics_master_requirements.txt",
   "v498_text_parser_volume_pack8": "新增 text_parser_volume_audit.py；132×11*12=123*4 (-3揚玉) 必須算 4 件，括號只當備註；材積用總支數。",
   "v499_warehouse_layout_unplaced_pack9": "新增 warehouse_layout_unplaced_audit.py；倉庫格第一排固定 格號/件數拆分/總件數，商品行完整顯示不滾動，開格/搜尋不反覆重算未入倉，長按未錄入才強制刷新。",
-  "v500_warehouse_drag_placement_pack10": "新增 warehouse_drag_placement_audit.py；倉庫拖拉讀回驗證、拖到已有商品格前/後排標示、placement_label 顯示、降低拖拉誤開長按選單。"
+  "v500_warehouse_drag_placement_pack10": "新增 warehouse_drag_placement_audit.py；倉庫拖拉讀回驗證、拖到已有商品格前/後排標示、placement_label 顯示、降低拖拉誤開長按選單。",
+  "diagnostics_full_repair_100_percent": true,
+  "only_targeted_area": "使用者說圖幾只改圖幾",
+  "v515_diagnostic_100_home_logout_removal": true
 }
