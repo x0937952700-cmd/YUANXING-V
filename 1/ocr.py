@@ -75,7 +75,7 @@ def preprocess_image(image_path, roi=None, mode="blue"):
 
 
 def _normalize_x(text):
-    return (text or "").replace("×", "x").replace("Ｘ", "x").replace("X", "x").replace("✕", "x").replace("＊", "x").replace("*", "x").replace("＝", "=")
+    return (text or "").replace("×", "x").replace("X", "x").replace("＊", "x").replace("*", "x").replace("＝", "=")
 
 
 def _normalize_no_space(text):

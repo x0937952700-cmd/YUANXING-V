@@ -1,6 +1,3 @@
-# Yuanxing mainfile Render config.
-# V343 render requirements root fix: keep requirements.txt at repository root.
-# V125 mobile zoom: no extra build step; main static files are versioned by STATIC_VERSION.
 services:
   - type: web
     name: yuanxing
@@ -17,14 +14,9 @@ services:
         value: "3.11.11"
       - key: WEB_CONCURRENCY
         value: "1"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
         sync: false
-
-# V480 predeploy check: keep deployment config on mainline; healthCheckPath=/health; API not cached by service worker.
-
-# V155 DB request guard defaults
-# Set higher only if huge reports need longer queries.
-# DB_STATEMENT_TIMEOUT_MS: 12000
-# DB_IDLE_TX_TIMEOUT_MS: 15000
