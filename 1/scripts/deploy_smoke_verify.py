@@ -14,8 +14,8 @@ import argparse, json, sys, time, urllib.error, urllib.request
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25"
-EXPECTED_STATIC_VERSION = "119-v515_diagnostic_100_home_logout_removal_pack25"
+EXPECTED_APP_VERSION = "V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28"
+EXPECTED_STATIC_VERSION = "119-v518_restore_satisfied_ship_preview_diag_pack28"
 
 PUBLIC_PATHS = ["/health", "/api/health"]
 PROTECTED_PATHS = [

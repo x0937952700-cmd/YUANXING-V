@@ -19,9 +19,9 @@ app=read('app.py')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
 for token,msg in [
-    ('V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25','app.py not bumped to V509'),
-    ('119-v515_diagnostic_100_home_logout_removal_pack25','STATIC_VERSION not bumped to V509'),
-    ('v515-diagnostic-100-home-logout-removal-pack25','API_SCHEMA_VERSION not bumped to V509'),
+    ('V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28','app.py not bumped to V509'),
+    ('119-v518_restore_satisfied_ship_preview_diag_pack28','STATIC_VERSION not bumped to V509'),
+    ('v518-restore-satisfied-ship-preview-diag-pack28','API_SCHEMA_VERSION not bumped to V509'),
     ("@app.route('/api/health/release-readiness'", 'missing release readiness route'),
     ('no_mutation=True', 'release readiness route must be read-only/no_mutation'),
     ('/api/product-locations', 'product location route must remain present'),
@@ -32,23 +32,23 @@ for rel in ['scripts/deploy_smoke_verify.py','scripts/postdeploy_data_consistenc
     txt=read(rel)
     try: ast.parse(txt)
     except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
-    has(txt, 'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25', f'{rel} expected app version not V509')
+    has(txt, 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28', f'{rel} expected app version not V509')
     if rel not in ('scripts/smoke_test.py','scripts/postdeploy_operation_closed_loop_verify.py'):
-        has(txt, '119-v515_diagnostic_100_home_logout_removal_pack25', f'{rel} expected static version not V509')
+        has(txt, '119-v518_restore_satisfied_ship_preview_diag_pack28', f'{rel} expected static version not V509')
         has(txt, '/api/health/release-readiness', f'{rel} does not check release readiness endpoint')
 
 pre=read('scripts/predeploy_audit.py')
 has(pre, 'scripts/final_release_readiness_audit.py', 'predeploy_audit does not include final release audit')
 
 sw=read('static/service-worker.js')
-has(sw, 'yuanxing-v515-static-css-icons', 'service-worker cache version not V509')
+has(sw, 'yuanxing-v518-static-css-icons', 'service-worker cache version not V509')
 has(sw, "url.pathname.startsWith('/api/')", 'service worker must bypass API cache')
 
 manifest=read('static/manifest.webmanifest')
-has(manifest, '119-v515_diagnostic_100_home_logout_removal_pack25', 'manifest version/start_url/id not V509')
+has(manifest, '119-v518_restore_satisfied_ship_preview_diag_pack28', 'manifest version/start_url/id not V509')
 
 pwa=read('static/pwa.js')
-has(pwa, '119-v515_diagnostic_100_home_logout_removal_pack25', 'pwa.js fallback version not V509')
+has(pwa, '119-v518_restore_satisfied_ship_preview_diag_pack28', 'pwa.js fallback version not V509')
 
 base=read('templates/base.html')
 for old in ['yx_v452_max_repair.js','fix135_master_final_hardlock','fix138_final_master_hardlock','setInterval(function(){']:
@@ -66,7 +66,7 @@ for p in root.rglob('*'):
 
 # V510 operation closed-loop readiness marker
 has(app, '/api/health/operation-closed-loop', 'missing operation closed-loop route')
-has(read('scripts/postdeploy_operation_closed_loop_verify.py'), 'V515_DIAGNOSTIC_100_HOME_LOGOUT_REMOVAL_PACK25', 'missing V510 operation closed-loop verify script marker')
+has(read('scripts/postdeploy_operation_closed_loop_verify.py'), 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK25', 'missing V510 operation closed-loop verify script marker')
 
 if fail:
     print('FINAL RELEASE READINESS AUDIT FAILED')

@@ -63,5 +63,18 @@
   "v500_warehouse_drag_placement_pack10": "新增 warehouse_drag_placement_audit.py；倉庫拖拉讀回驗證、拖到已有商品格前/後排標示、placement_label 顯示、降低拖拉誤開長按選單。",
   "diagnostics_full_repair_100_percent": true,
   "only_targeted_area": "使用者說圖幾只改圖幾",
-  "v515_diagnostic_100_home_logout_removal": true
+  "v515_diagnostic_100_home_logout_removal": true,
+  "v517_full_checklist_alignment": {
+    "latest_checklist": "diagnostics_v518_restore_satisfied_checklist.txt",
+    "home_logout": "removed_from_home_keep_settings_only",
+    "forbidden": [
+      "overlay",
+      "hardlock",
+      "setInterval button injection",
+      "MutationObserver button injection",
+      "clear warehouse_cells",
+      "rebuild warehouse without migration"
+    ],
+    "diagnostics_policy": "static shipped evidence is informational; only current runtime DB/API/JS failures are red"
+  }
 }

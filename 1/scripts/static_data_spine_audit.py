@@ -28,14 +28,14 @@ if (root/'static/yx_v452_max_repair.js').exists():
     fail.append('old static/yx_v452_max_repair.js still exists')
 
 app=read('app.py')
-if 'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25' not in app:
+if 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' not in app:
     fail.append('APP_VERSION is not V507')
-if '119-v515_diagnostic_100_home_logout_removal_pack25' not in app:
+if '119-v518_restore_satisfied_ship_preview_diag_pack28' not in app:
     fail.append('STATIC_VERSION is not V507')
 
 # PWA / service worker must not cache API and must use current cache token.
 sw=read('static/service-worker.js')
-if 'yuanxing-v515-static-css-icons' not in sw:
+if 'yuanxing-v518-static-css-icons' not in sw:
     fail.append('service-worker cache version is not v507')
 if "url.pathname.startsWith('/api/')" not in sw and 'pathname.startsWith("/api/")' not in sw:
     fail.append('service-worker does not explicitly bypass /api/')
@@ -46,11 +46,11 @@ if 'event.respondWith' in sw:
     if api_pos < 0 or api_pos > rw_pos:
         fail.append('service-worker API bypass is after respondWith')
 manifest=read('static/manifest.webmanifest')
-if '119-v515_diagnostic_100_home_logout_removal_pack25' not in manifest:
+if '119-v518_restore_satisfied_ship_preview_diag_pack28' not in manifest:
     fail.append('manifest start/id version is not v507')
 
 data=read('static/yx_data_store.js')
-for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v515-diagnostic-100-home-logout-removal-pack25']:
+for token in ['installApiBridge','installFetchBridge','localResponseForApi','getTodayWithUnplaced','today-changes\\/(count|badge)','filterAvailableAgainstWarehouse','v518-restore-satisfied-ship-preview-diag-pack28']:
     if token not in data:
         fail.append(f'yx_data_store.js missing {token}')
 for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH_CLEANUP__','__yxDataSpineFetchV472','__yxDataSpineV472','__YX_V472_REFRESH_CLEANUP__']:
@@ -58,7 +58,7 @@ for old_flag in ['__yxDataSpineFetchV471','__yxDataSpineV471','__YX_V471_REFRESH
         fail.append(f'yx_data_store.js still has old flag {old_flag}')
 
 mut=read('static/yx_mutation_bus.js')
-for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v515-diagnostic-100-home-logout-removal-pack25']:
+for token in ['applyMutation','installApi','installFetch','reduceAfterShip','appendTodayLocal','v518-restore-satisfied-ship-preview-diag-pack28']:
     if token not in mut:
         fail.append(f'yx_mutation_bus.js missing {token}')
 for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
@@ -66,7 +66,7 @@ for old_flag in ['__yxMutationBusV471','__yxMutationBusV472']:
         fail.append(f'yx_mutation_bus.js still has old flag {old_flag}')
 
 sync=read('static/yx_device_sync.js')
-for token in ['v515-diagnostic-100-home-logout-removal-pack25','yx_warehouse_cache_v515-diagnostic-100-home-logout-removal-pack25','yx_warehouse_available_cache_v515-diagnostic-100-home-logout-removal-pack25']:
+for token in ['v518-restore-satisfied-ship-preview-diag-pack28','yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28','yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28']:
     if token not in sync:
         fail.append(f'yx_device_sync.js missing {token}')
 

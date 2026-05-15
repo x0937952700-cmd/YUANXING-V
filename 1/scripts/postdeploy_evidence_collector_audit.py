@@ -19,9 +19,9 @@ for rel in ['scripts/postdeploy_evidence_collect.py','scripts/postdeploy_evidenc
         try: ast.parse(txt)
         except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
 checks={
-    'app version V515':'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25' in app,
-    'static version V515':'119-v515_diagnostic_100_home_logout_removal_pack25' in app,
-    'schema version V515':'v515-diagnostic-100-home-logout-removal-pack25' in app,
+    'app version V515':'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app,
+    'static version V515':'119-v518_restore_satisfied_ship_preview_diag_pack28' in app,
+    'schema version V515':'v518-restore-satisfied-ship-preview-diag-pack28' in app,
     'postdeploy evidence route':"/api/health/postdeploy-evidence-report" in app and 'def api_health_postdeploy_evidence_report' in app,
     'collector route read-only':'This does not write data' in app and 'no_mutation' in app,
     'collector aggregates evidence':all(t in app for t in ['final_evidence_bundle','release_readiness','operation_closed_loop','final_gap_report','write_test_safety','diagnostics_export']),
@@ -29,7 +29,7 @@ checks={
     'deploy smoke checks collector':'/api/health/postdeploy-evidence-report' in smoke,
     'postdeploy collector script shipped':'postdeploy_evidence_collect' in collector and '/api/health/postdeploy-evidence-report' in collector and 'copy_paste_summary' in collector,
     'predeploy includes collector':'scripts/postdeploy_evidence_collector_audit.py' in pre and 'scripts/postdeploy_evidence_collect.py' in pre,
-    'audit marker':'V515_DIAGNOSTIC_100_HOME_LOGOUT_REMOVAL_PACK25' in Path(__file__).read_text(encoding='utf-8'),
+    'audit marker':'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK25' in Path(__file__).read_text(encoding='utf-8'),
 }
 for name, ok in checks.items():
     if not ok: fail.append(name)

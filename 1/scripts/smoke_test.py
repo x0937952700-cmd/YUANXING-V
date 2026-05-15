@@ -7,7 +7,7 @@ For protected endpoint checks use:
 This script only reads public endpoints and never mutates data.
 """
 import json, sys, urllib.request, urllib.error, time
-EXPECTED='V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25'
+EXPECTED='V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
 base=(sys.argv[1] if len(sys.argv)>1 else 'http://127.0.0.1:10000').rstrip('/')
 paths=['/health','/api/health']
 failed=[]

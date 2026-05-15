@@ -8,9 +8,9 @@ import re, sys, ast
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25'
-VERSION_STATIC='119-v515_diagnostic_100_home_logout_removal_pack25'
-VERSION_JS='v515-diagnostic-100-home-logout-removal-pack25'
+VERSION_APP='V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
+VERSION_STATIC='119-v518_restore_satisfied_ship_preview_diag_pack28'
+VERSION_JS='v518-restore-satisfied-ship-preview-diag-pack28'
 
 def read(rel):
     p=root/rel
@@ -82,7 +82,7 @@ for old in ['__yxMutationBusV471','__yxMutationBusV472','__yxMutationBusV473']:
         fail.append(f'yx_mutation_bus.js still has stale flag {old}')
 
 sync=read('static/yx_device_sync.js')
-for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v515-diagnostic-100-home-logout-removal-pack25', 'yx_warehouse_available_cache_v515-diagnostic-100-home-logout-removal-pack25']:
+for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28', 'yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28']:
     has(sync, token, 'yx_device_sync.js sync token')
 for key in ['inventory','orders','master_order','customers','warehouse','warehouse_available','shipping_records','today_changes','todos']:
     if f"key:'{key}'" not in sync and f'key:"{key}"' not in sync:
@@ -90,7 +90,7 @@ for key in ['inventory','orders','master_order','customers','warehouse','warehou
 
 # Service worker API bypass must occur before cache respondWith.
 sw=read('static/service-worker.js')
-has(sw, 'yuanxing-v515-static-css-icons', 'service-worker cache version')
+has(sw, 'yuanxing-v518-static-css-icons', 'service-worker cache version')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos < 0:
@@ -99,7 +99,7 @@ elif rw_pos >= 0 and api_pos > rw_pos:
     fail.append('service-worker /api bypass must be before respondWith')
 
 manifest=read('static/manifest.webmanifest')
-has(manifest, '119-v515_diagnostic_100_home_logout_removal_pack25', 'manifest version')
+has(manifest, '119-v518_restore_satisfied_ship_preview_diag_pack28', 'manifest version')
 
 # Page-level regression checks: critical pages must either reference YXDataStore directly or be protected by bridges loaded before pages.
 critical_pages=['inventory_page.js','product_page_core.js','shipping_page.js','today_changes_page.js','warehouse_page.js','home_page.js']

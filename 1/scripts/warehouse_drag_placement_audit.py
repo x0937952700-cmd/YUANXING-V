@@ -16,8 +16,8 @@ js=read('static/yx_pages/warehouse_page.js')
 css=read('static/css/warehouse.css')
 
 checks = {
-    'version_v506': 'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25' in app and 'v515-diagnostic-100-home-logout-removal-pack25' in app,
-    'frontend_cache_v506': "v515-diagnostic-100-home-logout-removal-pack25" in js,
+    'version_v506': 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app and 'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+    'frontend_cache_v506': "v518-restore-satisfied-ship-preview-diag-pack28" in js,
     'placement_helper': 'function warehousePlacementLabel' in js,
     'placement_grouping': 'placement is part of the visual grouping' in js and 'placement_label:placement' in js,
     'placement_display_css': '.yx-slot-product-line .yx-slot-placement' in css,

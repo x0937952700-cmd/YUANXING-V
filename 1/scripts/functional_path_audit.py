@@ -11,9 +11,9 @@ import ast, re, sys
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25'
-VERSION_STATIC='119-v515_diagnostic_100_home_logout_removal_pack25'
-VERSION_JS='v515-diagnostic-100-home-logout-removal-pack25'
+VERSION_APP='V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
+VERSION_STATIC='119-v518_restore_satisfied_ship_preview_diag_pack28'
+VERSION_JS='v518-restore-satisfied-ship-preview-diag-pack28'
 
 def read(rel):
     p=root/rel
@@ -138,7 +138,7 @@ if 'loadAvailable(true)' in warehouse and '長按刷新未錄入倉庫圖件數'
 
 # Service worker/PWA: API must not be cached.
 sw=read('static/service-worker.js')
-must(sw, 'yuanxing-v515-static-css-icons', 'static/service-worker.js')
+must(sw, 'yuanxing-v518-static-css-icons', 'static/service-worker.js')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos<0: fail.append('service-worker missing /api bypass')

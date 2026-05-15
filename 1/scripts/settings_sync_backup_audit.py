@@ -18,7 +18,7 @@ tmpl = text('templates/settings.html')
 backup = text('backup.py')
 sync = text('static/yx_device_sync.js')
 
-ok('version bumped to V509', 'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25' in app and '119-v515_diagnostic_100_home_logout_removal_pack25' in app)
+ok('version bumped to V509', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app and '119-v518_restore_satisfied_ship_preview_diag_pack28' in app)
 ok('GET /api/backup manual-only no create', "created_by_get" in app and "if request.method == 'GET'" in app and "run_daily_backup()" in app.split('@app.route("/api/backup"')[1].split('@app.route("/api/backups"')[0])
 ok('settings has sync panel', 'id="settings-sync-panel"' in tmpl and 'settings-sync-btn' in tmpl and 'settings-auto-sync-btn' in tmpl)
 ok('settings sync uses YXDeviceSync.syncAll', 'YXDeviceSync.syncAll' in settings and '上次同步：' in settings)

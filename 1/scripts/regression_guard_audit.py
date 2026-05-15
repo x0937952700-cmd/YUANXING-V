@@ -12,9 +12,9 @@ def read(rel):
     return p.read_text(encoding='utf-8', errors='ignore')
 
 app=read('app.py')
-if 'V119-V515-DIAGNOSTIC-100-HOME-LOGOUT-REMOVAL-PACK25' not in app:
+if 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' not in app:
     fail.append('app.py APP_VERSION is not v501')
-if '119-v515_diagnostic_100_home_logout_removal_pack25' not in app:
+if '119-v518_restore_satisfied_ship_preview_diag_pack28' not in app:
     fail.append('app.py STATIC_VERSION is not v501')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
@@ -31,7 +31,7 @@ if 'yx_v452_max_repair.js' in base:
     fail.append('base.html still loads old yx_v452_max_repair.js')
 
 rg=read('static/yx_regression_guard.js')
-for token in ['v515-diagnostic-100-home-logout-removal-pack25','patchDataStore','empty_overwrite_blocked','empty_response_rows_blocked','today_unplaced_guard','shipping_preview_guard','warehouse_timeout_guard','runSelfCheck','YXRegressionGuard']:
+for token in ['v518-restore-satisfied-ship-preview-diag-pack28','patchDataStore','empty_overwrite_blocked','empty_response_rows_blocked','today_unplaced_guard','shipping_preview_guard','warehouse_timeout_guard','runSelfCheck','YXRegressionGuard']:
     if token not in rg:
         fail.append(f'yx_regression_guard.js missing {token}')
 if 'setInterval(' in rg or 'new MutationObserver' in rg:
