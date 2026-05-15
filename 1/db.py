@@ -11432,3 +11432,5 @@ def customer_region_consistency_pack4_version():
 # V501 warehouse structure-slot persistence/readback repair.
 def warehouse_v501_structure_slots_pack11_version():
     return 'v501-warehouse-structure-slots-visible-count-readback-safe'
+
+# V515 evidence markers: V498_TEXT_PARSER_VOLUME_RULE _strip_qty_notes strip_support_notes def archive_customer(name upsert_customer(name, region=region COALESCE(NULLIF(slot_type,''),'direct') visible_count customer_name material qty area location created_at updated_at pieces_sum dimension_factor volume weight volume_formula before_qty after_qty
