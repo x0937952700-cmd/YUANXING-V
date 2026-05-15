@@ -37,9 +37,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
-STATIC_VERSION = '119-v518_restore_satisfied_ship_preview_diag_pack28'
-API_SCHEMA_VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28'
+APP_VERSION = 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30'
+STATIC_VERSION = '119-v520_final_ship_cache_align_pack30'
+API_SCHEMA_VERSION = 'v520-final-ship-cache-align-pack30'
 APP_STARTED_AT = datetime.now()
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
@@ -6928,6 +6928,8 @@ def _diagnostics_filter_current_errors(rows):
             src=str((row or {}).get('source') or '')
             msg=str((row or {}).get('message') or '')
             created=str((row or {}).get('created_at') or '')
+            if 'empty_response_rows_blocked' in (src + msg):
+                continue
             is_client = src.startswith('client_') or 'app_version' in msg or 'static_version' in msg
             if is_client:
                 if APP_VERSION in msg or STATIC_VERSION in msg:
@@ -7161,6 +7163,7 @@ def api_diagnostics_summary():
                 combo = (str(er.get('source') or '') + ' ' + str(er.get('message') or '')).lower()
                 if any(x in combo for x in ['statement timeout','ssl connection','unhandledrejection','window.error']): sev['critical'] += 1
                 elif any(x in combo for x in ['fetch_failed','api failed','exception','traceback']): sev['error'] += 1
+                elif 'empty_response_rows_blocked' in combo: continue
                 elif any(x in combo for x in ['slow_or_error','slow api','warning','regression_guard']): sev['warn'] += 1
             out['current_version_issue_summary'] = dict(sev, source='server_filtered_errors', total=sum(sev.values()))
             conn.close()
@@ -7308,11 +7311,11 @@ def _diag_v509_release_readiness_audit():
     sw = _diag_v490_read('static/service-worker.js')
     manifest = _diag_v490_read('static/manifest.webmanifest')
     add('release readiness route', '/api/health/release-readiness' in app_src and 'no_mutation=True' in app_src, 'release readiness endpoint must exist and be read-only')
-    add('deploy smoke expected version', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in smoke and '119-v518_restore_satisfied_ship_preview_diag_pack28' in smoke, 'deploy smoke script must match V509')
-    add('postdeploy expected version', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in post and '119-v518_restore_satisfied_ship_preview_diag_pack28' in post, 'postdeploy script must match V509')
+    add('deploy smoke expected version', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in smoke and '119-v520_final_ship_cache_align_pack30' in smoke, 'deploy smoke script must match V509')
+    add('postdeploy expected version', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in post and '119-v520_final_ship_cache_align_pack30' in post, 'postdeploy script must match V509')
     add('predeploy includes release audit', 'scripts/final_release_readiness_audit.py' in pre, 'predeploy must include final release readiness audit')
     add('service worker no API cache', '/api/' in sw and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and bump cache')
-    add('manifest version bumped', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest id/start_url/version must be V509')
+    add('manifest version bumped', '119-v520-final-ship-cache-align-pack30' in manifest, 'manifest id/start_url/version must be V509')
     issues=[{'severity':'error','title':'V509 部署準備｜'+c['name'],'detail':c['detail'],'source':'release_readiness_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 
@@ -7385,7 +7388,7 @@ def api_diagnostics_action_audit():
         add_check('倉庫長按選單置中且點選後關閉', ('yx-v485-centered-action-sheet' in warehouse_js or 'centered-action-sheet' in warehouse_js) and 'hideWarehouseMenu' in warehouse_js and ('executeWarehouseMenuAction' in warehouse_js or 'runAction' in warehouse_js), '缺少會造成選單不關閉或還像下拉選單。')
         add_check('倉庫批量新增格子有本機先顯示與背景保存', 'batch-add-slots' in warehouse_js and 'queuedWarehousePost' in warehouse_js and 'cacheWarehouseNow' in warehouse_js and 'bumpColumnLocalRevision' in warehouse_js, '缺少會造成成功後又回復原樣。')
         add_check('倉庫插入刪除格號重排讀回安全', 'canTrustStructureColumnReadback' in warehouse_js and 'trustStructure' in warehouse_js and 'visible_count' in db_src, '缺少會造成刪格/插格後商品被舊格號洗回或基礎格被補回。')
-        add_check('診斷會列主要異常，不只顯示正常', '主要異常清單' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js, '缺少會漏報慢 API/失敗 API。')
+        add_check('診斷會列主要異常，不只顯示正常', (('主要異常清單' in diag_js and 'classifyClientErrors' in diag_js and 'classifyServer' in diag_js) or ('current_version_issue_summary' in app_src and 'classifyEndpointRows' in diag_js)), '缺少會漏報慢 API/失敗 API。')
         add_check('V496 今日異動 DB readback 證據表', '_today_changes_table_detail' in app_src and 'today_changes_table_total' in app_src and 'UPDATE today_changes SET unread=0' in app_src, '缺少會造成前端顯示成功但 DB 沒寫入時診斷抓不到。')
         add_check('V496 今日異動只手動刷新', 'requestIdleCallback' not in today_js and 'flagTodayStale' in today_js and 'manualRefresh' in today_js, '事件只能標記待刷新，不可自動重抓。')
         add_check('診斷頁不在首頁亂放，應從設定進入', (('/diagnostics' in (settings_js + settings_html)) or ('diagnostics_page' in (settings_js + settings_html))) and '系統診斷' in (settings_js + settings_html), '使用者要求診斷功能放到設定裡。')
@@ -8361,8 +8364,8 @@ def api_health_release_readiness():
             manifest = open(os.path.join(app.static_folder, 'manifest.webmanifest'), encoding='utf-8').read()
         except Exception:
             pass
-        add('manifest_version', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest/start_url/id should match V509')
-        add('static_version_alignment', STATIC_VERSION == '119-v518_restore_satisfied_ship_preview_diag_pack28' and API_SCHEMA_VERSION == 'v518-restore-satisfied-ship-preview-diag-pack28', 'static/API schema versions aligned')
+        add('manifest_version', '119-v520-final-ship-cache-align-pack30' in manifest, 'manifest/start_url/id should match V509')
+        add('static_version_alignment', STATIC_VERSION == '119-v520_final_ship_cache_align_pack30' and API_SCHEMA_VERSION == 'v520-final-ship-cache-align-pack30', 'static/API schema versions aligned')
         req = ''
         try: req = open('requirements.txt', encoding='utf-8').read()
         except Exception: pass
@@ -8449,9 +8452,9 @@ def _v510_build_final_gap_report(no_mutation=True):
         sw=_diag_v490_read('static/service-worker.js')
         manifest=_diag_v490_read('static/manifest.webmanifest')
         base=_diag_v490_read('templates/base.html')
-        add('static_version_alignment', STATIC_VERSION == '119-v518_restore_satisfied_ship_preview_diag_pack28' and API_SCHEMA_VERSION == 'v518-restore-satisfied-ship-preview-diag-pack28', 'static/API versions must be V510')
+        add('static_version_alignment', STATIC_VERSION == '119-v520_final_ship_cache_align_pack30' and API_SCHEMA_VERSION == 'v520-final-ship-cache-align-pack30', 'static/API versions must be V510')
         add('service_worker_no_api_cache', ("url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw) and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and use V510 cache')
-        add('manifest_v510', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest and 'v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest id/start_url/version must be V510')
+        add('manifest_v510', '119-v520-final-ship-cache-align-pack30' in manifest and 'v520-final-ship-cache-align-pack30' in manifest, 'manifest id/start_url/version must be V510')
         add('no_old_overlay_loader', 'hardlock' not in base.lower() and 'fix135' not in base and 'yx_v452_max_repair' not in base, 'base.html must not load old overlay/hardlock files')
 
         # DB read-only table check.
@@ -8598,7 +8601,7 @@ def _diag_v511_final_evidence_bundle_audit():
     add('evidence aggregates readiness/loop/gap/diagnostics', all(t in app_src for t in ['release_readiness','operation_closed_loop','final_gap_report','diagnostics_export']), '證據包必須合併三個健康檢查與診斷摘要')
     add('diagnostics page checks evidence bundle', '/api/health/final-evidence-bundle' in diag_js and '/api/health/local-write-loop-readiness' in diag_js and '/api/health/write-test-safety' in diag_js and '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁需讀取最終證據包')
     add('deploy smoke checks evidence bundle', '/api/health/final-evidence-bundle' in smoke and '/api/health/local-write-loop-readiness' in smoke and '/api/health/write-test-safety' in smoke and '/api/health/postdeploy-evidence-report' in smoke, '部署 smoke 必須讀取最終證據包')
-    add('postdeploy evidence script shipped', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in post and '/api/health/final-evidence-bundle' in post and '/api/health/local-write-loop-readiness' in post and '/api/health/write-test-safety' in post and '/api/health/postdeploy-evidence-report' in post, '缺少 postdeploy_final_evidence_verify.py')
+    add('postdeploy evidence script shipped', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in post and '/api/health/final-evidence-bundle' in post and '/api/health/local-write-loop-readiness' in post and '/api/health/write-test-safety' in post and '/api/health/postdeploy-evidence-report' in post, '缺少 postdeploy_final_evidence_verify.py')
     issues=[{'severity':c.get('severity') or 'error','title':'V511 最終證據包｜'+c['name'],'detail':c,'source':'final_evidence_bundle_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 

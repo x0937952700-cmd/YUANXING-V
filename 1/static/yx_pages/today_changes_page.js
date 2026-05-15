@@ -457,7 +457,7 @@
         .then(d=>{
           try { if ($('today-unread-badge')) $('today-unread-badge').textContent = '0'; } catch(_e) {}
           try { document.body.dataset.todayUnread = '0'; } catch(_e) {}
-          try { window.dispatchEvent(new CustomEvent('yx:today-changes-read', {detail:{source:'today_changes_page', version:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+          try { window.dispatchEvent(new CustomEvent('yx:today-changes-read', {detail:{source:'today_changes_page', version:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
           return d;
         })
         .catch(()=>null)
@@ -732,11 +732,11 @@
       try {
         cleanLegacyTodayDom();
         const forceHeavy = !!(opts.yxDbOnly || manualRefresh || state.forceNext);
-        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v514-postdeploy-evidence-collector-pack24&manual_refresh=' + (forceHeavy ? '1' : '0') + (forceHeavy ? '&ts=' + Date.now() : ''), {method:'GET', yxDeviceLocalFirst: true}); state.forceNext=false;
+        let data = await YX.api('/api/today-changes?yx143_final=1&v=119-v520-final-ship-cache-align-pack30&manual_refresh=' + (forceHeavy ? '1' : '0') + (forceHeavy ? '&ts=' + Date.now() : ''), {method:'GET', yxDeviceLocalFirst: true}); state.forceNext=false;
         // V136: 不再每次開今日異動就另外打 warehouse/available-items；只有手動刷新(force)才補最新未入倉區域統計。
         if (forceHeavy) {
           try {
-            const wz = await YX.api('/api/warehouse/available-items?fast=1&local_first=1&yx138_manual=1&v=119-v514-postdeploy-evidence-collector-pack24&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:true});
+            const wz = await YX.api('/api/warehouse/available-items?fast=1&local_first=1&yx138_manual=1&v=119-v520-final-ship-cache-align-pack30&ts=' + Date.now(), {method:'GET', yxDeviceLocalFirst:true});
             data.summary = data.summary || {};
             const wzItems = Array.isArray(wz.items) ? wz.items : (Array.isArray(wz.available) ? wz.available : []);
             const wzTotal = wzItems.reduce((n,it)=>n+(Number(it.unplaced_qty||it.qty||1)||1),0);

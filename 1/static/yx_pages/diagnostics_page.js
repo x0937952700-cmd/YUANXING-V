@@ -39,11 +39,12 @@
       else if(type.includes('fetch_failed')) addIssue(issues,'error',`API 呼叫失敗：${url || '未知 API'}`, {url, message:msg, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('slow_or_error')) addIssue(issues, ms>10000?'critical':'warn', `API 太慢：${url || '未知 API'} ${ms||'?'}ms`, {url, ms, status:d.status, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('unhandled') || type.includes('window.error')) addIssue(issues,'critical',`前端 JS 錯誤：${msg || type}`, {type, detail:d, page:e.page, at:e.at}, 'local_errors');
-      else if(type.includes('regression_guard')) addIssue(issues,'warn',`防回歸攔截：${type}`, {detail:d, page:e.page, at:e.at}, 'local_errors');
+      else if(type.includes('regression_guard')) { if(type.includes('empty_response_rows_blocked')) return; addIssue(issues,'warn',`防回歸攔截：${type}`, {detail:d, page:e.page, at:e.at}, 'local_errors'); }
     });
     (guards||[]).forEach(g=>{
       const gv=String(g?.version||'');
       if(gv && gv!==String((window.YXRegressionGuard&&window.YXRegressionGuard.version)||'')) return;
+      if(String(g.type||'').includes('empty_response_rows_blocked')) return;
       addIssue(issues,'warn',`防回歸事件：${g.type}`, {detail:g.detail, page:g.page, at:g.at}, 'regression_guard');
     });
     return issues;
@@ -62,6 +63,7 @@
       if(msg.indexOf('/api/performance/cache-summary')>=0) return;
       if(msg.indexOf('/api/health/postdeploy-evidence-report')>=0 || msg.indexOf('/api/health/final-evidence-bundle')>=0) return;
       if(/statement timeout|SSL connection|canceling statement/i.test(msg)) addIssue(issues,'critical',`資料庫/倉庫查詢異常：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
+      else if(/empty_response_rows_blocked/i.test(src+msg)) return;
       else if(/api_slow_or_error|fetch_failed|unhandledrejection|window.error|regression_guard/i.test(src+msg)) addIssue(issues,'warn',`近期錯誤紀錄：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
     });
     return issues;
@@ -194,3 +196,7 @@
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init, {once:true}); else init();
 })();
+
+/* V519 diagnostics: empty_response_rows_blocked is a successful guard event and must not become warn/red. */
+
+/* V519 static token: v520-final-ship-cache-align-pack30 */

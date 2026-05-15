@@ -2472,9 +2472,11 @@ html[data-yx-fix74-core] .vertical-slot::after,
 /* formal stylesheet rule */
 
 /* formal stylesheet rule */
-.yx76-hidden-ship-selected,
-.module-screen[data-module="ship"] #ship-selected-section{
+.yx76-hidden-ship-selected{
   display:none !important;
+}
+.module-screen[data-module="ship"] #ship-selected-section{
+  display:block !important;
 }
 #duplicate-action-panel{
   border:1px solid rgba(28,28,30,.12);
@@ -7439,3 +7441,7 @@ body[data-module="today_changes"] #yx112-refresh-today[data-has-new-data="1"]{
 .yx113-customer-actions .danger-btn{color:#b42318;border-color:rgba(180,35,24,.22);background:rgba(255,255,255,.72);}
 .yx121-dragging-customer{transform:scale(.98);box-shadow:0 12px 28px rgba(0,0,0,.16);}
 .yx121-drop-target{outline:2px dashed rgba(217,164,73,.75);outline-offset:3px;}
+
+/* V519: 出貨頁恢復滿意版已選商品區塊，不能再用舊 CSS 隱藏。 */
+.module-screen[data-module="ship"] #ship-selected-section{display:block!important;}
+.module-screen[data-module="ship"] #ship-customer-item-list:not(:empty){display:grid!important;gap:10px;}

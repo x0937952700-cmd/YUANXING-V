@@ -4,7 +4,7 @@
   if (window.__YX_DEVICE_SYNC_V507__) return;
   window.__YX_DEVICE_SYNC_V507__ = true;
 
-  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
+  const VERSION = 'v520-final-ship-cache-align-pack30';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
@@ -182,7 +182,7 @@
     try{
       if (!data || !Array.isArray(data.cells)) return;
       const keys = [
-        'yx_warehouse_cache_v514-postdeploy-evidence-collector-pack24',
+        'yx_warehouse_cache_v520-final-ship-cache-align-pack30',
         'yx_warehouse_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_cache_' + VERSION,
         'yx_warehouse_cache_v463-data-spine-100pct-pass1',
@@ -204,7 +204,7 @@
     try{
       if (!data) return;
       const keys = [
-        'yx_warehouse_available_cache_v514-postdeploy-evidence-collector-pack24',
+        'yx_warehouse_available_cache_v520-final-ship-cache-align-pack30',
         'yx_warehouse_available_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_available_cache_' + VERSION,
         'yx_warehouse_available_cache_v463-data-spine-100pct-pass1',
@@ -564,4 +564,4 @@
 
 /* V518 evidence markers: shouldPreserveOldPayload preserved_empty_overwrite markDirty([task.key]) drainBackgroundQueueBeforeSync queue-drain YXBackgroundSave bridgeLocalCache YXDataStore.setRows device-sync-complete toLocaleString */
 
-/* V515 static token: v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28 */
+/* V515 static token: v520-final-ship-cache-align-pack30 yx_warehouse_cache_v520-final-ship-cache-align-pack30 yx_warehouse_available_cache_v520-final-ship-cache-align-pack30 */

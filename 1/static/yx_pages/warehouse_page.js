@@ -1080,7 +1080,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v514-postdeploy-evidence-collector-pack24';
+  const CACHE_VERSION = 'v520-final-ship-cache-align-pack30';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
@@ -3908,7 +3908,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   }
   function menu(){
     let m=$('yx-final-warehouse-menu'); if(m) return m;
-    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu yx-v485-centered-action-sheet yx-v514-postdeploy-evidence-collector-pack24 hidden';
+    m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu yx-v485-centered-action-sheet yx-v520-final-ship-cache-align-pack30 hidden';
     m.innerHTML='<button type="button" data-wh-act="open">開啟 / 編輯格位</button><button type="button" data-wh-act="mark">標記 / 取消問題格</button><button type="button" data-wh-act="insert">新增一格到此格下方</button><button type="button" data-wh-act="batch-insert">批量新增到此格下方</button><button type="button" data-wh-act="delete">刪除此空格</button><button type="button" data-wh-act="batch-delete">批量刪除空格</button><button type="button" data-wh-act="return">返回該格</button><button type="button" data-wh-close="1" class="yx-wh-menu-close">關閉選單</button>';
     // V126：只保留 document click 單一路徑執行選單動作；避免 pointerup+click 雙重觸發造成後端操作被鎖或重複。
     const stopMenuBubble=(ev)=>{ if(ev.target?.closest?.('[data-wh-act]')){ try{ ev.stopPropagation(); }catch(_e){} } };
@@ -4616,7 +4616,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
     return false;
   }
-  window.YXFinalWarehouse={version:'v514-postdeploy-evidence-collector-pack24',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots, applyWarehouseDeductFromShip};
+  window.YXFinalWarehouse={version:'v520-final-ship-cache-align-pack30',render:renderWarehouse, openWarehouseModal, saveWarehouseCell, jumpProductToWarehouse, applyTargetedRetryRefresh, applyWarehouseShipColumnSnapshots, applyWarehouseDeductFromShip};
   if(YX.register) YX.register('warehouse',{install,render:renderWarehouse,cleanup:()=>{}});
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',install,{once:true}); else install();
 })();
@@ -4949,4 +4949,4 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v501_structure_slots_pack11_frontend: structure readback trusts exact DB slot list only after item-bag verification; base empty slot deletion stays hidden. No renderer/setInterval/MutationObserver added.
 
 /* V518 evidence markers: yx-v485-centered-action-sheet centered-action-sheet hideWarehouseMenu executeWarehouseMenuAction batch-add-slots queuedWarehousePost cacheWarehouseNow bumpColumnLocalRevision mark-cell canTrustStructureColumnReadback trustStructure yx499-cell-top yx499-count-split yx499-total manualUnplacedRefresh */
-/* V518 static token: v518-restore-satisfied-ship-preview-diag-pack28 */
+/* V518 static token: v520-final-ship-cache-align-pack30 */

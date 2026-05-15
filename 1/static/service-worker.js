@@ -1,5 +1,5 @@
 // networkOnly API bypass marker for diagnostics
-const CACHE_VERSION = 'yuanxing-v518-static-css-icons';
+const CACHE_VERSION = 'yuanxing-v520-static-css-icons';
 const STATIC_ALLOW = [/\/static\/css\//, /\/static\/icons\//, /\/static\/favicon\.png$/];
 self.addEventListener('install', event => { self.skipWaiting(); });
 self.addEventListener('activate', event => {

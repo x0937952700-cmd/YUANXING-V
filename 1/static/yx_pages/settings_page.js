@@ -361,7 +361,7 @@
 /* 設定頁手動載入：不自動抓差異/名單/備份，避免返回主頁卡住 */
 (function(){
   'use strict';
-  const VERSION='v514-postdeploy-evidence-collector-pack24';
+  const VERSION='v520-final-ship-cache-align-pack30';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   async function api(url,opt={}){const res=await window.YXDataStore.requestResponse(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await res.text();let d={};try{d=txt?JSON.parse(txt):{}}catch{d={success:false,error:txt||'伺服器回應格式錯誤'}};if(!res.ok||d.success===false)throw new Error(d.error||d.message||`請求失敗 ${res.status}`);return d;}
   function msg(id,text,kind='ok'){const el=document.getElementById(id);if(!el)return;el.className='alert '+kind;el.textContent=text;el.classList.remove('hidden');}

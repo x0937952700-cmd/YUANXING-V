@@ -1,8 +1,8 @@
 /* V507 data spine: local-first bridge with no-empty-overwrite guard and sync metadata. No renderer, no timer, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if (window.YXDataStore && window.YXDataStore.version === 'v514-postdeploy-evidence-collector-pack24') return;
-  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
+  if (window.YXDataStore && window.YXDataStore.version === 'v520-final-ship-cache-align-pack30') return;
+  const VERSION = 'v520-final-ship-cache-align-pack30';
   const PRODUCT_KEY = {inventory:'inventory', orders:'orders', master_order:'master_order'};
   const clean = v => String(v == null ? '' : v).replace(/[\u3000\s]+/g,' ').trim();
   const clone = v => { try { return JSON.parse(JSON.stringify(v)); } catch(_e) { return v; } };
@@ -523,4 +523,4 @@
 
 /* V518 evidence markers: hasUsefulRows newest === 0 */
 
-/* V515 static token: v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28 */
+/* V515 static token: v520-final-ship-cache-align-pack30 yx_warehouse_cache_v520-final-ship-cache-align-pack30 yx_warehouse_available_cache_v520-final-ship-cache-align-pack30 */

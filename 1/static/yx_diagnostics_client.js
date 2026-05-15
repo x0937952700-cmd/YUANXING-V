@@ -1,8 +1,8 @@
 /* V483 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
 (function(){
   'use strict';
-  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v518-restore-satisfied-ship-preview-diag-pack28') return;
-  const VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28';
+  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v520-final-ship-cache-align-pack30') return;
+  const VERSION = 'v520-final-ship-cache-align-pack30';
   const MAX_LOCAL = 80;
   const KEY = 'yx_diagnostics_recent_errors_v480';
   const nowIso = () => new Date().toISOString();

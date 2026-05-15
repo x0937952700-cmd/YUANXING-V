@@ -772,7 +772,7 @@
         if (!applySnapshotFromResponse(d, 'orders')) { try { window.YXDataStore?.setRows?.('orders', rowsStore('orders'), {reason:'order-to-master-source-confirmed'}); } catch(_e) {} }
         try { if (!applySnapshotFromResponse(d, 'master_order')) { try { window.YXDataStore?.setRows?.('master_order', rowsStore('master_order'), {reason:'order-to-master-target-confirmed'}); } catch(_e) {} } } catch(_e) {}
         try { await refreshCustomerBoards(customer, {source:'master_order', forceVisible:true}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'orders', target_source:'master_order', customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'order-to-master-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'orders', target_source:'master_order', customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'order-to-master-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
         return;
       }
       return moveInventory(pseudo, 'master_order');
@@ -907,7 +907,7 @@
         if (t && t !== source) { if (!applySnapshotFromResponse(d, t)) mergeSnapshotQuiet(d, t); }
         try { clearCrossFunctionCaches(source, customer, 'batch-transfer-success'); clearCrossFunctionCaches(t, customer, 'batch-transfer-success'); } catch(_e) {}
         try { for (const n of names) await refreshCustomerBoards(n, {source:t, forceVisible:true}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, target_source:t, customer_name:names[0]||customer, affected_customer_names:names, affected_sources:d?.affected_sources||[source,t], count:d.count||items.length, reason:'batch-transfer-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, target_source:t, customer_name:names[0]||customer, affected_customer_names:names, affected_sources:d?.affected_sources||[source,t], count:d.count||items.length, reason:'batch-transfer-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       })
       .catch(e => {
         commitProductRows(source, before.sourceBefore, 'batch-transfer-rollback');
@@ -934,7 +934,7 @@
         try { clearCrossFunctionCaches(source, selectedCustomer(), 'batch-zone-success'); } catch(_e) {}
         const names = (Array.isArray(d.affected_customer_names) ? d.affected_customer_names : []).filter(Boolean);
         try { if (source === 'orders' || source === 'master_order') names.forEach(n => refreshCustomerBoards(n, {source, forceVisible:true}).catch(()=>{})); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, affected_customer_names:names, affected_sources:d?.affected_sources||[source], count:d.count||items.length, zone, reason:'batch-zone-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, affected_customer_names:names, affected_sources:d?.affected_sources||[source], count:d.count||items.length, zone, reason:'batch-zone-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       })
       .catch(e => {
         commitProductRows(source, before, 'batch-zone-rollback');
@@ -1455,7 +1455,7 @@
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
     try { await refreshCustomerBoards(customer, {source:targetSource, forceVisible:true}); } catch(_e) {}
     try { if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
-    try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'inventory', target_source:targetSource, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'inventory-move-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'inventory', target_source:targetSource, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'inventory-move-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
   }
   async function shipItem(card){
     const source = card.dataset.source, id = card.dataset.id;
@@ -1467,7 +1467,7 @@
     try { clearCrossFunctionCaches(source, customer, 'direct-ship-success'); } catch(_e) {}
     if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'source-write-confirmed'}); } catch(_e) {} }
     try { await refreshCustomerBoards(customer, {source, forceVisible:false}); } catch(_e) {}
-    try { window.dispatchEvent(new CustomEvent('yx:ship-completed',{detail:{source, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), result:d||{}, reason:'direct-ship-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:ship-completed',{detail:{source, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), result:d||{}, reason:'direct-ship-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
   }
   async function saveAllEdits(source){
     const rows = [...document.querySelectorAll(`#yx113-${source}-summary .yx128-edit-row[data-source="${source}"]`)];
@@ -1513,7 +1513,7 @@
         try { (names.length ? names : [primary]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'batch-edit-success')); } catch(_e) {}
         try { if (source === 'orders' || source === 'master_order') (names.length ? names : [primary]).filter(Boolean).forEach(n => refreshCustomerBoards(n, {source, forceVisible:true}).catch(()=>{})); } catch(_e) {}
         try { if (window.YX116ShipPicker && primary) window.YX116ShipPicker.load(primary,{force:false}).catch(()=>{}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'batch-edit-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'batch-edit-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       })
       .catch(e => {
         try { window.YXBackgroundSave?.drain?.(); } catch(_retryErr) {}
@@ -1546,7 +1546,7 @@
         try { (names.length ? names : [primary]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-material-success')); } catch(_e) {}
         if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); updateSummaryHeaderOnly(source); }
         try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [primary]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:true}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'bulk-material-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'bulk-material-success', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       })
       .catch(e => {
         commitProductRows(source, before, 'bulk-material-rollback');
@@ -1590,7 +1590,7 @@
         try { (names.length ? names : [cust]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-delete-success', {skipCustomerSelected:true})); } catch(_e) {}
         if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); updateSummaryHeaderOnly(source); }
         try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [cust]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:false, clearPanelOnEmpty:true}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, affected_customer_names:names, count:d.count||items.length, reason:'bulk-delete-success', suppress_customer_selected:true, sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, affected_customer_names:names, count:d.count||items.length, reason:'bulk-delete-success', suppress_customer_selected:true, sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       })
       .catch(e => {
         rowsStore(source, before);
@@ -1897,7 +1897,7 @@
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v417', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v417', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2655,7 +2655,7 @@
           renderSelectedCustomerPanel(activeName).catch(()=>{});
         }
       } catch(_e) {}
-      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items, source:moduleKey(), version:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items, source:moduleKey(), version:'v520-final-ship-cache-align-pack30'}})); } catch(_e) {}
       return state.items;
     } catch(e) {
       try { renderFromCurrentRows(); } catch(_e) {}
@@ -3216,7 +3216,7 @@
       if(last && now-last<ttl) return false;
       box.set(key, now);
       if(box.size>240){ for(const [k,t] of Array.from(box.entries())) if(now-Number(t||0)>6000) box.delete(k); }
-      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v417', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}}));
+      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v417', sync_version:'v520-final-ship-cache-align-pack30', cache_bust:'v520-final-ship-cache-align-pack30'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -3254,7 +3254,7 @@
 (function(){
   'use strict';
   window.__YX_V342_OPERATION_STATUS_CARD__ = true;
-  const VERSION='v514-postdeploy-evidence-collector-pack24';
+  const VERSION='v520-final-ship-cache-align-pack30';
   const STORAGE_PREFIXES=['yx_operation_status_'];
   function removePanel(){
     try{ document.getElementById('yx282-operation-status-card')?.remove(); }catch(_e){}

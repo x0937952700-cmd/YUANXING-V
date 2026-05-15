@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/v518-restore-satisfied-ship-preview-diag-pack28",
-  "start_url": "/?v=v518-restore-satisfied-ship-preview-diag-pack28",
+  "id": "/v520-final-ship-cache-align-pack30",
+  "start_url": "/?v=v520-final-ship-cache-align-pack30",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "119-v518_restore_satisfied_ship_preview_diag_pack28"
+  "version": "119-v520_final_ship_cache_align_pack30"
 }

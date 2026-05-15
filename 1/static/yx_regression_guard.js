@@ -1,8 +1,8 @@
 /* V483 regression guard: prevents old empty-overwrite / timeout-wash regressions. No polling, no MutationObserver. */
 (function(){
   'use strict';
-  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v518-restore-satisfied-ship-preview-diag-pack28') return;
-  const VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28';
+  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v520-final-ship-cache-align-pack30') return;
+  const VERSION = 'v520-final-ship-cache-align-pack30';
   const KEY = 'yx_regression_guard_events_v494';
   const MAX = 80;
   const clean = v => String(v == null ? '' : v).slice(0, 1200);
@@ -12,7 +12,7 @@
   const writeEvents = rows => { try { localStorage.setItem(KEY, JSON.stringify((rows || []).slice(0, MAX))); } catch(_e){} };
   function allowedEmptyReason(reason){
     reason = clean(reason).toLowerCase();
-    return /delete|remove|clear|ship|sync|authoritative|full|manual-empty|reset/.test(reason);
+    return /delete|remove|clear|ship|shipping|sync|authoritative|full|manual-empty|reset|mutation-response-snapshot|ship-confirm-success|ship-confirm|preview|db-readback/.test(reason);
   }
   function record(type, detail){
     const item = {type:clean(type), detail:detail || {}, at:new Date().toISOString(), page:location.pathname, module:document.body?.dataset?.module || window.__YX_PAGE_ENDPOINT__ || '', version:VERSION};
