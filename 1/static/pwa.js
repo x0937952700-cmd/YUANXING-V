@@ -3,7 +3,7 @@
 (function(){
   'use strict';
   const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v487_real_fix_speed_action_audit';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v514_postdeploy_evidence_collector_pack24';
   root.enabled = true;
   root.policy = 'static-css-icons-only-no-api-cache';
   async function register(){

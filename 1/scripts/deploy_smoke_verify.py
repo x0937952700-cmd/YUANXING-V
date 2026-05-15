@@ -14,8 +14,8 @@ import argparse, json, sys, time, urllib.error, urllib.request
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V487-REAL-FIX-SPEED-ACTION-AUDIT"
-EXPECTED_STATIC_VERSION = "119-v487_real_fix_speed_action_audit"
+EXPECTED_APP_VERSION = "V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24"
+EXPECTED_STATIC_VERSION = "119-v514_postdeploy_evidence_collector_pack24"
 
 PUBLIC_PATHS = ["/health", "/api/health"]
 PROTECTED_PATHS = [
@@ -23,6 +23,13 @@ PROTECTED_PATHS = [
     "/api/health/smoke",
     "/api/health/api-schema",
     "/api/health/event-flow",
+    "/api/health/release-readiness",
+    "/api/health/operation-closed-loop",
+    "/api/health/final-gap-report",
+    "/api/health/final-evidence-bundle",
+    "/api/health/postdeploy-evidence-report",
+    "/api/health/local-write-loop-readiness",
+    "/api/health/write-test-safety",
     "/api/today-changes/count",
     "/api/today-changes/badge",
     "/api/shipping",
@@ -138,6 +145,7 @@ def route_map_from(payload: Any) -> dict[str, bool]:
     return {}
 
 
+# release readiness endpoint + operation closed-loop + final-gap report are checked below
 def verify_regression_rules(results: dict[str, dict[str, Any]], strict: bool) -> tuple[list[str], list[str]]:
     failures: list[str] = []
     warnings: list[str] = []
@@ -169,6 +177,21 @@ def verify_regression_rules(results: dict[str, dict[str, Any]], strict: bool) ->
         if "yx_v452_max_repair" in raw:
             failures.append("diagnostics export contains old yx_v452_max_repair reference")
 
+    readiness_payloads = []
+    for readiness_path in ("/api/health/release-readiness", "/api/health/operation-closed-loop", "/api/health/final-gap-report", "/api/health/final-evidence-bundle",
+    "/api/health/postdeploy-evidence-report",
+    "/api/health/local-write-loop-readiness", "/api/health/write-test-safety"):
+        payload = results.get(readiness_path, {}).get("json")
+        if isinstance(payload, dict):
+            readiness_payloads.append((readiness_path, payload))
+            if payload.get("success") is False or payload.get("ready") is False:
+                msg = f"{readiness_path} reports not ready"
+                (failures if strict else warnings).append(msg)
+            if payload.get("no_mutation") is not True:
+                failures.append(f"{readiness_path} must be read-only/no_mutation")
+    if not readiness_payloads:
+        warnings.append("readiness/final-gap endpoints unavailable; cannot verify final deploy checklist")
+
     return failures, warnings
 
 
@@ -177,7 +200,7 @@ def main() -> int:
     ap.add_argument("base_url")
     ap.add_argument("--username", default="")
     ap.add_argument("--password", default="")
-    ap.add_argument("--strict-version", action="store_true", help="fail if version is not exactly v483")
+    ap.add_argument("--strict-version", action="store_true", help="fail if version is not exactly V511")
     ap.add_argument("--strict-regression", action="store_true", help="fail on count/badge regression mismatches instead of warning")
     args = ap.parse_args()
     base = args.base_url.rstrip("/")

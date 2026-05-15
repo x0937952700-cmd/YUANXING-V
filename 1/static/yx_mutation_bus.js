@@ -1,8 +1,8 @@
 /* V483 predeploy mutation bus audit: write-path consistency for inventory/orders/master/shipping/warehouse/today. No renderer, no interval, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if(window.YXMutationBus && window.YXMutationBus.version === 'v487-real-fix-speed-action-audit') return;
-  const VERSION='v487-real-fix-speed-action-audit';
+  if(window.YXMutationBus && window.YXMutationBus.version === 'v514-postdeploy-evidence-collector-pack24') return;
+  const VERSION='v514-postdeploy-evidence-collector-pack24';
   const clean=v=>String(v==null?'':v).replace(/[\u3000\s]+/g,' ').trim();
   const clone=v=>{try{return JSON.parse(JSON.stringify(v));}catch(_e){return v;}};
   const normSource=s=>{s=clean(s); if(['master','master_orders','總單'].includes(s))return'master_order'; if(['order','訂單'].includes(s))return'orders'; if(['庫存'].includes(s))return'inventory'; if(['ship','shipping','出貨'].includes(s))return'ship'; return s;};
@@ -13,6 +13,12 @@
   function setRows(src, arr, reason){try{return window.YXDataStore?.setRows?.(src, Array.isArray(arr)?arr:[], {reason:reason||VERSION});}catch(_e){return arr||[];}}
   function applyRespRows(data, reason){
     if(!data||typeof data!=='object')return false;
+    // V488: warehouse structure/cell responses are not product snapshots; never apply them to inventory/orders/master_order.
+    try{
+      const isWarehouseAction = !!(data.column_cells || data.saved_cell || data.slot_identity_map || data.warehouse_stability || data.column_signature || data.column_revision || data.operation_action || data.db_readback);
+      const hasProductSnapshot = !!(data.snapshots || Array.isArray(data.changed_items) || Array.isArray(data.delta_items) || Array.isArray(data.exact_customer_items) || Array.isArray(data.saved_items) || Array.isArray(data.items) || Array.isArray(data.rows));
+      if(isWarehouseAction && !hasProductSnapshot) return false;
+    }catch(_e){}
     let ok=false;
     try{ productSources.forEach(src=>{ if(window.YXDataStore?.applyResponseRows?.(src,data,{reason:reason||VERSION})) ok=true; }); }catch(_e){}
     try{

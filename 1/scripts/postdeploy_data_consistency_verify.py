@@ -17,8 +17,8 @@ from collections import defaultdict
 from http.cookiejar import CookieJar
 from typing import Any
 
-EXPECTED_APP_VERSION = "V119-V487-REAL-FIX-SPEED-ACTION-AUDIT"
-EXPECTED_STATIC_VERSION = "119-v487_real_fix_speed_action_audit"
+EXPECTED_APP_VERSION = "V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24"
+EXPECTED_STATIC_VERSION = "119-v514_postdeploy_evidence_collector_pack24"
 
 READ_ENDPOINTS = {
     "inventory": "/api/inventory?sync_full=1&verify=1",
@@ -32,6 +32,7 @@ READ_ENDPOINTS = {
     "warehouse_available": "/api/warehouse/available-items?sync_full=1&verify=1",
     "shipping": "/api/shipping?sync_full=1&verify=1",
     "diagnostics_export": "/api/diagnostics/export",
+    "release_readiness": "/api/health/release-readiness",
 }
 
 
@@ -243,6 +244,15 @@ def main() -> int:
             warnings.append("diagnostics export does not include regression_guard_rules metadata")
     else:
         warnings.append("diagnostics export unavailable for regression rule verification")
+
+    readiness = payloads.get("release_readiness")
+    if isinstance(readiness, dict):
+        if readiness.get("ready") is False or readiness.get("success") is False:
+            (failures if args.strict_regression else warnings).append("release readiness endpoint reports not ready")
+        if readiness.get("no_mutation") is not True:
+            failures.append("release readiness endpoint must be read-only/no_mutation")
+    else:
+        warnings.append("release readiness endpoint unavailable")
 
     # Warehouse must be valid JSON; empty warehouse is warning only because real data may be unplaced.
     if "warehouse" in payloads and not isinstance(payloads.get("warehouse"), (dict, list)):

@@ -212,3 +212,19 @@ python -m zipfile -t 你的輸出檔.zip
 - Diagnostics must separate **current-version errors** from old-version history. Old history may be shown, but must not be used to claim the current package still has that exact error unless the app/static version matches.
 - Warehouse structure actions (`/api/warehouse/cell`, `/api/warehouse/batch-add-slots`, `/api/warehouse/mark-cell`) must return a fast touched-column payload and must not recompute the full unplaced/available list in the same request.
 - Do not remove batch buttons globally unless the user explicitly says the exact button location/page to remove.
+
+
+## V488 追加硬規則：診斷書大小問題全部修到 100%
+- 使用者提供診斷書時，不准只修主要問題；必須逐項處理 `critical`、`error`、`warn`、slow API、fetch failed、JS error、DB timeout、前後端資料不一致、按鍵事件缺漏、舊版殘留。
+- 可以花更久時間，但不能半套；若還沒修到 100%，必須明確回覆「還有下一包」。
+- 診斷書列出的 action_audit 問題，即使是小問題，也要修到不再列出，不能只說它不重要。
+- 若診斷規則本身誤判，也要修診斷規則，並把誤判原因列入修復內容。
+- 倉庫長按/批量新增/標記/刪格等結構操作，必須確認前端先顯示、背景保存、後端資料庫保存、刷新後不消失；診斷必須能檢出這條主線缺失。
+
+
+## V490 母版診斷硬規則
+- `diagnostics_master_requirements.txt` 是唯一母版需求依據。
+- 診斷功能必須把母版總表全部納入對照。
+- 任何按鈕、事件、內容、renderer、DB保存、queue、API、migration、出貨、倉庫、今日異動、材積公式、同步、快取、PWA 沒有對齊母版，都要列為重大異常。
+- 診斷報告匯出後，ChatGPT 必須依照母版逐項修復到 100%。
+- 如果問題太多無法一包完成，必須明確說還有下一包，並列出剩餘未完成項目。

@@ -1668,3 +1668,21 @@
   }
   root.assetGuard = Object.assign(root.assetGuard || {}, {version:'v155', status});
 })();
+
+
+/* V504_GLOBAL_LOGOUT_MAINLINE: home/settings logout uses the same single mainline. */
+(function(){
+  'use strict';
+  if (window.__YX_V504_GLOBAL_LOGOUT_MAINLINE__) return;
+  window.__YX_V504_GLOBAL_LOGOUT_MAINLINE__ = true;
+  async function doLogout(){
+    try {
+      const request = window.YXDataStore?.requestResponse || window.fetch;
+      await request('/api/logout', {method:'POST', credentials:'same-origin', cache:'no-store', headers:{'Content-Type':'application/json'}, body:'{}'});
+    } catch(_e) {}
+    try { localStorage.removeItem('yx_auth_checked'); } catch(_e) {}
+    location.href = '/login';
+  }
+  try { Object.defineProperty(window, 'logout', {configurable:true, writable:true, value:doLogout}); }
+  catch(_e) { window.logout = doLogout; }
+})();

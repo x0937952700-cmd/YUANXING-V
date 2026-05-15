@@ -369,6 +369,9 @@
   const moduleKey = () => YX.moduleKey();
   const isRegionPage = () => ['orders','master_order','ship','customers'].includes(moduleKey()) || !!$('region-north') || !!$('customers-north');
   const normRegion = v => { const s = YX.clean(v); return s.includes('中') ? '中區' : s.includes('南') ? '南區' : '北區'; };
+  function customerSourceForModule(){ const m = moduleKey(); if (m === 'orders') return 'orders'; if (m === 'master_order') return 'master_order'; if (m === 'ship') return 'ship'; return ''; }
+  function customerSourceQuery(){ const s = customerSourceForModule(); return s ? '&source=' + encodeURIComponent(s) : ''; }
+  function clearCustomerItemCache(name){ try { if (!name) state.itemCache.clear(); else state.itemCache.delete(mergeKey(name) || name); } catch(_e) {} }
   function tradeInfo(name){
     const raw = YX.clean(name || '');
     const tags = [];
@@ -556,7 +559,7 @@
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
-      const d = await YX.api('/api/customers?yx114=1&local_first=1&v480=1&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/customers?yx114=1&local_first=1&v480=1' + customerSourceQuery() + (force ? '&customer_refresh=1' : '') + '&ts=' + Date.now(), {method:'GET'});
       state.items = Array.isArray(d.items) ? d.items : [];
       renderBoards(state.items);
       try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}
@@ -572,7 +575,7 @@
     modal = document.createElement('div');
     modal.id = 'yx113-customer-actions';
     modal.className = 'modal hidden yx113-customer-actions';
-    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除客戶</button></div></div>`;
+    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn" type="button" data-yx113-customer-act="archive">封存客戶</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除客戶</button></div></div>`;
     document.body.appendChild(modal);
     const close = () => modal.classList.add('hidden');
     $('yx113-customer-action-close').onclick = close;
@@ -632,7 +635,9 @@
     try { await selectCustomer(name); } catch(_e) {}
     YX.toast(`${name} 已移到${region}`, 'ok');
     try {
-      await YX.api('/api/customers/move', {method:'POST', body:JSON.stringify({name, region})});
+      const d = await YX.api('/api/customers/move', {method:'POST', body:JSON.stringify({name, region, source:customerSourceForModule()})});
+      clearCustomerItemCache(name);
+      if (Array.isArray(d?.customers)) { state.items = d.customers; renderBoards(state.items); moveCustomerCardNow(name, region); }
       // 背景重新校正，不阻塞畫面；回來後仍維持最新區域。
       loadCustomerBlocks(true).then(()=>{ moveCustomerCardNow(name, region); selectCustomer(name).catch(()=>{}); }).catch(()=>{});
     } catch(e) {
@@ -641,12 +646,34 @@
       throw e;
     }
   }
+  async function archiveCustomer(name){
+    name = YX.clean(name || ''); if (!name) return;
+    if (!confirm(`確定封存客戶「${name}」？封存後會從北中南客戶卡隱藏，但保留訂單/總單/出貨歷史。`)) return;
+    removeCustomerCardNow(name);
+    const d = await YX.api(`/api/customers/${encodeURIComponent(name)}`, {method:'DELETE', body:JSON.stringify({mode:'archive', source:customerSourceForModule()})});
+    clearCustomerItemCache(name);
+    YX.toast(d.message || '客戶已封存', 'ok');
+    if (window.__YX_SELECTED_CUSTOMER__ === name) window.__YX_SELECTED_CUSTOMER__ = '';
+    if (Array.isArray(d?.customers)) { state.items = d.customers; renderBoards(state.items); }
+    else await loadCustomerBlocks(true);
+    try { if (window.YX113ProductActions) await window.YX113ProductActions.refreshCurrent(); } catch(_e) {}
+  }
+  function removeCustomerCardNow(name){
+    name = YX.clean(name || ''); if (!name) return;
+    document.querySelectorAll('[data-customer-name],[data-customer]').forEach(el => { if (YX.clean(el.dataset.customerName || el.dataset.customer || '') === name) el.remove(); });
+    state.items = (state.items || []).filter(c => YX.clean(c.name || c.customer_name || '') !== name);
+    renderBoards(state.items);
+  }
   async function deleteCustomer(name){
-    if (!confirm(`確定刪除 / 封存客戶「${name}」？`)) return;
-    const d = await YX.api(`/api/customers/${encodeURIComponent(name)}`, {method:'DELETE'});
+    name = YX.clean(name || ''); if (!name) return;
+    if (!confirm(`確定刪除客戶「${name}」？若已有訂單/總單/出貨紀錄，系統會自動改為封存保留歷史。`)) return;
+    removeCustomerCardNow(name);
+    const d = await YX.api(`/api/customers/${encodeURIComponent(name)}`, {method:'DELETE', body:JSON.stringify({mode:'delete', source:customerSourceForModule()})});
+    clearCustomerItemCache(name);
     YX.toast(d.message || '客戶已更新', 'ok');
     if (window.__YX_SELECTED_CUSTOMER__ === name) window.__YX_SELECTED_CUSTOMER__ = '';
-    await loadCustomerBlocks(true);
+    if (Array.isArray(d?.customers)) { state.items = d.customers; renderBoards(state.items); }
+    else await loadCustomerBlocks(true);
     try { if (window.YX113ProductActions) await window.YX113ProductActions.refreshCurrent(); } catch(_e) {}
   }
   function showActions(name){
@@ -666,7 +693,9 @@
     };
     document.addEventListener('pointerdown', ev => {
       const card = ev.target?.closest?.('.yx114-customer-card,.yx113-customer-card,.customer-region-card[data-customer-name],[data-customer-name]');
-      if (!card || ev.target.closest('button,input,select,textarea,a')) return;
+      const interactive = ev.target.closest('button,input,select,textarea,a');
+      const isSelfCustomerCardButton = interactive && interactive === card && card.matches('button.customer-region-card,.yx113-customer-card,.yx114-customer-card');
+      if (!card || (interactive && !isSelfCustomerCardButton)) return;
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       const x = ev.clientX, y = ev.clientY;
       clear();
@@ -713,6 +742,7 @@
           if (act === 'move-north') { modal.classList.add('hidden'); await moveCustomer(name, '北區'); }
           if (act === 'move-center') { modal.classList.add('hidden'); await moveCustomer(name, '中區'); }
           if (act === 'move-south') { modal.classList.add('hidden'); await moveCustomer(name, '南區'); }
+          if (act === 'archive') { modal.classList.add('hidden'); await archiveCustomer(name); }
           if (act === 'delete') { modal.classList.add('hidden'); await deleteCustomer(name); }
         } catch(e) { YX.toast(e.message || '客戶操作失敗', 'error'); }
         return;
@@ -737,6 +767,17 @@
     window.YX115CustomerRegions = window.YX113CustomerRegions;
     window.YX116CustomerRegions = window.YX113CustomerRegions;
     window.YX117CustomerRegions = window.YX113CustomerRegions;
+    if (!window.__YX505_CUSTOMER_SYNC_BUS__) {
+      window.__YX505_CUSTOMER_SYNC_BUS__ = true;
+      ['yx:product-batch-write-success','yx:ship-completed','yx:today-changes-read','yx:customer-profile-mutated'].forEach(evt => window.addEventListener(evt, e => {
+        try {
+          const d = e.detail || {};
+          const names = Array.isArray(d.affected_customer_names) ? d.affected_customer_names : [d.customer_name || d.name].filter(Boolean);
+          names.forEach(clearCustomerItemCache);
+          loadCustomerBlocks(false).catch(()=>{});
+        } catch(_e) {}
+      }));
+    }
   }
   function install(){
     if (!isRegionPage()) return;

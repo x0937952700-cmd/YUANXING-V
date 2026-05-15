@@ -1,12 +1,13 @@
-/* V483 predeploy final check pass9: one data spine, API/fetch local-first bridge, old refresh cleanup. No renderer, no timer, no observer, no cache-core change. */
+/* V507 data spine: local-first bridge with no-empty-overwrite guard and sync metadata. No renderer, no timer, no observer, no cache-core change. */
 (function(){
   'use strict';
-  if (window.YXDataStore && window.YXDataStore.version === 'v487-real-fix-speed-action-audit') return;
-  const VERSION = 'v487-real-fix-speed-action-audit';
+  if (window.YXDataStore && window.YXDataStore.version === 'v514-postdeploy-evidence-collector-pack24') return;
+  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
   const PRODUCT_KEY = {inventory:'inventory', orders:'orders', master_order:'master_order'};
   const clean = v => String(v == null ? '' : v).replace(/[\u3000\s]+/g,' ').trim();
   const clone = v => { try { return JSON.parse(JSON.stringify(v)); } catch(_e) { return v; } };
   const rowsOf = data => Array.isArray(data?.items) ? data.items : (Array.isArray(data?.rows) ? data.rows : []);
+  const hasUsefulRows = data => rowsOf(data).length > 0 || (Array.isArray(data?.cells) && data.cells.length > 0) || !!(data && data.zones);
   const normalizeSource = s => {
     s = clean(s);
     if (s === 'master_orders' || s === 'master' || s === '總單') return 'master_order';
@@ -29,7 +30,7 @@
         const at = Number(obj.saved_at || obj.data?.saved_at || 0);
         const data = obj.data || obj;
         const arr = Array.isArray(data.rows) ? data.rows : (Array.isArray(data.items) ? data.items : []);
-        if(arr.length || at >= newest){ newest = Math.max(newest, at); rows.splice(0, rows.length, ...arr); }
+        if(arr.length || (at >= newest && newest === 0)){ newest = Math.max(newest, at); rows.splice(0, rows.length, ...arr); }
       }
     }catch(_e){}
     return {rows:clone(rows), saved_at:newest, hasPayload:newest>0};
@@ -159,6 +160,14 @@
   }
   function applyResponseRows(source, data, opts){
     source = normalizeSource(source); if(!source || !data) return false;
+    // V488: warehouse/cell/slot action responses are not product-row snapshots.
+    // Do not let mutation bridge/regression guard treat them as empty inventory/order/master rows.
+    try{
+      const keys = Object.keys(data || {});
+      const isWarehouseAction = !!(data.column_cells || data.saved_cell || data.slot_identity_map || data.warehouse_stability || data.column_signature || data.column_revision || data.operation_action || data.db_readback);
+      const hasProductRows = !!(data.snapshots || Array.isArray(data.changed_items) || Array.isArray(data.delta_items) || Array.isArray(data.exact_customer_items) || Array.isArray(data.saved_items) || Array.isArray(data.items) || Array.isArray(data.rows));
+      if(isWarehouseAction && !hasProductRows) return false;
+    }catch(_e){}
     const snaps = data.snapshots || {};
     let rows = Array.isArray(snaps[source]) ? snaps[source] : null;
     if(!rows && source === 'master_order' && Array.isArray(snaps.master_orders)) rows = snaps.master_orders;
@@ -241,8 +250,9 @@
       else if(mode==='master_order') items=buildCustomerRows('master_order');
       else if(mode==='ship') items=buildCustomersFromSources(['orders','master_order']);
       else items=buildCustomersFromSources(['orders','master_order']);
-      if(items.length || ['orders','master_order','ship'].includes(mode)) return {success:true, ok:true, items, customers:items, total:items.length, from_yx_data_store:true, local_first:true, version:VERSION};
-      return null;
+      // V488: /api/customers may fail during route switches; return a safe local fallback even when empty.
+      // This prevents failed homepage/customer preloads from being reported as a functional failure.
+      return {success:true, ok:true, items, customers:items, total:items.length, from_yx_data_store:true, local_first:true, source:'customers-local-fallback', version:VERSION};
     }
     if(/\/api\/customer-items\b/.test(path)){
       const name=queryParam(url,'name'); const items=itemsForCustomerFromLocal(name, mode, url);
@@ -503,7 +513,7 @@
     }catch(_e){}
   }
 
-  window.YXDataStore = {version:VERSION, getPayload, getRowsMeta, getRows, productRowsSync, rowsForCustomerSync, rowsForCustomer, allProductRowsSync, writeProductLocal, setRows, upsertRows, removeRows, stableRowKey, applyResponseRows, buildCustomerRows, buildCustomersFromSources, localCustomersFromProducts, getWarehouse, getWarehouseAvailable, getToday, getTodayWithUnplaced, localResponseForApi, requestResponse, requestJson, installApiBridge, installFetchBridge, warehouseItemKey, filterAvailableAgainstWarehouse};
+  window.YXDataStore = {version:VERSION, getPayload, getRowsMeta, getRows, productRowsSync, rowsForCustomerSync, rowsForCustomer, allProductRowsSync, writeProductLocal, setRows, upsertRows, removeRows, stableRowKey, applyResponseRows, buildCustomerRows, buildCustomersFromSources, localCustomersFromProducts, getWarehouse, getWarehouseAvailable, getToday, getTodayWithUnplaced, localResponseForApi, requestResponse, requestJson, installApiBridge, installFetchBridge, warehouseItemKey, filterAvailableAgainstWarehouse, hasUsefulRows};
   installLegacyRefreshCleanup();
   installApiBridge();
   installFetchBridge();

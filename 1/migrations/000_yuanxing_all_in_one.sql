@@ -115,7 +115,10 @@ CREATE TABLE IF NOT EXISTS shipping_records (
   note TEXT,
   source_label TEXT,
   source_detail_json TEXT,
-  source_plan_json TEXT
+  source_plan_json TEXT,
+  volume REAL DEFAULT 0,
+  weight REAL DEFAULT 0,
+  volume_formula TEXT
 );
 
 -- table: corrections
@@ -454,6 +457,9 @@ ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS note TEXT;
 ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS source_label TEXT;
 ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS source_detail_json TEXT;
 ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS source_plan_json TEXT;
+ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS volume REAL DEFAULT 0;
+ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS weight REAL DEFAULT 0;
+ALTER TABLE shipping_records ADD COLUMN IF NOT EXISTS volume_formula TEXT;
 ALTER TABLE corrections ADD COLUMN IF NOT EXISTS wrong_text TEXT;
 ALTER TABLE corrections ADD COLUMN IF NOT EXISTS correct_text TEXT;
 ALTER TABLE corrections ADD COLUMN IF NOT EXISTS updated_at TEXT;

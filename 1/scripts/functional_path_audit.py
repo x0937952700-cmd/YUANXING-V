@@ -11,9 +11,9 @@ import ast, re, sys
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V487-REAL-FIX-SPEED-ACTION-AUDIT'
-VERSION_STATIC='119-v487_real_fix_speed_action_audit'
-VERSION_JS='v487-real-fix-speed-action-audit'
+VERSION_APP='V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24'
+VERSION_STATIC='119-v514_postdeploy_evidence_collector_pack24'
+VERSION_JS='v514-postdeploy-evidence-collector-pack24'
 
 def read(rel):
     p=root/rel
@@ -130,13 +130,15 @@ for token in ['YXDataStore','getTodayWithUnplaced','warehouse_available','unplac
 warehouse=pages.get('warehouse_page.js','')
 for token in ['YXDataStore','warehouseItemKey','loadAvailable','updateAllSlots']:
     must(warehouse, token, 'warehouse_page.js', 'warehouse must dedupe with same item key')
-for bad in ['renderWarehouse(true)','loadAvailable(true)','force:true','force: true']:
+for bad in ['renderWarehouse(true)','force:true','force: true']:
     if bad in warehouse:
         fail.append(f'warehouse_page.js still has old force reload path: {bad}')
+if 'loadAvailable(true)' in warehouse and '長按刷新未錄入倉庫圖件數' not in warehouse:
+    fail.append('warehouse_page.js uses loadAvailable(true) outside manual long-press unplaced refresh')
 
 # Service worker/PWA: API must not be cached.
 sw=read('static/service-worker.js')
-must(sw, 'yuanxing-v483-static-css-icons', 'static/service-worker.js')
+must(sw, 'yuanxing-v514-static-css-icons', 'static/service-worker.js')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos<0: fail.append('service-worker missing /api bypass')

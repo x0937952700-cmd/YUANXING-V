@@ -181,3 +181,22 @@ html.yx-fast-leaving .page-shell{pointer-events:none;opacity:.92;}
     pointer-events:none;
   }
 }
+
+/* V499 warehouse layout on phone/tablet: keep cells auto-height and product rows visible. */
+body[data-module="warehouse"] #warehouse-root .yx108-slot.vertical-slot{
+  height:auto!important;
+  min-height:66px!important;
+  overflow:visible!important;
+}
+body[data-module="warehouse"] #warehouse-root .yx-v500-slot-head{
+  display:grid!important;
+  grid-template-columns:26px minmax(0,1fr) auto!important;
+  gap:6px!important;
+}
+body[data-module="warehouse"] #warehouse-root .yx108-slot-product,
+body[data-module="warehouse"] #warehouse-root .yx-slot-product-line{
+  max-height:none!important;
+  overflow:visible!important;
+  white-space:normal!important;
+  text-overflow:clip!important;
+}

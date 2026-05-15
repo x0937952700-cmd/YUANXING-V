@@ -210,3 +210,6 @@ body[data-module="master_order"] [data-yx128-edit-all="master_order"],
 .yx-v68-inventory-actions [data-yx128-edit-all]{display:inline-flex!important;visibility:visible!important;}
 /* V485b: 恢復庫存/訂單/總單批量刪除與批量編輯按鈕；不得全域誤刪。 */
 body[data-module="inventory"] [data-yx113-batch-delete="inventory"],body[data-module="inventory"] [data-yx128-edit-all="inventory"],body[data-module="orders"] [data-yx113-batch-delete="orders"],body[data-module="orders"] [data-yx128-edit-all="orders"],body[data-module="master_order"] [data-yx113-batch-delete="master_order"],body[data-module="master_order"] [data-yx128-edit-all="master_order"]{display:inline-flex!important;visibility:visible!important;pointer-events:auto!important;}
+
+/* V507 ship/location sync */
+.yx-location-warning{margin:8px 0;padding:8px 10px;border-radius:12px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px}.yx-location-hit{display:block;width:100%;margin:6px 0;padding:10px;border-radius:14px;border:1px solid rgba(120,113,108,.25);background:#fff;text-align:left}.yx-location-hit b{display:block;margin-bottom:3px}.yx-location-hit span{display:block;color:#57534e;font-size:13px}.yx-location-loading{padding:10px;border-radius:12px;background:#f5f5f4}.yx-location-title{font-weight:800;margin:8px 0}

@@ -1,8 +1,8 @@
 /* V483 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
 (function(){
   'use strict';
-  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v487-real-fix-speed-action-audit') return;
-  const VERSION = 'v487-real-fix-speed-action-audit';
+  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v514-postdeploy-evidence-collector-pack24') return;
+  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
   const MAX_LOCAL = 80;
   const KEY = 'yx_diagnostics_recent_errors_v480';
   const nowIso = () => new Date().toISOString();

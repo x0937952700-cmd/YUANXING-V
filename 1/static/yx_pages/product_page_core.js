@@ -1,5 +1,6 @@
 
 /* formal product page core */
+/* V498 text parser volume rule: 132×11*12=123*4 (-3揚玉) => 4件; bracket notes ignored for qty. */
 (function(){
   'use strict';
   if (window.YX30EffectiveQty) return;
@@ -744,7 +745,12 @@
     });
   }
   function rowActionsHTML(source, id){
-    return '<span class="small-note">勾選後用上方按鈕操作</span>';
+    const sid = YX.esc(id || '');
+    const src = YX.esc(source || '');
+    const common = `<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="edit" data-source="${src}" data-id="${sid}">編輯</button><button class="ghost-btn tiny-btn danger-btn" type="button" data-yx131-row-action="delete" data-source="${src}" data-id="${sid}">刪除</button><button class="ghost-btn tiny-btn" type="button" data-yx-product-location="1" data-source="${src}" data-id="${sid}">商品位置</button>`;
+    if (source === 'inventory') return `${common}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-orders" data-source="${src}" data-id="${sid}">加到訂單</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${src}" data-id="${sid}">加到總單</button>`;
+    if (source === 'orders') return `${common}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${src}" data-id="${sid}">直接出貨</button><button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="to-master" data-source="${src}" data-id="${sid}">加到總單</button>`;
+    return `${common}<button class="ghost-btn tiny-btn" type="button" data-yx131-row-action="ship" data-source="${src}" data-id="${sid}">直接出貨</button>`;
   }
   function proxyCard(source, id){
     return {dataset:{source:String(source || ''), id:String(id || '')}};
@@ -752,7 +758,7 @@
   async function handleRowAction(source, id, action){
     if (!source || !id) return;
     const pseudo = proxyCard(source, id);
-    if (action === 'edit') { state.editAll[source] = true; clearSelected(source); renderSummary(source); return; }
+    if (action === 'edit') { state.editScope[source] = new Set([String(id)]); state.editAll[source] = true; clearSelected(source); renderSummary(source); return; }
     if (action === 'delete') return deleteItem(pseudo);
     if (action === 'ship') return shipItem(pseudo);
     if (action === 'to-orders') return moveInventory(pseudo, 'orders');
@@ -766,7 +772,7 @@
         if (!applySnapshotFromResponse(d, 'orders')) { try { window.YXDataStore?.setRows?.('orders', rowsStore('orders'), {reason:'order-to-master-source-confirmed'}); } catch(_e) {} }
         try { if (!applySnapshotFromResponse(d, 'master_order')) { try { window.YXDataStore?.setRows?.('master_order', rowsStore('master_order'), {reason:'order-to-master-target-confirmed'}); } catch(_e) {} } } catch(_e) {}
         try { await refreshCustomerBoards(customer, {source:'master_order', forceVisible:true}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'orders', target_source:'master_order', customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'order-to-master-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'orders', target_source:'master_order', customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'order-to-master-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
         return;
       }
       return moveInventory(pseudo, 'master_order');
@@ -836,9 +842,48 @@
     }
     return false;
   }
+
+  function commitProductRows(source, rows, reason){
+    rowsStore(source, Array.isArray(rows) ? rows : []);
+    try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:reason || 'product-local-commit'}); } catch(_e) {}
+    renderSourceSafely(source);
+  }
+  function selectedOnlyIds(source){
+    return Array.from(selectedIds(source)).map(String).filter(Boolean);
+  }
+  function selectedOnlyItems(source){
+    return selectedOnlyIds(source).map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
+  }
+  function normalizeTargetSource(target){
+    target = clean(target || '');
+    if(target === 'master_orders') return 'master_order';
+    if(target === 'order') return 'orders';
+    if(['inventory','orders','master_order'].includes(target)) return target;
+    return target;
+  }
+  function localTransferRows(source, targetSource, items, customer){
+    const idSet = new Set((items||[]).map(x => String(x.id || '')));
+    const sourceBefore = cloneRows(rowsStore(source));
+    const targetBefore = cloneRows(rowsStore(targetSource));
+    const moving = sourceBefore.filter(r => idSet.has(String(idOf(r) || '')));
+    const sourceNext = sourceBefore.filter(r => !idSet.has(String(idOf(r) || '')));
+    const nowToken = Date.now();
+    const targetNext = targetSource && targetSource !== source
+      ? targetBefore.concat(moving.map((r, idx) => Object.assign({}, r, {
+          id: `tmp-${nowToken}-${idx}`,
+          source: targetSource === 'orders' ? '訂單' : (targetSource === 'master_order' ? '總單' : '庫存'),
+          customer_name: customer || customerOf(r),
+          __pending_transfer: true,
+          __pending_save: true
+        })))
+      : targetBefore;
+    commitProductRows(source, sourceNext, 'batch-transfer-optimistic-source');
+    if(targetSource && targetSource !== source) commitProductRows(targetSource, targetNext, 'batch-transfer-optimistic-target');
+    return {sourceBefore, targetBefore, moving};
+  }
   async function batchTransfer(source, target){
     const ids = Array.from(selectedIds(source));
-    if (!ids.length) return YX.toast('請先勾選要移動的商品', 'warn');
+    if (!ids.length) return YX.toast('請先勾選要移動的商品，批量轉入不會自動選全部', 'warn');
     let customer = selectedCustomer();
     if (!customer && (target === 'orders' || target === 'master_order' || target === 'master_orders')) customer = prompt(`要加入${target === 'orders' ? '訂單' : '總單'}的客戶名稱`) || '';
     customer = YX.clean(customer);
@@ -848,29 +893,54 @@
       const row = rowsStore(source).find(r => String(idOf(r) || '') === String(id));
       return {source:apiSource(source), id:Number(id), qty:qtyOf(row), customer_name: customer || customerOf(row)};
     }).filter(x => x.id > 0);
-    const d = await YX.api('/api/items/batch-transfer', {method:'POST', body:JSON.stringify({items, target, customer_name:customer, region:'北區', allow_inventory_fallback:true, request_key:`v18-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})});
+    if (!items.length) return YX.toast('勾選商品尚未取得後端 id，請先讓背景保存完成', 'warn');
+    const targetSource = normalizeTargetSource(target);
+    const before = localTransferRows(source, targetSource, items, customer);
     clearSelected(source);
-    YX.toast(`已移動 ${d.count || items.length} 筆商品`, 'ok');
-    if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'product-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
-    try { if (target === 'orders' || target === 'master_order' || target === 'master_orders') { const t = target === 'master_orders' ? 'master_order' : target; if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; if (!applySnapshotFromResponse(d, t)) await loadSource(t); } } catch(_e) {}
-    const targetSource = target === 'master_orders' ? 'master_order' : target;
-    try { clearCrossFunctionCaches(source, customer, 'batch-transfer-success'); clearCrossFunctionCaches(targetSource, customer, 'batch-transfer-success'); } catch(_e) {}
-    const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : [customer]).filter(Boolean);
-    try { for (const n of names) await refreshCustomerBoards(n, {source:targetSource, forceVisible:true}); } catch(_e) {}
-    try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, target_source:targetSource, customer_name:names[0]||customer, affected_customer_names:names, affected_sources:d?.affected_sources||[source,targetSource], count:d.count||items.length, reason:'batch-transfer-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
+    YX.toast(`已先套用畫面，背景轉入 ${items.length} 筆`, 'ok');
+    backgroundRequest('/api/items/batch-transfer', {items, target, customer_name:customer, region:'北區', allow_inventory_fallback:true, request_key:`v495-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})
+      .then(async d => {
+        YX.toast(`已永久轉入 ${d.count || items.length} 筆商品`, 'ok');
+        const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : [customer]).filter(Boolean);
+        const t = normalizeTargetSource(target);
+        if (!applySnapshotFromResponse(d, source)) mergeSnapshotQuiet(d, source);
+        if (t && t !== source) { if (!applySnapshotFromResponse(d, t)) mergeSnapshotQuiet(d, t); }
+        try { clearCrossFunctionCaches(source, customer, 'batch-transfer-success'); clearCrossFunctionCaches(t, customer, 'batch-transfer-success'); } catch(_e) {}
+        try { for (const n of names) await refreshCustomerBoards(n, {source:t, forceVisible:true}); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, target_source:t, customer_name:names[0]||customer, affected_customer_names:names, affected_sources:d?.affected_sources||[source,t], count:d.count||items.length, reason:'batch-transfer-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+      })
+      .catch(e => {
+        commitProductRows(source, before.sourceBefore, 'batch-transfer-rollback');
+        if (targetSource && targetSource !== source) commitProductRows(targetSource, before.targetBefore, 'batch-transfer-target-rollback');
+        try { window.YXBackgroundSave?.drain?.(); } catch(_e) {}
+        YX.toast(e.message || '批量轉入背景保存失敗，已還原畫面', 'error');
+      });
   }
   async function batchMoveZone(source, zone){
-    const ids = selectedOrAllIds(source);
-    if (!ids.length) return YX.toast('目前沒有可移到 A/B 區的商品', 'warn');
-    const items = selectedItems(source, true);
+    const ids = selectedOnlyIds(source);
+    if (!ids.length) return YX.toast('請先勾選要移到 A/B 區的商品，避免誤移全部', 'warn');
+    const items = selectedOnlyItems(source);
+    if (!items.length) return YX.toast('勾選商品尚未取得後端 id，請先讓背景保存完成', 'warn');
+    const before = cloneRows(rowsStore(source));
     const idSet = new Set(items.map(x => String(x.id)));
-    rowsStore(source).forEach(r => { if (idSet.has(String(idOf(r) || ''))) { r.location = zone; r.zone = zone; r.warehouse_zone = zone; } });
-    renderSummary(source); renderCards(source);
-    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items})});
+    rowsStore(source).forEach(r => { if (idSet.has(String(idOf(r) || ''))) { r.location = zone; r.area = zone; r.zone = zone; r.warehouse_zone = zone; } });
+    commitProductRows(source, rowsStore(source), 'batch-zone-optimistic');
     clearSelected(source);
-    YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
-    if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'product-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
-    try { clearCrossFunctionCaches(source, selectedCustomer(), 'batch-zone-success'); } catch(_e) {}
+    YX.toast(`已先移到 ${zone}區，背景保存 ${items.length} 筆`, 'ok');
+    backgroundRequest('/api/customer-items/batch-zone', {zone, items, request_key:`v495-batch-zone-${source}-${Date.now()}`})
+      .then(d => {
+        YX.toast(`已永久移到 ${zone}區：${d.count || items.length} 筆`, 'ok');
+        if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); updateSummaryHeaderOnly(source); }
+        try { clearCrossFunctionCaches(source, selectedCustomer(), 'batch-zone-success'); } catch(_e) {}
+        const names = (Array.isArray(d.affected_customer_names) ? d.affected_customer_names : []).filter(Boolean);
+        try { if (source === 'orders' || source === 'master_order') names.forEach(n => refreshCustomerBoards(n, {source, forceVisible:true}).catch(()=>{})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, affected_customer_names:names, affected_sources:d?.affected_sources||[source], count:d.count||items.length, zone, reason:'batch-zone-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+      })
+      .catch(e => {
+        commitProductRows(source, before, 'batch-zone-rollback');
+        try { window.YXBackgroundSave?.drain?.(); } catch(_e) {}
+        YX.toast(e.message || 'A/B 區背景保存失敗，已還原畫面', 'error');
+      });
   }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
@@ -886,11 +956,11 @@
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
     const inventoryTransferButtons = source === 'inventory' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
     const orderToMasterButton = source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '';
-    const editDeleteButtons = `<button class="ghost-btn small-btn danger" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>`; // V486: restore only the product list batch buttons the user explicitly asked to keep
+    const editDeleteButtons = `<button class="ghost-btn small-btn danger" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">${editing ? '儲存批量編輯' : '批量編輯全部'}</button>${editing ? `<button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}">取消編輯</button>` : ''}`; // V504: batch delete/edit/cancel stay beside transfer buttons, no global removal
     const bottomLocationButton = `<div class="yx-product-location-bottom"><button class="ghost-btn small-btn yx-product-location-btn" type="button" data-yx-product-location-batch="${source}">商品位置</button><span class="small-note">勾選清單商品後，按此查詢全部倉庫位置。</span></div>`;
     const controls = source === 'inventory'
       ? `<div class="yx128-summary-controls yx-v68-inventory-actions yx114-summary-inline-actions">${zoneMoveButtons}${inventoryTransferButtons}${editDeleteButtons}</div>`
-      : `<div class="yx128-summary-controls yx-v68-order-master-actions yx114-summary-inline-actions ${source === 'orders' ? 'yx-v65-orders-summary-actions' : 'yx-v65-master-summary-actions'}">${orderToMasterButton}${zoneMoveButtons}${editDeleteButtons}</div>`; // formal mainline behavior.
+      : `<div class="yx128-summary-controls yx-v68-order-master-actions yx114-summary-inline-actions ${source === 'orders' ? 'yx-v65-orders-summary-actions' : 'yx-v65-master-summary-actions'}">${orderToMasterButton}${editDeleteButtons}${zoneMoveButtons}</div>`; // V488: batch edit/delete are placed beside 加到總單 when that button exists; do not move unrelated buttons.
     const scope = editingIds(source);
     const visibleLimit = Math.max(40, Number(state.displayLimit[source] || 120) || 120);
     const baseDisplayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
@@ -903,7 +973,7 @@
       const p = splitProduct(r.product_text || '');
       const id = idOf(r);
       if (!editing) {
-        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td></tr>`;
+        return `<tr class="yx113-summary-row" data-source="${source}" data-id="${id}"><td class="mat"><input class="yx113-row-check" type="checkbox" data-id="${id}" data-source="${source}">${materialWithMonthHTML(r)}</td><td class="month">${monthCellHTML(r)}</td><td class="size">${YX.esc(displaySizeText(r))}</td><td class="support yx-support-wrap">${window.YX30SupportHTML ? window.YX30SupportHTML(p.support || String(qtyOf(r)), YX.esc) : YX.esc(p.support || String(qtyOf(r)))}</td><td class="qty total-qty">${qtyOf(r)}</td><td class="zone">${YX.esc(zoneLabel(r))}</td><td class="yx-row-actions">${rowActionsHTML(source, id)}</td></tr>`;
       }
       return `<tr class="yx113-summary-row yx128-edit-row" data-source="${source}" data-id="${id}">
         <td><select class="text-input small yx128-field" data-yx128-field="material"><option value="">不指定材質</option>${materialOptions(materialOf(r)==='未填材質'?'':materialOf(r))}</select></td>
@@ -912,10 +982,11 @@
         <td><input class="text-input small yx128-field" data-yx128-field="support" value="${YX.esc(p.support || '')}" placeholder="支數 x 件數"></td>
         <td><input class="text-input small yx128-field" data-yx128-field="qty" type="number" min="1" value="${qtyOf(r)}" placeholder="總數量"></td>
         <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td>
+        <td class="yx-row-actions"><span class="small-note">修改後按上方「儲存批量編輯」</span></td>
       </tr>`;
     }
-    const body = firstPaintRows.length ? firstPaintRows.map(rowHTML).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong>${controls}<span class="yx114-summary-note">${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div></div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap yx-mobile-zoom-target"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th></tr></thead><tbody>${body}</tbody></table></div>${moreRows ? `<div class="yx137-more-row"><button class="ghost-btn small-btn" type="button" data-yx137-load-more="${source}">顯示更多 ${Math.min(120, baseDisplayRows.length - displayRows.length)} 筆</button><span class="small-note">已顯示 ${displayRows.length} / ${baseDisplayRows.length} 筆；搜尋可快速縮小範圍</span></div>` : ''}${state.hasMore[source] ? `<div class="yx137-more-row"><button class="ghost-btn small-btn" type="button" data-yx137-load-full="${source}">載入完整資料</button><span class="small-note">目前先載入 ${rows.length} / ${state.total[source] || rows.length} 筆以加快開頁</span></div>` : ''}${bottomLocationButton}`;
+    const body = firstPaintRows.length ? firstPaintRows.map(rowHTML).join('') : `<tr><td colspan="7">目前沒有資料</td></tr>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong>${controls}<span class="yx114-summary-note">${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div></div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap yx-mobile-zoom-target"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>月份</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>${moreRows ? `<div class="yx137-more-row"><button class="ghost-btn small-btn" type="button" data-yx137-load-more="${source}">顯示更多 ${Math.min(120, baseDisplayRows.length - displayRows.length)} 筆</button><span class="small-note">已顯示 ${displayRows.length} / ${baseDisplayRows.length} 筆；搜尋可快速縮小範圍</span></div>` : ''}${state.hasMore[source] ? `<div class="yx137-more-row"><button class="ghost-btn small-btn" type="button" data-yx137-load-full="${source}">載入完整資料</button><span class="small-note">目前先載入 ${rows.length} / ${state.total[source] || rows.length} 筆以加快開頁</span></div>` : ''}${bottomLocationButton}`;
     try{ window.YX && window.YX.mobileZoom && window.YX.mobileZoom.refreshSoon && window.YX.mobileZoom.refreshSoon(); }catch(_e){}
     if (deferredRows.length) {
       const tbody = box.querySelector('tbody');
@@ -968,10 +1039,10 @@
       const product = row.product_text || '';
       let hits = [];
       try {
-        const d = await YX.api('/api/warehouse/search?q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
+        const d = await YX.api('/api/product-locations?customer_name=' + encodeURIComponent(customer||'') + '&product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
         hits = Array.isArray(d.items) ? d.items : [];
         if (!hits.length && product) {
-          const d2 = await YX.api('/api/warehouse/search?q=' + encodeURIComponent(product) + '&ts=' + Date.now(), {method:'GET'});
+          const d2 = await YX.api('/api/product-locations?product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent(product||'') + '&ts=' + Date.now(), {method:'GET'});
           hits = Array.isArray(d2.items) ? d2.items : [];
         }
       } catch(_e) { hits = []; }
@@ -1012,10 +1083,10 @@
     panel.classList.remove('hidden'); panel.style.display = '';
     panel.innerHTML = `<strong>商品位置查詢中…</strong><div class="small-note">${YX.esc(customer || '庫存')}｜${YX.esc(product)}</div>`;
     try {
-      const d = await YX.api('/api/warehouse/search?q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/product-locations?customer_name=' + encodeURIComponent(customer||'') + '&product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
       let hits = Array.isArray(d.items) ? d.items : [];
       if (!hits.length && product) {
-        const d2 = await YX.api('/api/warehouse/search?q=' + encodeURIComponent(product) + '&ts=' + Date.now(), {method:'GET'});
+        const d2 = await YX.api('/api/product-locations?product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent(product||'') + '&ts=' + Date.now(), {method:'GET'});
         hits = Array.isArray(d2.items) ? d2.items : [];
       }
       const norm = v => String(v || '').replace(/\s+/g,'').toLowerCase();
@@ -1384,7 +1455,7 @@
     try { if (window.renderCustomers) await window.renderCustomers(); } catch(_e) {}
     try { await refreshCustomerBoards(customer, {source:targetSource, forceVisible:true}); } catch(_e) {}
     try { if (typeof window.selectCustomerForModule === 'function') await window.selectCustomerForModule(customer); } catch(_e) {}
-    try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'inventory', target_source:targetSource, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'inventory-move-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source:'inventory', target_source:targetSource, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), count:1, reason:'inventory-move-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
   }
   async function shipItem(card){
     const source = card.dataset.source, id = card.dataset.id;
@@ -1396,7 +1467,7 @@
     try { clearCrossFunctionCaches(source, customer, 'direct-ship-success'); } catch(_e) {}
     if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'source-write-confirmed'}); } catch(_e) {} }
     try { await refreshCustomerBoards(customer, {source, forceVisible:false}); } catch(_e) {}
-    try { window.dispatchEvent(new CustomEvent('yx:ship-completed',{detail:{source, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), result:d||{}, reason:'direct-ship-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
+    try { window.dispatchEvent(new CustomEvent('yx:ship-completed',{detail:{source, customer_name:customer, affected_customer_names:d?.affected_customer_names||[customer].filter(Boolean), result:d||{}, reason:'direct-ship-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
   }
   async function saveAllEdits(source){
     const rows = [...document.querySelectorAll(`#yx113-${source}-summary .yx128-edit-row[data-source="${source}"]`)];
@@ -1442,7 +1513,7 @@
         try { (names.length ? names : [primary]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'batch-edit-success')); } catch(_e) {}
         try { if (source === 'orders' || source === 'master_order') (names.length ? names : [primary]).filter(Boolean).forEach(n => refreshCustomerBoards(n, {source, forceVisible:true}).catch(()=>{})); } catch(_e) {}
         try { if (window.YX116ShipPicker && primary) window.YX116ShipPicker.load(primary,{force:false}).catch(()=>{}); } catch(_e) {}
-        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'batch-edit-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'batch-edit-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
       })
       .catch(e => {
         try { window.YXBackgroundSave?.drain?.(); } catch(_retryErr) {}
@@ -1458,27 +1529,30 @@
     const ids = selectedOrAllIds(source);
     if (!ids.length) return YX.toast('目前沒有可套用材質的商品', 'warn');
     const items = ids.map(id => ({source:apiSource(source), id:Number(id)})).filter(x => x.id > 0);
+    if (!items.length) return YX.toast('商品尚未取得後端 id，請先讓背景保存完成', 'warn');
     const affectedCustomers = affectedCustomersForIds(source, items.map(x => x.id));
-    // formal mainline behavior.
-    YX.toast(`正在套用材質 ${material}：${items.length} 筆`, 'ok');
+    const before = cloneRows(rowsStore(source));
+    YX.toast(`已先套用材質 ${material}：${items.length} 筆，背景保存中`, 'ok');
     const idSet = new Set(items.map(x => String(x.id)));
     rowsStore(source).forEach(r => { if (idSet.has(String(idOf(r) || ''))) { r.material = material; r.product_code = material; } });
-    renderSourceSafely(source);
-    try{
-      const d = await YX.api('/api/customer-items/batch-material', {method:'POST', body:JSON.stringify({material, items})});
-      YX.toast(`已套用材質 ${material}：${d.count || items.length} 筆`, 'ok');
-      if(sel) sel.value='';
-      const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : affectedCustomers).filter(Boolean);
-      const primary = names[0] || selectedCustomer();
-      try { (names.length ? names : [primary]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-material-success')); } catch(_e) {}
-      clearSelected(source);
-      if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'product-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
-      try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [primary]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:true}); } catch(_e) {}
-      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'bulk-material-success', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
-    }catch(e){
-      await loadSource(source);
-      YX.toast(e.message || '批量材質失敗，請確認材質是否在下拉選單內', 'error');
-    }
+    commitProductRows(source, rowsStore(source), 'bulk-material-optimistic');
+    clearSelected(source);
+    backgroundRequest('/api/customer-items/batch-material', {material, items, request_key:`v495-batch-material-${source}-${Date.now()}`})
+      .then(async d => {
+        YX.toast(`已永久套用材質 ${material}：${d.count || items.length} 筆`, 'ok');
+        if(sel) sel.value='';
+        const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : affectedCustomers).filter(Boolean);
+        const primary = names[0] || selectedCustomer();
+        try { (names.length ? names : [primary]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-material-success')); } catch(_e) {}
+        if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); updateSummaryHeaderOnly(source); }
+        try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [primary]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:true}); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:primary, affected_customer_names:names, count:d.count||items.length, reason:'bulk-material-success', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+      })
+      .catch(e => {
+        commitProductRows(source, before, 'bulk-material-rollback');
+        try { window.YXBackgroundSave?.drain?.(); } catch(_e) {}
+        YX.toast(e.message || '批量材質背景保存失敗，已還原畫面', 'error');
+      });
   }
   function removeDeletedRowsFromDom(source, ids){
     const idSet = new Set(Array.from(ids || []).map(String));
@@ -1490,46 +1564,41 @@
       if ((id && idSet.has(id)) || checked) tr.remove();
     });
     const tbody = box.querySelector('tbody');
-    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="6">目前沒有資料</td></tr>';
+    if (tbody && !tbody.querySelector('tr')) tbody.innerHTML = '<tr><td colspan="7">目前沒有資料</td></tr>';
   }
   async function bulkDelete(source){
-    // v11：有勾選刪勾選；沒勾選則刪除目前清單可見商品，並立即從畫面消失。
-    let items = selectedItems(source, true);
+    // V495：批量刪除只能刪勾選項目；沒有勾選絕不自動刪目前全部，避免誤刪整頁資料。
+    const items = selectedOnlyItems(source);
     const checkedRows = Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-row-check:checked`)).map(cb => cb.closest('tr')).filter(Boolean);
-    if (!items.length && checkedRows.length) {
-      // 若剛新增的列還沒有後端 id，先從畫面與本機 rowsStore 移除，避免一定要手動重新整理。
-      const texts = new Set(checkedRows.map(tr => Array.from(tr.children).slice(1,4).map(td => (td.textContent||'').trim()).join('|')));
-      rowsStore(source, rowsStore(source).filter(r => { const p=splitProduct(r.product_text||''); return !texts.has([p.size||r.product_text||'', p.support||String(qtyOf(r)), String(qtyOf(r))].join('|')); }));
-      clearSelected(source); renderSummary(source); renderCards(source); removeDeletedRowsFromDom(source, new Set());
-      return YX.toast('已先從畫面移除；此列尚未取得後端 id，重新進頁後若仍出現請再刪一次', 'warn');
-    }
-    if (!items.length) return YX.toast('目前沒有可刪除的商品', 'warn');
-    if (!confirm(`確定刪除 ${items.length} 筆商品？`)) return;
+    if (!items.length && checkedRows.length) return YX.toast('勾選商品尚未取得後端 id，請先讓背景保存完成後再刪除', 'warn');
+    if (!items.length) return YX.toast('請先勾選要刪除的商品；批量刪除不會自動刪全部', 'warn');
+    if (!confirm(`確定刪除已勾選的 ${items.length} 筆商品？`)) return;
+    const before = cloneRows(rowsStore(source));
     const idSet = new Set(items.map(x => String(x.id)));
     const affectedCustomers = affectedCustomersForIds(source, items.map(x => x.id));
-    const checkedRows2 = Array.from(document.querySelectorAll(`#yx113-${source}-summary .yx113-row-check:checked`)).map(cb => cb.closest('tr')).filter(Boolean);
-    const keyOfRow = (r) => { const p=splitProduct(r.product_text||''); return [p.size||r.product_text||'', p.support||String(qtyOf(r)), String(qtyOf(r)), materialOf(r), customerOf(r), zoneLabel(r)].join('|'); };
-    const checkedKeys = new Set(checkedRows2.map(tr => Array.from(tr.children).slice(0,5).map(td => (td.textContent||'').trim()).join('|')));
-    rowsStore(source, rowsStore(source).filter(r => !idSet.has(String(idOf(r) || '')) && !checkedKeys.has(keyOfRow(r))));
+    rowsStore(source, rowsStore(source).filter(r => !idSet.has(String(idOf(r) || ''))));
     try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'product-bulk-delete-optimistic'}); } catch(_e) {}
     clearSelected(source);
     renderSummary(source); renderCards(source);
     removeDeletedRowsFromDom(source, idSet);
-    try{
-      const d = await YX.api('/api/customer-items/batch-delete', {method:'POST', body:JSON.stringify({items})});
-      YX.toast(`批量刪除成功：${d.count || items.length} 筆，清單已立即移除`, 'ok');
-      const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : affectedCustomers).filter(Boolean);
-      const cust = selectedCustomer();
-      try { (names.length ? names : [cust]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-delete-success', {skipCustomerSelected:true})); } catch(_e) {}
-      // formal mainline behavior.
-      // 下一次進頁或手動刷新時會從後端拿到已刪除後資料。
-      if (!applySnapshotFromResponse(d, source)) { try { window.YXDataStore?.setRows?.(source, rowsStore(source), {reason:'product-local-confirmed'}); } catch(_e) {}; if (shouldAvoidRerender(source)) updateSummaryHeaderOnly(source); else renderSummary(source); }
-      try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [cust]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:false, clearPanelOnEmpty:true}); } catch(_e) {}
-      try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, affected_customer_names:names, count:d.count||items.length, reason:'bulk-delete-success', suppress_customer_selected:true, sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}})); } catch(_e) {}
-    }catch(e){
-      await loadSource(source);
-      YX.toast(e.message || '批量刪除失敗', 'error');
-    }
+    YX.toast(`已先從畫面刪除 ${items.length} 筆，背景保存中`, 'ok');
+    backgroundRequest('/api/customer-items/batch-delete', {items, request_key:`v495-batch-delete-${source}-${Date.now()}`})
+      .then(async d => {
+        YX.toast(`批量刪除已永久保存：${d.count || items.length} 筆`, 'ok');
+        const names = (Array.isArray(d.affected_customer_names) && d.affected_customer_names.length ? d.affected_customer_names : affectedCustomers).filter(Boolean);
+        const cust = selectedCustomer();
+        try { (names.length ? names : [cust]).filter(Boolean).forEach(n => clearCrossFunctionCaches(source, n, 'bulk-delete-success', {skipCustomerSelected:true})); } catch(_e) {}
+        if (!applySnapshotFromResponse(d, source)) { mergeSnapshotQuiet(d, source); updateSummaryHeaderOnly(source); }
+        try { if (source === 'orders' || source === 'master_order') for (const n of (names.length ? names : [cust]).filter(Boolean)) await refreshCustomerBoards(n, {source, forceVisible:false, clearPanelOnEmpty:true}); } catch(_e) {}
+        try { window.dispatchEvent(new CustomEvent('yx:product-batch-write-success',{detail:{source, customer_name:cust, affected_customer_names:names, count:d.count||items.length, reason:'bulk-delete-success', suppress_customer_selected:true, sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
+      })
+      .catch(e => {
+        rowsStore(source, before);
+        try { window.YXDataStore?.setRows?.(source, before, {reason:'product-bulk-delete-rollback'}); } catch(_e) {}
+        renderSummary(source); renderCards(source);
+        try { window.YXBackgroundSave?.drain?.(); } catch(_e) {}
+        YX.toast(e.message || '批量刪除背景保存失敗，已還原畫面', 'error');
+      });
   }
   function bindEvents(){
     if (state.bound) return; state.bound = true;
@@ -1828,7 +1897,7 @@
       if(last && now - last < ttl) return false;
       box.set(key, now);
       if(box.size > 240){ for(const [k,t] of Array.from(box.entries())){ if(now - Number(t||0) > 6000) box.delete(k); } }
-      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v417', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}}));
+      window.dispatchEvent(new CustomEvent(name, {detail: {...(detail||{}), sync_guard:'v417', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -2262,12 +2331,19 @@
     const v = variantsForName(name);
     return '&variants=' + encodeURIComponent(JSON.stringify(v));
   }
-  function renderCachedSelectedPanel(name){
+  function selectedPanelCacheKey(name, source){
+    const src = source || (moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : moduleKey()));
+    return `${src}::${mergeKey(name) || YX.clean(name || '')}`;
+  }
+  function renderCachedSelectedPanel(name, source){
     const panel = $('selected-customer-items');
     if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return false;
-    const cache = state.itemCache.get(mergeKey(name) || name);
+    const cache = state.itemCache.get(selectedPanelCacheKey(name, source));
     if (!cache || !Array.isArray(cache.items)) return false;
-    renderSelectedCustomerItems(name, cache.items);
+    // V494: 客戶商品快取必須依訂單/總單分開，避免同名客戶在不同頁互相顯示錯商品。
+    const pageSource = source || (moduleKey() === 'orders' ? 'orders' : 'master_order');
+    const safeItems = cache.items.filter(it => !it.source || String(it.source).includes(pageSource === 'master_order' ? 'master' : pageSource) || String(it.source_table || '').includes(pageSource === 'master_order' ? 'master' : pageSource));
+    renderSelectedCustomerItems(name, safeItems.length || !cache.items.length ? safeItems : cache.items);
     return true;
   }
   function renderSelectedCustomerItems(name, items){
@@ -2309,7 +2385,7 @@
     if (!panel || moduleKey() === 'ship' || !['orders','master_order'].includes(moduleKey())) return;
     panel.classList.remove('hidden');
     const pageSource = moduleKey() === 'orders' ? 'orders' : (moduleKey() === 'master_order' ? 'master_order' : '');
-    let painted = renderCachedSelectedPanel(name);
+    let painted = renderCachedSelectedPanel(name, pageSource);
     try {
       let localRows = (window.YX113ProductActions?.rowsStore?.(pageSource) || []).filter(r => {
         const n = YX.clean(r.customer_name || r.customer || '');
@@ -2319,7 +2395,7 @@
         localRows = (window.YXDataStore.rowsForCustomerSync(pageSource, name) || []).filter(r => qtyFromProduct(r.product_text || '', r.qty || 1) > 0);
       }
       if (localRows.length) {
-        state.itemCache.set(mergeKey(name) || name, {items:localRows, at:Date.now(), local_rows:true});
+        state.itemCache.set(selectedPanelCacheKey(name, pageSource), {items:localRows, at:Date.now(), local_rows:true});
         renderSelectedCustomerItems(name, localRows);
         painted = true;
       }
@@ -2332,7 +2408,7 @@
         const d = await YX.api(`/api/customer-items?name=${encodeURIComponent(name)}&fast=1&local_first=1&v463=1${sourceQuery}${variantsQuery(name)}`, {method:'GET'});
         const items = Array.isArray(d.items) ? d.items : [];
         if (items.length || !painted) {
-          state.itemCache.set(mergeKey(name) || name, {items, at:Date.now()});
+          state.itemCache.set(selectedPanelCacheKey(name, pageSource), {items, at:Date.now()});
           renderSelectedCustomerItems(name, items);
         }
       };
@@ -2347,7 +2423,12 @@
     try { window.dispatchEvent(new CustomEvent('yx:customer-selected', {detail:{name, variants:variantsForName(name)}})); } catch(_e) {}
     const input = $('customer-name');
     if (input) input.value = name;
-    document.querySelectorAll('.yx113-customer-card,.yx114-customer-card').forEach(card => card.classList.toggle('is-active', YX.clean(card.dataset.customerName) === name));
+    document.querySelectorAll('.yx113-customer-card,.yx114-customer-card').forEach(card => {
+      const cn = YX.clean(card.dataset.customerName || card.dataset.customer || '');
+      let vars = [];
+      try { vars = JSON.parse(card.dataset.customerVariants || '[]'); } catch(_e) { vars = [cn]; }
+      card.classList.toggle('is-active', cn === name || vars.some(v => sameCustomerName(v, name)));
+    });
     try {
       const source = moduleKey() === 'master_order' ? 'master_order' : (moduleKey() === 'orders' ? 'orders' : '');
       if (source && window.YX113ProductActions) {
@@ -2574,7 +2655,7 @@
           renderSelectedCustomerPanel(activeName).catch(()=>{});
         }
       } catch(_e) {}
-      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items, source:moduleKey(), version:'v462-data-spine-real-fix'}})); } catch(_e) {}
+      try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items, source:moduleKey(), version:'v514-postdeploy-evidence-collector-pack24'}})); } catch(_e) {}
       return state.items;
     } catch(e) {
       try { renderFromCurrentRows(); } catch(_e) {}
@@ -2587,7 +2668,7 @@
     modal = document.createElement('div');
     modal.id = 'yx113-customer-actions';
     modal.className = 'modal hidden yx113-customer-actions';
-    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除客戶</button></div></div>`;
+    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn" type="button" data-yx113-customer-act="archive">封存客戶</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除客戶</button></div></div>`;
     document.body.appendChild(modal);
     const close = () => modal.classList.add('hidden');
     $('yx113-customer-action-close').onclick = close;
@@ -2742,7 +2823,13 @@
     };
     document.addEventListener('pointerdown', ev => {
       const card = ev.target?.closest?.(cardSelector);
-      if (!card || ev.target.closest('button,input,select,textarea,a,[data-yx113-customer-act]')) return;
+      if (!card) return;
+      // V494: 客戶卡本身就是 button，不能用 closest('button') 把長按/拖拉事件擋掉。
+      // 只忽略卡片裡面真正的內層控制元件。
+      const innerControl = ev.target?.closest?.('input,select,textarea,a,[data-yx113-customer-act]');
+      if (innerControl) return;
+      const innerButton = ev.target?.closest?.('button');
+      if (innerButton && innerButton !== card && !innerButton.classList.contains('customer-region-card')) return;
       if (ev.button != null && ev.button !== 0) return;
       const name = YX.clean(card.dataset.customerName || card.dataset.customer || ''); if (!name) return;
       const x = ev.clientX, y = ev.clientY;
@@ -2802,6 +2889,7 @@
           if (act === 'move-north') { modal.classList.add('hidden'); await moveCustomer(name, '北區'); }
           if (act === 'move-center') { modal.classList.add('hidden'); await moveCustomer(name, '中區'); }
           if (act === 'move-south') { modal.classList.add('hidden'); await moveCustomer(name, '南區'); }
+          if (act === 'archive') { modal.classList.add('hidden'); await deleteCustomer(name); }
           if (act === 'delete') { modal.classList.add('hidden'); await deleteCustomer(name); }
         } catch(e) { YX.toast(e.message || '客戶操作失敗', 'error'); }
         return;
@@ -3128,7 +3216,7 @@
       if(last && now-last<ttl) return false;
       box.set(key, now);
       if(box.size>240){ for(const [k,t] of Array.from(box.entries())) if(now-Number(t||0)>6000) box.delete(k); }
-      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v417', sync_version:'v417-remove-opstatus-warehouse-visible-longpress', cache_bust:'v417-remove-opstatus-warehouse-visible-longpress'}}));
+      window.dispatchEvent(new CustomEvent(name,{detail:{...(detail||{}),sync_guard:'v417', sync_version:'v514-postdeploy-evidence-collector-pack24', cache_bust:'v514-postdeploy-evidence-collector-pack24'}}));
       return true;
     }catch(_e){ try{ window.dispatchEvent(new CustomEvent(name,{detail:detail||{}})); }catch(__e){} return true; }
   }
@@ -3166,7 +3254,7 @@
 (function(){
   'use strict';
   window.__YX_V342_OPERATION_STATUS_CARD__ = true;
-  const VERSION='v417-remove-opstatus-warehouse-visible-longpress';
+  const VERSION='v514-postdeploy-evidence-collector-pack24';
   const STORAGE_PREFIXES=['yx_operation_status_'];
   function removePanel(){
     try{ document.getElementById('yx282-operation-status-card')?.remove(); }catch(_e){}

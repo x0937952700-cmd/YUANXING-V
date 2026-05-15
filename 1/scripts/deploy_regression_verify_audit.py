@@ -14,14 +14,14 @@ def read(rel):
 app=read('app.py')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
-for token in ['V119-V487-REAL-FIX-SPEED-ACTION-AUDIT','regression_guard_rules','today_count_badge_same_source','warehouse_timeout_must_not_clear_local_rows','shipping_preview_must_render_feedback','customer_counts_rows_authoritative']:
+for token in ['V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24','/api/health/release-readiness','regression_guard_rules','today_count_badge_same_source','warehouse_timeout_must_not_clear_local_rows','shipping_preview_must_render_feedback','customer_counts_rows_authoritative']:
     if token not in app:
         fail.append(f'app.py missing regression export token: {token}')
 
 smoke=read('scripts/deploy_smoke_verify.py')
 try: ast.parse(smoke)
 except SyntaxError as e: fail.append(f'deploy_smoke_verify.py syntax error: {e}')
-for token in ['REGRESSION_REQUIRED_ROUTES','verify_regression_rules','--strict-regression','/api/today-changes/badge','/api/warehouse/available-items','/api/ship/preview','regression_guard_rules','DEPLOY REGRESSION VERIFY OK']:
+for token in ['REGRESSION_REQUIRED_ROUTES','verify_regression_rules','--strict-regression','/api/today-changes/badge','/api/warehouse/available-items','/api/ship/preview','regression_guard_rules','/api/health/release-readiness','release readiness endpoint','DEPLOY REGRESSION VERIFY OK']:
     if token not in smoke:
         fail.append(f'deploy_smoke_verify.py missing token: {token}')
 
@@ -41,3 +41,5 @@ if fail:
     for x in fail: print('-', x)
     sys.exit(1)
 print('DEPLOY REGRESSION VERIFY AUDIT OK')
+
+# V509 final_release_readiness_audit must be included in predeploy.

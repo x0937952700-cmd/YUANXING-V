@@ -8,9 +8,9 @@ import re, sys, ast
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V487-REAL-FIX-SPEED-ACTION-AUDIT'
-VERSION_STATIC='119-v487_real_fix_speed_action_audit'
-VERSION_JS='v487-real-fix-speed-action-audit'
+VERSION_APP='V119-V514-POSTDEPLOY-EVIDENCE-COLLECTOR-PACK24'
+VERSION_STATIC='119-v514_postdeploy_evidence_collector_pack24'
+VERSION_JS='v514-postdeploy-evidence-collector-pack24'
 
 def read(rel):
     p=root/rel
@@ -82,7 +82,7 @@ for old in ['__yxMutationBusV471','__yxMutationBusV472','__yxMutationBusV473']:
         fail.append(f'yx_mutation_bus.js still has stale flag {old}')
 
 sync=read('static/yx_device_sync.js')
-for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v487-real-fix-speed-action-audit', 'yx_warehouse_available_cache_v487-real-fix-speed-action-audit']:
+for token in [VERSION_JS, 'yxRawFetch:true', 'sync_full=1', 'readCachedPayload', 'writeCachedPayload', 'yx_warehouse_cache_v514-postdeploy-evidence-collector-pack24', 'yx_warehouse_available_cache_v514-postdeploy-evidence-collector-pack24']:
     has(sync, token, 'yx_device_sync.js sync token')
 for key in ['inventory','orders','master_order','customers','warehouse','warehouse_available','shipping_records','today_changes','todos']:
     if f"key:'{key}'" not in sync and f'key:"{key}"' not in sync:
@@ -90,7 +90,7 @@ for key in ['inventory','orders','master_order','customers','warehouse','warehou
 
 # Service worker API bypass must occur before cache respondWith.
 sw=read('static/service-worker.js')
-has(sw, 'yuanxing-v483-static-css-icons', 'service-worker cache version')
+has(sw, 'yuanxing-v514-static-css-icons', 'service-worker cache version')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos < 0:
@@ -99,7 +99,7 @@ elif rw_pos >= 0 and api_pos > rw_pos:
     fail.append('service-worker /api bypass must be before respondWith')
 
 manifest=read('static/manifest.webmanifest')
-has(manifest, '119-v487-real-fix-speed-action-audit', 'manifest version')
+has(manifest, '119-v514-postdeploy-evidence-collector-pack24', 'manifest version')
 
 # Page-level regression checks: critical pages must either reference YXDataStore directly or be protected by bridges loaded before pages.
 critical_pages=['inventory_page.js','product_page_core.js','shipping_page.js','today_changes_page.js','warehouse_page.js','home_page.js']
@@ -115,9 +115,12 @@ for name in critical_pages:
     if name in ['product_page_core.js','shipping_page.js','today_changes_page.js','warehouse_page.js'] and 'YXDataStore' not in text and not bridge_ok:
         fail.append(f'{rel} has no YXDataStore reference and no bridge protection')
     risky_force = len(re.findall(r'force\s*[:=]\s*true|force=1', text))
+    manual_refresh = len(re.findall(r'manualRefresh\s*[:=]\s*true|manual_refresh=', text))
     direct_fetch = len(re.findall(r'\bfetch\s*\(', text))
     if risky_force:
-        warn.append(f'{rel}: {risky_force} force refresh strings remain but must be local-first bridged')
+        fail.append(f'{rel}: old force refresh string remains; use manualRefresh/manual_refresh current-version path')
+    if name == 'today_changes_page.js' and manual_refresh < 2:
+        fail.append(f'{rel}: manual current-version refresh path missing')
     if direct_fetch:
         warn.append(f'{rel}: {direct_fetch} direct fetch calls remain but must be fetch-bridged')
 
@@ -141,6 +144,8 @@ for js_path in sorted((root/'static'/'yx_pages').glob('*.js')):
     txt = read(js_path)
     if 'force=1' in txt or 'force=0' in txt:
         fail.append(f'page still has old force query flag: {js_path.relative_to(root)}')
+    if js_path.name == 'today_changes_page.js' and 'manual_refresh=' not in txt:
+        fail.append('today_changes_page.js missing manual_refresh query flag')
 
 if fail:
     print('DATA FLOW REGRESSION AUDIT FAILED')

@@ -7366,3 +7366,76 @@ body[data-module="master_order"] [data-yx128-edit-all="master_order"],
 .yx-v65-orders-summary-actions [data-yx128-edit-all],
 .yx-v68-inventory-actions [data-yx113-batch-delete],
 .yx-v68-inventory-actions [data-yx128-edit-all]{pointer-events:auto!important;}
+
+/* V494 customer region consistency: center customer long-press sheet and keep card gestures enabled */
+.yx113-customer-actions:not(.hidden){
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:18px!important;
+  background:rgba(15,23,42,.28)!important;
+}
+.yx113-customer-action-card{
+  margin:auto!important;
+  max-width:min(92vw,440px)!important;
+}
+.customer-region-card.yx113-customer-card,
+.customer-region-card.yx114-customer-card,
+.customer-region-card.yx116-customer-card{
+  touch-action:manipulation!important;
+  -webkit-user-select:none!important;
+  user-select:none!important;
+}
+.category-box.yx121-drop-target{
+  outline:3px solid rgba(245,158,11,.65)!important;
+  outline-offset:4px!important;
+}
+@media(max-width:720px){
+  .yx113-customer-actions:not(.hidden){align-items:center!important;}
+  .yx113-customer-action-card{max-height:min(86vh,620px)!important;overflow:auto!important;}
+}
+
+/* V497 設定/同步/備份一致性：只保留新版直列卡片，不讓舊橫排摘要或舊刷新列回來。 */
+body[data-module="today_changes"] #today-summary-cards,
+body[data-module="today_changes"] .yx94-today-refresh-row,
+body[data-module="today_changes"] .yx95-today-refresh-row,
+body[data-module="today_changes"] .yx96-today-refresh-row,
+body[data-module="today_changes"] .yx98-today-refresh-row,
+body[data-module="today_changes"] #yx94-refresh-today,
+body[data-module="today_changes"] #yx95-refresh-today,
+body[data-module="today_changes"] #yx96-refresh-today,
+body[data-module="today_changes"] #yx98-refresh-today{
+  display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important;border:0!important;
+}
+body[data-module="today_changes"] .today-columns-vertical,
+body[data-module="today_changes"] .yx112-single-panel-list{
+  display:grid!important;grid-template-columns:1fr!important;gap:14px!important;
+}
+body[data-module="today_changes"] [data-today-panel]{
+  display:block;break-inside:avoid;margin-bottom:14px;
+}
+body[data-module="today_changes"] .yx112-today-row{
+  width:100%;display:block;border-radius:18px;margin:8px 0;overflow:visible!important;
+}
+body[data-module="today_changes"] .yx112-today-main{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:900;
+}
+body[data-module="today_changes"] .yx112-today-label[data-has-new-data="1"],
+body[data-module="today_changes"] #yx112-refresh-today[data-has-new-data="1"]{
+  outline:2px solid rgba(180,83,9,.25);
+}
+
+
+/* V497 settings sync backup pack7: 設定頁同步/備份/差異紀錄按鈕一致性 */
+#settings-sync-panel .yx-device-sync-progress{margin-top:12px}
+#settings-sync-panel .yx-device-sync-bar{height:9px;border-radius:999px;background:rgba(90,64,35,.12);overflow:hidden}
+#settings-sync-panel .yx-device-sync-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#8b5f35,#c79c62,#6f4a28);transition:width .22s ease}
+#settings-sync-panel .yx-device-sync-status{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;font-size:12px;color:#7d664f}
+.danger-text{color:#b42318!important}
+#audit-trails-list .deduct-card,#backup-panel .deduct-card{margin:8px 0;padding:12px;border-radius:16px;background:rgba(255,255,255,.68);border:1px solid rgba(90,64,35,.1)}
+
+/* yx505-customer-action-safe: customer archive/delete/move action sheet stays centered and readable. */
+.yx113-customer-actions .yx113-action-stack{display:grid;gap:10px;}
+.yx113-customer-actions .danger-btn{color:#b42318;border-color:rgba(180,35,24,.22);background:rgba(255,255,255,.72);}
+.yx121-dragging-customer{transform:scale(.98);box-shadow:0 12px 28px rgba(0,0,0,.16);}
+.yx121-drop-target{outline:2px dashed rgba(217,164,73,.75);outline-offset:3px;}

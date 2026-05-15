@@ -1,9 +1,9 @@
 /* V483 regression guard: prevents old empty-overwrite / timeout-wash regressions. No polling, no MutationObserver. */
 (function(){
   'use strict';
-  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v487-real-fix-speed-action-audit') return;
-  const VERSION = 'v487-real-fix-speed-action-audit';
-  const KEY = 'yx_regression_guard_events_v480';
+  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v514-postdeploy-evidence-collector-pack24') return;
+  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
+  const KEY = 'yx_regression_guard_events_v494';
   const MAX = 80;
   const clean = v => String(v == null ? '' : v).slice(0, 1200);
   const rowsOf = v => Array.isArray(v) ? v : (Array.isArray(v?.rows) ? v.rows : (Array.isArray(v?.items) ? v.items : []));
@@ -49,6 +49,11 @@
     if (typeof originalApply === 'function') {
       ds.applyResponseRows = function(source, data, opts){
         opts = opts || {};
+        try{
+          const isWarehouseAction = !!(data && (data.column_cells || data.saved_cell || data.slot_identity_map || data.warehouse_stability || data.column_signature || data.column_revision || data.operation_action || data.db_readback));
+          const hasProductSnapshot = !!(data && (data.snapshots || Array.isArray(data.changed_items) || Array.isArray(data.delta_items) || Array.isArray(data.exact_customer_items) || Array.isArray(data.saved_items) || Array.isArray(data.items) || Array.isArray(data.rows)));
+          if(isWarehouseAction && !hasProductSnapshot) return false;
+        }catch(_e){}
         const incoming = rowsOf(data);
         if (!incoming.length && !canReplaceWithEmpty(source, incoming, opts)) {
           record('empty_response_rows_blocked', {source:clean(source), reason:opts.reason || '', data_keys:Object.keys(data || {}).slice(0,20)});

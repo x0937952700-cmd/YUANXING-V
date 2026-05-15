@@ -834,7 +834,7 @@
     const bottomLocationButton = `<div class="yx-product-location-bottom"><button class="ghost-btn small-btn yx-product-location-btn" type="button" data-yx-product-location-batch="${source}">商品位置</button><span class="small-note">勾選清單商品後，按此查詢全部倉庫位置。</span></div>`;
     const controls = source === 'inventory'
       ? `<div class="yx128-summary-controls yx-v68-inventory-actions yx114-summary-inline-actions">${zoneMoveButtons}${inventoryTransferButtons}${editDeleteButtons}</div>`
-      : `<div class="yx128-summary-controls yx-v68-order-master-actions yx114-summary-inline-actions ${source === 'orders' ? 'yx-v65-orders-summary-actions' : 'yx-v65-master-summary-actions'}">${orderToMasterButton}${zoneMoveButtons}${editDeleteButtons}</div>`; // formal mainline behavior.
+      : `<div class="yx128-summary-controls yx-v68-order-master-actions yx114-summary-inline-actions ${source === 'orders' ? 'yx-v65-orders-summary-actions' : 'yx-v65-master-summary-actions'}">${orderToMasterButton}${editDeleteButtons}${zoneMoveButtons}</div>`; // V488: batch edit/delete are placed beside 加到總單 when that button exists; do not move unrelated buttons.
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(idOf(r) || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -898,10 +898,10 @@
       const product = row.product_text || '';
       let hits = [];
       try {
-        const d = await YX.api('/api/warehouse/search?q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
+        const d = await YX.api('/api/product-locations?customer_name=' + encodeURIComponent(customer||'') + '&product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
         hits = Array.isArray(d.items) ? d.items : [];
         if (!hits.length && product) {
-          const d2 = await YX.api('/api/warehouse/search?q=' + encodeURIComponent(product) + '&ts=' + Date.now(), {method:'GET'});
+          const d2 = await YX.api('/api/product-locations?product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent(product||'') + '&ts=' + Date.now(), {method:'GET'});
           hits = Array.isArray(d2.items) ? d2.items : [];
         }
       } catch(_e) { hits = []; }
@@ -942,10 +942,10 @@
     panel.classList.remove('hidden'); panel.style.display = '';
     panel.innerHTML = `<strong>商品位置查詢中…</strong><div class="small-note">${YX.esc(customer || '庫存')}｜${YX.esc(product)}</div>`;
     try {
-      const d = await YX.api('/api/warehouse/search?q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/product-locations?customer_name=' + encodeURIComponent(customer||'') + '&product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent([customer, product].filter(Boolean).join(' ')) + '&ts=' + Date.now(), {method:'GET'});
       let hits = Array.isArray(d.items) ? d.items : [];
       if (!hits.length && product) {
-        const d2 = await YX.api('/api/warehouse/search?q=' + encodeURIComponent(product) + '&ts=' + Date.now(), {method:'GET'});
+        const d2 = await YX.api('/api/product-locations?product_text=' + encodeURIComponent(product||'') + '&q=' + encodeURIComponent(product||'') + '&ts=' + Date.now(), {method:'GET'});
         hits = Array.isArray(d2.items) ? d2.items : [];
       }
       const norm = v => String(v || '').replace(/\s+/g,'').toLowerCase();

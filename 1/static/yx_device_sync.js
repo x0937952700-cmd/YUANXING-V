@@ -1,10 +1,10 @@
-/* V483 device sync predeploy final audit: full authoritative sync + datastore bridge + empty-overwrite guard. No yx_cache/yx_core edits, no timers/observers. */
+/* V507 device sync: full authority sync + cache empty-overwrite guard + queue drain before sync. No yx_cache/yx_core edits, no timers/observers. */
 (function(){
   'use strict';
-  if (window.__YX_DEVICE_SYNC_V480__) return;
-  window.__YX_DEVICE_SYNC_V480__ = true;
+  if (window.__YX_DEVICE_SYNC_V507__) return;
+  window.__YX_DEVICE_SYNC_V507__ = true;
 
-  const VERSION = 'v487-real-fix-speed-action-audit';
+  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
   const DB_NAME = 'yuanxing_device_sync_v452';
   const DB_VERSION = 1;
   const STORE = 'payloads';
@@ -35,6 +35,47 @@
       },0);
     } catch(_e) { return 0; }
   };
+
+  const countFeedItems = (data) => {
+    try{
+      if(Array.isArray(data?.items)) return data.items.length;
+      if(Array.isArray(data?.logs)) return data.logs.length;
+      if(data?.feed && typeof data.feed === 'object') return Object.values(data.feed).reduce((n,v)=>n+(Array.isArray(v)?v.length:0),0);
+      return 0;
+    }catch(_e){ return 0; }
+  };
+  const payloadStats = (data) => {
+    const rows = rowsOf(data).length;
+    const cells = Array.isArray(data?.cells) ? data.cells.length : 0;
+    const warehouseItems = warehouseItemCount(data);
+    const available = Array.isArray(data?.available) ? data.available.length : (Array.isArray(data?.items) ? data.items.length : 0);
+    const feedItems = countFeedItems(data);
+    return {rows, cells, warehouseItems, available, feedItems};
+  };
+  const explicitEmptyOk = (data) => !!(data && (data.empty_confirmed || data.sync_empty_confirmed || data.authoritative_empty || data.delete_confirmed || data.cleared_by_user));
+  function shouldPreserveOldPayload(task, incoming, old){
+    if(!task || !old || explicitEmptyOk(incoming)) return false;
+    const ns = payloadStats(incoming || {}), os = payloadStats(old || {});
+    if(task.productSource && os.rows > 0 && ns.rows === 0) return true;
+    if(task.key === 'customers' && os.rows > 0 && ns.rows === 0) return true;
+    if(task.key === 'warehouse' && os.warehouseItems > 0 && ns.warehouseItems === 0) return true;
+    if(task.key === 'warehouse_available' && os.available > 0 && ns.available === 0) return true;
+    if(task.key === 'today_changes' && os.feedItems > 0 && ns.feedItems === 0) return true;
+    return false;
+  }
+  async function drainBackgroundQueueBeforeSync(onProgress){
+    try{
+      const q = window.YXBackgroundSave;
+      if(!q || typeof q.pending !== 'function' || typeof q.drain !== 'function') return {pending_before:0, pending_after:0, drained:false};
+      const before = Number(q.pending() || 0);
+      if(before > 0){
+        try { onProgress && onProgress({task:{key:'background_queue', label:'背景保存佇列'}, done:0, total:TASKS.length, percent:0, phase:'queue-drain', pending:before}); } catch(_e) {}
+        await q.drain();
+      }
+      const after = Number(q.pending() || 0);
+      return {pending_before:before, pending_after:after, drained:before>0};
+    }catch(e){ return {pending_before:-1, pending_after:-1, drained:false, error:e?.message || String(e)}; }
+  }
   const safeJson = (res) => res.json().catch(() => ({}));
 
   const TASKS = [
@@ -141,7 +182,7 @@
     try{
       if (!data || !Array.isArray(data.cells)) return;
       const keys = [
-        'yx_warehouse_cache_v487-real-fix-speed-action-audit',
+        'yx_warehouse_cache_v514-postdeploy-evidence-collector-pack24',
         'yx_warehouse_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_cache_' + VERSION,
         'yx_warehouse_cache_v463-data-spine-100pct-pass1',
@@ -163,7 +204,7 @@
     try{
       if (!data) return;
       const keys = [
-        'yx_warehouse_available_cache_v487-real-fix-speed-action-audit',
+        'yx_warehouse_available_cache_v514-postdeploy-evidence-collector-pack24',
         'yx_warehouse_available_cache_v471-smoke-path-data-spine-pass8',
         'yx_warehouse_available_cache_' + VERSION,
         'yx_warehouse_available_cache_v463-data-spine-100pct-pass1',
@@ -269,8 +310,16 @@
   }
   async function storeTaskPayload(task, data){
     data = await mergeIncrementalPayload(task, data);
-    if (task && task.warehouse && warehouseItemCount(data) <= 0) {
-      try { const old = await readCachedPayload(task.key, 0); if (warehouseItemCount(old) > 0) { bridgeLocalCache(task, old); return; } } catch(_e) {}
+    let old = null;
+    try { old = await readCachedPayload(task?.key, 0); } catch(_e) {}
+    if (shouldPreserveOldPayload(task, data, old)) {
+      try {
+        const preserved = Object.assign({}, clone(old) || {}, {preserved_empty_overwrite:true, preserved_at:now(), rejected_empty_for:task?.key || '', rejected_empty_version:VERSION});
+        await idbPut(task.key, preserved, {label:task.label, url:task.url, preserved_empty_overwrite:true});
+        bridgeLocalCache(task, preserved);
+        markDirty([task.key]);
+      } catch(_e) { bridgeLocalCache(task, old); }
+      return;
     }
     await idbPut(task.key, data, {label:task.label, url:task.url});
     try { clearDirty(task.key); } catch(_e) {}
@@ -371,6 +420,7 @@
   }
   async function syncAll(onProgress, opts={}){
     const started = now();
+    const queue_status = await drainBackgroundQueueBeforeSync(onProgress);
     const meta = readMeta() || {};
     let run = opts.resume ? readRunState() : null;
     if (!run || !Array.isArray(run.remaining) || !run.remaining.length) {
@@ -399,7 +449,7 @@
       }
     }
     const ok = results.filter(x => x.ok).length;
-    writeMeta({ok, total:TASKS.length, elapsed_ms:now()-started, results, last_success_at: ok ? now() : Number(meta.last_success_at || 0), incremental_from: meta.saved_at || 0});
+    writeMeta({ok, total:TASKS.length, elapsed_ms:now()-started, results, queue_status, last_success_at: ok ? now() : Number(meta.last_success_at || 0), incremental_from: meta.saved_at || 0});
     writeRunState(null);
     try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key:'all', source:opts.auto?'auto-sync':'manual-sync', results}})); } catch(_e) {}
     try { window.dispatchEvent(new CustomEvent('yx:product-data-changed', {detail:{source:'all', reason:'device-sync-complete', results}})); } catch(_e) {}
@@ -502,7 +552,7 @@
     try { window.dispatchEvent(new CustomEvent(SYNC_EVENT, {detail:{key, source:'writeCachedPayload', data:data||{}}})); } catch(_e) {}
     return true;
   }
-  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, writeCachedPayload, readMeta, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync, markDirty});
+  window.YXDeviceSync = Object.assign(window.YXDeviceSync || {}, {version:VERSION, tasks:TASKS.slice(), syncAll, readCachedPayload, writeCachedPayload, readMeta, readAuto, writeAuto, formatTime:fmtTime, installApiLocalFirst, resumeIfNeeded, maybeRunAutoSync, markDirty, payloadStats, drainBackgroundQueueBeforeSync});
   installApiLocalFirst();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ()=>{ resumeIfNeeded(); maybeRunAutoSync(); }, {once:true});
   else { resumeIfNeeded(); maybeRunAutoSync(); }

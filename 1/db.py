@@ -5,6 +5,8 @@ import json
 import re
 import sqlite3
 import hashlib
+
+V498_TEXT_PARSER_VOLUME_RULE = '132×11*12=123*4 (-3揚玉) => 4件；括號只當備註，材積用總支數'
 from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -529,7 +531,7 @@ def product_sort_tuple(text):
 
 
 def product_support_text(text):
-    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     if '=' in raw:
         return raw.split('=', 1)[1].strip()
     return ''
@@ -884,7 +886,10 @@ def _legacy_init_db_unused():
             note {text},
             source_label {text},
             source_detail_json {text},
-            source_plan_json {text}
+            source_plan_json {text},
+            volume REAL DEFAULT 0,
+            weight REAL DEFAULT 0,
+            volume_formula {text}
         )""",
         f"""CREATE TABLE IF NOT EXISTS corrections (
             id {pk},
@@ -994,7 +999,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
         'inventory': [('customer_uid','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('customer_name','TEXT'),('operator','TEXT'),('source_text','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('status',"TEXT DEFAULT 'pending'"),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
         'master_orders': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('location','TEXT'),('area','TEXT'),('source','TEXT'),('note','TEXT'),('operator','TEXT'),('created_at','TEXT'),('updated_at','TEXT')],
-        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('source_table','TEXT'),('before_qty','INTEGER DEFAULT 0'),('after_qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('shipped_at','TEXT'),('note','TEXT'),('source_label','TEXT'),('source_detail_json','TEXT'),('source_plan_json','TEXT')],
+        'shipping_records': [('customer_uid','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('product_code','TEXT'),('material','TEXT'),('month_tag','TEXT'),('qty','INTEGER DEFAULT 0'),('source_table','TEXT'),('before_qty','INTEGER DEFAULT 0'),('after_qty','INTEGER DEFAULT 0'),('operator','TEXT'),('created_at','TEXT'),('shipped_at','TEXT'),('note','TEXT'),('source_label','TEXT'),('source_detail_json','TEXT'),('source_plan_json','TEXT'),('volume','REAL DEFAULT 0'),('weight','REAL DEFAULT 0'),('volume_formula','TEXT')],
         'warehouse_cells': [('zone','TEXT'),('column_index','INTEGER'),('slot_type','TEXT'),('slot_number','INTEGER'),('items_json','TEXT'),('note','TEXT'),('updated_at','TEXT'),('is_deleted','INTEGER DEFAULT 0'),('problem_flag','TEXT DEFAULT ''')],
         'today_changes': [('action','TEXT'),('table_name','TEXT'),('customer_name','TEXT'),('product_text','TEXT'),('detail_json','TEXT'),('operator','TEXT'),('created_at','TEXT'),('unread','INTEGER DEFAULT 1')],
         'app_settings': [('key','TEXT'),('value','TEXT'),('updated_at','TEXT')],
@@ -1892,8 +1897,16 @@ def get_customer_relation_counts(name='', customer_uid=''):
             else:
                 cur.execute(sql(f"SELECT product_text, qty FROM {table} WHERE " + " OR ".join(where_parts)), tuple(params))
                 rows = rows_to_dict(cur)
-            counts[f'{prefix}_rows'] = len(rows)
-            counts[f'{prefix}_qty'] = sum(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) for r in rows)
+            active_rows = []
+            active_qty = 0
+            for r in rows:
+                q = effective_product_qty(r.get('product_text') or '', r.get('qty') or 0)
+                if prefix in ('inventory', 'order', 'master') and q <= 0:
+                    continue
+                active_rows.append(r)
+                active_qty += max(0, q)
+            counts[f'{prefix}_rows'] = len(active_rows)
+            counts[f'{prefix}_qty'] = active_qty
         counts['active_rows'] = counts['inventory_rows'] + counts['order_rows'] + counts['master_rows']
         counts['total_rows'] = counts['active_rows'] + counts['shipping_rows']
         counts['active_qty_total'] = counts['inventory_qty'] + counts['order_qty'] + counts['master_qty']
@@ -2044,19 +2057,25 @@ def get_customers(active_only=True):
                     key = name_to_uid.get(cname) or uid or cname
                     if not key:
                         continue
+                    try:
+                        row_qty = int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0))
+                    except Exception:
+                        try:
+                            row_qty = int(float(r.get('qty') or 0))
+                        except Exception:
+                            row_qty = 0
+                    # V494: 北/中/南客戶卡的 active 來源不能被 qty=0 的舊訂單/總單/庫存列撐住。
+                    # shipping_records 是歷史紀錄，保留筆數；active tables 只算仍可操作的商品。
+                    if prefix in ('inventory', 'order', 'master') and row_qty <= 0:
+                        continue
                     if cname and key not in key_name_map:
                         key_name_map[key] = cname
                     if uid and key not in key_uid_map:
                         key_uid_map[key] = uid
                     c = count_map.setdefault(key, empty_counts())
                     c[f'{prefix}_rows'] += 1
-                    try:
-                        c[f'{prefix}_qty'] += int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0))
-                    except Exception:
-                        try:
-                            c[f'{prefix}_qty'] += int(float(r.get('qty') or 0))
-                        except Exception:
-                            pass
+                    if row_qty > 0:
+                        c[f'{prefix}_qty'] += row_qty
             except Exception as e:
                 log_error('get_customers_grouped_counts', f'{table}: {e}')
 
@@ -2201,6 +2220,35 @@ def sync_customer_name_in_warehouse(old_name, new_name):
         raise
     finally:
         conn.close()
+
+def archive_customer(name, region='北區'):
+    """Archive a customer without deleting relation rows.
+    If the customer only exists virtually through orders/master/inventory rows,
+    create a customer_profiles row first so get_customers() can suppress it from active region cards.
+    """
+    name = (name or '').strip()
+    region = (region or '').strip() or '北區'
+    if region not in ['北區', '中區', '南區']:
+        region = '北區'
+    if not name:
+        raise ValueError('客戶名稱不可空白')
+    row = get_customer(name, include_archived=True)
+    counts = get_customer_relation_counts(name)
+    if not row:
+        row = upsert_customer(name, region=region, preserve_existing=True)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(sql("UPDATE customer_profiles SET is_archived = 1, archived_at = ?, updated_at = ? WHERE name = ?"), (now(), now(), name))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    item = get_customer(name, include_archived=True) or row or {'name': name, 'region': region}
+    return {'mode': 'archived', 'counts': counts, 'item': item}
+
 
 def delete_customer(name):
     name = (name or '').strip()
@@ -3192,6 +3240,122 @@ def _auto_ship_source(master_available, order_available, inventory_available, qt
         return 'inventory'
     return ''
 
+
+def _yx_volume_dimension_factor(token, kind):
+    """Convert wood dimension tokens for official 材積.
+
+    length: 130 -> 1.3, width: 12 -> 1.2, height: 063 -> 0.63 / 05 -> 0.5 / 125 -> 1.25.
+    This helper is read-only and shared by preview + final shipping record.
+    """
+    raw = str(token or '').strip().replace('O', '0').replace('o', '0')
+    raw = re.sub(r'[^0-9]', '', raw)
+    if not raw:
+        return 0.0
+    try:
+        n = int(raw)
+    except Exception:
+        return 0.0
+    if kind == 'length':
+        return n / 100.0
+    if kind == 'width':
+        return n / 10.0
+    # thickness/height: two digits are tenths, three+ digits are hundredths.
+    return n / (100.0 if len(raw) >= 3 else 10.0)
+
+
+def _yx_split_support_counts(expr):
+    """Return total supports and bundle count from the right side of a product expression.
+
+    113x4+112+100 => supports 664, bundles 6.
+    V498: bracket notes are kept as display text but removed before math, so
+    132×11*12=123*4 (-3揚玉) becomes 123x4 for quantity/volume math = 4 bundles.
+    Supports are used for 材積; bundle count is only display quantity.
+    """
+    text = str(expr or '').strip()
+    text = re.sub(r'[×Ｘ＊*✕X]', 'x', text)
+    total_supports = 0
+    total_bundles = 0
+    rows = []
+    for raw_seg in [x.strip() for x in re.split(r'[+＋,，;；]', text) if x.strip()]:
+        math_seg = re.sub(r'[\(（][^\)）]*[\)）]', '', raw_seg).strip()
+        math_seg = re.sub(r'\s+', '', math_seg)
+        if not math_seg:
+            continue
+        m = re.match(r'^(\d+)\s*x\s*(\d+)\s*(?:件|片)?$', math_seg, flags=re.I)
+        if m:
+            supports = int(m.group(1) or 0)
+            bundles = int(m.group(2) or 0)
+        else:
+            m = re.match(r'^(\d+)\s*(?:件|片)?$', math_seg)
+            if not m:
+                continue
+            supports = int(m.group(1) or 0)
+            bundles = 1
+        total_supports += supports * bundles
+        total_bundles += bundles
+        rows.append({'segment': raw_seg, 'math_segment': math_seg, 'supports': supports, 'bundles': bundles, 'subtotal_supports': supports * bundles})
+    return total_supports, total_bundles, rows
+
+def calc_product_volume(product_text, qty_override=None):
+    """Official 出貨/預覽材積 calculation.
+
+    材積 = 總支數 × 長度換算 × 寬度換算 × 高度換算.
+    件數 never drives volume; it is only display quantity.
+    """
+    text = format_product_text_height2(str(product_text or '').strip())
+    norm = re.sub(r'[×＊*✕X]', 'x', text)
+    m = re.match(r'^\s*(?:\d{1,2}月)?(\d+)\s*x\s*(\d+)\s*x\s*(\d+)\s*=\s*(.+?)\s*$', norm)
+    if not m:
+        q = int(qty_override or effective_product_qty(text, 0) or 0)
+        return {'product_text': text, 'pieces_sum': 0, 'bundle_count': q, 'length_factor': 0, 'width_factor': 0, 'height_factor': 0, 'volume': 0.0, 'formula': '', 'segments': []}
+    length_raw, width_raw, height_raw, right = m.groups()
+    pieces_sum, bundle_count, segments = _yx_split_support_counts(right)
+    length_factor = _yx_volume_dimension_factor(length_raw, 'length')
+    width_factor = _yx_volume_dimension_factor(width_raw, 'width')
+    height_factor = _yx_volume_dimension_factor(height_raw, 'height')
+    volume = pieces_sum * length_factor * width_factor * height_factor
+    formula = f"{pieces_sum} × {length_factor:g} × {width_factor:g} × {height_factor:g} = {volume:.2f} 才"
+    return {
+        'product_text': text,
+        'pieces_sum': int(pieces_sum),
+        'bundle_count': int(bundle_count or qty_override or 0),
+        'length_factor': length_factor,
+        'width_factor': width_factor,
+        'height_factor': height_factor,
+        'volume': round(float(volume), 4),
+        'volume_display': f"{volume:.2f} 才",
+        'formula': formula,
+        'segments': segments,
+        'dimension_factor': {'length': length_factor, 'width': width_factor, 'height': height_factor},
+    }
+
+
+def _yx_shipping_volume_calc(items):
+    rows = []
+    total = 0.0
+    total_qty = 0
+    total_pieces = 0
+    total_bundles = 0
+    for it in (items or []):
+        calc = calc_product_volume((it or {}).get('product_text') or (it or {}).get('product') or '', (it or {}).get('qty'))
+        total += float(calc.get('volume') or 0)
+        try:
+            total_qty += int((it or {}).get('qty') or calc.get('bundle_count') or 0)
+        except Exception:
+            pass
+        total_pieces += int(calc.get('pieces_sum') or 0)
+        total_bundles += int(calc.get('bundle_count') or 0)
+        rows.append(calc)
+    return {
+        'rows': rows,
+        'items': rows,
+        'total_qty': int(total_qty or total_bundles or 0),
+        'total_pieces': int(total_pieces or 0),
+        'total_bundle_count': int(total_bundles or 0),
+        'total_volume': round(total, 4),
+        'volume_formula': ' + '.join([r.get('formula') or '0' for r in rows if r.get('formula')])
+    }
+
 def preview_ship_order(customer_name, items):
     conn = get_db()
     cur = conn.cursor()
@@ -3243,7 +3407,10 @@ def preview_ship_order(customer_name, items):
                     'inventory_available': inventory_available,
                     'selected_available': selected_available,
                     'source_preference': source_pref,
+                    'source_table': source_pref,
                     'source_label': source_label,
+                    'before_qty': selected_available,
+                    'after_qty': after.get({'master_orders':'master','orders':'order','inventory':'inventory'}.get(source_pref,''), selected_available),
                     'source_plan': selected_plan,
                     'source_plan_ids': [p.get('id') for p in selected_plan],
                     'deduct_before': before,
@@ -3264,6 +3431,7 @@ def preview_ship_order(customer_name, items):
                         {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': source_pref == 'orders'},
                         {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
                     ],
+                    'volume_calc': calc_product_volume(product_text, qty_needed),
                     'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else '庫存'),
                 })
                 continue
@@ -3295,7 +3463,10 @@ def preview_ship_order(customer_name, items):
                 'inventory_available': inventory_available,
                 'selected_available': selected_available,
                 'source_preference': auto_source,
+                'source_table': auto_source,
                 'source_label': auto_label,
+                'before_qty': selected_available,
+                'after_qty': after.get({'master_orders':'master','orders':'order','inventory':'inventory'}.get(auto_source,''), selected_available),
                 'source_plan': selected_plan,
                 'source_plan_ids': [p.get('id') for p in selected_plan],
                 'deduct_before': before,
@@ -3316,11 +3487,14 @@ def preview_ship_order(customer_name, items):
                     {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': auto_source == 'orders'},
                     {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
+                'volume_calc': calc_product_volume(product_text, qty_needed),
                 'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else '庫存'),
             })
         return {
             'success': True,
             'items': preview,
+            'calc': _yx_shipping_volume_calc(preview),
+            'volume_calc': _yx_shipping_volume_calc(preview),
             'needs_inventory_fallback': needs_inventory_fallback,
             'master_exceeded': bool(master_errors),
             'master_errors': master_errors,
@@ -3428,6 +3602,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 'source_customer_name': source_customer,
                 'source_table': auto_source,
                 'source_label': source_label,
+                'selected_before_qty': source_before_qty,
+                'selected_after_qty': source_after_qty,
                 'before_qty': source_before_qty,
                 'after_qty': source_after_qty,
                 'qty': qty_needed,
@@ -3442,7 +3618,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                     'inventory': max(0, inventory_available - sum(x['qty'] for x in used_inv)),
                 },
             }
-            readable_note = f"{note}｜{source_label} 扣前{source_before_qty}→扣後{source_after_qty}"
+            volume_detail = calc_product_volume(product_text, qty_needed)
+            readable_note = f"{note}｜{source_label} 扣前{source_before_qty}→扣後{source_after_qty}｜材積{float(volume_detail.get('volume') or 0):.2f}才"
             ship_now = now()
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, source_table, before_qty, after_qty, operator, shipped_at, note)
@@ -3457,6 +3634,12 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                     sets.append('source_detail_json = ?'); vals.append(json.dumps(source_detail, ensure_ascii=False, sort_keys=True))
                 if 'source_plan_json' in cols:
                     sets.append('source_plan_json = ?'); vals.append(json.dumps(final_plan, ensure_ascii=False, sort_keys=True))
+                if 'volume' in cols:
+                    sets.append('volume = ?'); vals.append(float(volume_detail.get('volume') or 0))
+                if 'weight' in cols:
+                    sets.append('weight = ?'); vals.append(float(item.get('weight') or item.get('unit_weight') or 0) * float(volume_detail.get('volume') or 0))
+                if 'volume_formula' in cols:
+                    sets.append('volume_formula = ?'); vals.append(volume_detail.get('formula') or '')
                 if sets:
                     if USE_POSTGRES:
                         cur.execute(sql('UPDATE shipping_records SET ' + ', '.join(sets) + ' WHERE customer_name=? AND product_text=? AND shipped_at=? AND operator=?'), tuple(vals + [customer_name, product_text, ship_now, operator]))
@@ -3468,15 +3651,44 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 try: log_error('ship_record_detail_v244', _ship_detail_err)
                 except Exception: pass
 
+            # V493: formal shipping must also write today_changes so diagnostics can
+            # verify a real DB activity row, not only the derived logs/shipping_records feed.
+            try:
+                cols_today = _table_columns(cur, 'today_changes')
+                if cols_today:
+                    detail_today = dict(source_detail)
+                    detail_today.update({
+                        'volume': float(volume_detail.get('volume') or 0),
+                        'weight': float(item.get('weight') or item.get('unit_weight') or 0) * float(volume_detail.get('volume') or 0),
+                        'volume_formula': volume_detail.get('formula') or '',
+                    })
+                    cur.execute(sql("""
+                        INSERT INTO today_changes(action, table_name, customer_name, product_text, detail_json, operator, created_at, unread)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """), ('出貨', 'shipping_records', customer_name, product_text, json.dumps(detail_today, ensure_ascii=False, sort_keys=True), operator, ship_now, 1))
+            except Exception as _today_ship_err:
+                try: log_error('ship_today_changes_v493', _today_ship_err)
+                except Exception: pass
+
             breakdown.append({
                 "source_table": auto_source,
                 "source_customer_name": source_customer,
                 "source_before_qty": source_before_qty,
                 "source_after_qty": source_after_qty,
+                "before_qty": source_before_qty,
+                "after_qty": source_after_qty,
+                "selected_before_qty": source_before_qty,
+                "selected_after_qty": source_after_qty,
                 "product_text": product_text,
                 "product_code": material,
                 "material": material,
                 "qty": qty_needed,
+                "pieces_sum": int(volume_detail.get('pieces_sum') or 0),
+                "bundle_count": int(volume_detail.get('bundle_count') or 0),
+                "volume": float(volume_detail.get('volume') or 0),
+                "weight": float(item.get('weight') or item.get('unit_weight') or 0) * float(volume_detail.get('volume') or 0),
+                "volume_formula": volume_detail.get('formula') or '',
+                "volume_calc": volume_detail,
                 "source_preference": auto_source,
                 "source_label": _ship_source_label(auto_source),
                 "source_plan": final_plan,
@@ -10667,3 +10879,556 @@ def warehouse_set_cell_mark(zone, column_index, slot_number, marked):
     finally:
         try: conn.close()
         except Exception: pass
+
+# ============================================================
+# V493 warehouse persistence pack 3
+# - Final override restores one canonical DB path for every long-press/right-click
+#   warehouse action after V487 fast readers overrode the older canonical writer.
+# - Does not touch yx_cache.js, yx_core.js, API timeout, background queue,
+#   service worker API bypass, setInterval, MutationObserver, or renderers.
+# - Reads are column-scoped for action readback; full read still guarantees A/B x 6 columns x default 20 slots.
+# ============================================================
+
+_YX_V493_DEFAULT_COLUMNS = 6
+_YX_V493_DEFAULT_SLOTS = 20
+
+def _yx_v493_int(v, default=0):
+    try:
+        if v in (None, ''):
+            return int(default)
+        return int(float(v))
+    except Exception:
+        return int(default)
+
+def _yx_v493_text(v):
+    try:
+        return str(v or '').strip()
+    except Exception:
+        return ''
+
+def _yx_v493_zone(v):
+    try:
+        z = _yx_v116_zone(v)
+    except Exception:
+        z = _yx_v493_text(v).upper()
+    return z if z in ('A','B') else 'A'
+
+def _yx_v493_parse_items(value):
+    try:
+        if '_yx_v434_parse_items' in globals():
+            arr = _yx_v434_parse_items(value)
+            if isinstance(arr, list):
+                return arr
+    except Exception:
+        pass
+    try:
+        if '_yx_v487_parse_items_fast_value' in globals():
+            arr = _yx_v487_parse_items_fast_value(value)
+            if isinstance(arr, list):
+                return arr
+    except Exception:
+        pass
+    try:
+        if '_yx_v432_parse_any_items' in globals():
+            arr = _yx_v432_parse_any_items(value)
+            if isinstance(arr, list):
+                return arr
+    except Exception:
+        pass
+    if not value:
+        return []
+    try:
+        raw = value
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return []
+        out=[]
+        for it in raw:
+            if not isinstance(it, dict):
+                continue
+            product=_yx_v493_text(it.get('product_text') or it.get('product') or it.get('raw_text') or it.get('size') or it.get('display_product_size'))
+            if not product:
+                continue
+            row=dict(it); row['product_text']=product; row['product']=row.get('product') or product; row['qty']=max(1,_yx_v493_int(row.get('qty') or row.get('quantity') or 1,1)); out.append(row)
+        return out
+    except Exception:
+        return []
+
+def _yx_v493_merge_items(primary, rescue):
+    try:
+        if '_yx_v434_merge_items' in globals():
+            return _yx_v434_merge_items(primary or [], rescue or [])
+    except Exception:
+        pass
+    out=[]; seen=set()
+    for it in _yx_v493_parse_items(primary) + _yx_v493_parse_items(rescue):
+        try:
+            product=_yx_v493_text(it.get('product_text') or it.get('product') or it.get('raw_text'))
+            if not product:
+                continue
+            k='|'.join([
+                _yx_v493_text(it.get('source_table') or it.get('source')),
+                _yx_v493_text(it.get('source_id') or it.get('id')),
+                _yx_v493_text(it.get('customer_name') or it.get('customer')),
+                _yx_v493_text(it.get('material') or it.get('product_code')),
+                product,
+                _yx_v493_text(it.get('placement_label') or it.get('layer_label')),
+            ])
+            row=dict(it); row['product_text']=product; row['product']=row.get('product') or product; row['qty']=max(1,_yx_v493_int(row.get('qty') or 1,1))
+            if k in seen:
+                continue
+            seen.add(k); out.append(row)
+        except Exception:
+            continue
+    return out
+
+def _yx_v493_mirror_rows(cur, z, c, ids=None):
+    mirrors=[]
+    try:
+        if not _yx_v427_table_exists(cur, 'warehouse_cell_items'):
+            return []
+    except Exception:
+        return []
+    try:
+        ids=[x for x in (ids or []) if x]
+        if ids:
+            ph=','.join(['?']*len(ids))
+            cur.execute(sql(f"SELECT * FROM warehouse_cell_items WHERE cell_id IN ({ph}) OR (zone=? AND column_index=?) ORDER BY cell_id, slot_number, sort_order, id"), tuple(ids)+(z,c))
+        else:
+            cur.execute(sql("SELECT * FROM warehouse_cell_items WHERE zone=? AND column_index=? ORDER BY slot_number, sort_order, id"),(z,c))
+        mirrors=rows_to_dict(cur) or []
+    except Exception as e:
+        try: log_error('warehouse_v493_mirror_rows', str(e))
+        except Exception: pass
+        mirrors=[]
+    return mirrors
+
+def _yx_v493_mirror_maps(mirror_rows):
+    by_id={}; by_coord={}
+    for r in mirror_rows or []:
+        try:
+            product=_yx_v493_text(r.get('product_text') or r.get('product') or r.get('raw_text'))
+            if not product:
+                continue
+            row={
+                'source_table': _yx_v493_text(r.get('source_table') or r.get('source')),
+                'source': _yx_v493_text(r.get('source_table') or r.get('source')),
+                'source_id': _yx_v493_text(r.get('source_id')),
+                'customer_name': _yx_v493_text(r.get('customer_name') or '庫存'),
+                'product_text': product,
+                'product': product,
+                'raw_text': product,
+                'material': _yx_v493_text(r.get('material')),
+                'product_code': _yx_v493_text(r.get('material')),
+                'qty': max(1, _yx_v493_int(r.get('qty'), 1)),
+                'placement_label': _yx_v493_text(r.get('placement_label')),
+                'layer_label': _yx_v493_text(r.get('placement_label')),
+            }
+            cid=r.get('cell_id')
+            z=_yx_v493_zone(r.get('zone')); c=_yx_v493_int(r.get('column_index'),0); s=_yx_v493_int(r.get('slot_number'),0)
+            if cid:
+                by_id.setdefault(cid, []).append(row)
+            if z in ('A','B') and c>0 and s>0:
+                by_coord.setdefault((z,c,s), []).append(row)
+        except Exception:
+            continue
+    return by_id, by_coord
+
+def _yx_v493_normalize_client_cells(cells, mirror_rows=None, z=None, c=None):
+    by_id, by_coord = _yx_v493_mirror_maps(mirror_rows or [])
+    by={}
+    for cell in cells or []:
+        try:
+            zz=_yx_v493_zone(cell.get('zone') or z)
+            cc=_yx_v493_int(cell.get('column_index') or c,0)
+            ss=_yx_v493_int(cell.get('slot_number') or cell.get('slot'),0)
+            if zz not in ('A','B') or cc<1 or ss<1:
+                continue
+            row=dict(cell)
+            items=_yx_v493_parse_items(row.get('items') if isinstance(row.get('items'), list) else row.get('items_json'))
+            mirrors=(by_id.get(row.get('id') or row.get('cell_id')) or []) + (by_coord.get((zz,cc,ss)) or [])
+            if mirrors:
+                items=_yx_v493_merge_items(items, mirrors)
+            row['zone']=zz; row['column_index']=cc; row['slot_type']='direct'; row['slot_number']=ss; row['is_deleted']=0
+            row['items']=items or []; row['items_json']=json.dumps(items or [], ensure_ascii=False)
+            row['note']='' if _yx_v493_text(row.get('note')).startswith('__USER_') else (row.get('note') or '')
+            row.setdefault('problem_flag', '')
+            old=by.get((zz,cc,ss))
+            if old:
+                merged=_yx_v493_merge_items(old.get('items') or old.get('items_json'), row.get('items') or row.get('items_json'))
+                keep=row
+                try:
+                    keep = row if _yx_v493_int(row.get('id'),0) >= _yx_v493_int(old.get('id'),0) else dict(old)
+                except Exception:
+                    pass
+                keep['items']=merged; keep['items_json']=json.dumps(merged or [], ensure_ascii=False)
+                if not keep.get('note') and old.get('note'):
+                    keep['note']=old.get('note')
+                by[(zz,cc,ss)]=keep
+            else:
+                by[(zz,cc,ss)]=row
+        except Exception:
+            continue
+    out=list(by.values())
+    out.sort(key=lambda r: (_yx_v493_zone(r.get('zone')), _yx_v493_int(r.get('column_index'),0), _yx_v493_int(r.get('slot_number'),0)))
+    return out
+
+
+def _yx_v501_explicit_warehouse_visible_count(cur, z, c):
+    """Return manually persisted visible_count for a warehouse column.
+
+    V501: manual base-slot deletion must survive refresh.  Older fallback readers
+    always forced at least 20 visible cells, so deleting an empty base cell looked
+    correct on the frontend but came back after DB readback.  This helper only
+    reads the meta value; if no meta row exists, callers still use the default 20.
+    """
+    try:
+        z = _yx_v493_zone(z); c = _yx_v493_int(c, 0)
+        if z not in ('A','B') or c < 1:
+            return None
+        try:
+            _yx_120_ensure_warehouse_operation_schema(cur)
+        except Exception:
+            pass
+        cur.execute(sql("SELECT visible_count FROM warehouse_column_meta WHERE zone=? AND column_index=?"), (z, c))
+        row = fetchone_dict(cur)
+        if row and row.get('visible_count') not in (None, ''):
+            return max(1, _yx_v493_int(row.get('visible_count'), _YX_V493_DEFAULT_SLOTS))
+    except Exception:
+        return None
+    return None
+
+def _yx_v501_cell_has_items_for_count(cell):
+    try:
+        if _yx_117_has_items(cell):
+            return True
+    except Exception:
+        pass
+    try:
+        return bool(_yx_v493_parse_items((cell or {}).get('items') or (cell or {}).get('items_json') or []))
+    except Exception:
+        return False
+
+def _yx_v493_visible_column_cells(cur, z, c):
+    z=_yx_v493_zone(z); c=_yx_v493_int(c,0)
+    if z not in ('A','B') or c<1:
+        return [], 0
+    try:
+        _yx_v116_ensure_schema(cur)
+    except Exception:
+        pass
+    try:
+        _yx_120_ensure_warehouse_operation_schema(cur)
+    except Exception:
+        pass
+    cells=[]; count=_YX_V493_DEFAULT_SLOTS
+    try:
+        cells, count = _yx_129_visible_column_cells(cur, z, c)
+    except Exception as e:
+        try: log_error('warehouse_v493_visible_column_cells_base', str(e))
+        except Exception: pass
+        try:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? AND COALESCE(is_deleted,0)=0 ORDER BY slot_number ASC, id ASC"),(z,c))
+        except Exception:
+            cur.execute(sql("SELECT * FROM warehouse_cells WHERE zone=? AND column_index=? ORDER BY slot_number ASC, id ASC"),(z,c))
+        cells=rows_to_dict(cur) or []
+        max_slot=max([_yx_v493_int(x.get('slot_number'),0) for x in cells] + [_YX_V493_DEFAULT_SLOTS])
+        count=max(_YX_V493_DEFAULT_SLOTS,max_slot)
+        byslot={_yx_v493_int(x.get('slot_number'),0):dict(x) for x in cells if _yx_v493_int(x.get('slot_number'),0)>0}
+        cells=[]
+        for s in range(1,count+1):
+            cells.append(byslot.get(s) or {'zone':z,'column_index':c,'slot_type':'direct','slot_number':s,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+    # V501: respect manually persisted visible_count when users delete base empty slots.
+    # If there is no meta row yet, keep the original default 20 behavior.  Never
+    # hide a slot that still contains products.
+    explicit_count = _yx_v501_explicit_warehouse_visible_count(cur, z, c)
+    max_any_slot = max([_yx_v493_int(x.get('slot_number'),0) for x in cells] + [0])
+    max_item_slot = max([_yx_v493_int(x.get('slot_number'),0) for x in cells if _yx_v501_cell_has_items_for_count(x)] + [0])
+    if explicit_count is not None:
+        count = max(1, explicit_count, max_item_slot)
+    else:
+        count = max(_YX_V493_DEFAULT_SLOTS, _yx_v493_int(count, _YX_V493_DEFAULT_SLOTS), max_any_slot)
+    byslot={_yx_v493_int(x.get('slot_number'),0):dict(x) for x in cells if _yx_v493_int(x.get('slot_number'),0)>0}
+    for s in range(1,count+1):
+        byslot.setdefault(s, {'zone':z,'column_index':c,'slot_type':'direct','slot_number':s,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+    rows=[byslot[s] for s in sorted(byslot) if 1 <= s <= count]
+    ids=[r.get('id') for r in rows if r.get('id')]
+    mirrors=_yx_v493_mirror_rows(cur,z,c,ids)
+    rows=_yx_v493_normalize_client_cells(rows, mirrors, z, c)
+    return rows, count
+
+def warehouse_get_column_cells(zone, column_index):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0)
+    if z not in ('A','B') or c<1:
+        return []
+    conn=get_db(); cur=conn.cursor()
+    try:
+        rows, _count = _yx_v493_visible_column_cells(cur, z, c)
+        return rows
+    except Exception as e:
+        try: log_error('warehouse_get_column_cells_v493', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_get_cells():
+    conn=get_db(); cur=conn.cursor()
+    try:
+        zones=('A','B')
+        max_cols={'A':_YX_V493_DEFAULT_COLUMNS,'B':_YX_V493_DEFAULT_COLUMNS}
+        try:
+            cur.execute(sql("SELECT zone, MAX(column_index) AS max_col FROM warehouse_cells WHERE COALESCE(is_deleted,0)=0 GROUP BY zone"))
+            for r in rows_to_dict(cur) or []:
+                z=_yx_v493_zone(r.get('zone'))
+                if z in zones:
+                    max_cols[z]=max(_YX_V493_DEFAULT_COLUMNS, _yx_v493_int(r.get('max_col'), _YX_V493_DEFAULT_COLUMNS))
+        except Exception:
+            pass
+        out=[]
+        for z in zones:
+            for c in range(1, max_cols[z]+1):
+                rows, _count = _yx_v493_visible_column_cells(cur, z, c)
+                out.extend(rows)
+        out.sort(key=lambda r: (_yx_v493_zone(r.get('zone')), _yx_v493_int(r.get('column_index'),0), _yx_v493_int(r.get('slot_number'),0)))
+        return out
+    except Exception as e:
+        try: log_error('warehouse_get_cells_v493', str(e))
+        except Exception: pass
+        return []
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=''):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0); s=_yx_v493_int(slot_number,0)
+    if z not in ('A','B') or c<1 or s<1:
+        raise ValueError('格位參數錯誤')
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_v493_visible_column_cells(cur, z, c)
+        if s > count:
+            for n in range(count+1, s+1):
+                cells.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':n,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+            count=s
+        data_items=_yx_v493_parse_items(items or [])
+        safe_note='' if _yx_v493_text(note).startswith('__USER_') else (note or '')
+        found=False
+        for cell in cells:
+            if _yx_v493_int(cell.get('slot_number'),0)==s:
+                cell['items']=data_items; cell['items_json']=json.dumps(data_items, ensure_ascii=False); cell['note']=safe_note; found=True; break
+        if not found:
+            cells.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':s,'items':data_items,'items_json':json.dumps(data_items, ensure_ascii=False),'note':safe_note,'problem_flag':'','is_deleted':0})
+            count=max(count,s)
+        _yx_130_rewrite_column(cur,z,c,cells,count)
+        conn.commit()
+        return {'success':True,'zone':z,'column_index':c,'slot_number':s,'saved_item_count':len(data_items),'saved_item_total':sum(max(1,_yx_v493_int((it or {}).get('qty'),1)) for it in data_items if isinstance(it,dict)),'v493_canonical':True}
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0)
+    if z not in ('A','B') or c<1:
+        raise ValueError('格位參數錯誤')
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_v493_visible_column_cells(cur,z,c)
+        after=max(0,min(_yx_v493_int(insert_after, count), count))
+        new=[]; inserted=False
+        for cell in cells:
+            old_slot=_yx_v493_int(cell.get('slot_number'),0)
+            if old_slot <= after:
+                new.append(dict(cell))
+            else:
+                if not inserted:
+                    new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+                    inserted=True
+                shifted=dict(cell); shifted['slot_number']=old_slot+1; new.append(shifted)
+        if not inserted:
+            new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+        _yx_130_rewrite_column(cur,z,c,new,count+1)
+        conn.commit()
+        return after+1
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_batch_add_slots(zone, column_index, insert_after=0, count=1):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0); n=max(1,min(120,_yx_v493_int(count,1)))
+    if z not in ('A','B') or c<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, current_count = _yx_v493_visible_column_cells(cur,z,c)
+        after=max(0,min(_yx_v493_int(insert_after,0), current_count))
+        new=[]; inserted=False
+        for cell in cells:
+            old_slot=_yx_v493_int(cell.get('slot_number'),0)
+            if old_slot <= after:
+                new.append(dict(cell))
+            else:
+                if not inserted:
+                    for i in range(n):
+                        new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1+i,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+                    inserted=True
+                shifted=dict(cell); shifted['slot_number']=old_slot+n; new.append(shifted)
+        if not inserted:
+            for i in range(n):
+                new.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':after+1+i,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+        _yx_130_rewrite_column(cur,z,c,new,current_count+n)
+        conn.commit()
+        return {'success':True,'count':n,'first_slot':after+1,'last_slot':after+n,'visible_count':current_count+n,'v493_canonical':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_batch_add_slots_v493', str(e))
+        except Exception: pass
+        return {'success':False,'error':'批量新增格子資料庫失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0); s=_yx_v493_int(slot_number,0)
+    if z not in ('A','B') or c<1 or s<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_v493_visible_column_cells(cur,z,c)
+        if s>count:
+            conn.commit(); return {'success':False,'error':'找不到格位'}
+        target=next((x for x in cells if _yx_v493_int(x.get('slot_number'),0)==s), None)
+        if target and _yx_117_has_items(target):
+            conn.commit(); return {'success':False,'error':'格子內還有商品，無法刪除。請先退回該格或移走商品'}
+        new=[]; removed_before=0
+        for old_slot in range(1,count+1):
+            cell=next((dict(x) for x in cells if _yx_v493_int(x.get('slot_number'),0)==old_slot), None)
+            if old_slot==s:
+                removed_before+=1; continue
+            if not cell:
+                continue
+            if old_slot>s:
+                cell['slot_number']=old_slot-1
+            new.append(cell)
+        new_count=max(1,count-1)
+        _yx_130_rewrite_column(cur,z,c,new,new_count)
+        conn.commit()
+        return {'success':True,'removed_slot':s,'compacted':True,'visible_count':new_count,'v493_canonical':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_remove_slot_v493', str(e))
+        except Exception: pass
+        return {'success':False,'error':'資料庫刪除格子失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_batch_remove_empty_slots(zone, column_index, slot_number=1, count=1, requested_slots=None):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0); start=_yx_v493_int(slot_number,1); n=max(1,min(120,_yx_v493_int(count,1)))
+    if z not in ('A','B') or c<1 or start<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    requested=[]
+    if isinstance(requested_slots,(list,tuple)):
+        for x in requested_slots:
+            xi=_yx_v493_int(x,0)
+            if xi>=start:
+                requested.append(xi)
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, current_count = _yx_v493_visible_column_cells(cur,z,c)
+        byslot={_yx_v493_int(cell.get('slot_number'),0):dict(cell) for cell in cells}
+        empty=[s for s in range(start,current_count+1) if s in byslot and not _yx_117_has_items(byslot[s])]
+        targets=[]
+        for x in requested:
+            if x in empty and x not in targets:
+                targets.append(x)
+                if len(targets)>=n: break
+        if len(targets)<n:
+            for x in empty:
+                if x not in targets:
+                    targets.append(x)
+                    if len(targets)>=n: break
+        if not targets:
+            conn.commit(); return {'success':False,'error':'此格往下找不到可刪除的空格'}
+        remove_set=set(targets); new=[]; removed_before=0
+        for old_slot in range(1,current_count+1):
+            cell=byslot.get(old_slot)
+            if old_slot in remove_set:
+                removed_before+=1; continue
+            if not cell:
+                continue
+            cell=dict(cell); cell['slot_number']=old_slot-removed_before; new.append(cell)
+        new_count=max(1,current_count-len(remove_set))
+        _yx_130_rewrite_column(cur,z,c,new,new_count)
+        conn.commit()
+        return {'success':True,'requested':n,'removed':len(remove_set),'removed_slots':sorted(remove_set),'visible_count':new_count,'v493_canonical':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_batch_remove_empty_slots_v493', str(e))
+        except Exception: pass
+        return {'success':False,'error':'批量刪除格子資料庫失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_set_cell_mark(zone, column_index, slot_number, marked=True):
+    z=_yx_v493_zone(zone); c=_yx_v493_int(column_index,0); s=_yx_v493_int(slot_number,0)
+    if z not in ('A','B') or c<1 or s<1:
+        return {'success':False,'error':'格位參數錯誤'}
+    conn=get_db(); cur=conn.cursor()
+    try:
+        _yx_v116_ensure_schema(cur); _yx_120_ensure_warehouse_operation_schema(cur)
+        cells, count = _yx_v493_visible_column_cells(cur,z,c)
+        if s>count:
+            for n in range(count+1,s+1):
+                cells.append({'zone':z,'column_index':c,'slot_type':'direct','slot_number':n,'items':[],'items_json':'[]','note':'','problem_flag':'','is_deleted':0})
+            count=s
+        for cell in cells:
+            if _yx_v493_int(cell.get('slot_number'),0)==s:
+                cell['problem_flag']='problem' if marked else ''
+                break
+        _yx_130_rewrite_column(cur,z,c,cells,count)
+        conn.commit()
+        return {'success':True,'zone':z,'column_index':c,'slot_number':s,'marked':bool(marked),'v493_canonical':True}
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        try: log_error('warehouse_set_cell_mark_v493', str(e))
+        except Exception: pass
+        return {'success':False,'error':'資料庫標記格子失敗：'+str(e)[:180]}
+    finally:
+        try: conn.close()
+        except Exception: pass
+
+def warehouse_v493_persistence_pack2_version():
+    return 'v497-settings-sync-backup-pack7-canonical-longpress-db-readback'
+
+
+# V494 customer region consistency pack 4
+def customer_region_consistency_pack4_version():
+    return 'v497-settings-sync-backup-pack7-customer-cards-events-counts'
+
+
+# V501 warehouse structure-slot persistence/readback repair.
+def warehouse_v501_structure_slots_pack11_version():
+    return 'v501-warehouse-structure-slots-visible-count-readback-safe'

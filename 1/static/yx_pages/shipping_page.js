@@ -984,9 +984,9 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   const $=(id)=>document.getElementById(id);
   const state={customer:'',items:[],selected:[],customers:[],loadingName:'',itemCache:new Map(),bound:false,itemsForCustomer:''};
   const shipRuntime={previewBusy:false,confirmBusy:false,inflight:new Set(),completed:new Set(),lastPreview:null};
-  const SHIP_SYNC_VERSION='v487-real-fix-speed-action-audit';
-  const SHIP_CACHE_VERSION='v485';
-  const SHIP_QUERY_VERSION='119-v487_real_fix_speed_action_audit';
+  const SHIP_SYNC_VERSION='v514-postdeploy-evidence-collector-pack24';
+  const SHIP_CACHE_VERSION='v514-postdeploy-evidence-collector-pack24';
+  const SHIP_QUERY_VERSION='119-v514_postdeploy_evidence_collector_pack24';
   const esc=(v)=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const clean=(v)=>String(v??'').replace(/\s+/g,' ').trim();
   function safeErrorMessage(v,status){let s=clean(v||'');if(!s)return status?`請求失敗 ${status}`:'請求失敗';if(/^<!doctype|<html|<h1>|internal server error/i.test(s))return status===500?'伺服器出貨資料讀取錯誤，已保留畫面，請重新點一次客戶':'伺服器回應格式錯誤';return s.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').slice(0,160)||'請求失敗';}
@@ -1009,7 +1009,8 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   }
   function normalizeText(t){return clean(t).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');}
   function splitProduct(text){const raw=normalizeText(text);const i=raw.indexOf('=');return{size:i>=0?raw.slice(0,i):raw,support:i>=0?raw.slice(i+1):''};}
-  function supportSegments(support){return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).map(seg=>{const m=seg.match(/^(.*?)(?:x\s*(\d+))?$/i);const base=clean((m&&m[1])||seg).replace(/x\s*$/i,'');const mult=Number((m&&m[2])||1);return{base:base||seg.replace(/x\s*\d+$/i,''),mult:Math.max(1,Number.isFinite(mult)?mult:1)};});}
+  function stripSupportNotes(v){return String(v||'').replace(/[\(（][^\)）]*[\)）]/g,'');}
+  function supportSegments(support){return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).map(seg=>{const plain=stripSupportNotes(seg).replace(/\s+/g,'');const m=plain.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/i);if(m){return{base:m[1],mult:Math.max(1,Number(m[2]||1)),raw:seg,math:plain};}const single=plain.match(/^(\d+(?:\.\d+)?)(?:件|片)?$/);return{base:(single&&single[1])||plain||seg,mult:1,raw:seg,math:plain};});}
   function supportTotalPieces(support){return supportSegments(support).reduce((a,b)=>a+Math.max(1,Number(b.mult||1)),0);}
   function qtyFromText(text,fallback=0){const raw=normalizeText(text);const right=raw.includes('=')?raw.split('=').slice(1).join('='):raw;if(right){const n=supportTotalPieces(right);if(n)return n;}const f=Number(fallback||0);return Number.isFinite(f)&&f>0?Math.floor(f):0;}
   function materialOf(it){return clean(it.material||it.product_code||it.wood_type||it['材質']||'未填材質');}
@@ -1096,12 +1097,36 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       const name=clean(row?.customer_name||row?.customer||row?.name||''); if(!name) return;
       const text=clean(row?.product_text||row?.product||row?.size||'');
       const q=qtyFromText(text,row?.qty||row?.quantity||1)||Number(row?.qty||row?.quantity||1)||1;
-      const old=map.get(name)||{name,customer_name:name,region:row?.region||row?.area||'北區',relation_counts:{order_qty:0,order_rows:0,master_qty:0,master_rows:0},total_qty:0,item_count:0,row_count:0};
+      if(!Number.isFinite(q)||q<=0) return;
+      const old=map.get(name)||{name,customer_name:name,region:row?.region||row?.area||'北區',relation_counts:{order_qty:0,order_rows:0,master_qty:0,master_rows:0},total_qty:0,item_count:0,row_count:0,from_ship_rows:true};
       if(src==='orders'){old.relation_counts.order_qty+=q; old.relation_counts.order_rows+=1;} else if(src==='master_order'){old.relation_counts.master_qty+=q; old.relation_counts.master_rows+=1;}
       old.total_qty+=q; old.item_count+=1; old.row_count+=1; map.set(name,old);
     };
     try{readDeviceProductRows('orders').forEach(r=>add(r,'orders')); readDeviceProductRows('master_order').forEach(r=>add(r,'master_order'));}catch(_e){}
     return Array.from(map.values()).filter(c=>Number(c.total_qty||0)>0 || Number(c.item_count||0)>0);
+  }
+  function mergeCustomerRowsFast(current,incoming){
+    const by=new Map();
+    const add=c=>{
+      const n=clean(c?.name||c?.customer_name||''); if(!n) return;
+      const old=by.get(n)||{name:n,customer_name:n,region:c?.region||'北區',relation_counts:{order_qty:0,order_rows:0,master_qty:0,master_rows:0},total_qty:0,item_count:0,row_count:0};
+      const rc={...(old.relation_counts||{})};
+      const nr=c?.relation_counts||{};
+      ['order_qty','order_rows','master_qty','master_rows'].forEach(k=>{rc[k]=Math.max(Number(rc[k]||0),Number(nr[k]||0));});
+      old.relation_counts=rc; old.region=c?.region||old.region||'北區';
+      old.total_qty=Math.max(Number(old.total_qty||0),Number(c?.total_qty||0),Number(rc.order_qty||0)+Number(rc.master_qty||0));
+      old.item_count=Math.max(Number(old.item_count||0),Number(c?.item_count||0),Number(c?.row_count||0),Number(rc.order_rows||0)+Number(rc.master_rows||0));
+      old.row_count=Math.max(Number(old.row_count||0),Number(c?.row_count||0),Number(old.item_count||0));
+      by.set(n,old);
+    };
+    (current||[]).forEach(add); (incoming||[]).forEach(add);
+    return Array.from(by.values()).filter(c=>Number(c.total_qty||0)>0||Number(c.item_count||c.row_count||0)>0);
+  }
+  function sourceCoverage(){
+    const cov={orders:0,master_order:0};
+    try{cov.orders=readDeviceProductRows('orders').filter(r=>qtyFromText(r.product_text||r.product||'',r.qty)>0).length;}catch(_e){}
+    try{cov.master_order=readDeviceProductRows('master_order').filter(r=>qtyFromText(r.product_text||r.product||'',r.qty)>0).length;}catch(_e){}
+    return cov;
   }
   function renderCustomers(){
     try{ if(window.YX113CustomerRegions?.renderBoards && Array.isArray(state.customers)) window.YX113CustomerRegions.renderBoards(state.customers); }catch(_e){}
@@ -1127,6 +1152,14 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       state.customers = local;
       renderCustomers();
       try{window.YX?.cache?.write?.('ship_customers_'+SHIP_CACHE_VERSION,{items:state.customers,at:Date.now(),from_rows:true});}catch(_e){}
+      // V493: local-first is kept for speed, but DB hydration still runs once so
+      // 出貨北中南 cannot miss 總單 when only 訂單 existed in device cache.
+      const cov=sourceCoverage();
+      hydrateShipRowsFromDb('ship-load-customers-verify-db-v493').then(()=>{
+        const refreshed=localSyncedCustomers();
+        if(refreshed.length){ state.customers=mergeCustomerRowsFast(state.customers,refreshed); renderCustomers(); try{window.YX?.cache?.write?.('ship_customers_'+SHIP_CACHE_VERSION,{items:state.customers,at:Date.now(),from_rows:true,db_verified:true});}catch(_e){} }
+      }).catch(()=>{});
+      if(cov.orders>0 && cov.master_order>0) return state.customers;
       return state.customers;
     }
     const currentKey='ship_customers_'+SHIP_CACHE_VERSION;
@@ -1184,7 +1217,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       state.loadingName=requestCustomer;
       if(!hadCached) renderItems();
       try{
-        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&fast=1&ship_single=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now()+requestVariants, {});
+        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&fast=1&ship_single=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now()+requestVariants, {yxDbOnly: !!(opts.force || opts.dbVerify || hadCached), timeout:12000});
         if(state.customer!==requestCustomer) return;
         const incomingItems=Array.isArray(d.items)?d.items:[];
         if(incomingItems.length || !hadCached || !state.items.length){
@@ -1208,7 +1241,12 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
         if(state.customer===requestCustomer) renderItems();
       }
     };
-    if(hadCached){ return state.items; }
+    if(hadCached){
+      // V493: show cached/local rows immediately, then verify DB in background.
+      // This prevents stale ship_items cache from hiding 總單 rows or showing rows that were already shipped.
+      fresh().catch(e=>{try{console.warn('[YX ship fresh verify]',e);}catch(_e){}});
+      return state.items;
+    }
     return fresh();
   }
   function selectedCardHtml(it,i){const p=splitProduct(it.product_text);const q=selectedQtyOf(it);const over=warnOverQty(it);return`<div class="yx-ship-selected-html-card yx-ship-selected-tag-card yx-ship-one-line-card ${over?'is-over-qty':''}" data-selected-card="${i}"><div class="yx-ship-selected-main yx-ship-selected-main-editable" title="直接在這一行修改支數；例如 220x12 改成 220x9，或刪掉不要的 +段"><span class="yx-ship-source-pill">出貨源：${esc(shipSourceLabel(it))}</span><span class="yx-ship-material-pill yx-ship-material-green">${esc(it.material||'未填材質')}</span><span class="yx-ship-selected-size">${esc(p.size)}=</span><input class="text-input yx-ship-support-editor" value="${esc(p.support)}" data-support-editor="${i}" placeholder="直接改 220x12 或刪除不要的 +段"><span class="yx-ship-selected-total" data-selected-total="${i}">${q}件</span><span class="yx-ship-over-note" data-over-note="${i}">${over?`超出可出貨 ${over.max} 件`:''}</span><button class="ghost-btn small-btn danger-btn" type="button" data-selected-remove="${i}">刪除此商品</button></div></div>`;}
@@ -1219,7 +1257,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   function volumeCoeffLength(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?(n>210?n/1000:n/100):0;}
   function volumeCoeffWidth(v){const n=Number(String(v||'').replace(/^0+(?=\d)/,''));return Number.isFinite(n)?n/10:0;}
   function volumeCoeffHeight(v){const raw=String(v||'').trim();const n=Number(raw.replace(/^0+(?=\d)/,''));return Number.isFinite(n)?(n>=100?n/100:n/10):0;}
-  function supportSticksSum(support){return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).reduce((sum,seg)=>{const m=seg.match(/^(\d+(?:\.\d+)?)(?:x\s*(\d+))?$/i);return m?sum+Number(m[1]||0)*Number(m[2]||1):sum;},0);}
+  function supportSticksSum(support){return normalizeText(support).split('+').map(x=>x.trim()).filter(Boolean).reduce((sum,seg)=>{const plain=stripSupportNotes(seg).replace(/\s+/g,'');const m=plain.match(/^(\d+(?:\.\d+)?)(?:x\s*(\d+))?$/i);return m?sum+Number(m[1]||0)*Number(m[2]||1):sum;},0);}
   function localVolumeCalc(items){const rows=(items||[]).map(it=>{const p=splitProduct(it.product_text||'');const dims=p.size.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/i);if(!dims)return null;const sticks=supportSticksSum(p.support);const lc=volumeCoeffLength(dims[1]),wc=volumeCoeffWidth(dims[2]),hc=volumeCoeffHeight(dims[3]);const volume=sticks*lc*wc*hc;return{product:p.size+(p.support?'='+p.support:''),pieces_sum:sticks,formula:`${sticks} × ${lc} × ${wc} × ${hc}`,volume:Number.isFinite(volume)?volume:0};}).filter(Boolean);return{rows,total_qty:(items||[]).reduce((a,b)=>a+selectedQtyOf(b),0),total_volume:rows.reduce((a,b)=>a+Number(b.volume||0),0)};}
 
 
@@ -1283,16 +1321,16 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     const q=selectedQtyOf(item)||Number(preview.qty||preview.need_qty||1);
     const srcPref=normalizeSource(preview.source_label||preview.source_preference||preview.deduct_source||item.source_preference||item.deduct_source||item.source_label||item.source);
     const sourceBefore = srcPref==='總單' ? preview.master_available : (srcPref==='訂單' ? preview.order_available : (srcPref==='庫存' ? preview.inventory_available : undefined));
-    const candidates=[sourceBefore,preview.before_qty,preview.available_before,preview.selected_available,item.available_qty,item.original_qty,preview.master_available,preview.order_available,preview.inventory_available];
+    const candidates=[preview.selected_before_qty,preview.before_qty,sourceBefore,preview.available_before,preview.selected_available,item.available_qty,item.original_qty,preview.master_available,preview.order_available,preview.inventory_available];
     let before=0;
     for(const v of candidates){const n=Number(v);if(Number.isFinite(n)&&n>0){before=n;break;}}
-    // formal mainline behavior.
-    const after=before>0?Math.max(0,before-q):'';
+    const serverAfter=Number(preview.selected_after_qty ?? preview.after_qty ?? NaN);
+    const after=Number.isFinite(serverAfter)?serverAfter:(before>0?Math.max(0,before-q):'');
     const strictBad=(preview&&preview.strict_ok===false)||Number(preview?.shortage_qty||0)>0;
     const shortage=strictBad || (Number.isFinite(Number(after)) && Number(after) < 0) || (before>0 && q>before);
     const loc=preview.location||preview.warehouse_location||preview.slot||'商品位置';
     const statusText=shortage?'<span class="danger-text">不足</span>':'可出貨';
-    return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${statusText}</td></tr>`;
+    return`<tr><td>${idx+1}</td><td>${esc(state.customer||item.customer||preview.customer||'')}</td><td><span class="mat-tag">${esc(item.material||preview.material||'未填材質')}</span></td><td>${esc(p.size)}${p.support?'='+esc(p.support):''}</td><td>${q}件</td><td>出貨源：${esc(shipSourceLabel(item,preview))}</td><td><button type="button" class="yx22-location-btn" data-prod="${esc(item.product_text||preview.product_text||preview.product||'')}" data-customer="${esc(state.customer||item.customer||preview.customer||'')}" data-source-id="${esc(item.source_id||preview.source_id||preview.id||'')}" data-source-table="${esc(item.source_table||preview.source_table||preview.source||'')}">${esc(loc)}</button></td><td>${before>0?`${before} → ${after}`:'待確認'}</td><td>${statusText}</td></tr>`;
   }
   async function confirmSubmit(){
     if(shipRuntime.previewBusy){toast('出貨預覽中，請勿重複操作','warn');return;}
@@ -1400,8 +1438,10 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
         try{ ['orders','master_order','inventory'].forEach(src=>window.YXDataStore?.applyResponseRows?.(src, shipResult, {reason:'ship-confirm-success'})); }catch(_e){}
         try{ if(window.YX113CustomerRegions?.renderFromCurrentRows) window.YX113CustomerRegions.renderFromCurrentRows(); }catch(_e){}
         try{ state.customers = relationCustomersFromRows([]); renderCustomers(); }catch(_e){}
-        try{ await loadItems(state.customer,{force:false}); }catch(_e){}
-        try{ window.dispatchEvent(new CustomEvent('yx:customer-selected',{detail:{name:state.customer,force:false,source:'ship',reason:'ship-completed-v467-local-first'}})); }catch(_e){}
+        try{ await hydrateShipRowsFromDb('ship-confirm-success-db-readback-v493'); }catch(_e){}
+        try{ await loadItems(state.customer,{dbVerify:true}); }catch(_e){}
+        try{ await loadCustomers({dbVerify:true}); }catch(_e){}
+        try{ window.dispatchEvent(new CustomEvent('yx:customer-selected',{detail:{name:state.customer,dbVerify:true,source:'ship',reason:'ship-completed-v493-db-readback'}})); }catch(_e){}
         toast('出貨完成','ok');
       }catch(e){
         if(shipCommitted){
@@ -1426,67 +1466,84 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     });
     panel.scrollIntoView({behavior:'smooth',block:'start'});
   }
-  window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;window.__YX_SHIP_NATIVE_CONFIRM__=confirmSubmit;window.YX116ShipPicker={load:loadItems,addItem,renderItems,renderSelected,confirmSubmit};window.reverseLookup=function(){toast('請使用倉庫圖搜尋商品位置','warn');};
+  window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;window.__YX_SHIP_NATIVE_CONFIRM__=confirmSubmit;window.YX116ShipPicker={load:loadItems,addItem,renderItems,renderSelected,confirmSubmit,showShipLocations};window.reverseLookup=reverseLookup;
 
-  async function showShipLocations(productText){
-    productText=clean(productText||'');
-    if(!productText){toast('缺少商品資料','warn');return;}
-    const panel=$('ship-preview-panel')||$('module-result');
-    if(!panel)return;
-    let box=$('yx22-ship-location-results');
-    if(!box){
-      box=document.createElement('div');
-      box.id='yx22-ship-location-results';
-      box.className='yx-product-location-panel yx22-location-results';
-      const wrap=panel.querySelector('.yx22-preview')||panel;
-      const table=wrap.querySelector('.yx22-preview-table');
-      if(table&&table.parentNode)table.insertAdjacentElement('afterend',box);else wrap.appendChild(box);
-    }
-    const customer=clean(state.customer||($('customer-name')&&$('customer-name').value)||'');
+  function normalizeLocationHit(h){
+    const cell=h.cell||h||{};
+    const it=h.item||h||{};
+    const z=clean(h.zone||cell.zone||'');
+    const col=clean(h.column_index||h.column||cell.column_index||'');
+    const slot=clean(h.slot_number||h.slot_no||h.slot||cell.slot_number||'');
+    return {...h, cell:{...cell,zone:z,column_index:col,slot_number:slot}, item:{...it}, zone:z, column_index:col, slot_number:slot};
+  }
+  function renderLocationHits(box,hits,productText){
+    const normalized=(Array.isArray(hits)?hits:[]).map(normalizeLocationHit).filter(h=>h.zone&&h.column_index&&h.slot_number);
+    if(!normalized.length){ box.innerHTML='<div class="empty-state small">找不到這筆商品的倉庫位置</div>'; return; }
+    const html=normalized.map((h)=>{
+      const it=h.item||{};
+      const z=esc(h.zone||'');
+      const col=esc(h.column_index||'');
+      const slot=esc(h.slot_number||'');
+      const cust=esc(h.customer||h.customer_name||it.customer_name||it.customer||'庫存');
+      const mat=esc(h.material||it.material||it.product_code||'');
+      const prod=esc(h.product_text||h.text||it.product_text||it.product||productText);
+      const qty=esc(h.qty||h.quantity||it.qty||it.quantity||'');
+      const placement=esc(h.placement_label||it.placement_label||'');
+      return `<button type="button" class="yx-location-hit" data-zone="${z}" data-col="${col}" data-slot="${slot}"><b>${z}區 ${col}欄 ${slot}格</b><span>${cust}｜${mat} ${prod}${qty?`｜${qty}件`:''}${placement?`｜${placement}`:''}</span></button>`;
+    }).join('');
+    box.innerHTML=`<div class="yx-location-title">商品位置</div>${html}`;
+    box.querySelectorAll('.yx-location-hit').forEach(btn=>btn.addEventListener('click',()=>{
+      const zone=btn.dataset.zone,col=btn.dataset.col,slot=btn.dataset.slot;
+      if(window.highlightWarehouseCell){window.highlightWarehouseCell(zone,col,slot);}
+      else if(zone&&col&&slot){location.href=`/warehouse?highlight=${encodeURIComponent(zone+'-'+col+'-'+slot)}`;}
+    }));
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+  async function showShipLocations(productText, opts={}){
+    const box=$('ship-location-result')||$('module-result');
+    if(!box)return;
+    const customer=clean(opts.customer_name||opts.customer||state.customer||$('customer-name')?.value||'');
+    const sourceId=clean(opts.source_id||'');
+    const sourceTable=clean(opts.source_table||opts.source||'');
+    const product=clean(productText||opts.product_text||opts.product||'');
+    if(!product&&!customer){toast('請先選擇商品或客戶','warn');return;}
+    const previous=box.innerHTML;
+    const preserve_previous=true; // V507: API 慢或失敗時保留上一筆位置，不洗畫面
+    const query=[customer,product].filter(Boolean).join(' ');
+    box.classList.remove('hidden');
     box.innerHTML='<div class="yx-location-loading">商品位置查詢中…</div>';
     try{
-      const query=(customer?customer+' ':'')+productText;
-      let data=await api('/api/warehouse/search?q='+encodeURIComponent(query)+'&ts='+Date.now());
-      let hits=Array.isArray(data.items)?data.items:[];
-      if(customer){
-        const c=customer.toLowerCase();
-        hits=hits.filter(h=>{
-          const it=h.item||{};
-          const hc=String(h.customer||h.customer_name||it.customer_name||it.customer||'').toLowerCase();
-          const hp=String(h.product_text||h.text||it.product_text||it.product||'').toLowerCase();
-          return hc.includes(c) || hp.includes(productText.toLowerCase());
-        });
+      const params=new URLSearchParams();
+      if(customer) params.set('customer_name',customer);
+      if(product) params.set('product_text',product);
+      if(sourceId) params.set('source_id',sourceId);
+      if(sourceTable) params.set('source_table',sourceTable);
+      if(query) params.set('q',query);
+      params.set('ts',String(Date.now()));
+      let data=await api('/api/product-locations?'+params.toString());
+      let hits=Array.isArray(data.hits)?data.hits:(Array.isArray(data.items)?data.items:[]);
+      if(!hits.length && product){
+        const fallback=new URLSearchParams();
+        fallback.set('product_text',product); fallback.set('q',product); fallback.set('ts',String(Date.now()));
+        data=await api('/api/product-locations?'+fallback.toString());
+        hits=Array.isArray(data.hits)?data.hits:(Array.isArray(data.items)?data.items:[]);
       }
-      if(!hits.length){
-        data=await api('/api/warehouse/search?q='+encodeURIComponent(productText)+'&ts='+Date.now());
-        hits=Array.isArray(data.items)?data.items:[];
+      renderLocationHits(box,hits,product||query);
+    }catch(e){
+      if(previous && !/商品位置查詢中/.test(previous)){
+        box.innerHTML=`<div class="yx-location-warning">查詢更新失敗，先保留上一筆位置：${esc(e.message||e)}</div>${previous}`;
+      }else{
+        box.innerHTML=`<div class="error-card">查詢倉庫位置失敗：${esc(e.message||e)}</div>`;
       }
-      if(!hits.length){
-        box.innerHTML='<div class="empty-state small">找不到這筆商品的倉庫位置</div>';
-        return;
-      }
-      const html=hits.map((h)=>{
-        const it=h.item||{};
-        const z=esc(h.zone||h.cell?.zone||'');
-        const col=esc(h.column_index||h.column||h.cell?.column_index||'');
-        const slot=esc(h.slot_number||h.slot_no||h.slot||h.cell?.slot_number||'');
-        const cust=esc(h.customer||h.customer_name||it.customer_name||it.customer||'庫存');
-        const mat=esc(h.material||it.material||it.product_code||'');
-        const prod=esc(h.product_text||h.text||it.product_text||it.product||productText);
-        const qty=esc(h.qty||h.quantity||it.qty||it.quantity||'');
-        return `<button type="button" class="yx-location-hit" data-zone="${z}" data-col="${col}" data-slot="${slot}"><b>${z}區 ${col}欄 ${slot}格</b><span>${cust}｜${mat} ${prod}${qty?`｜${qty}件`:''}</span></button>`;
-      }).join('');
-      box.innerHTML=`<div class="yx-location-title">商品位置</div>${html}`;
-      box.querySelectorAll('.yx-location-hit').forEach(btn=>btn.addEventListener('click',()=>{
-        const zone=btn.dataset.zone,col=btn.dataset.col,slot=btn.dataset.slot;
-        if(window.highlightWarehouseCell){window.highlightWarehouseCell(zone,col,slot);}
-        else if(zone&&col&&slot){location.href=`/warehouse?highlight=${encodeURIComponent(zone+'-'+col+'-'+slot)}`;}
-      }));
-      box.scrollIntoView({behavior:'smooth',block:'nearest'});
-    }catch(e){box.innerHTML=`<div class="error-card">查詢倉庫位置失敗：${esc(e.message||e)}</div>`;}
+    }
+  }
+  function reverseLookup(){
+    const first=(state.selected||[])[0]||{};
+    if(!first.product_text && !first.product && !state.customer){ toast('請先選擇出貨客戶與商品，再反查位置','warn'); return; }
+    showShipLocations(first.product_text||first.product||'', {customer_name:first.customer_name||first.customer||state.customer, source_id:first.source_id||first.id||'', source_table:first.source_table||first.source||''}).catch(err=>toast(err.message||'查詢位置失敗','error'));
   }
 
-  function bind(){if(state.bound)return;state.bound=true;document.addEventListener('click',(e)=>{const loc=e.target.closest('.yx22-location-btn');if(loc){e.preventDefault();showShipLocations(loc.dataset.prod||'').catch(err=>toast(err.message||'查詢位置失敗','error'));return;}const c=e.target.closest('[data-ship-customer]');if(c){e.preventDefault();const n=clean(c.dataset.shipCustomer||''); if(n) window.__YX_SELECTED_CUSTOMER_VARIANTS__=[n]; loadItems(n,{force:false}).catch(err=>toast(err.message,'error'));return;}const add=e.target.closest('[data-ship-add-index]');if(add){e.preventDefault();addItem(add.dataset.shipAddIndex);return;}const rm=e.target.closest('[data-selected-remove]');if(rm){e.preventDefault();state.selected.splice(Number(rm.dataset.selectedRemove),1);renderSelected();return;}},true);document.addEventListener('keydown',(e)=>{if((e.target.id==='customer-name'||e.target.id==='ship-customer-search')&&e.key==='Enter'){e.preventDefault();const n=clean(state.customer||e.target.value||''); if(n) window.__YX_SELECTED_CUSTOMER_VARIANTS__=[n]; loadItems(n,{force:false}).catch(err=>toast(err.message,'error'));}},true);document.addEventListener('change',(e)=>{if(e.target.id==='ship-customer-item-select'&&e.target.value!==''){addItem(e.target.value);e.target.value='';}},true);document.addEventListener('input',(e)=>{if(e.target.id==='customer-name'||e.target.id==='ship-customer-search'){setCustomer(e.target.value);renderCustomers();renderItems();}if(e.target.matches('[data-support-editor]'))updateSelectedProductFromSupport(Number(e.target.dataset.supportEditor),e.target.value);},true);}
+  function bind(){if(state.bound)return;state.bound=true;document.addEventListener('click',(e)=>{const loc=e.target.closest('.yx22-location-btn');if(loc){e.preventDefault();showShipLocations(loc.dataset.prod||'', {customer_name:loc.dataset.customer||state.customer, source_id:loc.dataset.sourceId||'', source_table:loc.dataset.sourceTable||''}).catch(err=>toast(err.message||'查詢位置失敗','error'));return;}const c=e.target.closest('[data-ship-customer]');if(c){e.preventDefault();const n=clean(c.dataset.shipCustomer||''); if(n) window.__YX_SELECTED_CUSTOMER_VARIANTS__=[n]; loadItems(n,{force:false}).catch(err=>toast(err.message,'error'));return;}const add=e.target.closest('[data-ship-add-index]');if(add){e.preventDefault();addItem(add.dataset.shipAddIndex);return;}const rm=e.target.closest('[data-selected-remove]');if(rm){e.preventDefault();state.selected.splice(Number(rm.dataset.selectedRemove),1);renderSelected();return;}},true);document.addEventListener('keydown',(e)=>{if((e.target.id==='customer-name'||e.target.id==='ship-customer-search')&&e.key==='Enter'){e.preventDefault();const n=clean(state.customer||e.target.value||''); if(n) window.__YX_SELECTED_CUSTOMER_VARIANTS__=[n]; loadItems(n,{force:false}).catch(err=>toast(err.message,'error'));}},true);document.addEventListener('change',(e)=>{if(e.target.id==='ship-customer-item-select'&&e.target.value!==''){addItem(e.target.value);e.target.value='';}},true);document.addEventListener('input',(e)=>{if(e.target.id==='customer-name'||e.target.id==='ship-customer-search'){setCustomer(e.target.value);renderCustomers();renderItems();}if(e.target.matches('[data-support-editor]'))updateSelectedProductFromSupport(Number(e.target.dataset.supportEditor),e.target.value);},true);}
   function install(){if(state.installed)return;state.installed=true;document.documentElement.dataset.yxShipSingle='main-one-line-html-v467';bind();loadCustomers();window.addEventListener('yx:customers-loaded',e=>{state.customers=Array.isArray(e.detail?.items)?e.detail.items:state.customers;},false);window.addEventListener('yx:warehouse-changed',e=>{const names=Array.isArray(e.detail?.customer_names)?e.detail.customer_names.filter(Boolean):[]; if(names.length){names.forEach(n=>clearShipCachesAfterWarehouseChange(n));} else clearShipCachesAfterWarehouseChange(e.detail?.customer_name||'');},false);window.addEventListener('yx:customer-profile-changed',e=>{try{state.itemCache?.clear?.();}catch(_e){}try{['ship_customers_'+SHIP_CACHE_VERSION,'ship_customers_v414','ship_customers_v413','ship_customers_v412','ship_customers_v406','ship_customers_v402','ship_customers_v396','ship_customers_v394','ship_customers_v388','ship_customers_v387','ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224'].forEach(k=>window.YX?.cache?.remove?.(k));window.YX?.cache?.clearGroup?.('ship_customers_'); window.YX?.cache?.clearGroup?.('ship_items_');}catch(_e){}const oldn=clean(e.detail?.old_customer_name||'');const newn=clean(e.detail?.new_customer_name||e.detail?.customer_name||'');if(oldn&&state.customer===oldn){state.customer=newn||'';try{window.__YX_SELECTED_CUSTOMER__=state.customer;}catch(_e){}} if(state.customer) loadItems(state.customer,{force:false}).catch(()=>{}); else loadCustomers().catch(()=>{});},false);window.addEventListener('yx:product-data-changed',e=>{try{state.itemCache?.clear?.();}catch(_e){}try{['ship_customers_'+SHIP_CACHE_VERSION,'ship_customers_v414','ship_customers_v413','ship_customers_v412','ship_customers_v406','ship_customers_v402','ship_customers_v396','ship_customers_v394','ship_customers_v388','ship_customers_v387','ship_customers_v386','ship_customers_v383','ship_customers_v380','ship_customers_v379','ship_customers_v337','ship_customers_v332','ship_customers_v307','ship_customers_v287','ship_customers_v282','ship_customers_v267','ship_customers_v252','ship_customers_v228','ship_customers_v227','ship_customers_v226','ship_customers_v225','ship_customers_v224','ship_customers_v223','ship_customers_v222','ship_customers_v221','ship_customers_v216','ship_customers_v214'].forEach(k=>window.YX?.cache?.remove?.(k));window.YX?.cache?.remove?.('ship_customers_v208');window.YX?.cache?.remove?.('ship_customers_v199');window.YX?.cache?.remove?.('ship_customers_v198');window.YX?.cache?.remove?.('ship_customers_v197');}catch(_e){}const n=clean(e.detail?.customer_name||state.customer||'');if(n) loadItems(n,{force:false}).catch(()=>{});else loadCustomers().catch(()=>{});},false);window.addEventListener('yx:customer-selected',e=>{const name=clean(e.detail?.name||'');try{ if(Array.isArray(e.detail?.variants)&&e.detail.variants.length) window.__YX_SELECTED_CUSTOMER_VARIANTS__=e.detail.variants.filter(Boolean); else if(name) window.__YX_SELECTED_CUSTOMER_VARIANTS__=[name]; }catch(_e){} if(name)loadItems(name,{force:false}).catch(err=>toast(err.message,'error'));},false);renderSelected();const name=clean($('customer-name')?.value||'');if(name)loadItems(name,{force:false}).catch(()=>{});else renderItems();window.confirmSubmit=confirmSubmit; window.YXShipConfirmSubmit=confirmSubmit;}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
