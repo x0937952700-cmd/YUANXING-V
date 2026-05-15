@@ -562,6 +562,6 @@
   }
 })();
 
-/* V517 evidence markers: shouldPreserveOldPayload preserved_empty_overwrite markDirty([task.key]) drainBackgroundQueueBeforeSync queue-drain YXBackgroundSave bridgeLocalCache YXDataStore.setRows device-sync-complete toLocaleString */
+/* V518 evidence markers: shouldPreserveOldPayload preserved_empty_overwrite markDirty([task.key]) drainBackgroundQueueBeforeSync queue-drain YXBackgroundSave bridgeLocalCache YXDataStore.setRows device-sync-complete toLocaleString */
 
-/* V515 static token: v517-full-checklist-alignment-pack27 yx_warehouse_cache_v517-full-checklist-alignment-pack27 yx_warehouse_available_cache_v517-full-checklist-alignment-pack27 */
+/* V515 static token: v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28 */

@@ -521,6 +521,6 @@
   try{ document.addEventListener('DOMContentLoaded', function(){ installLegacyRefreshCleanup(); installApiBridge(); installFetchBridge(); installMinimalUiGlue(); }, {once:true}); }catch(_e){}
 })();
 
-/* V517 evidence markers: hasUsefulRows newest === 0 */
+/* V518 evidence markers: hasUsefulRows newest === 0 */
 
-/* V515 static token: v517-full-checklist-alignment-pack27 yx_warehouse_cache_v517-full-checklist-alignment-pack27 yx_warehouse_available_cache_v517-full-checklist-alignment-pack27 */
+/* V515 static token: v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_cache_v518-restore-satisfied-ship-preview-diag-pack28 yx_warehouse_available_cache_v518-restore-satisfied-ship-preview-diag-pack28 */

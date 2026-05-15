@@ -3,7 +3,7 @@
 (function(){
   'use strict';
   const root = window.YXPWA || {};
-  root.version = window.__YX_STATIC_VERSION__ || '119-v517_full_checklist_alignment_pack27';
+  root.version = window.__YX_STATIC_VERSION__ || '119-v518_restore_satisfied_ship_preview_diag_pack28';
   root.enabled = true;
   root.policy = 'static-css-icons-only-no-api-cache';
   async function register(){

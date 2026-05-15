@@ -1,8 +1,8 @@
 /* V483 regression guard: prevents old empty-overwrite / timeout-wash regressions. No polling, no MutationObserver. */
 (function(){
   'use strict';
-  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v517-full-checklist-alignment-pack27') return;
-  const VERSION = 'v517-full-checklist-alignment-pack27';
+  if (window.YXRegressionGuard && window.YXRegressionGuard.version === 'v518-restore-satisfied-ship-preview-diag-pack28') return;
+  const VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28';
   const KEY = 'yx_regression_guard_events_v494';
   const MAX = 80;
   const clean = v => String(v == null ? '' : v).slice(0, 1200);

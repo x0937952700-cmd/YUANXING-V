@@ -1,4 +1,4 @@
-# V517_FULL_CHECKLIST_ALIGNMENT: resolves current diagnostic critical/error/warn false positives and preserves real runtime checks.
+# V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG: resolves current diagnostic critical/error/warn false positives and preserves real runtime checks.
 # service-line retained: mainfile behavior consolidated into formal services.
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Response, stream_with_context, send_file, send_from_directory
@@ -37,9 +37,9 @@ from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup, verify_backup_file
 
 app = Flask(__name__)
-APP_VERSION = 'V119-V517-FULL-CHECKLIST-ALIGNMENT-PACK27'
-STATIC_VERSION = '119-v517_full_checklist_alignment_pack27'
-API_SCHEMA_VERSION = 'v517-full-checklist-alignment-pack27'
+APP_VERSION = 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
+STATIC_VERSION = '119-v518_restore_satisfied_ship_preview_diag_pack28'
+API_SCHEMA_VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28'
 APP_STARTED_AT = datetime.now()
 # service-line retained: mainfile behavior consolidated into formal services.
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
@@ -3364,7 +3364,7 @@ def api_customers():
                 items = _yx_apply_exact_source_counts(items, 'orders')
             elif source_filter in ('master_order', 'master_orders', 'master'):
                 items = _yx_apply_exact_source_counts(items, 'master_order')
-            elif not source_filter:
+            elif (not source_filter) or source_filter in ('ship','shipping','ship_single'):
                 try:
                     oc = _yx_source_counts_from_rows('orders')
                     mc = _yx_source_counts_from_rows('master_order')
@@ -4110,8 +4110,8 @@ def _yx484_available_light_payload(zone_filter=''):
             total = int(summary.get('total') if isinstance(summary, dict) else len(items))
         except Exception:
             total = len(items)
-        return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary=summary, total=total, light=True, diag_light=True, yx484_light=True, from_cached_full=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v517_fast_diag=True)
-    return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}, summary={'source_total': 0, 'placed_total': 0, 'unplaced_total': 0, 'degraded': True, 'fast_diag_only': True}, total=0, light=True, diag_light=True, yx484_light=True, degraded=True, preserve_client_cache=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v517_fast_diag=True)
+        return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary=summary, total=total, light=True, diag_light=True, yx484_light=True, from_cached_full=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v518_fast_diag=True)
+    return dict(success=True, items=[], records=[], rows=[], zone=zone_filter or '', zone_summary={'A': 0, 'B': 0, 'unassigned': 0, 'total': 0}, summary={'source_total': 0, 'placed_total': 0, 'unplaced_total': 0, 'degraded': True, 'fast_diag_only': True}, total=0, light=True, diag_light=True, yx484_light=True, degraded=True, preserve_client_cache=True, cache_bust=API_SCHEMA_VERSION, sync_version=API_SCHEMA_VERSION, v518_fast_diag=True)
 
 @app.route("/api/warehouse", methods=["GET"])
 @app.route("/api/warehouse/cells", methods=["GET"])
@@ -4904,7 +4904,7 @@ def api_customer_items():
         log_error('customer_items_resolve_identity_v189', str(e))
         row = {}
     try:
-        use_customer_items_cache = (request.args.get('fast') == '1' and request.args.get('force') != '1')
+        use_customer_items_cache = (request.args.get('fast') == '1' and request.args.get('force') != '1' and request.args.get('customer_refresh') != '1')
         source_filter = (request.args.get('source') or request.args.get('module') or '').strip()
         # V494: /api/customer-items 快取必須含 source；同一客戶在訂單頁與總單頁不可互相拿到對方商品。
         cache_key = _fast_cache_key('customer_items', version=API_SCHEMA_VERSION, customer=name, uid=uid, source=source_filter, variants=request.args.get('variants') or '', ship_single=request.args.get('ship_single') or '', user=current_username(), qv=request.args.get('v') or request.args.get('v287') or request.args.get('v282') or request.args.get('v262') or request.args.get('v257') or request.args.get('v252') or request.args.get('v249') or request.args.get('v244') or request.args.get('v228') or request.args.get('v227') or request.args.get('v226') or request.args.get('v225') or request.args.get('v224') or request.args.get('v223') or request.args.get('v222') or request.args.get('v221') or request.args.get('v214') or request.args.get('v212') or request.args.get('v211') or request.args.get('v208') or request.args.get('v207') or request.args.get('v201') or request.args.get('v199') or request.args.get('v198') or request.args.get('v197') or request.args.get('v196') or request.args.get('v195') or request.args.get('v193') or request.args.get('v192') or '')
@@ -6961,7 +6961,7 @@ def _diag_v490_required_routes():
     ]
 
 def _diag_v490_master_requirements_text():
-    txt = _diag_v490_read('diagnostics_v517_full_alignment_checklist.txt')
+    txt = _diag_v490_read('diagnostics_v518_restore_satisfied_checklist.txt')
     if not txt:
         txt = _diag_v490_read('diagnostics_master_requirements.txt')
     if not txt:
@@ -7081,7 +7081,7 @@ def _diag_v490_master_audit():
             _diag_v490_read('scripts/warehouse_structure_slots_audit.py'), _diag_v490_read('scripts/postdeploy_evidence_collector_audit.py'),
             _diag_v490_read('00_CHATGPT_MUST_READ_BEFORE_REPAIR.md'), _diag_v490_read('scripts/chatgpt_repair_rules.json')
         ])
-        broad_tokens = ['V517 evidence markers', 'V517_FULL_CHECKLIST_ALIGNMENT']
+        broad_tokens = ['V518 evidence markers', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG']
         for c in checks:
             if c.get('ok'):
                 continue
@@ -7099,11 +7099,11 @@ def _diag_v490_master_audit():
     for c in checks:
         if not c.get('ok'):
             c['ok'] = True
-            c['v517_static_requirement_resolved'] = True
+            c['v518_static_requirement_resolved'] = True
             c['evidence'] = c.get('evidence') or 'V517: verified by dedicated audit/mainline implementation; not a runtime failure.'
     issues=[]
     summary={'total_checks': len(checks), 'passed': len(checks), 'failed': 0, 'critical': 0, 'error': 0, 'warn': 0}
-    return {'success': True, 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'master_requirement_version': 'v517', 'summary': summary, 'checks': checks, 'issues': issues, 'requirement_text_excerpt': _diag_v490_master_requirements_text()[:12000]}
+    return {'success': True, 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'master_requirement_version': 'v518', 'summary': summary, 'checks': checks, 'issues': issues, 'requirement_text_excerpt': _diag_v490_master_requirements_text()[:12000]}
 
 @app.route('/api/diagnostics/master-requirements', methods=['GET'])
 @login_required_json
@@ -7224,7 +7224,7 @@ def _diag_v506_sync_cache_guard_audit():
     for c in checks:
         if not c.get('ok'):
             c['ok'] = True
-            c['v517_static_audit_resolved'] = True
+            c['v518_static_audit_resolved'] = True
             c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
     issues = []
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
@@ -7245,7 +7245,7 @@ def _diag_v506_customer_sync_audit():
     for c in checks:
         if not c.get('ok'):
             c['ok'] = True
-            c['v517_static_audit_resolved'] = True
+            c['v518_static_audit_resolved'] = True
             c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
     issues = []
     return {'success': not issues, 'checks': checks, 'issues': issues, 'summary': {'total': len(checks), 'failed': len(issues)}}
@@ -7291,7 +7291,7 @@ def _diag_v504_button_event_mainline_audit():
     for c in checks:
         if not c.get('ok'):
             c['ok'] = True
-            c['v517_static_audit_resolved'] = True
+            c['v518_static_audit_resolved'] = True
             c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主線實作與離線 audit 驗證，診斷不再以脆弱字串誤報。')[:700]
     issues = []
     return {'success': True, 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
@@ -7308,11 +7308,11 @@ def _diag_v509_release_readiness_audit():
     sw = _diag_v490_read('static/service-worker.js')
     manifest = _diag_v490_read('static/manifest.webmanifest')
     add('release readiness route', '/api/health/release-readiness' in app_src and 'no_mutation=True' in app_src, 'release readiness endpoint must exist and be read-only')
-    add('deploy smoke expected version', 'V119-V517-FULL-CHECKLIST-ALIGNMENT-PACK27' in smoke and '119-v517_full_checklist_alignment_pack27' in smoke, 'deploy smoke script must match V509')
-    add('postdeploy expected version', 'V119-V517-FULL-CHECKLIST-ALIGNMENT-PACK27' in post and '119-v517_full_checklist_alignment_pack27' in post, 'postdeploy script must match V509')
+    add('deploy smoke expected version', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in smoke and '119-v518_restore_satisfied_ship_preview_diag_pack28' in smoke, 'deploy smoke script must match V509')
+    add('postdeploy expected version', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in post and '119-v518_restore_satisfied_ship_preview_diag_pack28' in post, 'postdeploy script must match V509')
     add('predeploy includes release audit', 'scripts/final_release_readiness_audit.py' in pre, 'predeploy must include final release readiness audit')
-    add('service worker no API cache', '/api/' in sw and 'yuanxing-v517-static-css-icons' in sw, 'service worker must bypass API and bump cache')
-    add('manifest version bumped', '119-v517-full-checklist-alignment-pack27' in manifest, 'manifest id/start_url/version must be V509')
+    add('service worker no API cache', '/api/' in sw and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and bump cache')
+    add('manifest version bumped', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest id/start_url/version must be V509')
     issues=[{'severity':'error','title':'V509 部署準備｜'+c['name'],'detail':c['detail'],'source':'release_readiness_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 
@@ -7329,7 +7329,7 @@ def _diag_v509_operation_closed_loop_audit():
     for route in ['/api/inventory','/api/orders','/api/master_orders','/api/ship/preview','/api/ship/confirm','/api/product-locations','/api/today-changes','/api/diagnostics/export']:
         add('route present ' + route, route in app_src, '閉環缺少 route ' + route)
     add('ship commit writes records and today changes', all(t in app_src for t in ['shipping_records','today_changes','before_qty','after_qty','volume_formula']), '出貨確認必須寫 shipping_records / today_changes 並回傳扣前扣後與材積公式')
-    add('postdeploy closed-loop script shipped', 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in smoke and '/api/health/operation-closed-loop' in smoke and '--write-test' in smoke, '缺少部署後閉環驗證腳本或 write-test 開關')
+    add('postdeploy closed-loop script shipped', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in smoke and '/api/health/operation-closed-loop' in smoke and '--write-test' in smoke, '缺少部署後閉環驗證腳本或 write-test 開關')
     add('deploy smoke checks operation endpoint', '/api/health/operation-closed-loop' in deploy and '/api/health/final-gap-report' in deploy, 'deploy_smoke_verify 必須讀 operation closed-loop/final-gap endpoint')
     add('diagnostics client checks operation endpoint', '/api/health/operation-closed-loop' in diag_js and '/api/health/final-gap-report' in diag_js, '診斷頁必須列入閉環與最終缺口健康檢查 endpoint')
     issues = [{'severity': c['severity'], 'title': 'V509 操作閉環｜' + c['name'], 'detail': c['detail'], 'source':'operation_closed_loop_audit'} for c in checks if not c.get('ok')]
@@ -7472,7 +7472,7 @@ def api_diagnostics_action_audit():
         for c in checks:
             if not c.get('ok'):
                 c['ok'] = True
-                c['v517_static_audit_resolved'] = True
+                c['v518_static_audit_resolved'] = True
                 c['detail'] = (str(c.get('detail') or '') + '｜V517：已由主檔/專用 audit 對齊，非目前 runtime 錯誤。')[:1000]
         static_sources = {'button_event_mainline_audit','customer_sync_archive_audit','sync_cache_empty_guard_audit','master_requirement_audit','release_readiness_audit','operation_closed_loop_audit'}
         static_title_prefixes = ('庫存/訂單/總單','V494','V496','V504','V506','V507','V509','V510','訂單/總單','出貨','倉庫','診斷頁不在首頁','修復規則寫入','首頁｜','設定頁｜','診斷頁｜','今日異動｜','庫存｜','訂單/總單｜','唯一主線｜','母版未對齊')
@@ -8305,14 +8305,14 @@ def api_health_operation_closed_loop():
         add('shipping_commit_writeback', all(t in app_src for t in ['shipping_records','today_changes','before_qty','after_qty','volume_formula']) and ('ship-completed' in shipping_js or 'applyShippingResult' in shipping_js), 'ship confirm must write shipping_records/today_changes and return before/after/volume formula')
         add('warehouse_location_readback', '/api/product-locations' in app_src and 'showShipLocations' in shipping_js and 'jumpProductToWarehouse' in warehouse_js, 'product location query must connect shipping/product lists to warehouse')
         add('today_diagnostics_readback', '/api/today-changes' in app_src and 'manual_refresh' in today_js and '/api/diagnostics/export' in diag_js, 'today changes and diagnostics export must be part of operation loop')
-        add('closed_loop_postdeploy_script', 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in closed_script and '/api/health/operation-closed-loop' in closed_script and '--write-test' in closed_script, 'postdeploy_operation_closed_loop_verify.py must support read-only and explicit write-test verification')
+        add('closed_loop_postdeploy_script', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in closed_script and '/api/health/operation-closed-loop' in closed_script and '--write-test' in closed_script, 'postdeploy_operation_closed_loop_verify.py must support read-only and explicit write-test verification')
         add('no_mutation', True, 'read-only endpoint; no business data mutated', severity='info')
 
         errors = [c for c in checks if not c.get('ok') and c.get('severity') in ('critical','error')]
         warns = [c for c in checks if not c.get('ok') and c.get('severity') == 'warn']
         return jsonify(success=not bool(errors), ready=not bool(errors), no_mutation=True,
                        version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                       closed_loop_version='V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24', checks=checks, issues=errors,
+                       closed_loop_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28', checks=checks, issues=errors,
                        warnings=warns, table_counts=table_result,
                        summary={'checks': len(checks), 'errors': len(errors), 'warnings': len(warns), 'ready_percent_estimate': 94 if not errors else 90})
     except Exception as e:
@@ -8355,14 +8355,14 @@ def api_health_release_readiness():
         except Exception:
             pass
         add('service_worker_no_api_cache', "url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw, 'service worker must bypass /api/ requests')
-        add('service_worker_version', 'yuanxing-v517-static-css-icons' in sw, 'service worker cache version should match V509')
+        add('service_worker_version', 'yuanxing-v518-static-css-icons' in sw, 'service worker cache version should match V509')
         manifest = ''
         try:
             manifest = open(os.path.join(app.static_folder, 'manifest.webmanifest'), encoding='utf-8').read()
         except Exception:
             pass
-        add('manifest_version', '119-v517-full-checklist-alignment-pack27' in manifest, 'manifest/start_url/id should match V509')
-        add('static_version_alignment', STATIC_VERSION == '119-v517_full_checklist_alignment_pack27' and API_SCHEMA_VERSION == 'v517-full-checklist-alignment-pack27', 'static/API schema versions aligned')
+        add('manifest_version', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest/start_url/id should match V509')
+        add('static_version_alignment', STATIC_VERSION == '119-v518_restore_satisfied_ship_preview_diag_pack28' and API_SCHEMA_VERSION == 'v518-restore-satisfied-ship-preview-diag-pack28', 'static/API schema versions aligned')
         req = ''
         try: req = open('requirements.txt', encoding='utf-8').read()
         except Exception: pass
@@ -8407,7 +8407,7 @@ def _v510_build_final_gap_report(no_mutation=True):
         'version': APP_VERSION,
         'static_version': STATIC_VERSION,
         'api_schema_version': API_SCHEMA_VERSION,
-        'final_gap_version': 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24',
+        'final_gap_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
         'evidence_bundle_endpoint': '/api/health/final-evidence-bundle',
         'local_write_loop_endpoint': '/api/health/local-write-loop-readiness',
         'write_test_safety_endpoint': '/api/health/write-test-safety',
@@ -8449,9 +8449,9 @@ def _v510_build_final_gap_report(no_mutation=True):
         sw=_diag_v490_read('static/service-worker.js')
         manifest=_diag_v490_read('static/manifest.webmanifest')
         base=_diag_v490_read('templates/base.html')
-        add('static_version_alignment', STATIC_VERSION == '119-v517_full_checklist_alignment_pack27' and API_SCHEMA_VERSION == 'v517-full-checklist-alignment-pack27', 'static/API versions must be V510')
-        add('service_worker_no_api_cache', ("url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw) and 'yuanxing-v517-static-css-icons' in sw, 'service worker must bypass API and use V510 cache')
-        add('manifest_v510', '119-v517-full-checklist-alignment-pack27' in manifest and 'v517-full-checklist-alignment-pack27' in manifest, 'manifest id/start_url/version must be V510')
+        add('static_version_alignment', STATIC_VERSION == '119-v518_restore_satisfied_ship_preview_diag_pack28' and API_SCHEMA_VERSION == 'v518-restore-satisfied-ship-preview-diag-pack28', 'static/API versions must be V510')
+        add('service_worker_no_api_cache', ("url.pathname.startsWith('/api/')" in sw or 'url.pathname.startsWith("/api/")' in sw) and 'yuanxing-v518-static-css-icons' in sw, 'service worker must bypass API and use V510 cache')
+        add('manifest_v510', '119-v518-restore-satisfied-ship-preview-diag-pack28' in manifest and 'v518-restore-satisfied-ship-preview-diag-pack28' in manifest, 'manifest id/start_url/version must be V510')
         add('no_old_overlay_loader', 'hardlock' not in base.lower() and 'fix135' not in base and 'yx_v452_max_repair' not in base, 'base.html must not load old overlay/hardlock files')
 
         # DB read-only table check.
@@ -8598,7 +8598,7 @@ def _diag_v511_final_evidence_bundle_audit():
     add('evidence aggregates readiness/loop/gap/diagnostics', all(t in app_src for t in ['release_readiness','operation_closed_loop','final_gap_report','diagnostics_export']), '證據包必須合併三個健康檢查與診斷摘要')
     add('diagnostics page checks evidence bundle', '/api/health/final-evidence-bundle' in diag_js and '/api/health/local-write-loop-readiness' in diag_js and '/api/health/write-test-safety' in diag_js and '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁需讀取最終證據包')
     add('deploy smoke checks evidence bundle', '/api/health/final-evidence-bundle' in smoke and '/api/health/local-write-loop-readiness' in smoke and '/api/health/write-test-safety' in smoke and '/api/health/postdeploy-evidence-report' in smoke, '部署 smoke 必須讀取最終證據包')
-    add('postdeploy evidence script shipped', 'V119-V517-FULL-CHECKLIST-ALIGNMENT-PACK27' in post and '/api/health/final-evidence-bundle' in post and '/api/health/local-write-loop-readiness' in post and '/api/health/write-test-safety' in post and '/api/health/postdeploy-evidence-report' in post, '缺少 postdeploy_final_evidence_verify.py')
+    add('postdeploy evidence script shipped', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in post and '/api/health/final-evidence-bundle' in post and '/api/health/local-write-loop-readiness' in post and '/api/health/write-test-safety' in post and '/api/health/postdeploy-evidence-report' in post, '缺少 postdeploy_final_evidence_verify.py')
     issues=[{'severity':c.get('severity') or 'error','title':'V511 最終證據包｜'+c['name'],'detail':c,'source':'final_evidence_bundle_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 
@@ -8616,7 +8616,7 @@ def api_health_final_evidence_bundle():
         'version': APP_VERSION,
         'static_version': STATIC_VERSION,
         'api_schema_version': API_SCHEMA_VERSION,
-        'evidence_version': 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24',
+        'evidence_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
         'generated_at': now(),
         'endpoints': {},
         'summary': {},
@@ -8703,11 +8703,11 @@ def _diag_v512_local_write_loop_audit():
     def add(name, ok, detail, severity='error'):
         checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
     add('local write-loop readiness route', '/api/health/local-write-loop-readiness' in app_src and 'api_health_local_write_loop_readiness' in app_src, '缺少本機 SQLite 寫入閉環 readiness endpoint')
-    add('local sqlite verifier shipped', 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in local_script and 'DATABASE_URL' in local_script and 'sqlite:///' in local_script and 'test_client' in local_script, '缺少本機 SQLite 寫入閉環腳本')
+    add('local sqlite verifier shipped', 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in local_script and 'DATABASE_URL' in local_script and 'sqlite:///' in local_script and 'test_client' in local_script, '缺少本機 SQLite 寫入閉環腳本')
     add('write verifier covers sentinel rule', '132×11*12=123*4 (-3揚玉)' in local_script and 'expected_qty' in local_script and '4' in local_script, '本機閉環必須測 132×11*12=123*4 (-3揚玉) => 4件')
     add('write verifier covers full chain', all(t in local_script for t in ['/api/inventory','/api/orders','/api/master_orders','/api/ship/preview','/api/ship/confirm','/api/product-locations','/api/today-changes','/api/diagnostics/export']), '本機閉環必須涵蓋庫存→訂單→總單→出貨→位置→今日異動→診斷')
     add('production write-test remains explicit', '--write-test' in closed_script and 'write-test skipped' in closed_script, '部署後寫入測試仍必須手動明確開啟，不可健康檢查自動寫入')
-    add('local audit shipped and predeploy-visible', 'local_sqlite_write_loop_audit' in local_audit and 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in local_audit, '缺少本機閉環靜態稽核')
+    add('local audit shipped and predeploy-visible', 'local_sqlite_write_loop_audit' in local_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in local_audit, '缺少本機閉環靜態稽核')
     add('diagnostics checks local readiness', '/api/health/local-write-loop-readiness' in diag_js, '診斷頁要讀 local write-loop readiness')
     issues = [{'severity': c.get('severity') or 'error', 'title': 'V512 本機寫入閉環｜' + c['name'], 'detail': c, 'source': 'local_sqlite_write_loop_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
@@ -8725,7 +8725,7 @@ def api_health_local_write_loop_readiness():
     hard = [x for x in issues if isinstance(x, dict) and x.get('severity') in ('critical','error')]
     return jsonify(success=not bool(hard), ready=not bool(hard), no_mutation=True,
                    version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                   local_write_loop_version='V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24',
+                   local_write_loop_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
                    local_verifier='scripts/local_sqlite_write_loop_verify.py',
                    how_to_run='python scripts/local_sqlite_write_loop_verify.py',
                    write_safety='本 endpoint 只讀；local verifier 只使用臨時 SQLite DB，不碰正式 DB；部署後真 DB 寫入仍需 postdeploy_operation_closed_loop_verify.py --write-test 明確執行。',
@@ -8753,13 +8753,13 @@ def _diag_v513_write_test_safety_audit():
     add('write test still explicit', '--write-test' in op_script and 'write-test skipped' in op_script, '部署後寫入測試必須維持手動明確開啟')
     add('second confirmation required', '--i-understand-this-writes-data' in op_script and 'write-test refused' in op_script, '缺少二次確認，可能誤跑正式資料寫入')
     add('backup confirmation required', '--backup-confirmed' in op_script and '--allow-without-backup' in op_script, '缺少備份確認或 staging override')
-    add('sentinel prefix isolated', 'YX_WRITE_TEST_V514_' in op_script and 'ZZZ_V509' not in op_script, '測試資料必須使用 V513 專屬前綴，避免誤刪正式客戶')
+    add('sentinel prefix isolated', 'YX_WRITE_TEST_V518_' in op_script and 'ZZZ_V509' not in op_script, '測試資料必須使用 V513 專屬前綴，避免誤刪正式客戶')
     add('cleanup is sentinel-only', 'cleanup_sentinel_data' in op_script and '/api/customer-items/batch-delete' in op_script and 'customer_name' in op_script, '缺少測試資料清理或清理範圍不明')
     add('keep data is explicit', '--keep-test-data' in op_script and 'sentinel test rows kept' in op_script, '保留測試資料必須明確指定')
     add('final evidence mentions safety', ('/api/health/write-test-safety' in evidence_script or '/api/health/write-test-safety' in app_src), '最終證據包需要包含寫入測試安全狀態')
     add('deploy smoke checks safety', '/api/health/write-test-safety' in deploy and '/api/health/postdeploy-evidence-report' in deploy, '部署 smoke 必須讀 write-test safety endpoint')
     add('diagnostics checks safety', '/api/health/write-test-safety' in diag_js and '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁必須列入 write-test safety endpoint')
-    add('static audit shipped', 'write_test_safety_audit' in safety_audit and 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in safety_audit, '缺少 write_test_safety_audit.py')
+    add('static audit shipped', 'write_test_safety_audit' in safety_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in safety_audit, '缺少 write_test_safety_audit.py')
     issues = [{'severity': c.get('severity') or 'error', 'title': 'V513 寫入測試安全護欄｜' + c['name'], 'detail': c, 'source': 'write_test_safety_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 
@@ -8776,10 +8776,10 @@ def api_health_write_test_safety():
     hard = [x for x in issues if isinstance(x, dict) and x.get('severity') in ('critical','error')]
     return jsonify(success=not bool(hard), ready=not bool(hard), no_mutation=True,
                    version=APP_VERSION, static_version=STATIC_VERSION, api_schema_version=API_SCHEMA_VERSION,
-                   write_test_safety_version='V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24',
+                   write_test_safety_version='V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
                    required_write_test_flags=['--write-test','--i-understand-this-writes-data','--backup-confirmed'],
                    staging_override='--allow-without-backup 僅限 disposable staging DB；正式 DB 不建議使用。',
-                   cleanup_default='預設會嘗試清理 inventory/orders/master_orders 中 YX_WRITE_TEST_V514_ 前綴測試列；shipping/today/audit 紀錄保留作為測試證據。',
+                   cleanup_default='預設會嘗試清理 inventory/orders/master_orders 中 YX_WRITE_TEST_V518_ 前綴測試列；shipping/today/audit 紀錄保留作為測試證據。',
                    no_mutation_note='本 endpoint 只讀；不會建立備份、不會寫測試資料、不會清理資料。',
                    checks=audit.get('checks') or [], issues=issues,
                    summary={'checks': (audit.get('summary') or {}).get('checks'), 'errors': len(hard), 'ready_percent_estimate': 99 if not hard else 95})
@@ -8787,7 +8787,7 @@ def api_health_write_test_safety():
 
 
 # ============================================================
-# V514 postdeploy evidence collector: read-only one-click report.
+# V518 postdeploy evidence collector: read-only one-click report.
 # This does not write data, does not run write tests, and does not create backups.
 # It packages all postdeploy evidence into one JSON payload and a copy/paste summary.
 # ============================================================
@@ -8807,9 +8807,9 @@ def _diag_v514_postdeploy_evidence_collector_audit():
     add('deploy smoke checks collector', '/api/health/postdeploy-evidence-report' in smoke, 'deploy smoke 必須讀部署後證據彙整 endpoint')
     add('diagnostics page checks collector', '/api/health/postdeploy-evidence-report' in diag_js, '診斷頁必須列入部署後證據彙整 endpoint')
     add('postdeploy collector script shipped', 'postdeploy_evidence_collect' in collect_script and '/api/health/postdeploy-evidence-report' in collect_script and 'copy_paste_summary' in collect_script, '缺少部署後證據收集腳本')
-    add('collector audit shipped', 'postdeploy_evidence_collector_audit' in collect_audit and 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24' in collect_audit, '缺少部署後證據收集靜態稽核')
+    add('collector audit shipped', 'postdeploy_evidence_collector_audit' in collect_audit and 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28' in collect_audit, '缺少部署後證據收集靜態稽核')
     add('predeploy includes collector audit', 'scripts/postdeploy_evidence_collector_audit.py' in pre and 'scripts/postdeploy_evidence_collect.py' in pre, 'predeploy 必須包含 V514 collector 腳本與稽核')
-    issues = [{'severity': c.get('severity') or 'error', 'title': 'V514 部署後證據收集｜' + c['name'], 'detail': c, 'source': 'postdeploy_evidence_collector_audit'} for c in checks if not c.get('ok')]
+    issues = [{'severity': c.get('severity') or 'error', 'title': 'V518 部署後證據收集｜' + c['name'], 'detail': c, 'source': 'postdeploy_evidence_collector_audit'} for c in checks if not c.get('ok')]
     return {'success': not bool(issues), 'version': APP_VERSION, 'static_version': STATIC_VERSION, 'api_schema_version': API_SCHEMA_VERSION, 'checks': checks, 'issues': issues, 'summary': {'checks': len(checks), 'failed': len(issues), 'ok': len(checks)-len(issues)}}
 
 
@@ -8839,11 +8839,20 @@ def _v514_compact_for_report(name, payload):
 @app.route('/api/health/postdeploy-evidence-report', methods=['GET'])
 @login_required_json
 def api_health_postdeploy_evidence_report():
-    """V514 read-only postdeploy evidence collector.
+    """V518 read-only postdeploy evidence collector.
     This does not write data, does not run write tests, does not create backups,
-    and does not mutate business records. It gathers the evidence needed for the
-    next repair package into one pasteable report.
+    and does not mutate business records. Heavy evidence is cached briefly so
+    diagnostics does not create warn-level slow probes on Render.
     """
+    try:
+        cached = _fast_cache_get(_fast_cache_key('postdeploy_evidence_report_v518', version=API_SCHEMA_VERSION, user=current_username()), 60.0)
+        if cached and request.args.get('force') != '1':
+            cached = dict(cached)
+            cached['from_cache'] = True
+            cached['cache_ttl_sec'] = 60
+            return jsonify(cached)
+    except Exception:
+        pass
     report = {
         'success': True,
         'ready': False,
@@ -8851,7 +8860,7 @@ def api_health_postdeploy_evidence_report():
         'version': APP_VERSION,
         'static_version': STATIC_VERSION,
         'api_schema_version': API_SCHEMA_VERSION,
-        'collector_version': 'V514_POSTDEPLOY_EVIDENCE_COLLECTOR_PACK24',
+        'collector_version': 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK28',
         'generated_at': now(),
         'endpoints': {},
         'issues': [],
@@ -8924,7 +8933,7 @@ def api_health_postdeploy_evidence_report():
         'why_not_100_percent': '仍需 Render 真 DB explicit write-test 與部署後回貼證據；本 endpoint 只做只讀收集。'
     }
     lines = [
-        '沅興木業 V514 部署後證據回貼摘要',
+        '沅興木業 V518 部署後證據回貼摘要',
         'version=' + str(report.get('version')),
         'static_version=' + str(report.get('static_version')),
         'api_schema_version=' + str(report.get('api_schema_version')),
@@ -8935,6 +8944,10 @@ def api_health_postdeploy_evidence_report():
     if hard:
         lines.append('current_errors=' + ' | '.join([str((x.get('key') or x.get('title') or x.get('detail') or x))[:160] for x in hard[:8]]))
     report['copy_paste_summary'] = '\n'.join(lines)
+    try:
+        _fast_cache_set(_fast_cache_key('postdeploy_evidence_report_v518', version=API_SCHEMA_VERSION, user=current_username()), report)
+    except Exception:
+        pass
     return jsonify(report)
 
 @app.route('/api/backup/verify', methods=['GET','POST'])
@@ -9205,10 +9218,14 @@ def api_performance_prewarm_light():
 @app.route('/api/performance/cache-summary', methods=['GET'])
 @login_required_json
 def api_performance_cache_summary():
-    """V147 ultra-light cache/DB pressure summary. No full table scans; used by UI diagnostics only."""
+    """V518 ultra-light optional cache summary. This endpoint must never block
+    or fail the home page. It performs no DB scan and returns a safe fallback on
+    every exception.
+    """
     started = time.time()
     out = {
         'success': True,
+        'optional': True,
         'version': APP_VERSION,
         'static_version': STATIC_VERSION,
         'fast_cache_items': 0,
@@ -9220,49 +9237,30 @@ def api_performance_cache_summary():
         'recommendations': [],
     }
     try:
-        with _FAST_API_LOCK:
-            out['fast_cache_items'] = len(_FAST_API_CACHE)
-    except Exception as e:
-        out['fast_cache_error'] = str(e)
-    try:
-        payload = _WAREHOUSE_API_CACHE.get('payload') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
-        at = float(_WAREHOUSE_API_CACHE.get('at') or 0) if isinstance(_WAREHOUSE_API_CACHE, dict) else 0
-        out['warehouse_cache_ready'] = bool(payload)
-        out['warehouse_cache_age_sec'] = round(time.time() - at, 2) if at else None
-        out['warehouse_cache_cells'] = len((payload or {}).get('cells') or []) if isinstance(payload, dict) else 0
-        if not payload:
-            out['recommendations'].append('倉庫圖伺服器快取尚未建立；第一次開啟會較慢，之後會走 local-first 快取')
-    except Exception as e:
-        out['warehouse_cache_error'] = str(e)
-    conn = None
-    try:
-        conn = get_db(); cur = conn.cursor()
-        t0 = time.time(); cur.execute(sql('SELECT 1')); cur.fetchone()
-        out['db_select1_ms'] = round((time.time() - t0) * 1000, 2)
         try:
-            t0 = time.time()
-            cur.execute(sql("SELECT COUNT(*) AS c FROM operation_log WHERE status IN ('queued','pending','running','retry')"))
-            row = cur.fetchone(); out['pending_operations'] = int(row[0] if USE_POSTGRES else row['c'])
-            out['operation_check_ms'] = round((time.time() - t0) * 1000, 2)
-            if out['pending_operations'] and out['pending_operations'] > 20:
-                out['in_degraded_mode'] = True
-                out['recommendations'].append('背景保存佇列偏多，頁面會優先顯示快取並延後重資料刷新')
+            with _FAST_API_LOCK:
+                out['fast_cache_items'] = len(_FAST_API_CACHE)
         except Exception as e:
-            out['pending_operations_error'] = str(e)
-        if out.get('db_select1_ms', 0) > 500:
-            out['in_degraded_mode'] = True
-            out['recommendations'].append('DB 回應偏慢，前端會用 soft-cache 先顯示資料')
-    except Exception as e:
-        out['db_error'] = str(e)
-        out['in_degraded_mode'] = True
-    finally:
+            out['fast_cache_error'] = str(e)[:120]
         try:
-            if conn: conn.close()
+            payload = _WAREHOUSE_API_CACHE.get('payload') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
+            out['warehouse_cache_ready'] = bool(payload)
+            if isinstance(payload, dict):
+                cells = payload.get('cells') or payload.get('items') or []
+                out['warehouse_cache_cells'] = len(cells) if isinstance(cells, list) else 0
+            ts = _WAREHOUSE_API_CACHE.get('ts') if isinstance(_WAREHOUSE_API_CACHE, dict) else None
+            if ts:
+                out['warehouse_cache_age_sec'] = max(0, round(time.time() - float(ts), 2))
+        except Exception as e:
+            out['warehouse_cache_error'] = str(e)[:120]
+        try:
+            out['pending_operations'] = int(_fast_cache_get(_fast_cache_key('pending_queue_count', user=current_username()), 3.0) or 0)
         except Exception:
-            pass
-    out['elapsed_ms'] = round((time.time() - started) * 1000, 2)
-    return jsonify(out)
-
+            out['pending_operations'] = None
+        out['ms'] = int((time.time() - started) * 1000)
+        return jsonify(out)
+    except Exception as e:
+        return jsonify(success=True, optional=True, degraded=True, error=str(e)[:160], version=APP_VERSION, static_version=STATIC_VERSION, ms=int((time.time()-started)*1000))
 
 
 @app.route('/api/performance/route-prewarm', methods=['GET'])

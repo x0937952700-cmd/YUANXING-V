@@ -2,8 +2,8 @@
   "name": "沅興木業",
   "short_name": "沅興木業",
   "description": "沅興木業庫存、訂單、總單、出貨與倉庫圖管理系統",
-  "id": "/v517-full-checklist-alignment-pack27",
-  "start_url": "/?v=v517-full-checklist-alignment-pack27",
+  "id": "/v518-restore-satisfied-ship-preview-diag-pack28",
+  "start_url": "/?v=v518-restore-satisfied-ship-preview-diag-pack28",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -133,5 +133,5 @@
       ]
     }
   ],
-  "version": "119-v517_full_checklist_alignment_pack27"
+  "version": "119-v518_restore_satisfied_ship_preview_diag_pack28"
 }

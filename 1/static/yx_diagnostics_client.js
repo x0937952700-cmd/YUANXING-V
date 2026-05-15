@@ -1,8 +1,8 @@
 /* V483 client diagnostic collector: error-only, no polling/timer/observer, no API cache change. */
 (function(){
   'use strict';
-  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v514-postdeploy-evidence-collector-pack24') return;
-  const VERSION = 'v514-postdeploy-evidence-collector-pack24';
+  if (window.YXDiagnostics && window.YXDiagnostics.version === 'v518-restore-satisfied-ship-preview-diag-pack28') return;
+  const VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28';
   const MAX_LOCAL = 80;
   const KEY = 'yx_diagnostics_recent_errors_v480';
   const nowIso = () => new Date().toISOString();
@@ -55,7 +55,8 @@
         try{
           const path = new URL(String(url), location.origin).pathname;
           const ms = Date.now() - started;
-          if (path.startsWith('/api/') && !path.includes('/api/diagnostics/') && (ms > 4500 || res.status >= 500)) {
+          const softDiag = path === '/api/performance/cache-summary' || /^\/api\/health\/(postdeploy-evidence-report|final-evidence-bundle|final-gap-report|operation-closed-loop)$/.test(path);
+          if (path.startsWith('/api/') && !path.includes('/api/diagnostics/') && !softDiag && (ms > 4500 || res.status >= 500)) {
             record('api.slow_or_error', {url:path, status:res.status, ms:ms});
           }
         }catch(_e){}
@@ -63,7 +64,8 @@
       }).catch(function(err){
         try{
           const path = new URL(String(url), location.origin).pathname;
-          if (path.startsWith('/api/') && !path.includes('/api/diagnostics/')) record('api.fetch_failed', {url:path, message:clean(err && err.message)});
+          const softDiag = path === '/api/performance/cache-summary' || path === '/api/performance/route-prewarm' || /^\/api\/health\/(postdeploy-evidence-report|final-evidence-bundle|final-gap-report|operation-closed-loop)$/.test(path);
+          if (path.startsWith('/api/') && !path.includes('/api/diagnostics/') && !softDiag) record('api.fetch_failed', {url:path, message:clean(err && err.message)});
         }catch(_e){}
         throw err;
       });

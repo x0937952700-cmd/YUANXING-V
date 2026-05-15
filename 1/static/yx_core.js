@@ -1466,9 +1466,11 @@
       const last = Number(sessionStorage.getItem(flag) || 0);
       if (Date.now() - last < 10 * 60 * 1000) return;
       sessionStorage.setItem(flag, String(Date.now()));
-      const api = root.api || window.fetch;
-      if (typeof api === 'function') {
-        api('/api/performance/cache-summary', {method:'GET', timeoutMs:3500, softCacheMs:600, key:'v149-cache-summary'}).catch(function(){});
+      const raw = window.__YX_DIAG_NATIVE_FETCH__ || window.fetch;
+      if (typeof raw === 'function') {
+        const ctrl = window.AbortController ? new AbortController() : null;
+        const timer = ctrl ? setTimeout(function(){ try{ ctrl.abort('soft-cache-summary-timeout'); }catch(_e){} }, 2500) : null;
+        raw('/api/performance/cache-summary?diag_soft=1', {method:'GET', credentials:'same-origin', cache:'no-store', headers:{'Accept':'application/json'}, signal: ctrl && ctrl.signal, yxOptionalPerformanceProbe:true}).catch(function(){}).finally(function(){ if(timer) clearTimeout(timer); });
       }
     } catch(_e) {}
   });

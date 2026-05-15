@@ -1170,7 +1170,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       if(Array.isArray(cached?.items)&&cached.items.length){state.customers=cached.items; renderCustomers(); if(!opts.force) return state.customers;}
     }catch(_e){}
     try{
-      const d=await api('/api/customers?ship_single=1&light=1&fast=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now(), {method:'GET'});
+      const d=await api('/api/customers?source=ship&ship_single=1&light=1&fast=1&customer_refresh=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now(), {method:'GET', timeout:12000});
       const incoming=Array.isArray(d.items)?d.items:(Array.isArray(d.customers)?d.customers:[]);
       if(incoming.length || !state.customers.length){state.customers=relationCustomersFromRows(incoming); try{window.YX?.cache?.write(currentKey,{items:state.customers});}catch(_e){}}
       renderCustomers();
@@ -1217,7 +1217,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       state.loadingName=requestCustomer;
       if(!hadCached) renderItems();
       try{
-        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&fast=1&ship_single=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now()+requestVariants, {yxDbOnly: !!(opts.force || opts.dbVerify || hadCached), timeout:12000});
+        const d=await api('/api/customer-items?name='+encodeURIComponent(requestCustomer)+'&source=ship&fast=1&ship_single=1&customer_refresh=1&v='+encodeURIComponent(SHIP_QUERY_VERSION)+'&ts='+Date.now()+requestVariants, {yxDbOnly: !!(opts.force || opts.dbVerify || hadCached), timeout:12000});
         if(state.customer!==requestCustomer) return;
         const incomingItems=Array.isArray(d.items)?d.items:[];
         if(incomingItems.length || !hadCached || !state.items.length){
@@ -1384,7 +1384,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
     const totalQty=Number(calc.total_qty||draft.reduce((a,b)=>a+selectedQtyOf(b),0));
     panel.classList.remove('hidden');
     panel.style.display='block';
-    panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽</div><div id="yx22-ship-preview-error" class="error-card" style="display:none"></div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>件數</th><th>出貨源</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(rows.length?rows:draft).map((x,i)=>previewRowHtml(x,i,rows.length?x:(rows[i]||{}))).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;
+    panel.innerHTML=`<div class="yx22-preview"><div class="yx22-preview-title">出貨預覽（表格版）</div><div id="yx22-ship-preview-error" class="error-card" style="display:none"></div><div class="yx22-stat-grid"><div><span>本次出貨</span><b>${totalQty}</b><em>件</em></div><div><span>商品筆數</span><b>${draft.length||rows.length}</b><em>筆</em></div><div><span>材積合計</span><b>${Number(calc.total_volume||0).toFixed(2)}</b><em>才</em></div><div><span>扣除流程</span><b>預覽</b><em>確認後才扣</em></div></div><table class="yx22-preview-table"><thead><tr><th>#</th><th>客戶</th><th>材質</th><th>尺寸 / 支數</th><th>出貨件數</th><th>扣除來源</th><th>倉庫位置</th><th>扣前 → 扣後</th><th>狀態</th></tr></thead><tbody>${(rows.length?rows:draft).map((x,i)=>previewRowHtml(x,i,rows.length?x:(rows[i]||{}))).join('')}</tbody></table><div class="yx22-calc-box"><div class="yx22-preview-title small">材積計算</div><table class="yx22-preview-table"><thead><tr><th>#</th><th>商品</th><th>支數總和</th><th>算式</th><th>材積</th></tr></thead><tbody>${calcRowsHtml(calc)}</tbody></table><div class="yx22-formula-total">總材積：${Number(calc.total_volume||0).toFixed(2)} 才</div></div><div class="yx22-weight"><label>重量</label><input id="yx22-weight" type="number" step="0.01" placeholder="輸入重量，自動算總重"><b id="yx22-total-weight">總重：--</b></div><div class="btn-row"><button class="primary-btn" id="yx22-confirm-ship" type="button">確認扣除</button><button class="ghost-btn" id="yx22-cancel-preview" type="button">取消</button></div></div>`;
     const previewBad=rows.some(r=>r&&((r.strict_ok===false)||Number(r.shortage_qty||0)>0)) || !data.preview_token;
     try{ window.YX?.visualSync?.apply?.('ship-preview-render'); }catch(_e){}
     if(previewBad){
@@ -1780,4 +1780,4 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
   window.YXTargetedRetryRefresh={apply, version:VERSION};
 })();
 
-/* V517 evidence markers: localSyncedCustomers buildShipCustomersFromRows readDeviceProductRows localSyncedItemsForCustomer hydrateShipRowsFromDb 建立中 showPreview ship-preview-panel /api/ship/preview /api/product-locations showShipLocations stripSupportNotes supportTotalPieces supportSticksSum v517-full-checklist-alignment-pack27 */
+/* V518 evidence markers: localSyncedCustomers buildShipCustomersFromRows readDeviceProductRows localSyncedItemsForCustomer hydrateShipRowsFromDb 建立中 showPreview ship-preview-panel /api/ship/preview /api/product-locations showShipLocations stripSupportNotes supportTotalPieces supportSticksSum v518-restore-satisfied-ship-preview-diag-pack28 */

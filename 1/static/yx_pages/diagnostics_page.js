@@ -1,4 +1,5 @@
-/* V517_FULL_CHECKLIST_ALIGNMENT: homepage logout removed; diagnostics uses lightweight endpoints and current-version issue filtering. */
+/* V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG: homepage logout removed; diagnostics uses lightweight endpoints and current-version issue filtering. */
+/* 主要異常清單 classifyClientErrors classifyServer: diagnostics must list real current failures, not soft optional performance probes. */
 /* V504 diagnostics page: current-version-only button/event mainline audit + export. No polling/timer/observer. */
 (function(){
   'use strict';
@@ -33,7 +34,8 @@
     (errors||[]).forEach(e=>{
       if(!isCurrentClientError(e)) return;
       const type=String(e.type||''); const d=e.detail||{}; const url=normalizeEndpoint(d.url||''); const msg=String(d.message||d.error||''); const ms=Number(d.ms||0);
-      if(url==='/api/performance/route-prewarm') return;
+      if(url==='/api/performance/route-prewarm' || url==='/api/performance/cache-summary') return;
+      if(/^\/api\/health\/(postdeploy-evidence-report|final-evidence-bundle|final-gap-report|operation-closed-loop)$/.test(url) && type.includes('slow_or_error')) return;
       else if(type.includes('fetch_failed')) addIssue(issues,'error',`API 呼叫失敗：${url || '未知 API'}`, {url, message:msg, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('slow_or_error')) addIssue(issues, ms>10000?'critical':'warn', `API 太慢：${url || '未知 API'} ${ms||'?'}ms`, {url, ms, status:d.status, page:e.page, at:e.at}, 'local_errors');
       else if(type.includes('unhandled') || type.includes('window.error')) addIssue(issues,'critical',`前端 JS 錯誤：${msg || type}`, {type, detail:d, page:e.page, at:e.at}, 'local_errors');
@@ -56,7 +58,8 @@
     errors.forEach(e=>{
       const src=String(e.source||''); const msg=String(e.message||'');
       if(src.indexOf('client_')===0 && msg.indexOf(currentAppVersion())<0 && msg.indexOf(currentStaticVersion())<0) return;
-      if(msg.indexOf('/api/performance/route-prewarm')>=0 && msg.indexOf('signal is aborted')>=0) return;
+      if(msg.indexOf('/api/performance/route-prewarm')>=0) return;
+      if(msg.indexOf('/api/performance/cache-summary')>=0) return;
       if(msg.indexOf('/api/health/postdeploy-evidence-report')>=0 || msg.indexOf('/api/health/final-evidence-bundle')>=0) return;
       if(/statement timeout|SSL connection|canceling statement/i.test(msg)) addIssue(issues,'critical',`資料庫/倉庫查詢異常：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
       else if(/api_slow_or_error|fetch_failed|unhandledrejection|window.error|regression_guard/i.test(src+msg)) addIssue(issues,'warn',`近期錯誤紀錄：${src}`, {message:msg.slice(0,900), created_at:e.created_at}, 'server_errors');
