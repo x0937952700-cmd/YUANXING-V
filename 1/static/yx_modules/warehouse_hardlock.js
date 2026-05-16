@@ -52,7 +52,7 @@
   }
   function cleanCustomer(v){
     const s=clean(v)||'庫存';
-    return s.replace(/\b(FOB代付|FOB代|FOB|CNF)\b/gi,'').replace(/\s+/g,' ').trim() || '庫存';
+    return s.replace(/FOB代付|FOB代|FOB|CNF/gi,'').replace(/[()（）]/g,'').replace(/\s+/g,' ').trim() || '庫存';
   }
   function productText(it){ return clean(it?.product_text || it?.product || it?.product_size || ''); }
   function sizeOnlyFromText(text){
@@ -107,6 +107,7 @@
       let size=sizeOnlyFromText(productText(it));
       // 20260516z：第一排只准放尺寸摘要，不准放完整公式；抓不到尺寸時改成「商品」。
       if(!size || size.length>18 || size.includes('=')) size='商品';
+      size=String(size||'').replace(/FOB代付|FOB代|FOB|CNF/gi,'').trim()||'商品';
       map.set(size,(map.get(size)||0)+itemQty(it));
     });
     const arr=Array.from(map.entries()).map(([size,qty])=>`${size} ${qty}件`);
@@ -131,7 +132,7 @@
       const map=new Map();
       (items||[]).forEach(it=>{
         const cn=cleanCustomer(it.customer_name||'庫存');
-        const mat=materialOf(it)||'未填';
+        const mat=String(materialOf(it)||'未填').replace(/FOB代付|FOB代|FOB|CNF/gi,'').trim() || '未填';
         let prod=sizeOnlyFromText(productText(it));
         if(!prod || prod.length>18 || prod.includes('=')) prod='商品';
         const k=[cn,mat,prod].join('|');

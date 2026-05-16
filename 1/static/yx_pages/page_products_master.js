@@ -14,7 +14,7 @@
   function cacheKey(source){ return CACHE_PREFIX + source + '_' + String(window.__YX_STATIC_VERSION__ || 'aw'); }
   function writeProductCache(source, rows){ try { localStorage.setItem(cacheKey(source), JSON.stringify({at:Date.now(), rows:Array.isArray(rows)?rows:[]})); } catch(_e) {} }
   function readProductCache(source){ try { const raw=localStorage.getItem(cacheKey(source)); if(!raw) return []; const obj=JSON.parse(raw); return Array.isArray(obj.rows) ? obj.rows : []; } catch(_e) { return []; } }
-  function paintRows(source, rows){ rowsStore(source, Array.isArray(rows)?rows:[]); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source); afterRenderProductUI(); }
+  function paintRows(source, rows){ rowsStore(source, Array.isArray(rows)?rows:[]); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source); document.documentElement.dataset.yxProductLoaded=source; afterRenderProductUI(); }
   function showSourceError(source, msg){ const box=ensureSummary(source); if(box) box.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(msg || title(source)+'載入失敗')}</div>`; }
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
@@ -24,6 +24,7 @@
   };
   const apiSource = s => s === 'master_order' ? 'master_orders' : s;
   const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master_orders';
+  const fallbackEndpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/order' : '/api/master_order';
   const title = s => s === 'inventory' ? '庫存清單' : s === 'orders' ? '訂單清單' : '總單清單';
   const listEl = s => s === 'inventory' ? $('inventory-inline-list') : s === 'orders' ? $('orders-list') : $('master-list');
   const sectionEl = s => s === 'inventory' ? ($('inventory-inline-panel') || listEl(s)?.closest('.panel,.result-card,.subsection')) : s === 'orders' ? $('orders-list-section') : $('master-list-section');
@@ -330,7 +331,7 @@
     const moveButtons = source === 'inventory'
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-    // 20260516aw：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
+    // 20260516ay：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
     const controls = '';
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
@@ -348,7 +349,7 @@
         <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td><td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
       </tr>`;
     }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
@@ -394,8 +395,15 @@
     }
     state.loading = source;
     try {
-      const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1'}});
-      const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+      let d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1'}});
+      let rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+      if (!rows.length && fallbackEndpoint(source) !== endpoint(source)) {
+        try {
+          const fd = await YX.api(fallbackEndpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Product-Fallback':'1'}});
+          const frows = Array.isArray(fd.items) ? fd.items : (Array.isArray(fd.rows) ? fd.rows : []);
+          if (frows.length) rows = frows;
+        } catch(_fallbackErr) {}
+      }
       paintRows(source, rows);
       writeProductCache(source, rows);
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}

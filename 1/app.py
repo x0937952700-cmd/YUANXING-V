@@ -30,8 +30,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'final-mainfile-contract-ui-warehouse-20260516aw'
-APP_VERSION = '還完整主線_主檔契約巡檢_UI全頁資料倉庫格號補齊_20260516aw'
+STATIC_VERSION = 'final-mainfile-contract-ui-warehouse-20260516ay'
+APP_VERSION = '還完整主線_主檔契約巡檢_UI全頁資料倉庫格號補齊_20260516ay'
 
 app = Flask(__name__)
 
@@ -3549,7 +3549,7 @@ def api_diagnostics_export():
     action_resp = api_diagnostics_action_audit().get_json()
     master_resp = api_diagnostics_master_requirements().get_json()
     full_resp = _yx_diag_full_requirement_report()
-    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(13).txt / 20260516aw 主檔契約巡檢', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
+    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(13).txt / 20260516ay 主檔契約巡檢', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     resp = Response(payload, mimetype='application/json; charset=utf-8')
     resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_report.json"'
@@ -4016,11 +4016,11 @@ def yx_dom_layout_contract():
         'app_version': APP_VERSION,
         'static_version': STATIC_VERSION,
         'expected': {
-            'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516aw.css',
+            'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516ay.css',
             'warehouse_layout': 'A/B each 6 columns rendered as 3 columns x 2 rows; cells auto-height and not clipped',
             'button_text': 'All buttons/chips/tags must keep visible text after renderer completes',
             'page_js_policy': 'stable main files only; no 520 page JS renderer loaded',
-            'ui_file_uniqueness': 'only yx_final_mainfile_ui_20260516aw.css may exist/load',
+            'ui_file_uniqueness': 'only yx_final_mainfile_ui_20260516ay.css may exist/load',
             'client_audit_function': 'window.YXDomAudit()'
         }
     })
@@ -4278,26 +4278,26 @@ def _yx_diag_master_requirement_checks():
     app_src = _yx_diag_read_text('app.py')
     db_src = _yx_diag_read_text('db.py')
     base = _yx_diag_read_text('templates/base.html')
-    css100 = _yx_diag_read_text('static/yx_modules/yx_final_mainfile_ui_20260516aw.css')
+    css100 = _yx_diag_read_text('static/yx_modules/yx_final_mainfile_ui_20260516ay.css')
     v520css = _yx_diag_read_text('static/css/base.css') + _yx_diag_read_text('static/css/product.css') + _yx_diag_read_text('static/css/warehouse.css')
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
     checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
     
-    checks.append(_yx_diag_check('按鈕文字保護主檔已載入', ('yx_final_mainfile_ui_20260516aw.css' in base and 'YXRestoreButtonLabels' in base and 'button' in css100 and 'warehouse-zone-columns' in css100), '全頁按鈕/標籤文字與倉庫三欄規則必須由最終主檔 CSS + base label guard 同時保護。', 'critical'))
+    checks.append(_yx_diag_check('按鈕文字保護主檔已載入', ('yx_final_mainfile_ui_20260516ay.css' in base and 'YXRestoreButtonLabels' in base and 'button' in css100 and 'warehouse-zone-columns' in css100), '全頁按鈕/標籤文字與倉庫三欄規則必須由最終主檔 CSS + base label guard 同時保護。', 'critical'))
     checks.append(_yx_diag_check('倉庫三欄兩排 CSS 寫入主檔', ('#zone-A-grid' in css100 and '#zone-B-grid' in css100 and 'repeat(3' in css100 and 'vertical-slot' in css100), 'A/B 倉庫 6 欄固定 3 欄 x 2 排，且格子不得裁切。', 'critical'))
 
-    # 20260516aw legacy final UI file audit
-    legacy_ui_files = [str(p) for p in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516aw' not in str(p)]
-    checks.append(_yx_diag_check('最終 UI 檔唯一且無舊版殘留', (len(legacy_ui_files)==0 and 'yx_final_mainfile_ui_20260516aw.css' in base), '只允許載入本版最終 UI CSS，避免舊 CSS 蓋掉按鈕文字或倉庫三欄。', 'warn'))
+    # 20260516ay legacy final UI file audit
+    legacy_ui_files = [str(p) for p in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516ay' not in str(p)]
+    checks.append(_yx_diag_check('最終 UI 檔唯一且無舊版殘留', (len(legacy_ui_files)==0 and 'yx_final_mainfile_ui_20260516ay.css' in base), '只允許載入本版最終 UI CSS，避免舊 CSS 蓋掉按鈕文字或倉庫三欄。', 'warn'))
     checks.append(_yx_diag_check('全頁按鈕文字 CSS 實際含必要選擇器', all(x in css100 for x in ['role=button','customer-chip','home-mini-btn','-webkit-text-fill-color','button:empty']), '最終 UI CSS 必須覆蓋動態按鈕、標籤、空文字保底與透明文字問題。', 'critical'))
     checks.append(_yx_diag_check('全頁主要按鈕文字保護選擇器完整', all(tok in css100 for tok in ['product-toolbar','bulk-actions','customer-actions','warehouse-action-sheet','ship-actions']), '主 CSS 必須涵蓋庫存/訂單/總單/出貨/倉庫動態按鈕文字，避免空白按鈕。', 'warn'))
     checks.append(_yx_diag_check('倉庫格子第一排與商品列排版契約存在', all(tok in css100 for tok in ['warehouse-slot-summary','warehouse-slot-row','grid-template-columns:auto minmax(0,1fr) auto']), '倉庫格子需符合第一排格號/尺寸件數/總件數，下方客戶/材質/尺寸/件數且不裁切。', 'warn'))
     checks.append(_yx_diag_check('倉庫 3欄2排 CSS 實際含必要選擇器', all(x in css100 for x in ['#zone-A-grid','#zone-B-grid','repeat(3','vertical-slot-list','min-height:116px']), '最終 UI CSS 必須壓住 A/B 6欄=3欄x2排與格子不裁切。', 'critical'))
 
-    checks.append(_yx_diag_check('DOM 巡檢端點版本同步', ('yx_final_mainfile_ui_20260516aw.css' in _yx_diag_read_text('app.py') and 'dom-layout-contract' in _yx_diag_read_text('app.py')), 'DOM 巡檢需能回報本版 UI CSS 與三欄兩排契約。', 'warn'))
-    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_safe_520_visual_only.css' in base and 'yx_final_mainfile_ui_20260516aw.css' in base and 'primary-btn' in (v520css+css100) and ('warehouse-cell' in (v520css+css100) or 'vertical-slot' in (v520css+css100) or 'warehouse' in (v520css+css100))), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
+    checks.append(_yx_diag_check('DOM 巡檢端點版本同步', ('yx_final_mainfile_ui_20260516ay.css' in _yx_diag_read_text('app.py') and 'dom-layout-contract' in _yx_diag_read_text('app.py')), 'DOM 巡檢需能回報本版 UI CSS 與三欄兩排契約。', 'warn'))
+    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_safe_520_visual_only.css' in base and 'yx_final_mainfile_ui_20260516ay.css' in base and 'primary-btn' in (v520css+css100) and ('warehouse-cell' in (v520css+css100) or 'vertical-slot' in (v520css+css100) or 'warehouse' in (v520css+css100))), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
@@ -4357,12 +4357,12 @@ def api_performance_trace_snapshot():
 
 
 @app.get('/api/diagnostics/ui-runtime-contract')
-def ui_runtime_contract_20260516aw():
+def ui_runtime_contract_20260516ay():
     return jsonify({
         'success': True,
         'app_version': APP_VERSION,
         'static_version': STATIC_VERSION,
-        'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516aw.css',
+        'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516ay.css',
         'main_renderers': {
             'products': 'static/yx_pages/page_products_master.js',
             'warehouse': 'static/yx_modules/warehouse_hardlock.js',

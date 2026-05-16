@@ -2679,7 +2679,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         items = _merge_items_by_size_material(items)
-        # 20260516aw: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
+        # 20260516ay: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
         preview_warehouse_cells = warehouse_get_cells()
         for item in items:
             product_text = format_product_text_height2(item["product_text"])
@@ -3146,7 +3146,16 @@ def inventory_placements():
 
 def inventory_summary():
     rows = list_inventory()
-    placement = inventory_placements()
+    # 20260516ay：倉庫統計或舊資料異常時，不准讓庫存清單空白。
+    # 庫存頁必須先顯示 DB 商品，再補上未入倉數量；warehouse_cells 有暫時重複/壞資料也不能卡住庫存。
+    try:
+        placement = inventory_placements()
+    except Exception as e:
+        try:
+            log_error('inventory_summary_placement_fallback', str(e))
+        except Exception:
+            pass
+        placement = {}
     result = []
     for r in rows:
         r = dict(r)

@@ -361,7 +361,7 @@
     [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
-  // 20260516aw：customer_regions 以前只 register 沒自動 install，北中南與出貨客戶資料會空白。現在自啟動一次。
+  // 20260516ay：customer_regions 以前只 register 沒自動 install，北中南與出貨客戶資料會空白。現在自啟動一次。
   const bootCustomerRegions = () => { try { install(); } catch(e) { try { YX.toast(e.message || '客戶區載入失敗', 'error'); } catch(_e){} } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootCustomerRegions, {once:true}); else bootCustomerRegions();
 })();
