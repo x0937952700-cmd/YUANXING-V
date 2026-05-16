@@ -1820,6 +1820,14 @@
   const clean = v => String(v ?? '').trim();
   const norm = v => clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const page = () => document.querySelector('.module-screen[data-module]')?.dataset.module || '';
+  function sameCustomerName(a, b){
+    const normName = v => clean(v).replace(/FOB代付|FOB代|FOB|CNF/gi, m => /代/.test(m) ? 'FOB代' : String(m||'').toUpperCase()).replace(/\s+/g,'');
+    const aa = clean(a || ''); const bb = clean(b || '');
+    if(!aa || !bb) return false;
+    if(aa === bb) return true;
+    const strip = v => clean(v).replace(/FOB代付|FOB代|FOB|CNF/gi,'').replace(/\s+/g,'').toLowerCase();
+    return strip(aa) === strip(bb) && normName(aa).replace(strip(aa),'') === normName(bb).replace(strip(bb),'');
+  }
   const apiPath = m => m === 'inventory' ? '/api/inventory' : m === 'orders' ? '/api/orders' : '/api/master_orders';
   let submitting = false;
 

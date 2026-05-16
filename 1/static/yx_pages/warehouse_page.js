@@ -2452,26 +2452,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const serverCellSignature = d.server_cell ? simpleHash(JSON.stringify({items:(Array.isArray(d.server_cell.items)?d.server_cell.items:[]).map(warehouseCompareItemKey).filter(Boolean).sort(), note:clean(d.server_cell.note||'')})) : '';
       const cellMismatch = !!(d.cell_found && payload.client_cell_signature && serverCellSignature && payload.client_cell_signature !== serverCellSignature);
       if(cellMismatch){
-        const protectedNow=isCellLocallyProtected(payload.zone,payload.column_index,payload.slot_number);
-        if(!protectedNow && d.server_cell){
-          const sc=d.server_cell;
-          const arr=normalizeCellItemsForDisplay(Array.isArray(sc.items)?sc.items:parseCellItemsPayload(sc.items_json||[]));
-          const localArr=cellItems(payload.zone,payload.column_index,payload.slot_number);
-          // V433: consistency-check readback is allowed to correct wrong data, but an empty/partial server reply
-          // must never wash a visible local product unless the user explicitly saved an empty cell.
-          if(!(arr.length<=0 && localArr.length>0 && !sc.explicit_empty_saved)){
-            setLocalCellItems(payload.zone,payload.column_index,payload.slot_number,arr,sc.note||'');
-            cacheWarehouseNow();
-            updateSlotUI(payload.zone,payload.column_index,payload.slot_number);
-            if(sameCurrentCell(payload.zone,payload.column_index,payload.slot_number)){ state.current.items=JSON.parse(JSON.stringify(arr)); renderCellItems(true); }
-          }
-          const now=Date.now();
-          if(now-Number(state.consistencyNoticeAt||0)>1500){ state.consistencyNoticeAt=now; toast('已用資料庫回讀校正倉庫格，避免慢網路造成數量不同步','warn'); }
-        }else{
-          rememberConsistencyPending(payload, 'protected-cell');
-          const now=Date.now();
-          if(now-Number(state.consistencyNoticeAt||0)>1500){ state.consistencyNoticeAt=now; toast('此格正在編輯，資料庫回讀差異已保留，關閉/儲存後會再檢查','warn'); }
-        }
+        // V520-H: do not let delayed readback overwrite the user's just-finished operation.
+        // The previous behavior made the warehouse UI jump back after add/insert/delete/drag.
+        // Keep the optimistic/local column visible and record a pending check instead of mutating DOM.
+        rememberConsistencyPending(payload, 'readback-diff-kept-local-visible');
+        const now=Date.now();
+        if(now-Number(state.consistencyNoticeAt||0)>3000){ state.consistencyNoticeAt=now; toast('資料庫回讀較慢，已保留目前畫面並稍後再檢查，不會把格子跳回舊狀態','warn'); }
       }
       if(d.available_summary){
         try{ state.lastServerAvailableSummary=d.available_summary; }catch(_e){}

@@ -1,5 +1,5 @@
 // 沅興木業 Service Worker：520 速度版靜態資產快取；不快取 API / HTML / 出貨資料。
-const CACHE_VERSION = 'yuanxing-static-v520-ui-align-ship-safe-20260516f';
+const CACHE_VERSION = 'yuanxing-static-v520-action-cache-ship-warehouse-fix-20260516h';
 const PRECACHE = [
   '/static/css/base.css','/static/css/home.css','/static/css/mobile.css','/static/css/product.css','/static/css/warehouse.css','/static/yx_modules/yx_520_ui_alignment.css','/static/yx_modules/yx_520_refined_merge.css','/static/yx_modules/yx_premium_ui_100.css','/static/yx_modules/yx_final_520_alignment_repairs.css','/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/style.css','/static/yx_cache.js','/static/yx_core.js','/static/yx_data_store.js','/static/yx_device_sync.js','/static/yx_route_warm_cache.js','/static/yx_regression_guard.js',
@@ -20,6 +20,13 @@ self.addEventListener('activate', event => {
       .then(keys => Promise.all(keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+self.addEventListener('message', event => {
+  const data = event.data || {};
+  if (data.type === 'SKIP_WAITING') self.skipWaiting();
+  if (data.type === 'CLEAR_YX_CACHES') {
+    event.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).then(() => caches.open(CACHE_VERSION).then(cache => Promise.allSettled(PRECACHE.map(u => cache.add(u).catch(()=>null))))).catch(()=>null));
+  }
 });
 self.addEventListener('fetch', event => {
   const req = event.request;

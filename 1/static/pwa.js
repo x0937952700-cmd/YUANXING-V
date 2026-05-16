@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'v20-true-clean-master';
+  const PWA_VERSION = 'v520-action-cache-ship-warehouse-fix-20260516h';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
