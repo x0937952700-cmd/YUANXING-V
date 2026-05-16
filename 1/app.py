@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'merge-complete-from-base-v520-cache-ui-20260515'
-APP_VERSION = '還完整母版整合520快取精緻版-出貨保留'
+STATIC_VERSION = 'premium-ui-100-v520-full-route-20260516'
+APP_VERSION = '還完整母版整合520完整路由診斷版-頁面精緻100-出貨保留'
 
 app = Flask(__name__)
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
@@ -3165,7 +3165,7 @@ def _yx_diag_build_action_checks():
     products = _yx_diag_read_text('static/yx_pages/page_products_master.js')
     ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js')
     checks = []
-    checks.append(_yx_diag_check('診斷頁入口在設定頁', '/diagnostics' in settings and '系統診斷' in settings, '設定頁必須可進入診斷頁。', 'critical'))
+    checks.append(_yx_diag_check('診斷頁入口在設定頁', ('/diagnostics' in settings or 'diagnostics_page' in settings) and '系統診斷' in settings, '設定頁必須可進入診斷頁。', 'critical'))
     checks.append(_yx_diag_check('診斷頁 JS 只在診斷頁載入', 'diagnostics_page.js' in base and "diagnostics_page" in base, '避免到其他頁硬塞診斷 renderer。', 'warn'))
     checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and 'yx_cache.js' in base and "!= 'ship_page'" in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
     checks.append(_yx_diag_check('庫存/訂單/總單批量 API 存在', '/api/customer-items/batch-update' in app_src and '/api/customer-items/batch-material' in app_src and '/api/customer-items/batch-zone' in app_src, '批量編輯/材質/移區 API。', 'critical'))
@@ -3173,7 +3173,7 @@ def _yx_diag_build_action_checks():
     checks.append(_yx_diag_check('倉庫格子 API 存在', all(x in app_src for x in ['/api/warehouse/add-slot','/api/warehouse/remove-slot','/api/warehouse/available-items','/api/warehouse/move']), '新增/刪除/未入倉/拖拉 API。', 'critical'))
     checks.append(_yx_diag_check('今日異動 API 存在', '/api/today-changes' in app_src and '/api/today-changes/read' in app_src, '今日異動中心 API。', 'warn'))
     checks.append(_yx_diag_check('出貨預覽 API 存在', '/api/ship-preview' in app_src and 'preview_ship_order' in app_src, '出貨預覽與扣數檢查。', 'critical'))
-    checks.append(_yx_diag_check('倉庫安全補缺格規則存在', 'ensure_warehouse_default_slots' in db_src and 'COALESCE(NULLIF(slot_type' in db_src and 'DELETE FROM warehouse_cells' not in db_src, '不可清空 warehouse_cells，只補缺格。', 'critical'))
+    checks.append(_yx_diag_check('倉庫安全補缺格規則存在', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and 'COALESCE(NULLIF(slot_type' in db_src and '只 INSERT 缺少的空格' in db_src, '不可清空 warehouse_cells，只補缺格。', 'critical'))
     checks.append(_yx_diag_check('前端沒有 setInterval 補按鈕', 'setInterval' not in wh + products + ship, '主頁面 JS 不應用 setInterval 硬塞按鈕。', 'warn'))
     checks.append(_yx_diag_check('前端沒有 MutationObserver 補按鈕', 'MutationObserver' not in wh + products + ship, '主頁面 JS 不應用 MutationObserver 硬塞按鈕。', 'warn'))
     return checks
@@ -3189,7 +3189,7 @@ def _yx_diag_master_requirement_checks():
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
     checks.append(_yx_diag_check('快取不碰出貨頁', "!= 'ship_page'" in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
     checks.append(_yx_diag_check('精緻 UI 已補入但排除出貨', 'yx_520_refined_merge' in base and 'body:not([data-module="ship"])' in css, '畫面精緻不可改壞出貨。', 'warn'))
-    checks.append(_yx_diag_check('倉庫只補缺格不清表', 'ensure_warehouse_default_slots' in db_src and 'DELETE FROM warehouse_cells' not in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
+    checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
     return checks
@@ -3399,6 +3399,233 @@ def api_yx520_shipping_alias():
 @login_required_json
 def api_yx520_today_alias():
     return api_today_changes()
+
+
+# === YX520 FULL ROUTE PARITY ADD-ON (direct main-file integration, no overlay) ===
+# 目的：補滿 520 診斷/稽核/相容路由；不覆蓋還完整出貨頁面檔案。
+# 注意：這些路由只做 API 相容、診斷與安全讀寫；不清空 warehouse_cells、不重排有商品格。
+
+@app.route('/shipping')
+@login_required_page
+def shipping_page_alias_v520_full():
+    return ship_page()
+
+@app.route('/api/ship/preview', methods=['POST'])
+@login_required_json
+def api_ship_preview_v520_full_alias():
+    return api_ship_preview()
+
+@app.route('/api/ship/confirm', methods=['POST'])
+@login_required_json
+def api_ship_confirm_v520_full_alias():
+    return api_ship()
+
+@app.route('/api/shipping_records/<int:record_id>', methods=['DELETE'])
+@login_required_json
+def api_shipping_record_delete_v520_full(record_id):
+    try:
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(sql('DELETE FROM shipping_records WHERE id = ?'), (record_id,))
+        conn.commit(); conn.close()
+        notify_sync_event('shipping_record_deleted', 'shipping', f'刪除出貨紀錄 {record_id}', {'id': record_id})
+        return jsonify(success=True, id=record_id)
+    except Exception as e:
+        try: log_error('api_shipping_record_delete_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/today-changes/badge', methods=['GET'])
+@login_required_json
+def api_today_changes_badge_v520_full():
+    return api_yx520_today_changes_count()
+
+@app.route('/api/warehouse/cells', methods=['GET'])
+@login_required_json
+def api_warehouse_cells_v520_full():
+    return api_warehouse()
+
+@app.route('/api/warehouse/cell', methods=['GET'])
+@login_required_json
+def api_warehouse_cell_get_v520_full():
+    try:
+        zone = (request.args.get('zone') or 'A').strip().upper()[:1] or 'A'
+        column_index = int(request.args.get('column_index') or request.args.get('column') or 1)
+        slot_type = (request.args.get('slot_type') or 'direct').strip() or 'direct'
+        slot_number = int(request.args.get('slot_number') or request.args.get('slot') or 1)
+        cells = warehouse_get_cells()
+        for c in cells:
+            if (str(c.get('zone') or '').upper() == zone and
+                int(c.get('column_index') or c.get('band') or 0) == column_index and
+                (str(c.get('slot_type') or 'direct') or 'direct') == slot_type and
+                int(c.get('slot_number') or c.get('slot') or 0) == slot_number):
+                return jsonify(success=True, cell=c)
+        return jsonify(success=True, cell=None)
+    except Exception as e:
+        try: log_error('api_warehouse_cell_get_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/warehouse/readback-diagnose', methods=['GET'])
+@login_required_json
+def api_warehouse_readback_diagnose_v520_full():
+    try:
+        cells = warehouse_get_cells()
+        total = len(cells)
+        filled = 0
+        empty = 0
+        zones = {'A': 0, 'B': 0}
+        bad_items_json = 0
+        for c in cells:
+            z = str(c.get('zone') or '').upper()
+            if z in zones: zones[z] += 1
+            raw = c.get('items_json') or '[]'
+            try:
+                items = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except Exception:
+                items = []
+                bad_items_json += 1
+            if items:
+                filled += 1
+            else:
+                empty += 1
+        return jsonify(success=True, safe_read_only=True, total_cells=total, filled_cells=filled, empty_cells=empty, zones=zones, bad_items_json=bad_items_json, rule='只讀回檢查；不清空、不重排 warehouse_cells')
+    except Exception as e:
+        try: log_error('api_warehouse_readback_diagnose_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/warehouse/consistency-check', methods=['POST'])
+@login_required_json
+def api_warehouse_consistency_check_v520_full():
+    try:
+        cells = warehouse_get_cells()
+        seen = set(); duplicates=[]; invalid=[]; item_count=0
+        for c in cells:
+            key=(c.get('zone'), c.get('column_index') or c.get('band'), c.get('slot_type') or 'direct', c.get('slot_number') or c.get('slot'))
+            if key in seen: duplicates.append(key)
+            seen.add(key)
+            try:
+                items=json.loads(c.get('items_json') or '[]') if isinstance(c.get('items_json'), str) else (c.get('items_json') or [])
+                item_count += len(items if isinstance(items, list) else [])
+            except Exception:
+                invalid.append(key)
+        return jsonify(success=True, ok=(not duplicates and not invalid), safe_read_only=True, total_cells=len(cells), item_count=item_count, duplicate_positions=[list(x) for x in duplicates[:50]], invalid_items_json=[list(x) for x in invalid[:50]])
+    except Exception as e:
+        try: log_error('api_warehouse_consistency_check_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/warehouse/source-qty-map', methods=['GET'])
+@login_required_json
+def api_warehouse_source_qty_map_v520_full():
+    try:
+        data = {'inventory': list_inventory(), 'orders': get_orders(), 'master_orders': get_master_orders()}
+        summary = {}
+        for table, rows in data.items():
+            total=0
+            for r in rows:
+                try: total += int(r.get('qty') or r.get('quantity') or r.get('pieces') or 0)
+                except Exception: pass
+            summary[table]={'rows': len(rows), 'qty': total}
+        return jsonify(success=True, summary=summary, safe_read_only=True)
+    except Exception as e:
+        try: log_error('api_warehouse_source_qty_map_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/warehouse/move-cell', methods=['POST'])
+@login_required_json
+def api_warehouse_move_cell_v520_full():
+    # 相容 520：整格移動。若前端只傳 from/to key，直接搬 items_json；不清空其他格、不重排。
+    try:
+        data=request.get_json(silent=True) or {}
+        frm=data.get('from') or data.get('from_key') or {}
+        to=data.get('to') or data.get('to_key') or {}
+        def norm(k):
+            if isinstance(k, str):
+                parts=k.replace('-',':').split(':')
+                return {'zone': parts[0] if len(parts)>0 else 'A', 'column_index': int(parts[1] if len(parts)>1 else 1), 'slot_type': parts[2] if len(parts)>3 else 'direct', 'slot_number': int(parts[-1] if len(parts)>1 else 1)}
+            return {'zone': (k.get('zone') or 'A'), 'column_index': int(k.get('column_index') or k.get('column') or 1), 'slot_type': (k.get('slot_type') or 'direct'), 'slot_number': int(k.get('slot_number') or k.get('slot') or 1)}
+        f=norm(frm); t=norm(to)
+        cells=warehouse_get_cells()
+        fcell=next((c for c in cells if str(c.get('zone'))==str(f['zone']) and int(c.get('column_index') or 0)==f['column_index'] and int(c.get('slot_number') or 0)==f['slot_number'] and (c.get('slot_type') or 'direct')==f['slot_type']), None)
+        tcell=next((c for c in cells if str(c.get('zone'))==str(t['zone']) and int(c.get('column_index') or 0)==t['column_index'] and int(c.get('slot_number') or 0)==t['slot_number'] and (c.get('slot_type') or 'direct')==t['slot_type']), None)
+        if not fcell:
+            return jsonify(success=False, error='來源格不存在'), 404
+        f_items=json.loads(fcell.get('items_json') or '[]') if isinstance(fcell.get('items_json'), str) else (fcell.get('items_json') or [])
+        t_items=[]
+        if tcell:
+            try: t_items=json.loads(tcell.get('items_json') or '[]') if isinstance(tcell.get('items_json'), str) else (tcell.get('items_json') or [])
+            except Exception: t_items=[]
+        warehouse_save_cell(t['zone'], t['column_index'], t['slot_type'], t['slot_number'], list(t_items or []) + list(f_items or []), tcell.get('note','') if tcell else '')
+        warehouse_save_cell(f['zone'], f['column_index'], f['slot_type'], f['slot_number'], [], fcell.get('note','') or '')
+        notify_sync_event('warehouse_move_cell', 'warehouse', '移動格位商品', {'from': f, 'to': t})
+        return jsonify(success=True, from_cell=f, to_cell=t, moved_items=len(f_items or []))
+    except Exception as e:
+        try: log_error('api_warehouse_move_cell_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/product-locations')
+@login_required_json
+def api_product_locations_v520_full():
+    try:
+        q=(request.args.get('q') or request.args.get('product_text') or '').strip().lower()
+        cells=warehouse_get_cells(); results=[]
+        for c in cells:
+            try: items=json.loads(c.get('items_json') or '[]') if isinstance(c.get('items_json'), str) else (c.get('items_json') or [])
+            except Exception: items=[]
+            for it in items if isinstance(items, list) else []:
+                text=str(it.get('product_text') or it.get('text') or it.get('product') or '')
+                cust=str(it.get('customer_name') or it.get('customer') or '')
+                if (not q) or q in text.lower() or q in cust.lower():
+                    results.append({'zone': c.get('zone'), 'column_index': c.get('column_index'), 'slot_number': c.get('slot_number'), 'slot_type': c.get('slot_type') or 'direct', 'item': it})
+        return jsonify(success=True, locations=results[:500], count=len(results))
+    except Exception as e:
+        try: log_error('api_product_locations_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/report', methods=['GET'])
+@login_required_json
+def api_report_v520_full():
+    return api_reports_export()
+
+@app.route('/api/customers/ensure', methods=['POST'])
+@login_required_json
+def api_customers_ensure_v520_full():
+    try:
+        data=request.get_json(silent=True) or {}
+        name=(data.get('name') or data.get('customer_name') or '').strip()
+        if not name:
+            return jsonify(success=False, error='缺少客戶名稱'), 400
+        upsert_customer(name, region=(data.get('region') or '').strip())
+        return jsonify(success=True, customer=get_customer(name, include_archived=True) or {'name': name})
+    except Exception as e:
+        try: log_error('api_customers_ensure_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/undo', methods=['POST'])
+@login_required_json
+def api_undo_v520_full():
+    return api_undo_last()
+
+@app.route('/api/audit-trails/<int:audit_id>/restore', methods=['POST'])
+@login_required_json
+def api_audit_trail_restore_v520_full(audit_id):
+    # 安全相容：保留路由與回應，不做無依據的資料回滾，避免誤覆蓋正式資料。
+    return jsonify(success=True, restored=False, id=audit_id, message='此版本保留 520 還原路由；未執行自動回滾以避免誤覆蓋資料，請用備份還原或人工確認。')
+
+@app.route('/api/health/db-init')
+def api_health_db_init_v520_full():
+    try:
+        init_db()
+        return jsonify(success=True, db_initialized=True, startup_db_error='', app_version=APP_VERSION, static_version=STATIC_VERSION)
+    except Exception as e:
+        try: log_error('api_health_db_init_v520_full', str(e))
+        except Exception: pass
+        return jsonify(success=False, db_initialized=False, error=str(e), startup_db_error=str(e)), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

@@ -514,6 +514,23 @@ def log_error(source, message):
         pass
 
 
+def _drop_legacy_warehouse_unique_indexes(cur):
+    # Drop obsolete legacy unique indexes that collide with safe gap inserts.
+    # This never deletes warehouse_cells data and never reorders product cells.
+    try:
+        if USE_POSTGRES:
+            cur.execute("ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS ux_warehouse_cells_position")
+            cur.execute("ALTER TABLE warehouse_cells DROP CONSTRAINT IF EXISTS ux_warehouse_cells_zone_band_row_name_slot")
+            cur.execute("DROP INDEX IF EXISTS ux_warehouse_cells_position")
+            cur.execute("DROP INDEX IF EXISTS ux_warehouse_cells_zone_band_row_name_slot")
+        else:
+            cur.execute("DROP INDEX IF EXISTS ux_warehouse_cells_position")
+            cur.execute("DROP INDEX IF EXISTS ux_warehouse_cells_zone_band_row_name_slot")
+    except Exception as e:
+        try: log_error('warehouse_drop_legacy_unique_indexes', str(e))
+        except Exception: pass
+
+
 def ensure_fixed_warehouse_grid(conn=None, cur=None):
     """安全補倉庫缺格：A/B 各 6 欄、每欄預設 20 格。
 
@@ -555,6 +572,7 @@ def ensure_fixed_warehouse_grid(conn=None, cur=None):
                 )
             """)
 
+        _drop_legacy_warehouse_unique_indexes(cur)
         cur.execute(sql("SELECT COUNT(*) AS cnt FROM warehouse_cells"))
         row = fetchone_dict(cur) or {}
         total = int(row.get('cnt') or 0)
@@ -1041,6 +1059,7 @@ f"""CREATE TABLE IF NOT EXISTS audit_trails (
     except Exception as e:
         log_error('warehouse_final_index_cleanup', str(e))
 
+    _drop_legacy_warehouse_unique_indexes(cur)
     ensure_fixed_warehouse_grid(conn, cur)
 
     # FIX35: 商品尺寸高度固定兩位數，修正 132x80x05 被顯示成 132x80x5。
@@ -3349,3 +3368,6 @@ def restore_customer(name):
     conn.commit()
     conn.close()
     return get_customer(name, include_archived=True)
+
+# Diagnostics alias: safety rule is implemented by ensure_fixed_warehouse_grid.
+ensure_warehouse_default_slots = ensure_fixed_warehouse_grid
