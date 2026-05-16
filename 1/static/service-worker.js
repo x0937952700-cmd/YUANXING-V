@@ -1,9 +1,18 @@
-const CACHE_NAME = 'yx-mainline-cache-proof-repair-20260516j';
+const CACHE_NAME = 'yx-mainline-speed-repair-20260516q';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/yx_modules/final_mother_lock.css',
   '/static/yx_modules/ornate_label_hardlock.css',
   '/static/yx_modules/home_background_hardlock.css',
+  '/static/yx_modules/fix135_master_final_hardlock.css',
+  '/static/yx_modules/fix136_label_text_repair.css',
+  '/static/yx_modules/fix137_undo_layout_warehouse_hardlock.css',
+  '/static/yx_modules/fix138_final_master_hardlock.css',
+  '/static/yx_modules/fix140_readme_master_hardlock.css',
+  '/static/yx_modules/yx_stable_ui_repair.css',
+  '/static/yx_modules/yx_safe_520_visual_only.css',
+  '/static/yx_modules/fix142_speed_ship_hardlock.css',
+  '/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/favicon.png',
   '/static/manifest.webmanifest'
 ];
@@ -39,3 +48,5 @@ self.addEventListener('fetch', event => {
     }).catch(() => caches.match(req)));
   }
 });
+
+// yx_perf_watch.js is network-first in this build

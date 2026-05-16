@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'mainline-cache-proof-repair-20260516j';
+  const PWA_VERSION = 'mainline-speed-repair-20260516q';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

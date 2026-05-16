@@ -29,10 +29,31 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'mainline-cache-proof-repair-20260516j'
-APP_VERSION = '還完整主線回復_快取根因修復_20260516j'
+STATIC_VERSION = 'stable-mainline-safe-visual-css-20260516q'
+APP_VERSION = '還完整主線_安全純CSS視覺_出貨獨立保護_20260516q'
 
 app = Flask(__name__)
+
+YX_WAREHOUSE_AVAILABLE_CACHE = {}
+YX_WAREHOUSE_AVAILABLE_CACHE_TTL = 4.0
+
+YX_PERF_SNAPSHOT = {}
+
+def _yx_perf_record(name, start, **extra):
+    try:
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+        rec = {'elapsed_ms': elapsed_ms, 'at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        rec.update(extra)
+        YX_PERF_SNAPSHOT[name] = rec
+        return elapsed_ms
+    except Exception:
+        return 0
+
+def _yx_clear_runtime_caches(module=''):
+    if not module or module in ('warehouse','all'):
+        try: YX_WAREHOUSE_AVAILABLE_CACHE.clear()
+        except Exception: pass
+
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
 # 若尚未設定，改用 DATABASE_URL 雜湊產生穩定 fallback，避免每次重啟都登出。
 _SECRET_KEY = os.getenv("SECRET_KEY") or ("stable-" + hashlib.sha256((os.getenv("DATABASE_URL", "yuanxing-local") + "|yuanxing-fix53").encode("utf-8")).hexdigest())
@@ -1152,6 +1173,7 @@ def api_shipping_records():
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
+    _t0 = time.perf_counter()
     try:
         data = request.get_json(silent=True) or {}
         items = _parse_items_from_request(data)
@@ -1161,6 +1183,9 @@ def api_ship_preview():
         if not items:
             return error_response("沒有可預覽的商品")
         preview = preview_ship_order(customer_name, items)
+        elapsed = _yx_perf_record('api/ship-preview', _t0, items=len(items), customer_name=customer_name)
+        if isinstance(preview, dict):
+            preview['elapsed_ms'] = elapsed
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
         return jsonify(preview)
@@ -1328,8 +1353,23 @@ def api_customer_detail(name):
 @app.route("/api/warehouse", methods=["GET"])
 @login_required_json
 def api_warehouse():
+    _t0 = time.perf_counter()
     try:
-        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
+        # Single DB read only. Older code called warehouse_summary() and
+        # warehouse_get_cells() separately, which doubled the warehouse load time.
+        cells = warehouse_get_cells()
+        zones = {'A': {}, 'B': {}}
+        for cell in cells:
+            try:
+                zone = str(cell.get('zone') or '').strip().upper() or 'A'
+                col = int(cell.get('column_index') or 0)
+                num = int(cell.get('slot_number') or 0)
+                if col and num:
+                    zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
+            except Exception:
+                continue
+        elapsed = _yx_perf_record('api/warehouse', _t0, cells=len(cells))
+        return jsonify(success=True, zones=zones, cells=cells, elapsed_ms=elapsed)
     except Exception as e:
         log_error("api_warehouse", str(e))
         return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
@@ -1363,6 +1403,7 @@ def api_warehouse_cell():
         log_action(current_username(), f"更新倉庫格位 {zone}{column_index}-{slot_type}-{slot_number}")
         add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
+        _yx_clear_runtime_caches('warehouse')
         return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
         log_error("warehouse_cell", str(e))
@@ -1391,6 +1432,7 @@ def api_warehouse_move():
                 pass
             add_audit_trail(current_username(), 'move', 'warehouse_cells', product_text, before_json={'from_key': from_key, 'customer_name': customer_name}, after_json={'to_key': to_key, 'qty': qty, 'product_text': product_text, 'customer_name': customer_name, 'placement_label': placement_label})
             notify_sync_event(kind='refresh', module='warehouse', message='倉庫位置已移動', extra={'product_text': product_text, 'qty': qty, 'customer_name': customer_name})
+            _yx_clear_runtime_caches('warehouse')
         return jsonify(result)
     except Exception as e:
         log_error("warehouse_move", str(e))
@@ -1408,6 +1450,7 @@ def api_warehouse_add_column():
         log_action(current_username(), f"新增格子欄 {zone}{column_index}")
         add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'action': '新增欄位'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增欄位', extra={'zone': zone, 'column_index': column_index})
+        _yx_clear_runtime_caches('warehouse')
         return jsonify(success=True, column_index=column_index, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_column", str(e))
@@ -1434,14 +1477,29 @@ def api_warehouse_search():
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    """列出尚未放入倉庫圖的商品；FIX138 支援 A/B 區未入倉篩選。"""
+    _t0 = time.perf_counter()
+    """列出尚未放入倉庫圖的商品。
+
+    20260516L：同一輪只重算一次。以前前端會同時呼叫 ALL/A/B 三次，
+    三個請求各自重算 warehouse_source_totals + warehouse_get_cells，
+    倉庫圖就會卡住。現在 ALL 回傳 by_zone，前端只需打一個 API。
+    """
     try:
         zone_filter = (request.args.get("zone") or "").strip().upper()
         if zone_filter not in ("A", "B"):
             zone_filter = ""
+        cache_key = zone_filter if zone_filter else "ALL_WITH_ZONES"
+        cached = YX_WAREHOUSE_AVAILABLE_CACHE.get(cache_key)
+        if cached and time.time() - float(cached.get('at') or 0) < YX_WAREHOUSE_AVAILABLE_CACHE_TTL:
+            payload = dict(cached.get('payload') or {})
+            payload['cached'] = True
+            payload['elapsed_ms'] = _yx_perf_record('api/warehouse/available-items', _t0, cached=True, zone=zone_filter or 'ALL')
+            return jsonify(payload)
+
         source_totals, source_details = warehouse_source_totals()
         placed_all = warehouse_placed_totals()
         placed_by_zone = {}
+        # warehouse_get_cells() 內部已有短快取；本函式只呼叫一次。
         for cell in warehouse_get_cells():
             cell_zone = str(cell.get('zone') or '').strip().upper()
             try:
@@ -1457,45 +1515,58 @@ def api_warehouse_available_items():
                     q = 0
                 if size and q > 0:
                     placed_by_zone[(size, customer, cell_zone)] = placed_by_zone.get((size, customer, cell_zone), 0) + q
-        items = []
-        for key, total_qty_all in source_totals.items():
-            size, customer = key
-            details_all = source_details.get(key, [])
-            if zone_filter:
-                zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
-                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
-                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
-                details_for_item = zone_details
-            else:
-                total_qty = int(total_qty_all or 0)
-                placed_qty = int(placed_all.get(key, 0) or 0)
-                details_for_item = details_all
-            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
-            if unplaced_qty <= 0:
-                continue
-            source_qty = {}
-            for detail in details_for_item:
-                source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
-            items.append({
-                'product_text': size,
-                'product_size': size,
-                'customer_name': customer,
-                'total_qty': int(total_qty or 0),
-                'placed_qty': placed_qty,
-                'unplaced_qty': unplaced_qty,
-                'qty': unplaced_qty,
-                'zone': zone_filter or '',
-                'source_qty': source_qty,
-                'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
-                'source_details': details_for_item,
-                'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
-                'needs_red': True,
-            })
-        items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
-        return jsonify(success=True, items=items, zone=zone_filter)
+
+        def build_items(zf=""):
+            result = []
+            for key, total_qty_all in source_totals.items():
+                size, customer = key
+                details_all = source_details.get(key, [])
+                if zf:
+                    details_for_item = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zf)]
+                    total_qty = sum(int(d.get('qty') or 0) for d in details_for_item)
+                    placed_qty = int(placed_by_zone.get((size, customer, zf), 0) or 0)
+                else:
+                    details_for_item = details_all
+                    total_qty = int(total_qty_all or 0)
+                    placed_qty = int(placed_all.get(key, 0) or 0)
+                unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+                if unplaced_qty <= 0:
+                    continue
+                source_qty = {}
+                for detail in details_for_item:
+                    src = detail.get('source') or 'unknown'
+                    source_qty[src] = int(source_qty.get(src, 0) or 0) + int(detail.get('qty') or 0)
+                result.append({
+                    'product_text': size,
+                    'product_size': size,
+                    'customer_name': customer,
+                    'total_qty': int(total_qty or 0),
+                    'placed_qty': placed_qty,
+                    'unplaced_qty': unplaced_qty,
+                    'qty': unplaced_qty,
+                    'zone': zf or '',
+                    'source_qty': source_qty,
+                    'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
+                    'source_details': details_for_item,
+                    'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
+                    'needs_red': True,
+                })
+            result.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
+            return result
+
+        if zone_filter:
+            payload = {'success': True, 'items': build_items(zone_filter), 'zone': zone_filter}
+        else:
+            items_all = build_items('')
+            items_a = build_items('A')
+            items_b = build_items('B')
+            payload = {'success': True, 'items': items_all, 'zone': '', 'by_zone': {'A': items_a, 'B': items_b}}
+        payload['elapsed_ms'] = _yx_perf_record('api/warehouse/available-items', _t0, cached=False, zone=zone_filter or 'ALL', items=len(payload.get('items') or []))
+        YX_WAREHOUSE_AVAILABLE_CACHE[cache_key] = {'at': time.time(), 'payload': payload}
+        return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
-        return jsonify(success=True, items=[])
+        return jsonify(success=True, items=[], by_zone={'A': [], 'B': []})
 
 
 @app.route("/api/customer-items", methods=["GET"])
@@ -3180,7 +3251,7 @@ def _yx_diag_build_action_checks():
     checks = []
     checks.append(_yx_diag_check('診斷頁入口在設定頁', ('/diagnostics' in settings or 'diagnostics_page' in settings) and '系統診斷' in settings, '設定頁必須可進入診斷頁。', 'critical'))
     checks.append(_yx_diag_check('診斷頁 JS 只在診斷頁載入', 'diagnostics_page.js' in base and "diagnostics_page" in base, '避免到其他頁硬塞診斷 renderer。', 'warn'))
-    checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and 'yx_cache.js' in base and '_is_ship' in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
+    checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and '_is_ship' in base and 'yx_safe_520_visual_only.css' in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
     checks.append(_yx_diag_check('庫存/訂單/總單批量 API 存在', '/api/customer-items/batch-update' in app_src and '/api/customer-items/batch-material' in app_src and '/api/customer-items/batch-zone' in app_src, '批量編輯/材質/移區 API。', 'critical'))
     checks.append(_yx_diag_check('訂單轉總單/批量轉入 API 存在', '/api/orders/to-master' in app_src and '/api/items/batch-transfer' in app_src, '訂單/庫存/總單互通 API。', 'critical'))
     checks.append(_yx_diag_check('倉庫格子 API 存在', all(x in app_src for x in ['/api/warehouse/add-slot','/api/warehouse/remove-slot','/api/warehouse/available-items','/api/warehouse/move']), '新增/刪除/未入倉/拖拉 API。', 'critical'))
@@ -3200,8 +3271,8 @@ def _yx_diag_master_requirement_checks():
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
-    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
-    checks.append(_yx_diag_check('精緻 UI 已補入但排除出貨', 'yx_520_refined_merge' in base and 'body:not([data-module="ship"])' in css, '畫面精緻不可改壞出貨。', 'warn'))
+    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
+    checks.append(_yx_diag_check('安全純 CSS 視覺已補入且出貨獨立', 'yx_safe_520_visual_only.css' in base and 'yx_ship_safe_ui_520.css' in base, '畫面精緻不可改壞出貨。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
@@ -3317,14 +3388,14 @@ def _yx_diag_frontend_full_checks():
     warehouse=_yx_diag_read_text('static/yx_modules/warehouse_hardlock.js')
     today=_yx_diag_read_text('static/yx_modules/today_changes_hardlock.js')
     ship=_yx_diag_read_text('static/yx_modules/ship_single_lock.js')
-    css=_yx_diag_read_text('static/yx_modules/yx_premium_ui_100.css') + _yx_diag_read_text('static/yx_modules/yx_520_refined_merge.css')
+    css=_yx_diag_read_text('static/yx_modules/yx_safe_520_visual_only.css') + _yx_diag_read_text('static/yx_modules/yx_ship_safe_ui_520.css')
     checks=[]
-    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','today_changes_page.js','ship_single_lock.js','settings_page.js']), 'base.html 必須依 endpoint 載入對應頁面 JS。', 'critical'))
+    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['page_products_master.js','warehouse_hardlock.js','today_changes_hardlock.js','ship_single_lock.js','settings_manual.js']) and all(x not in base for x in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','shipping_page.js']), 'base.html 必須依 endpoint 載入穩定主檔，不載入 520 page JS。', 'critical'))
     checks.append(_yx_diag_check('出貨頁排除新增快取/精緻共用干擾', '_is_ship' in base and 'not _is_ship' in base and 'ship_single_lock.js' in base, '出貨頁只載入還完整核心出貨檔，不套新增快取/精緻 CSS。', 'critical'))
     checks.append(_yx_diag_check('禁止 setInterval 硬塞按鈕', 'setInterval' not in products+warehouse+today+ship, '主流程 JS 不可用 setInterval 補按鈕。', 'warn'))
     checks.append(_yx_diag_check('禁止 MutationObserver 硬塞按鈕', 'MutationObserver' not in products+warehouse+today+ship, '主流程 JS 不可用 MutationObserver 補按鈕。', 'warn'))
     checks.append(_yx_diag_check('前端 Undo 不會未定義', ('function pushProductUndo' in products+warehouse+ship or 'pushProductUndo' not in products+warehouse+ship), '不能再出現 pushProductUndo is not defined。', 'critical'))
-    checks.append(_yx_diag_check('頁面精緻 CSS 存在', _yx_diag_has_any(css, ['premium','glass','empty','shadow','rounded','body:not([data-module="ship"])']), '精緻 UI/手機/卡片/按鈕樣式必須存在，且排除出貨。', 'warn'))
+    checks.append(_yx_diag_check('頁面精緻 CSS 存在', _yx_diag_has_any(css, ['--yx-bg-1','glass','empty','shadow','rounded','yx-ship-page']), '精緻 UI/手機/卡片/按鈕樣式必須存在，且排除出貨。', 'warn'))
     return checks
 
 def _yx_diag_business_requirement_checks():
@@ -3603,7 +3674,7 @@ def api_yx520_performance_status():
             'ttl_seconds': 240
         })
     if path.endswith('/cache-summary'):
-        return jsonify(success=True, cache_files=['yx_cache.js','yx_core.js','yx_data_store.js','yx_device_sync.js','yx_route_warm_cache.js','yx_mutation_bus.js','yx_regression_guard.js'],
+        return jsonify(success=True, cache_files=['service-worker.js','pwa.js','yx_force_cache_reset.js','yx_perf_watch.js','yx_slow_request_helper.js'],
                        route_map=route_map, warm_cache=True, read_through=True, service_worker_static_only=True, ship_page_cache_excluded=True, static_version=STATIC_VERSION)
     return _yx520_route_ok('performance_status', cache_files=['yx_cache.js','yx_core.js','yx_data_store.js','yx_device_sync.js','yx_route_warm_cache.js','yx_regression_guard.js'], route_warm_cache=True, ship_page_cache_excluded=True)
 
@@ -3875,6 +3946,9 @@ def _yx_diag_file_contains(rel_path, needles, mode='all'):
     text = _yx_diag_read_text(rel_path, limit=1000000)
     if isinstance(needles, str):
         needles = [needles]
+    if mode == 'none':
+        bad = [n for n in needles if n in text]
+        return (not bad), bad
     ok = all(n in text for n in needles) if mode == 'all' else any(n in text for n in needles)
     return ok, [n for n in needles if n not in text]
 
@@ -3900,19 +3974,16 @@ def _yx_check_contains(rel, needles, name, severity='warn', mode='all'):
 
 def _yx_diag_ui_520_restore_checks():
     checks = []
-    for rel in ['static/css/base.css','static/css/home.css','static/css/product.css','static/css/warehouse.css','static/css/mobile.css']:
-        checks.append(_yx_check_file(rel, '520 UI CSS 已補回：' + rel, 'critical'))
+    # 20260516Q：520 UI 只允許拆成安全純 CSS 視覺層。
+    # 禁止重新載入 520 page JS / raw layout CSS，避免覆蓋還完整功能主線。
     checks += [
-        _yx_check_contains('templates/base.html', ['css/base.css', '_is_ship'], 'base.html 非出貨頁載入 520 base.css', 'critical'),
-        _yx_check_contains('templates/base.html', ['css/home.css', "== 'home'"], '首頁載入 520 home.css', 'warn'),
-        _yx_check_contains('templates/base.html', ['css/product.css', 'inventory_page', 'orders_page', 'master_order_page'], '庫存/訂單/總單載入 520 product.css', 'critical'),
-        _yx_check_contains('templates/base.html', ['css/warehouse.css', 'warehouse_page'], '倉庫載入 520 warehouse.css', 'critical'),
-        _yx_check_contains('templates/base.html', ['css/mobile.css', 'pointer: coarse'], '手機版載入 520 mobile.css', 'warn'),
-        _yx_check_contains('templates/base.html', ['data-yx-dream-ui="520-ui-restored-formal"','yx_final_520_alignment_repairs.css'], 'body 標記 520 精緻 UI 已復原', 'warn'),
-        _yx_check_contains('static/css/base.css', ['yx_dream_starry_background', 'primary-btn', 'ghost-btn'], '520 背景與按鈕樣式存在於 base.css', 'critical', mode='all'),
-        _yx_check_contains('static/css/product.css', ['customer-chip', 'product', 'batch'], '520 商品頁/客戶/批量樣式存在', 'warn', mode='any'),
-        _yx_check_contains('static/css/warehouse.css', ['warehouse', 'slot', 'cell'], '520 倉庫格樣式存在', 'warn', mode='any'),
-        _yx_check_contains('static/yx_modules/yx_premium_ui_100.css', ['body:not([data-module="ship"])'], '額外精緻 CSS 明確排除出貨', 'warn'),
+        _yx_check_file('static/yx_modules/yx_safe_520_visual_only.css', '安全純 CSS 視覺層存在：yx_safe_520_visual_only.css', 'critical'),
+        _yx_check_contains('templates/base.html', ['yx_safe_520_visual_only.css', 'not _is_ship'], '非出貨頁載入安全純 CSS 視覺層', 'critical'),
+        _yx_check_contains('templates/base.html', ['yx_ship_safe_ui_520.css', '_is_ship', 'ship_single_lock.js'], '出貨頁獨立 CSS / JS 保護', 'critical'),
+        _yx_check_contains('templates/base.html', ['page_products_master.js', 'warehouse_hardlock.js', 'today_changes_hardlock.js', 'ship_single_lock.js'], '功能主線維持還完整 renderer', 'critical'),
+        _yx_diag_check('不載入 520 inventory/orders/master/warehouse 頁面 JS', all(token not in _yx_diag_read_text('templates/base.html', 200000) for token in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','shipping_page.js']), 'base.html 不可載入會覆蓋功能的 520 page JS', 'critical'),
+        _yx_check_contains('static/yx_modules/yx_safe_520_visual_only.css', ['display:none','pointer-events:none','visibility:hidden'], '安全純 CSS 不使用隱藏/阻擋點擊規則', 'critical', mode='none'),
+        _yx_check_contains('static/yx_modules/yx_safe_520_visual_only.css', ['--yx-bg-1','primary-btn','customer-chip','warehouse-cell'], '安全 CSS 含背景/按鈕/客戶標籤/倉庫視覺', 'warn', mode='all'),
     ]
     return checks
 
@@ -3961,7 +4032,7 @@ def _yx_diag_detailed_api_checks():
         '出貨':['/api/ship-preview','/api/ship/preview','/api/ship','/api/ship/confirm','/api/shipping_records'],
         '今日異動':['/api/today-changes','/api/today-changes/read','/api/today-changes/count','/api/today-changes/badge','/api/today'],
         '診斷':['/api/diagnostics/summary','/api/diagnostics/export','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/client-log','/api/diagnostics/full-requirements','/api/db-diagnostics'],
-        '健康效能':['/api/health','/api/health/db-init','/api/health/smoke','/api/health/operation-closed-loop','/api/health/release-readiness','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/health/extended','/api/health/api-schema','/api/health/event-flow','/api/performance/status','/api/performance/readiness','/api/performance/cache-summary'],
+        '健康效能':['/api/health','/api/health/db-init','/api/health/smoke','/api/health/operation-closed-loop','/api/health/release-readiness','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/health/extended','/api/health/api-schema','/api/health/event-flow','/api/performance/status','/api/performance/readiness','/api/performance/cache-summary','/api/performance/last-api-timings'],
     }
     checks = []
     for group, routes in route_groups.items():
@@ -3974,7 +4045,7 @@ def _yx_diag_detailed_file_checks():
         'app.py','db.py','wsgi.py','requirements.txt','Procfile','render.yaml','migrations/000_yuanxing_all_in_one.sql',
         'templates/base.html','templates/index.html','templates/module.html','templates/settings.html','templates/today_changes.html','templates/diagnostics.html',
         'static/style.css','static/service-worker.js','static/manifest.webmanifest','static/pwa.js',
-        'static/yx_cache.js','static/yx_core.js','static/yx_data_store.js','static/yx_diagnostics_client.js','static/yx_mobile_zoom.js',
+        'static/yx_diagnostics_client.js','static/yx_mobile_zoom.js','static/yx_modules/yx_safe_520_visual_only.css',
         'static/yx_modules/ship_single_lock.js','static/yx_modules/warehouse_hardlock.js','static/yx_modules/today_changes_hardlock.js','static/yx_pages/page_products_master.js','static/yx_pages/diagnostics_page.js'
     ]
     checks = [_yx_check_file(f, '必要檔案存在：' + f, 'critical') for f in required_files]
@@ -3991,9 +4062,21 @@ def _yx_diag_detailed_frontend_checks():
     wh = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1000000)
     today = _yx_diag_read_text('static/yx_modules/today_changes_hardlock.js', 1000000)
     ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1000000)
-    # one renderer / endpoint loading
-    for endpoint, token in [('inventory_page','inventory_page.js'),('orders_page','orders_page.js'),('master_order_page','master_order_page.js'),('warehouse_page','warehouse_page.js'),('today_changes_page','today_changes_page.js'),('settings_page','settings_page.js'),('ship_page','ship_single_lock.js'),('diagnostics_page','diagnostics_page.js')]:
-        checks.append(_yx_diag_check('前端載入分流：%s -> %s' % (endpoint, token), endpoint in base and token in base, 'base.html 需依 endpoint 載入對應 520 主檔；出貨仍只載入還完整 ship_single_lock。', 'critical'))
+    # one renderer / endpoint loading. 20260516k: after the 520 page-JS regression,
+    # the stable mainline intentionally uses the proven hardlock/master files, not
+    # inventory_page.js/orders_page.js/master_order_page.js/warehouse_page.js.
+    expected_renderers = [
+        ('inventory_page','page_products_master.js'),
+        ('orders_page','page_products_master.js'),
+        ('master_order_page','page_products_master.js'),
+        ('warehouse_page','warehouse_hardlock.js'),
+        ('today_changes_page','today_changes_hardlock.js'),
+        ('settings_page','settings_manual.js'),
+        ('ship_page','ship_single_lock.js'),
+        ('diagnostics_page','diagnostics_page.js'),
+    ]
+    for endpoint, token in expected_renderers:
+        checks.append(_yx_diag_check('前端載入分流：%s -> %s' % (endpoint, token), endpoint in base and token in base, 'base.html 需依 endpoint 載入目前穩定主檔；出貨仍只載入還完整 ship_single_lock。', 'critical'))
     # no timers/observers in main current files
     for name, text in [('商品主檔',products),('倉庫主檔',wh),('今日異動主檔',today),('出貨主檔',ship)]:
         checks.append(_yx_diag_check(name+' 無 setInterval 硬塞', 'setInterval' not in text, '不能靠 setInterval 塞按鈕/重刷。', 'warn'))
@@ -4106,9 +4189,61 @@ def _yx_diag_master_requirement_checks():
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
-    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
+    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
     checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_final_520_alignment_repairs.css' in base and 'body:not([data-module="ship"])' in css100 and 'primary-btn' in v520css), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
     return checks
+
+
+@app.route('/api/performance/last-api-timings', methods=['GET'])
+@login_required_json
+def api_performance_last_api_timings():
+    return jsonify(success=True, app_version=APP_VERSION, static_version=STATIC_VERSION, timings=YX_PERF_SNAPSHOT)
+
+
+
+
+@app.route('/api/performance/slow-summary', methods=['GET'])
+@login_required_json
+def api_yx_perf_slow_summary():
+    """Return a small diagnosis of the last slow warehouse/shipping requests."""
+    timings = dict(YX_PERF_SNAPSHOT)
+    slow = []
+    for name, info in timings.items():
+        try:
+            ms = float((info or {}).get('elapsed_ms') or 0)
+        except Exception:
+            ms = 0
+        if ms >= 1200:
+            slow.append({'api': name, 'elapsed_ms': ms, 'hint': (
+                '出貨預覽來源/倉庫位置計算偏慢' if 'ship-preview' in name else
+                '倉庫格/未入倉商品計算偏慢' if 'warehouse' in name else
+                'API 回應偏慢'
+            )})
+    slow.sort(key=lambda x: x.get('elapsed_ms') or 0, reverse=True)
+    return jsonify(success=True, app_version=APP_VERSION, static_version=STATIC_VERSION, slow=slow, timings=timings)
+@app.route('/api/performance/trace-snapshot', methods=['GET'])
+@login_required_json
+def api_performance_trace_snapshot():
+    # Read-only performance snapshot for slow shipping/warehouse debugging.
+    try:
+        return jsonify(
+            success=True,
+            app_version=APP_VERSION,
+            static_version=STATIC_VERSION,
+            timings=YX_PERF_SNAPSHOT,
+            cache_state={
+                'warehouse_cells_cache_ttl': globals().get('YX_WAREHOUSE_CELLS_CACHE_TTL', None),
+                'available_items_cache_ttl': globals().get('YX_WAREHOUSE_AVAILABLE_CACHE_TTL', None),
+                'available_items_cache_keys': list((globals().get('YX_WAREHOUSE_AVAILABLE_CACHE') or {}).keys()),
+            },
+            hints=[
+                'api/ship-preview 超過 1500ms：通常是出貨預覽來源/倉庫位置計算太慢',
+                'api/warehouse 超過 1500ms：通常是倉庫 cells 讀取或前端渲染量太大',
+                'api/warehouse/available-items 超過 1500ms：通常是未入倉統計來源表與倉庫格比對太重',
+            ]
+        )
+    except Exception as e:
+        return jsonify(success=False, error=str(e), timings=YX_PERF_SNAPSHOT)
