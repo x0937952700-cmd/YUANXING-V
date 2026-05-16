@@ -9975,3 +9975,10 @@ html body .yx-final-slot .yx108-slot-item .cust{color:#e11d48!important;font-wei
 html body .yx-final-slot .yx108-slot-item .mat{color:#059669!important;font-weight:900!important;}
 html body .yx-final-slot.yx-bb-marked-cell{background:#ffe4ef!important;border-color:#fb7185!important;box-shadow:0 0 0 3px rgba(251,113,133,.18) inset!important;}
 html body #warehouse-clear-all-items{color:#dc2626!important;border-color:#fca5a5!important;}
+
+/* 20260516bs emergency UI hardening */
+html body .category-box,html body .customer-list{overflow:hidden!important;min-width:0!important;}
+html body .customer-region-card{width:100%!important;max-width:100%!important;display:grid!important;grid-template-columns:minmax(0,1fr) 58px minmax(86px,auto)!important;gap:8px!important;overflow:hidden!important;box-sizing:border-box!important;}
+html body .customer-region-card .yx116-customer-name{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;min-width:0!important;}
+html body .customer-region-card .yx116-customer-tag{width:58px!important;min-width:58px!important;height:23px!important;display:inline-flex!important;justify-content:center!important;align-items:center!important;}
+html body #warehouse-root [data-wh-cell-act],html body .warehouse-cell-actions,html body .yx-cell-actions{display:none!important;}

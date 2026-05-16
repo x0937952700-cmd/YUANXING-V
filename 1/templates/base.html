@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3ed">
   <title>{{ title or '沅興木業' }}</title>
-  {% set _sv = static_version|default('final-mainfile-contract-ui-warehouse-20260516br') %}
+  {% set _sv = static_version|default('final-mainfile-contract-ui-warehouse-20260516bs') %}
   {% set _ep = request.endpoint or '' %}
   {% set _is_ship = _ep in ['ship_page','shipping_page_alias_v520_full'] or (request.path or '').startswith('/shipping') or (request.path or '').startswith('/ship') %}
-  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('還完整主線_主檔契約巡檢_UI倉庫出貨材積補齊_20260516br')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_FORCE_FINAL_UI_VERSION__='20260516br';window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_FINAL_RUNTIME_AUDIT__='20260516br';window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
-  <script id="yx-mainfile-label-guard-20260516br">
+  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('還完整主線_主檔契約巡檢_UI倉庫出貨材積補齊_20260516bs')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_FORCE_FINAL_UI_VERSION__='20260516bs';window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_FINAL_RUNTIME_AUDIT__='20260516bs';window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
+  <script id="yx-mainfile-label-guard-20260516bs">
   (function(){
     function clean(t){return String(t||'').replace(/\s+/g,' ').trim();}
     function setText(el, txt){ if(!el || !txt) return; if(!el.getAttribute('aria-label')) el.setAttribute('aria-label', txt); if(!el.getAttribute('data-yx-label')) el.setAttribute('data-yx-label', txt); if(clean(el.textContent)) return; el.textContent = txt; el.setAttribute('data-yx-label-restored','1'); }
 
-    // 20260516br: deterministic single-run DOM audit, single run only / no observers.
+    // 20260516bs: deterministic single-run DOM audit, single run only / no observers.
     function inferLabelFromHref(el){
       var href=String(el.getAttribute('href')||'');
       if(/inventory/.test(href)) return '庫存';
@@ -122,7 +122,7 @@
         });
         var whA=document.querySelectorAll('#zone-A-grid .vertical-column-card,.warehouse-zone-grid[data-zone="A"] .vertical-column-card,.warehouse-zone-columns[data-zone="A"] .vertical-column-card').length;
         var whB=document.querySelectorAll('#zone-B-grid .vertical-column-card,.warehouse-zone-grid[data-zone="B"] .vertical-column-card,.warehouse-zone-columns[data-zone="B"] .vertical-column-card').length;
-        var cssLoaded=!!document.querySelector('link[href*="yx_final_mainfile_ui_20260516br.css"]');
+        var cssLoaded=!!document.querySelector('link[href*="yx_final_mainfile_ui_20260516bs.css"]');
         var gridA=document.querySelector('#zone-A-grid,.warehouse-zone-grid[data-zone="A"],.warehouse-zone-columns[data-zone="A"],.warehouse-zone-columns');
         var gridB=document.querySelector('#zone-B-grid,.warehouse-zone-grid[data-zone="B"],.warehouse-zone-columns[data-zone="B"]');
         var csA=gridA?getComputedStyle(gridA):null;
@@ -147,13 +147,13 @@
   {% if not _is_ship %}
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_safe_520_visual_only.css') }}?v={{ _sv }}">
   {% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_mainfile_ui_20260516br.css') }}?v={{ _sv }}">
-  <style id="yx-critical-visible-buttons-20260516br">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_mainfile_ui_20260516bs.css') }}?v={{ _sv }}">
+  <style id="yx-critical-visible-buttons-20260516bs">
     html body button,html body button *,html body a.primary-btn,html body a.ghost-btn,html body a.back-btn,html body .primary-btn,html body .ghost-btn,html body .small-btn,html body .menu-btn,html body .home-mini-btn,html body .chip,html body .pill,html body .tag,html body label,html body .label,html body .section-title{color:#201713!important;-webkit-text-fill-color:#201713!important;opacity:1!important;visibility:visible!important;text-indent:0!important;overflow:visible!important;line-height:1.25!important;font-weight:850!important;text-shadow:0 1px 0 rgba(255,255,255,.85)!important;}
     html body button::before,html body button::after,html body .primary-btn::before,html body .primary-btn::after,html body .ghost-btn::before,html body .ghost-btn::after,html body .menu-btn::before,html body .menu-btn::after{content:none!important;display:none!important;}
   </style>
 
-  <style id="yx-home-size-fix-20260516br">
+  <style id="yx-home-size-fix-20260516bs">
     html body[data-module="home"] .home-screen{font-size:22px!important;}
     html body[data-module="home"] .home-screen .page-title{font-size:clamp(86px,10.5vw,138px)!important;line-height:.95!important;font-weight:1000!important;letter-spacing:.06em!important;}
     html body[data-module="home"] .home-screen .home-mini-btn{min-height:62px!important;height:62px!important;font-size:30px!important;font-weight:1000!important;padding:0 34px!important;}

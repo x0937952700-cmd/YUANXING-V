@@ -2266,6 +2266,7 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
     material = clean_material_value(material or product_code or '', product_text)
     product_code = material
     location = (location or '').strip()
+    area = location
     customer_name = (customer_name or '').strip()
     customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     qty = int(qty or 0)
@@ -2276,14 +2277,14 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
         merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, area = ?, location = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+        """), (qty, product_code, material, merged_product_text, area, location, customer_name, customer_uid, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, qty, area, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, qty, area, location, customer_name, customer_uid, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2311,21 +2312,22 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             continue
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
         product_code = material
+        location = (item.get('location') or item.get('area') or '').strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
         if duplicate_mode == 'merge':
-            rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name)
+            rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name, location=(location if location else None))
             if rows:
                 matched = rows[-1]
                 rid = matched['id']
                 merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, area = ?, location = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, location, location, order_customer_uid, operator, now(), rid))
                 continue
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, area, location, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, location, location, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2344,23 +2346,24 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             continue
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
         product_code = material
+        location = (item.get('location') or item.get('area') or '').strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
-        rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name)
+        rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name, location=(location if location else None))
         if rows and duplicate_mode == 'merge':
             matched = rows[-1]
             rid = matched['id']
             merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, area = ?, location = ?, customer_uid = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
+            """), (qty, merged_product_text, product_code, material, location, location, master_customer_uid, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, area, location, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, location, location, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2890,7 +2893,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -2908,7 +2911,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND COALESCE(NULLIF(slot_type,''), 'direct') = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -2919,7 +2922,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute(sql("""
             UPDATE warehouse_cells
             SET items_json = ?, note = ?, updated_at = ?
-            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+            WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
         """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute(sql("""
@@ -2946,9 +2949,9 @@ def warehouse_add_column(zone):
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
     cur.execute(sql("""
-        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
+        SELECT id, zone, column_index, COALESCE(NULLIF(slot_type,''),'direct') AS slot_type, slot_number, items_json, note, updated_at
         FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
         ORDER BY slot_number
     """), (zone, column_index, 'direct'))
     rows = rows_to_dict(cur)
@@ -2975,10 +2978,11 @@ def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
 
 
 def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
+    raise RuntimeError('unsafe warehouse column rewrite is disabled; use slot shifting helpers')
     """整欄刪掉後依序重寫，避免 UNIQUE(zone,column,slot_type,slot_number) 位移衝突。"""
     cur.execute(sql("""
-        DELETE FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        DELETE FROM /* disabled unsafe rewrite */ warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
     """), (zone, column_index, 'direct'))
     cleaned = []
     for row in slots:
@@ -2999,6 +3003,74 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
         """), (zone, column_index, 'direct', idx, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
 
 
+def _warehouse_clean_cell_note(note):
+    note = note or ''
+    if str(note).startswith('__USER_') or note in ('__USER_ADDED__', '__USER_INSERTED_SLOT__'):
+        return ''
+    return note
+
+
+def _warehouse_parse_items_json(raw):
+    try:
+        items = json.loads(raw or '[]') if isinstance(raw, str) else (raw or [])
+    except Exception:
+        items = []
+    return items if isinstance(items, list) else []
+
+
+def _warehouse_delete_cell_by_id(cur, row_id):
+    table = 'warehouse_cells'
+    cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (row_id,))
+
+
+def _warehouse_dedupe_direct_slots(cur, zone, column_index):
+    """Merge duplicate direct/blank slot_type rows without clearing a column."""
+    cur.execute(sql("""
+        SELECT id, slot_type, slot_number, items_json, note, updated_at
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+        ORDER BY slot_number, id
+    """), (zone, column_index, 'direct'))
+    groups = {}
+    for row in rows_to_dict(cur):
+        slot_no = int(row.get('slot_number') or 0)
+        if slot_no < 1:
+            continue
+        groups.setdefault(slot_no, []).append(row)
+
+    for _slot_no, rows in groups.items():
+        if not rows:
+            continue
+        primary = next((r for r in rows if _warehouse_parse_items_json(r.get('items_json'))), rows[0])
+        merged_json = primary.get('items_json') or '[]'
+        note = _warehouse_clean_cell_note(primary.get('note') or '')
+        updated_at = primary.get('updated_at') or now()
+        for row in rows:
+            if row is primary:
+                continue
+            merged_json = _merge_json_item_lists(merged_json, row.get('items_json'))
+            note = note or _warehouse_clean_cell_note(row.get('note') or '')
+            updated_at = max(str(updated_at or ''), str(row.get('updated_at') or '')) or now()
+            if row.get('id'):
+                _warehouse_delete_cell_by_id(cur, row.get('id'))
+        if primary.get('id'):
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type = ?, items_json = ?, note = ?, updated_at = ?
+                WHERE id = ?
+            """), ('direct', merged_json or '[]', note or '', updated_at or now(), primary.get('id')))
+
+
+def _warehouse_direct_max_slot(cur, zone, column_index):
+    cur.execute(sql("""
+        SELECT COALESCE(MAX(slot_number), 0) AS max_slot
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+    """), (zone, column_index, 'direct'))
+    row = fetchone_dict(cur) or {}
+    return int(row.get('max_slot') or 0)
+
+
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
     """新增格子。
 
@@ -3014,14 +3086,30 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         _ensure_fixed_warehouse_grid_cached(conn, cur)
-        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
-        max_slot = len(slots)
+        _warehouse_dedupe_direct_slots(cur, zone, column_index)
+        max_slot = _warehouse_direct_max_slot(cur, zone, column_index)
         if insert_after is None or insert_after == '':
             insert_after = max_slot
         insert_after = max(0, min(int(insert_after), max_slot))
         new_slot = insert_after + 1
-        slots.insert(insert_after, {'items_json': '[]', 'note': '', 'updated_at': now()})
-        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = 0 - slot_number
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number > ?
+        """), (zone, column_index, 'direct', insert_after))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = (0 - slot_number) + 1, slot_type = ?
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number < 0
+        """), ('direct', zone, column_index, 'direct'))
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (zone, column_index, 'direct', new_slot, '[]', '', now()))
         try:
             cur.execute(sql("""
                 UPDATE warehouse_recent_slots
@@ -3050,21 +3138,41 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         _ensure_fixed_warehouse_grid_cached(conn, cur)
-        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
-        max_slot = len(slots)
+        _warehouse_dedupe_direct_slots(cur, zone, column_index)
+        max_slot = _warehouse_direct_max_slot(cur, zone, column_index)
         if max_slot <= 1:
             return {'success': False, 'error': '每欄至少要保留 1 格'}
         if slot_number < 1 or slot_number > max_slot:
             return {'success': False, 'error': '格號超出範圍'}
-        target = slots[slot_number - 1]
-        try:
-            items = json.loads(target.get('items_json') or '[]')
-        except Exception:
-            items = []
+        cur.execute(sql("""
+            SELECT id, items_json
+            FROM warehouse_cells
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number = ?
+            LIMIT 1
+        """), (zone, column_index, 'direct', slot_number))
+        target = fetchone_dict(cur)
+        if not target:
+            return {'success': False, 'error': '鏍艰櫉瓒呭嚭绡勫湇'}
+        items = _warehouse_parse_items_json(target.get('items_json'))
         if items:
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
-        slots.pop(slot_number - 1)
-        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        _warehouse_delete_cell_by_id(cur, target.get('id'))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = 0 - slot_number
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number > ?
+        """), (zone, column_index, 'direct', slot_number))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = (0 - slot_number) - 1, slot_type = ?
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number < 0
+        """), ('direct', zone, column_index, 'direct'))
         try:
             cur.execute(sql("""
                 DELETE FROM warehouse_recent_slots
@@ -3097,7 +3205,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
             zone, column_index, slot_type, slot_number = _norm(key)
             cur.execute(sql("""
                 SELECT * FROM warehouse_cells
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
         from_norm = _norm(from_key)
@@ -3155,8 +3263,8 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
         normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
         conn.commit(); return {'success': True}
     except Exception as e:
         conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}

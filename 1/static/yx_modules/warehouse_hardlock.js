@@ -17,12 +17,12 @@
   function afterWarehouseRender(){ try{window.YXRestoreButtonLabels?.();}catch(_e){} try{window.YXAfterRender?.();}catch(_e){} }
   const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
   const zones = ['A','B'];
-  const CACHE_KEY='yx_warehouse_visible_snapshot_20260516br';
+  const CACHE_KEY='yx_warehouse_visible_snapshot_20260516bs';
   try{['v520stable','20260516bh','20260516bi','20260516bj','20260516bk','20260516bl','20260516bm','20260516bn','20260516bo','20260516bp','20260516bq'].forEach(v=>localStorage.removeItem('yx_warehouse_visible_snapshot_'+v));}catch(_e){}
   function cacheNow(){try{localStorage.setItem(CACHE_KEY,JSON.stringify({at:Date.now(),data:state.data,available:state.available,availableByZone:state.availableByZone}));}catch(_e){}}
   function loadCache(){try{const raw=localStorage.getItem(CACHE_KEY); if(!raw)return false; const o=JSON.parse(raw); if(!o||!o.data)return false; if(Date.now()-Number(o.at||0)>8000) return false; state.data=o.data||state.data; state.available=Array.isArray(o.available)?o.available:state.available; state.availableByZone=o.availableByZone||state.availableByZone; return true;}catch(_e){return false;}}
   function markLocal(){state.localMutationAt=Date.now(); cacheNow();}
-  function canApplyServer(){return !state.saving;} // 20260516br：只要不是正在保存，就以後端正規化結果為準，不再被本地舊快照卡 30 秒。
+  function canApplyServer(){return !state.saving;} // 20260516bs：只要不是正在保存，就以後端正規化結果為準，不再被本地舊快照卡 30 秒。
   function parseQtyFromText(text){
     const raw=clean(text||'').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
     const hasExplicit = raw.includes('=') || /[+＋,，;；]/.test(raw) || /[件片]/.test(raw);
@@ -46,7 +46,7 @@
     return 0;
   }
   function itemQty(it){
-    // 20260516br：新入格的 warehouse_qty_locked=true 一律吃實際入格 qty；
+    // 20260516bs：新入格的 warehouse_qty_locked=true 一律吃實際入格 qty；
     // 舊資料未鎖定時，若商品文字有明確公式/件數，優先用文字修正錯誤舊 qty。
     const isPlaced = !!(it?.warehouse_qty_locked || it?.placement_label || it?.layer_label);
     const text=clean(it?.product_text||it?.product||'');
@@ -101,7 +101,7 @@
   function normalizedItem(it, qty, placement){
     const product=productText(it);
     const base={...it};
-    // 20260516br：下拉選單的剩餘量欄位只供選取時判斷，不能存進格子；
+    // 20260516bs：下拉選單的剩餘量欄位只供選取時判斷，不能存進格子；
     // 否則之後格子顯示可能用 dropdown_qty 覆蓋真正加入 qty。
     delete base.dropdown_qty; delete base.unplaced_qty; delete base.total_qty; delete base.source_total_qty; delete base.source_total_qty_all;
     delete base.warehouse_placed_qty; delete base.warehouse_placed_qty_all; delete base.source_details; delete base.qty_formula;
@@ -246,7 +246,7 @@
   }
   function optionLabel(it){ const mat=materialOf(it); return `${cleanCustomer(it.customer_name||'')}｜${mat?mat+'｜':''}${productText(it)}｜${itemQty(it)}件｜${sourceOf(it)}`; }
   function aggregateAvailable(list){
-    // 20260516br：下拉選單保險合併。若後端或快取意外回了同客戶+材質+尺寸的重複列，
+    // 20260516bs：下拉選單保險合併。若後端或快取意外回了同客戶+材質+尺寸的重複列，
     // 前端先合併成一列，避免同一品項在批量列被重複選取造成超放。
     const map=new Map();
     (Array.isArray(list)?list:[]).forEach(it=>{

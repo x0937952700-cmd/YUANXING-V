@@ -10,7 +10,8 @@
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
   const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, installedSource:'' };
-  const CACHE_PREFIX = 'yx_ba_product_visible_';
+  try { Object.keys(localStorage||{}).forEach(k=>{ if(/^yx_b[a-r]_product_visible_|^yx_ba_product_visible_/.test(k)) localStorage.removeItem(k); }); } catch(_e) {}
+  const CACHE_PREFIX = 'yx_bs_product_visible_';
   function cacheKey(source){ return CACHE_PREFIX + source + '_' + String(window.__YX_STATIC_VERSION__ || 'aw'); }
   function writeProductCache(source, rows){ try { localStorage.setItem(cacheKey(source), JSON.stringify({at:Date.now(), rows:Array.isArray(rows)?rows:[]})); } catch(_e) {} }
   function readProductCache(source){ try { const raw=localStorage.getItem(cacheKey(source)); if(!raw) return []; const obj=JSON.parse(raw); return Array.isArray(obj.rows) ? obj.rows : []; } catch(_e) { return []; } }
@@ -19,7 +20,7 @@
   function extractRowsFromResponse(d){
     if (Array.isArray(d)) return d;
     if (!d || typeof d !== 'object') return [];
-    const keys = ['items','rows','data','inventory','orders','master_orders','master','list','results'];
+    const keys = ['raw_items','items','rows','data','inventory','orders','master_orders','master','list','results'];
     for (const k of keys){ if (Array.isArray(d[k])) return d[k]; }
     for (const k of keys){ if (d[k] && typeof d[k] === 'object'){ const nested = extractRowsFromResponse(d[k]); if (nested.length) return nested; } }
     return [];
@@ -332,10 +333,29 @@
   async function batchMoveZone(source, zone){
     const ids = Array.from(selectedIds(source));
     if (!ids.length) return YX.toast('請先勾選要移到 A/B 區的商品', 'warn');
-    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items:selectedItems(source)})});
-    clearSelected(source);
-    YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
-    await loadSource(source);
+    const items = selectedItems(source);
+    const idSet = new Set(ids.map(String));
+    const before = rowsStore(source).map(r => ({...r}));
+    rowsStore(source).forEach(r => {
+      if (idSet.has(String(r.id || ''))) {
+        r.area = zone;
+        r.location = zone;
+      }
+    });
+    renderSummary(source);
+    renderCards(source);
+    try{
+      const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items})});
+      clearSelected(source);
+      YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
+      await loadSource(source);
+    }catch(e){
+      rowsStore(source, before);
+      renderSummary(source);
+      renderCards(source);
+      await loadSource(source);
+      throw e;
+    }
   }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
@@ -414,7 +434,7 @@
     try {
       if (source === 'inventory') {
         try {
-          const vd = await YX.api('/api/inventory-visible?bb=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Visible':'1'}});
+          const vd = await YX.api('/api/inventory-visible?bs=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Visible':'1'}});
           const vrows = extractRowsFromResponse(vd);
           if (vrows.length) { paintRows(source, vrows); writeProductCache(source, vrows); }
         } catch(_visibleFirstErr) {}
@@ -861,4 +881,3 @@
     finalConfirmSubmit(ev);
   }, true);
 })();
-
