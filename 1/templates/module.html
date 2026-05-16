@@ -67,7 +67,7 @@
     <div id="inventory-inline-panel" class="result-card inventory-inline-panel yx-html-direct-product-shell" data-html-direct-shell>
       <div class="section-head inventory-inline-head">
         <h3>庫存清單</h3>
-        <span class="muted">固定 HTML 表格：送出後直接更新；批量動作用單次 API。</span>
+        <span class="muted"></span>
       </div>
       <div id="yx113-inventory-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
         <div class="yx114-toolbar-main"></div>
@@ -89,7 +89,7 @@
         </div>
       </div>
       <div id="yx113-inventory-summary" class="yx113-summary table-card yx-html-direct-summary">
-        <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span>庫存清單｜HTML 直寫</span></div></div>
+        <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><span class="yx132-customer-tag">庫存</span><strong>0件 / 0筆</strong><span></span></div></div>
         <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
       </div>
       <div id="inventory-inline-list" class="card-list inventory-inline-list" style="display:none"></div>
@@ -101,7 +101,7 @@
   <section class="subsection yx-html-direct-product-shell" id="orders-list-section" {% if module_key != 'orders' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>訂單清單</h3>
-      <span class="muted">固定 HTML 表格：批量動作用單次 API；批量編輯後一次儲存。</span>
+      <span class="muted"></span>
     </div>
     <div id="yx113-orders-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
@@ -122,7 +122,7 @@
       </div>
     </div>
     <div id="yx113-orders-summary" class="yx113-summary table-card yx-html-direct-summary">
-      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>訂單清單｜HTML 直寫</span></div></div>
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span></span></div></div>
       <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">資料載入中…</td></tr></tbody></table></div>
     </div>
     <div id="orders-list" class="card-list" style="display:none"></div>
@@ -131,7 +131,7 @@
   <section class="subsection yx-html-direct-product-shell" id="master-list-section" {% if module_key != 'master_order' %}style="display:none"{% endif %} data-html-direct-shell>
     <div class="section-head">
       <h3>總單清單</h3>
-      <span class="muted">固定 HTML 表格：批量動作用單次 API；批量編輯後一次儲存。</span>
+      <span class="muted"></span>
     </div>
     <div id="yx113-master_order-toolbar" class="yx113-toolbar yx114-toolbar yx-html-direct-toolbar">
       <div class="yx114-toolbar-main"></div>
@@ -151,7 +151,7 @@
       </div>
     </div>
     <div id="yx113-master_order-summary" class="yx113-summary table-card yx-html-direct-summary">
-      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span>總單清單｜HTML 直寫</span></div></div>
+      <div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title"><strong>0件 / 0筆</strong><span></span></div></div>
       <div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody><tr><td colspan="6">請先點選北 / 中 / 南客戶</td></tr></tbody></table></div>
     </div>
     <div id="master-list" class="card-list" style="display:none"></div>
@@ -235,6 +235,10 @@
         <button class="ghost-btn small-btn" type="button" onclick="toggleWarehouseUnplacedHighlight()" aria-label="未入倉" data-yx-label="未入倉">未入倉</button>
         <button class="ghost-btn small-btn" type="button" onclick="clearWarehouseHighlights()" aria-label="清除高亮" data-yx-label="清除高亮">清除高亮</button>
         <button class="ghost-btn small-btn" type="button" id="yx121-warehouse-undo" onclick="undoWarehouseMove()" disabled aria-label="還原上一步" data-yx-label="還原上一步">還原上一步</button>
+        <button class="ghost-btn small-btn danger-lite" type="button" id="warehouse-clear-all-items" aria-label="清空所有格子" data-yx-label="清空所有格子">清空所有格子</button>
+        <button class="ghost-btn small-btn" type="button" id="warehouse-reconcile-source" aria-label="重新比對修復數量" data-yx-label="重新比對修復數量">重新比對修復數量</button>
+        <button class="ghost-btn small-btn" type="button" id="warehouse-qty-audit" aria-label="件數稽核" data-yx-label="件數稽核">件數稽核</button>
+        <button class="primary-btn small-btn" type="button" id="warehouse-final-verify" aria-label="最終閉環修復" data-yx-label="最終閉環修復">最終閉環修復</button>
       </div>
 
       <div class="warehouse-zone-nav">

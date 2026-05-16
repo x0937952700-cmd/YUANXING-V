@@ -102,7 +102,8 @@
     const name = c.name || '';
     const info = tradeInfo(name);
     const ct = counts(c, mode);
-    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(name)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-customer-variants="${YX.esc(JSON.stringify(c.merge_names || [name]))}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(info.base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
+    const base = (info.base || name || '').replace(/FOB代付|FOB代|FOB|CNF/gi,'').replace(/\s*[代]\s*$/,'').trim() || name;
+    return `<button type="button" class="customer-region-card yx113-customer-card yx114-customer-card yx116-customer-card yx117-customer-card" title="${YX.esc(base)}｜${ct.qty}件 / ${ct.rows}筆" data-yx116-card="1" data-yx117-card="1" data-customer-name="${YX.esc(name)}" data-customer="${YX.esc(name)}" data-customer-variants="${YX.esc(JSON.stringify(c.merge_names || [name]))}" data-region="${YX.esc(normRegion(c.region))}"><span class="yx113-customer-left yx116-customer-name">${YX.esc(base)}</span><span class="yx113-customer-tag yx116-customer-tag">${info.tag ? YX.esc(info.tag) : ''}</span><span class="yx113-customer-count yx116-customer-count">${ct.qty}件 / ${ct.rows}筆</span></button>`;
   }
 
   function qtyFromProduct(text, fallback){
@@ -361,7 +362,7 @@
     [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
-  // 20260516ba：customer_regions 以前只 register 沒自動 install，北中南與出貨客戶資料會空白。現在自啟動一次。
+  // 20260516bb：customer_regions 以前只 register 沒自動 install，北中南與出貨客戶資料會空白。現在自啟動一次。
   const bootCustomerRegions = () => { try { install(); } catch(e) { try { YX.toast(e.message || '客戶區載入失敗', 'error'); } catch(_e){} } };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootCustomerRegions, {once:true}); else bootCustomerRegions();
 })();

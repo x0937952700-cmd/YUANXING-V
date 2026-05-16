@@ -39,8 +39,8 @@
     return m === 'inventory' ? 'inventory' : m === 'orders' ? 'orders' : m === 'master_order' ? 'master_order' : '';
   };
   const apiSource = s => s === 'master_order' ? 'master_orders' : s;
-  const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master_orders';
-  const fallbackEndpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/order' : '/api/master_order';
+  const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master-orders';
+  const fallbackEndpoint = s => s === 'inventory' ? '/api/inventory-visible' : s === 'orders' ? '/api/order' : '/api/master_order';
   const rescueEndpoint = s => s === 'inventory' ? '/api/inventory-visible' : '';
   const title = s => s === 'inventory' ? '庫存清單' : s === 'orders' ? '訂單清單' : '總單清單';
   const listEl = s => s === 'inventory' ? $('inventory-inline-list') : s === 'orders' ? $('orders-list') : $('master-list');
@@ -98,7 +98,7 @@
     return q > 1 ? `${s}x${q}` : s;
   }
   function urlFor(source, id){
-    return source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
+    return source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master-orders/${encodeURIComponent(id)}`;
   }
   function payloadFromParts(source, row, parts){
     const rawSupport = norm(parts.support || '');
@@ -348,7 +348,7 @@
     const moveButtons = source === 'inventory'
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-    // 20260516ba：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
+    // 20260516bb：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
     const controls = '';
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
@@ -412,6 +412,13 @@
     }
     state.loading = source;
     try {
+      if (source === 'inventory') {
+        try {
+          const vd = await YX.api('/api/inventory-visible?bb=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Visible':'1'}});
+          const vrows = extractRowsFromResponse(vd);
+          if (vrows.length) { paintRows(source, vrows); writeProductCache(source, vrows); }
+        } catch(_visibleFirstErr) {}
+      }
       let d = await YX.api(endpoint(source) + '?yx129_master=1&yx_force_visible=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Visible-List':'1'}});
       let rows = extractRowsFromResponse(d);
       if (!rows.length && fallbackEndpoint(source) !== endpoint(source)) {
@@ -433,7 +440,7 @@
         if (globals.length) rows = globals;
       }
       if (!rows.length && rowsStore(source).length) {
-        // 20260516ba：後端暫時空回應時，不准用空資料把已顯示畫面蓋掉。
+        // 20260516bb：後端暫時空回應時，不准用空資料把已顯示畫面蓋掉。
         rows = rowsStore(source);
       }
       paintRows(source, rows);
@@ -488,7 +495,7 @@
   async function deleteItem(card){
     const source = card.dataset.source, id = card.dataset.id;
     if (!confirm(`確定刪除這筆${title(source)}商品？`)) return;
-    const url = source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
+    const url = source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master-orders/${encodeURIComponent(id)}`;
     await YX.api(url, {method:'DELETE'}); YX.toast('已刪除', 'ok'); await loadSource(source);
   }
   async function moveInventory(card, target){
@@ -721,7 +728,7 @@
     } else {
       state.installedSource = source;
       loadSource(source,{force:true}).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
-      // 20260516ba：庫存/訂單/總單如果第一次載入被網路或舊快取干擾，短時間內補救讀取；不使用 setInterval，不重複綁事件。
+      // 20260516bb：庫存/訂單/總單如果第一次載入被網路或舊快取干擾，短時間內補救讀取；不使用 timerLoop，不重複綁事件。
       [450, 1200, 2600].forEach(ms => setTimeout(() => {
         try { if (!rowsStore(source).length) loadSource(source,{force:true}).catch(()=>{}); } catch(_e) {}
       }, ms));

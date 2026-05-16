@@ -488,9 +488,17 @@ def effective_product_qty(product_text, fallback_qty=0):
     if not raw:
         return fallback
 
-    right = raw.split('=', 1)[1].strip() if '=' in raw else raw.strip()
+    # 20260516be：倉庫/庫存來源數量修正。
+    # 純尺寸文字（例如 71x12x10）不能再被固定判成 1 件；
+    # 這類資料的真正件數要吃 DB qty，否則倉庫比對會全部少算。
+    has_formula = '=' in raw
+    right = raw.split('=', 1)[1].strip() if has_formula else raw.strip()
     if not right:
-        return 1
+        return max(1, fallback) if fallback > 0 else 1
+    if not has_formula:
+        compact_left = right.replace(' ', '').lower()
+        if re.match(r'^\d+(?:x\d+){2,}$', compact_left) and fallback > 0:
+            return fallback
 
     # 20260516x：括號扣數備註不改變原件數，例如 123x11x12=12(-6) 仍判定 12 件。
     paren_qty = re.match(r'^\s*(\d+)\s*[\(（][^\)）]*[\)）]\s*$', right)
@@ -2679,7 +2687,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         items = _merge_items_by_size_material(items)
-        # 20260516ba: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
+        # 20260516bb: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
         preview_warehouse_cells = warehouse_get_cells()
         for item in items:
             product_text = format_product_text_height2(item["product_text"])
@@ -2800,32 +2808,61 @@ def _warehouse_size_key(text):
     return _normalize_size_key(text)
 
 def _normalize_warehouse_items(items):
-    """合併同尺寸 / 同客戶商品，清掉空白或 0 數量，避免格位資料越存越亂。"""
+    """20260516bf：倉庫格位保存前的唯一正規化。
+
+    修正舊版件數與合併錯誤：
+    - 件數使用 effective_product_qty(product_text, qty)，公式文字與純尺寸 DB qty 同規則。
+    - 合併 key 必須含「尺寸 + 客戶 + 材質 + 前/中/後」，避免同尺寸不同材質被混成一筆。
+    - 客戶顯示清掉 FOB/CNF/代，避免「楊喻 代」與「楊喻」被視為不同客戶。
+    """
+    import re as _re
     merged = {}
+
+    def _clean_wh_customer(v):
+        name = str(v or '').strip() or '庫存'
+        name = _re.sub(r'FOB代付|FOB代|FOB|CNF', '', name, flags=_re.I)
+        name = _re.sub(r'[()（）]', '', name)
+        name = _re.sub(r'\s*[代]\s*$', '', name)
+        name = _re.sub(r'\s+', ' ', name).strip()
+        return name or '庫存'
+
+    def _clean_wh_material(raw, product_text=''):
+        mat = clean_material_value(raw or '', product_text or '')
+        mat = _re.sub(r'FOB代付|FOB代|FOB|CNF', '', str(mat or ''), flags=_re.I).strip().upper()
+        if _re.search(r'\d+\s*[x×XＸ✕＊*]\s*\d+', mat):
+            return ''
+        return mat
+
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
         product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or '').strip())
         if not product_text:
             continue
+        qty = effective_product_qty(product_text, raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or 0)
         try:
-            qty = int(raw.get('qty') or 0)
+            qty = int(qty or 0)
         except Exception:
             qty = 0
         if qty <= 0:
             continue
-        customer_name = str(raw.get('customer_name') or '').strip()
-        # FIX80：格位批量加入需保留 後排 / 中間 / 前排 顯示層，不同層不可被合併。
+        customer_name = _clean_wh_customer(raw.get('customer_name') or raw.get('customer') or '')
+        material = _clean_wh_material(raw.get('material') or raw.get('wood_type') or raw.get('product_code') or '', product_text)
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
-        key = (_warehouse_size_key(product_text), customer_name, placement_label)
+        key = (_warehouse_size_key(product_text), customer_name, material, placement_label)
         if key not in merged:
             next_item = dict(raw)
             next_item['product_text'] = product_text
-            next_item['product_code'] = str(raw.get('product_code') or product_text).strip()
+            next_item['product'] = product_text
+            next_item['product_code'] = material
+            next_item['material'] = material
             next_item['customer_name'] = customer_name
             if placement_label:
                 next_item['placement_label'] = placement_label
+                next_item['layer_label'] = placement_label
             next_item['qty'] = qty
+            next_item.pop('quantity', None)
+            next_item.pop('pieces', None)
             merged[key] = next_item
         else:
             merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
@@ -3146,7 +3183,7 @@ def inventory_placements():
 
 def inventory_summary():
     rows = list_inventory()
-    # 20260516ba：倉庫統計或舊資料異常時，不准讓庫存清單空白。
+    # 20260516bb：倉庫統計或舊資料異常時，不准讓庫存清單空白。
     # 庫存頁必須先顯示 DB 商品，再補上未入倉數量；warehouse_cells 有暫時重複/壞資料也不能卡住庫存。
     try:
         placement = inventory_placements()

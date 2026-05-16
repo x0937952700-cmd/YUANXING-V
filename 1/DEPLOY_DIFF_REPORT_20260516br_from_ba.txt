@@ -1,0 +1,24 @@
+YUANXING 20260516br from 20260516ba 差異部署報告
+
+基準完整包：YUANXING_完整檔案ZIP_20260516ba_仔細二次修復完整包.zip
+最新完整包：YUANXING_完整檔案ZIP_20260516br_倉庫圖100閉環稽核修復完整包.zip
+
+需要覆蓋/新增檔案（15 個）：
+app.py
+db.py
+static/css/base.css
+static/css/home.css
+static/css/warehouse.css
+static/pwa.js
+static/service-worker.js
+static/yx_force_cache_reset.js
+static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/ship_single_lock.js
+static/yx_modules/warehouse_hardlock.js
+static/yx_pages/page_products_master.js
+templates/base.html
+templates/module.html
+static/yx_modules/yx_final_mainfile_ui_20260516br.css
+
+需要從 GitHub 刪除檔案（1 個）：
+static/yx_modules/yx_final_mainfile_ui_20260516ba.css
