@@ -10,12 +10,28 @@
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
   const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, installedSource:'' };
-  const CACHE_PREFIX = 'yx_aw_product_visible_';
+  const CACHE_PREFIX = 'yx_ba_product_visible_';
   function cacheKey(source){ return CACHE_PREFIX + source + '_' + String(window.__YX_STATIC_VERSION__ || 'aw'); }
   function writeProductCache(source, rows){ try { localStorage.setItem(cacheKey(source), JSON.stringify({at:Date.now(), rows:Array.isArray(rows)?rows:[]})); } catch(_e) {} }
   function readProductCache(source){ try { const raw=localStorage.getItem(cacheKey(source)); if(!raw) return []; const obj=JSON.parse(raw); return Array.isArray(obj.rows) ? obj.rows : []; } catch(_e) { return []; } }
   function paintRows(source, rows){ rowsStore(source, Array.isArray(rows)?rows:[]); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source); document.documentElement.dataset.yxProductLoaded=source; afterRenderProductUI(); }
   function showSourceError(source, msg){ const box=ensureSummary(source); if(box) box.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(msg || title(source)+'載入失敗')}</div>`; }
+  function extractRowsFromResponse(d){
+    if (Array.isArray(d)) return d;
+    if (!d || typeof d !== 'object') return [];
+    const keys = ['items','rows','data','inventory','orders','master_orders','master','list','results'];
+    for (const k of keys){ if (Array.isArray(d[k])) return d[k]; }
+    for (const k of keys){ if (d[k] && typeof d[k] === 'object'){ const nested = extractRowsFromResponse(d[k]); if (nested.length) return nested; } }
+    return [];
+  }
+  function restoreRowsFromKnownGlobals(source){
+    const pools=[];
+    try{ pools.push(window.__YX112_ROWS__?.[source]); }catch(_e){}
+    try{ pools.push(window.__yx63Rows?.[source]); }catch(_e){}
+    try{ pools.push(window.state?.[source], window.state?.rows?.[source], window.state?.inventory, window.state?.orders, window.state?.master_orders); }catch(_e){}
+    for (const x of pools){ if(Array.isArray(x) && x.length) return x; }
+    return [];
+  }
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -25,6 +41,7 @@
   const apiSource = s => s === 'master_order' ? 'master_orders' : s;
   const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master_orders';
   const fallbackEndpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/order' : '/api/master_order';
+  const rescueEndpoint = s => s === 'inventory' ? '/api/inventory-visible' : '';
   const title = s => s === 'inventory' ? '庫存清單' : s === 'orders' ? '訂單清單' : '總單清單';
   const listEl = s => s === 'inventory' ? $('inventory-inline-list') : s === 'orders' ? $('orders-list') : $('master-list');
   const sectionEl = s => s === 'inventory' ? ($('inventory-inline-panel') || listEl(s)?.closest('.panel,.result-card,.subsection')) : s === 'orders' ? $('orders-list-section') : $('master-list-section');
@@ -331,7 +348,7 @@
     const moveButtons = source === 'inventory'
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-    // 20260516ay：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
+    // 20260516ba：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
     const controls = '';
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
@@ -389,26 +406,43 @@
   async function loadSource(source, opts={}){
     source = source || sourceFromModule();
     if (!source) return [];
-    if (!opts.force && !rowsStore(source).length) {
+    if (!rowsStore(source).length) {
       const cached = readProductCache(source);
       if (cached.length) paintRows(source, cached);
     }
     state.loading = source;
     try {
-      let d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1'}});
-      let rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+      let d = await YX.api(endpoint(source) + '?yx129_master=1&yx_force_visible=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Visible-List':'1'}});
+      let rows = extractRowsFromResponse(d);
       if (!rows.length && fallbackEndpoint(source) !== endpoint(source)) {
         try {
-          const fd = await YX.api(fallbackEndpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Product-Fallback':'1'}});
-          const frows = Array.isArray(fd.items) ? fd.items : (Array.isArray(fd.rows) ? fd.rows : []);
+          const fd = await YX.api(fallbackEndpoint(source) + '?yx129_master=1&yx_force_visible=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Product-Fallback':'1','X-YX-Visible-List':'1'}});
+          const frows = extractRowsFromResponse(fd);
           if (frows.length) rows = frows;
         } catch(_fallbackErr) {}
       }
+      if (!rows.length && rescueEndpoint(source)) {
+        try {
+          const rd = await YX.api(rescueEndpoint(source) + '?ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Rescue':'1'}});
+          const rrows = extractRowsFromResponse(rd);
+          if (rrows.length) rows = rrows;
+        } catch(_rescueErr) {}
+      }
+      if (!rows.length) {
+        const globals = restoreRowsFromKnownGlobals(source);
+        if (globals.length) rows = globals;
+      }
+      if (!rows.length && rowsStore(source).length) {
+        // 20260516ba：後端暫時空回應時，不准用空資料把已顯示畫面蓋掉。
+        rows = rowsStore(source);
+      }
       paintRows(source, rows);
-      writeProductCache(source, rows);
+      if (rows.length) writeProductCache(source, rows);
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}
       return rowsStore(source);
     } catch(e) {
+      const globals = restoreRowsFromKnownGlobals(source);
+      if (globals.length) { paintRows(source, globals); return rowsStore(source); }
       if (!rowsStore(source).length) showSourceError(source, e.message || `${title(source)}載入失敗`);
       throw e;
     } finally {
@@ -686,7 +720,11 @@
       renderSummary(source); renderCards(source);
     } else {
       state.installedSource = source;
-      loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
+      loadSource(source,{force:true}).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
+      // 20260516ba：庫存/訂單/總單如果第一次載入被網路或舊快取干擾，短時間內補救讀取；不使用 setInterval，不重複綁事件。
+      [450, 1200, 2600].forEach(ms => setTimeout(() => {
+        try { if (!rowsStore(source).length) loadSource(source,{force:true}).catch(()=>{}); } catch(_e) {}
+      }, ms));
     }
     [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); cleanupLegacyProductDom(source); }, ms));
   }

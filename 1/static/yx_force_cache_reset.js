@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION='final-mainfile-contract-ui-warehouse-20260516ay';
+  const VERSION='final-mainfile-contract-ui-warehouse-20260516ba';
   const KEY='YX_FORCE_CACHE_RESET_DONE_'+VERSION;
   async function run(){
     try { localStorage.removeItem('yx_diagnostics_events_v1'); } catch(_) {}

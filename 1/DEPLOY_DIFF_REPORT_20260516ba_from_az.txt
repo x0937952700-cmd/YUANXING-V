@@ -1,0 +1,21 @@
+YUANXING 20260516ba 差異部署包（由 20260516az 升級）
+
+覆蓋 / 新增檔案：
+app.py
+db.py
+static/css/base.css
+static/css/home.css
+static/css/warehouse.css
+static/pwa.js
+static/service-worker.js
+static/yx_force_cache_reset.js
+static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/ship_single_lock.js
+static/yx_modules/warehouse_hardlock.js
+static/yx_pages/page_products_master.js
+templates/base.html
+templates/module.html
+static/yx_modules/yx_final_mainfile_ui_20260516ba.css
+
+需要從 GitHub 刪除：
+static/yx_modules/yx_final_mainfile_ui_20260516az.css

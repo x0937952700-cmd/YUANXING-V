@@ -1,1 +1,13 @@
 /* home.css: formal split stylesheet. Base rules preserved in base.css; new scoped rules for home attach here. */
+
+/* 20260516ba home master size repair */
+.home-screen .page-title{font-size:clamp(72px,9vw,116px)!important;font-weight:1000!important;}
+.home-screen .home-menu .menu-btn{min-height:clamp(68px,8.5vh,92px)!important;font-size:clamp(28px,3.2vw,40px)!important;}
+.home-screen .home-mini-btn{height:54px!important;min-height:54px!important;font-size:24px!important;}
+
+
+/* 20260516ba: 主頁整體字體放大，避免被 base inline critical style 壓回小字 */
+html body[data-module="home"] .home-screen .page-title{font-size:clamp(86px,10.5vw,138px)!important;line-height:.95!important;font-weight:1000!important;letter-spacing:.06em!important;}
+html body[data-module="home"] .home-screen .home-mini-btn{height:62px!important;min-height:62px!important;font-size:30px!important;font-weight:1000!important;padding:0 34px!important;}
+html body[data-module="home"] .home-screen .home-menu{gap:clamp(16px,2.2vh,28px)!important;}
+html body[data-module="home"] .home-screen .home-menu .menu-btn{min-height:clamp(82px,9.5vh,116px)!important;font-size:clamp(36px,4.2vw,54px)!important;font-weight:1000!important;letter-spacing:.05em!important;}
