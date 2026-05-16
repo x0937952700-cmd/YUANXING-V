@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yx-mainline-520-extracted-20260516r';
+const CACHE_NAME = 'yx-mainline-520-extracted-20260516s';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/css/base.css',
@@ -23,6 +23,7 @@ const SAFE_ASSETS = [
   '/static/yx_modules/fix140_readme_master_hardlock.css',
   '/static/yx_modules/yx_stable_ui_repair.css',
   '/static/yx_modules/yx_safe_520_visual_only.css',
+  '/static/yx_modules/yx_warehouse_button_text_layout_fix_20260516s.css',
   '/static/yx_modules/fix142_speed_ship_hardlock.css',
   '/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/favicon.png',

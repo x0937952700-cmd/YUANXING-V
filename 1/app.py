@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'mainline-520-js-extracted-safe-ui-20260516r'
-APP_VERSION = '還完整主線_520JS剝離進主檔_UI背景按鈕_出貨倉庫速度修復_20260516r'
+STATIC_VERSION = 'mainline-warehouse-cache-ship-source-fix-20260516s'
+APP_VERSION = '還完整主線_倉庫快取不洗回_出貨總單來源修復_20260516s'
 
 app = Flask(__name__)
 

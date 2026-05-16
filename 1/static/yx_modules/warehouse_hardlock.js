@@ -734,6 +734,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     const key=`${z}-${c}`;
     const token = opts.token || beginColumnOp(z,c);
     if(!payload.operation_id) payload.operation_id = yxOperationId('warehouse-column-op');
+    markWarehouseLocalMutation(label || 'warehouse-column-post');
     const prev=state.columnChains.get(key) || Promise.resolve();
     const rawTask=prev.catch(()=>{}).then(()=>bgPost(url,payload,(d)=>{
       // V160: response for an older operation in the same column is recorded as success,
@@ -815,8 +816,27 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   const state = {
     data:{cells:[], zones:{A:{},B:{}}}, available:[], availableByZone:{A:[],B:[]}, activeZone:null, searchKeys:new Set(), undoStack:[],
     current:{zone:'A',col:1,slot:1,items:[],note:''}, batchCount:3, drag:null, loading:null, bound:false, unplacedOpen:false, modalSeq:0, loadSeq:0,
-    columnChains:new Map(), columnSeq:new Map(), pendingColumns:new Set(), pendingCells:new Set(), columnStartedAt:new Map(), lastGoodColumns:new Map(), menuActionAt:new Map(), sourceQtyMap:{}, activeMenuKey:'', menuOpenedAt:0, availableSeq:0, autoSaveTimers:new Map(), autoSaveInFlight:new Set(), saveLocks:new Set(), pendingManualSaveTimers:new Map(), savePromises:new Map(), saveAgainAfterLock:new Set(), saveLockStarted:new Map(), cellEditRevision:new Map(), cellSaveSignatures:new Map(), appliedShipOps:new Set(), shipDeductProtected:new Map(), pendingShipDeductByCell:new Map(), conflictNotifiedCells:new Map(), appliedAvailableOps:new Map(), availableMutationSeq:0, failedSaveSeq:0, failedSaveNoticeAt:0, slotRedirects:new Map(), slotRedirectSeen:new Map(), structureEpochByColumn:new Map(), slotIndexSyncNoticeAt:0, consistencyQueue:new Map(), consistencySeq:0, consistencyNoticeAt:0, consistencyCheckInFlight:false, queuedColumnOps:new Map(), columnLocalRevision:new Map(), columnLocalRevisionReason:new Map(), longpressSuppressClickUntil:0, longpressOpenSeq:0, longpressLastOpen:null, menuPointerActionAt:new Map()
+    columnChains:new Map(), columnSeq:new Map(), pendingColumns:new Set(), pendingCells:new Set(), columnStartedAt:new Map(), lastGoodColumns:new Map(), menuActionAt:new Map(), sourceQtyMap:{}, activeMenuKey:'', menuOpenedAt:0, availableSeq:0, autoSaveTimers:new Map(), autoSaveInFlight:new Set(), saveLocks:new Set(), pendingManualSaveTimers:new Map(), savePromises:new Map(), saveAgainAfterLock:new Set(), saveLockStarted:new Map(), cellEditRevision:new Map(), cellSaveSignatures:new Map(), appliedShipOps:new Set(), shipDeductProtected:new Map(), pendingShipDeductByCell:new Map(), conflictNotifiedCells:new Map(), appliedAvailableOps:new Map(), availableMutationSeq:0, failedSaveSeq:0, failedSaveNoticeAt:0, slotRedirects:new Map(), slotRedirectSeen:new Map(), structureEpochByColumn:new Map(), slotIndexSyncNoticeAt:0, consistencyQueue:new Map(), consistencySeq:0, consistencyNoticeAt:0, consistencyCheckInFlight:false, queuedColumnOps:new Map(), columnLocalRevision:new Map(), columnLocalRevisionReason:new Map(), longpressSuppressClickUntil:0, longpressOpenSeq:0, longpressLastOpen:null, menuPointerActionAt:new Map(), localMutationAt:0, localMutationReason:'', localMutationSeq:0
   };
+  function markWarehouseLocalMutation(reason){
+    try{
+      state.localMutationAt = Date.now();
+      state.localMutationReason = clean(reason || 'warehouse-local-change');
+      state.localMutationSeq = Number(state.localMutationSeq || 0) + 1;
+      window.__YX_WAREHOUSE_LOCAL_MUTATION_AT__ = state.localMutationAt;
+    }catch(_e){}
+  }
+  function warehouseHasPendingWrite(){
+    try{
+      return !!((state.pendingColumns && state.pendingColumns.size) || (state.pendingCells && state.pendingCells.size) || (state.autoSaveInFlight && state.autoSaveInFlight.size) || (state.saveLocks && state.saveLocks.size) || (state.savePromises && state.savePromises.size));
+    }catch(_e){ return false; }
+  }
+  function isWarehouseLocalMutationFresh(ms=30000){
+    try{ return !!(state.localMutationAt && Date.now() - Number(state.localMutationAt) < ms); }catch(_e){ return false; }
+  }
+  function safeUpdateWarehouseCacheAfterMutation(reason){
+    try{ markWarehouseLocalMutation(reason); cacheWarehouseNow(); }catch(_e){}
+  }
   function sanitizeWarehouseSlotNumber(v){
     const m=String(v == null ? '' : v).trim().match(/\d+/);
     const n=m ? Number(m[0]) : Number(v||0);
@@ -1081,7 +1101,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   function markCellsPendingFromPayload(payload,on){
     try{ cellKeysFromPayload(payload).forEach(k=>markCellPendingByKey(k,on)); }catch(_e){}
   }
-  const CACHE_VERSION = 'v520-final-ship-cache-align-pack30';
+  const CACHE_VERSION = 'v520-warehouse-no-washback-20260516s';
   const WAREHOUSE_CACHE_KEY = 'yx_warehouse_cache_' + CACHE_VERSION;
   const AVAILABLE_CACHE_KEY = 'yx_warehouse_available_cache_' + CACHE_VERSION;
   function cacheGet(k, maxAgeMs){
@@ -1208,7 +1228,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     try{
       normalizeWarehouseCellsBeforeCache();
       normalizeWarehouseUniquePlacements();
-      const next={cells:state.data.cells||[], zones:state.data.zones||{A:{},B:{}}, source_qty_map:state.sourceQtyMap||{}};
+      const next={cells:state.data.cells||[], zones:state.data.zones||{A:{},B:{}}, source_qty_map:state.sourceQtyMap||{}, cached_at:Date.now(), local_mutation_at:state.localMutationAt||0, local_mutation_seq:state.localMutationSeq||0};
       const nextTotal=warehouseCellItemTotalFromCells(next.cells);
       const old=cacheGet(WAREHOUSE_CACHE_KEY, 1000*60*60*24*30);
       const oldTotal=warehouseCellItemTotalFromCells(old && old.cells);
@@ -1623,6 +1643,11 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       for(const k of fallbacks){ cached=cacheGet(k, 1000*60*60*24*7); if(cached && Array.isArray(cached.cells)) break; }
     }
     if(!cached || !Array.isArray(cached.cells)) return false;
+    const cachedAt=Number(cached.cached_at || cached.saved_at || 0);
+    if((isWarehouseLocalMutationFresh() || warehouseHasPendingWrite()) && state.data && Array.isArray(state.data.cells) && state.data.cells.length){
+      const mutAt=Number(state.localMutationAt||0);
+      if(!cachedAt || cachedAt < mutAt) return false;
+    }
     const cachedTotal=warehouseCellItemTotalFromCells(cached.cells);
     const localTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
     // V426: 保留快取架構，但不讓舊版空快取把目前已顯示商品洗成空格。
@@ -1801,7 +1826,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     return groups.map(g=>{
       const placement = clean(g.placement_label||'');
       const placementHtml = placement ? ` <span class="yx-slot-placement">${esc(placement)}</span>` : '';
-      return `<div class="yx-slot-product-line"><span class="yx-slot-customer">${esc(g.customer_name || '庫存')}</span> <span class="yx-slot-material">${esc(g.material || '')}</span> <span class="yx-slot-size">${esc(g.size || '')}</span>${placementHtml} <span class="yx-slot-line-qty">${esc(g.qty)}</span></div>`;
+      return `<div class="yx-slot-product-line yx-slot-product-row-520"><span class="yx-slot-customer">${esc(g.customer_name || '庫存')}</span><span class="yx-slot-material">${esc(g.material || '')}</span><span class="yx-slot-size">${esc(g.size || '')}</span>${placementHtml}<span class="yx-slot-line-qty">${esc(g.qty)}件</span></div>`;
     }).join('');
   }
   function normalizedItem(it, qty, placement){
@@ -2158,6 +2183,12 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       const d = await api('/api/warehouse?fast=1&lite=1&yx166_stability=1' + (force ? '&local_first=1&no_cache=1&cache_bust=' + encodeURIComponent(CACHE_VERSION + '-' + Date.now()) : ''));
       if (seq !== state.loadSeq && !force) return state.data; // stale DB response must not overwrite user edits.
       const freshCells=Array.isArray(d.cells)?d.cells:[];
+      if(!force && (isWarehouseLocalMutationFresh() || warehouseHasPendingWrite())){
+        // 20260516s: never let a late DB/cache readback wash the optimistic UI back to an older state while save/queue is active.
+        cacheWarehouseNow();
+        updateAllSlots();
+        return state.data;
+      }
       const beforeTotal=warehouseCellItemTotalFromCells(state.data && state.data.cells);
       const incomingTotal=warehouseCellItemTotalFromCells(freshCells.map(cell=>normalizeServerCell(cell)));
       if(incomingTotal<=0 && beforeTotal>0){
@@ -3448,7 +3479,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     }
   }catch(_e){}
   async function saveCellRaw(z,c,s,items,note){ return api('/api/warehouse/cell',{method:'POST',body:JSON.stringify(saveCellPayload(z,c,s,items,note))}); }
-  function saveCellBg(z,c,s,items,note,onSuccess){ return bgPost('/api/warehouse/cell', saveCellPayload(z,c,s,items,note), onSuccess, '格位儲存'); }
+  function saveCellBg(z,c,s,items,note,onSuccess){ markWarehouseLocalMutation('cell-save-bg'); return bgPost('/api/warehouse/cell', saveCellPayload(z,c,s,items,note), onSuccess, '格位儲存'); }
   function currentCellKey(){
     try{ return state.current ? key(state.current.zone,state.current.col,state.current.slot) : ''; }catch(_e){ return ''; }
   }
@@ -3484,7 +3515,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     if(state.saveLocks.has(saveKey)){
       const started=Number(state.saveLockStarted?.get?.(saveKey)||0);
       // V187: if a background save promise was swallowed by the browser/network and never resolved,
-      // do not permanently lock this cell. This check only runs on user action; no setInterval/polling.
+      // do not permanently lock this cell. This check only runs on user action; no timer/polling.
       if(started && Date.now()-started>45000 && !state.savePromises?.has?.(saveKey)){
         state.saveLocks.delete(saveKey);
         state.saveAgainAfterLock?.delete?.(saveKey);
@@ -3713,7 +3744,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     bumpColumnLocalRevision(z,c,'insert-slot-optimistic');
     state.data.cells.push({zone:z,column_index:c,slot_type:'direct',slot_number:newSlot,items:[],items_json:'[]',note:'',problem_flag:'',is_deleted:0});
     state.data.cells.sort((a,b)=>clean(a.zone).localeCompare(clean(b.zone)) || Number(a.column_index)-Number(b.column_index) || Number(a.slot_number)-Number(b.slot_number));
-    cacheWarehouseNow();
+    safeUpdateWarehouseCacheAfterMutation('local-insert-slot');
     return newSlot;
   }
   function localDeleteSlot(z,c,s){
@@ -3732,7 +3763,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
     });
     markColumnStructureEpoch(z,c,'delete-slot');
     bumpColumnLocalRevision(z,c,'delete-slot-optimistic');
-    cacheWarehouseNow();
+    safeUpdateWarehouseCacheAfterMutation('local-delete-slot');
   }
   function nextVisibleSlotAfterStructure(z,c,s){
     try{
@@ -3767,6 +3798,7 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
       if(hs>0) highlightWarehouseCell(z,c,hs);
       scheduleWarehouseConsistencyCheck({action,zone:z,column_index:c,slot_number:hs||slot||1,operation_id:opid}, 900);
       notifyWarehouseChanged({action,zone:z,column_index:c,slot_number:hs||slot||1,operation_id:opid,structure_readback_safe:!!applied});
+      state.localMutationAt=0; state.localMutationReason='confirmed';
       if(opts.message) toast(opts.message,'ok');
     }catch(e){
       try{ cacheWarehouseNow(); updateAllSlots(); }catch(_e){}
@@ -4744,44 +4776,44 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
 // warehouse_v166_stability: stale pending-column cleanup + available-items stale guard.
 
 
-// warehouse_v169_stability: safe autosave flush before switching cells + robust background response merge; no renderer/setInterval/MutationObserver added.
+// warehouse_v169_stability: safe autosave flush before switching cells + robust background response merge; no renderer/timer/observer added.
 
-// warehouse_v170_stability: autosave payload sanitize, duplicate autosave coalescing, pagehide flush; no renderer/setInterval/MutationObserver added.
-// warehouse_v171_stability: same-cell save coalescing + DB response slot de-dup + empty note persistence; no renderer/setInterval/MutationObserver added.
+// warehouse_v170_stability: autosave payload sanitize, duplicate autosave coalescing, pagehide flush; no renderer/timer/observer added.
+// warehouse_v171_stability: same-cell save coalescing + DB response slot de-dup + empty note persistence; no renderer/timer/observer added.
 
-// warehouse_v173_stability: fixed hidden/delete slot renumber crash, corrected scroll centering, and queued manual save while same cell is already saving; no renderer/setInterval/MutationObserver added.
+// warehouse_v173_stability: fixed hidden/delete slot renumber crash, corrected scroll centering, and queued manual save while same cell is already saving; no renderer/timer/observer added.
 
-// warehouse_v174_stability: modal async race guard, available-items return fix, universal single-controller flag, cache/static version bump; no renderer/setInterval/MutationObserver added.
+// warehouse_v174_stability: modal async race guard, available-items return fix, universal single-controller flag, cache/static version bump; no renderer/timer/observer added.
 
-// warehouse_v175_stability: hand-save lock stays until background save resolves; same-cell edits during save are coalesced into one follow-up save. No renderer/setInterval/MutationObserver added.
-// warehouse_v176_stability: protected current-cell merge prevents older column/readback responses from overwriting a cell being edited or saved; cache/static version bumped. No renderer/setInterval/MutationObserver added.
+// warehouse_v175_stability: hand-save lock stays until background save resolves; same-cell edits during save are coalesced into one follow-up save. No renderer/timer/observer added.
+// warehouse_v176_stability: protected current-cell merge prevents older column/readback responses from overwriting a cell being edited or saved; cache/static version bumped. No renderer/timer/observer added.
 
-// warehouse_v177_stability: stale DB save responses no longer overwrite newer same-cell edits; current autosave is flushed on pagehide and stale hidden timers are cancelled; cache/static version bumped. No renderer/setInterval/MutationObserver added.
+// warehouse_v177_stability: stale DB save responses no longer overwrite newer same-cell edits; current autosave is flushed on pagehide and stale hidden timers are cancelled; cache/static version bumped. No renderer/timer/observer added.
 
-// warehouse_v178_stability: fresh warehouse reloads preserve active/queued cells, same-cell retry state is kept safely, cache/static version bumped. No renderer/setInterval/MutationObserver added.
-// warehouse_v179_stability: initializes loadSeq so fresh DB warehouse responses apply correctly, fixes zone scroll option, and flushes pending same-column autosaves before slot insert/delete/move operations. No renderer/setInterval/MutationObserver added.
+// warehouse_v178_stability: fresh warehouse reloads preserve active/queued cells, same-cell retry state is kept safely, cache/static version bumped. No renderer/timer/observer added.
+// warehouse_v179_stability: initializes loadSeq so fresh DB warehouse responses apply correctly, fixes zone scroll option, and flushes pending same-column autosaves before slot insert/delete/move operations. No renderer/timer/observer added.
 
-// warehouse_v180_stability: uses live local cell as autosave availability baseline and flushes same-column pending edits before mark/return actions. No renderer/setInterval/MutationObserver added.
+// warehouse_v180_stability: uses live local cell as autosave availability baseline and flushes same-column pending edits before mark/return actions. No renderer/timer/observer added.
 
-// warehouse_v181_stability: protects in-flight autosave cells from fresh DB/column readback overwrites; cache/static version bumped. No renderer/setInterval/MutationObserver added.
+// warehouse_v181_stability: protects in-flight autosave cells from fresh DB/column readback overwrites; cache/static version bumped. No renderer/timer/observer added.
 
-// warehouse_v182_stability: cache hydration and full DB responses now preserve exact cells being edited/saved/queued, not only pending columns. No renderer/setInterval/MutationObserver added.
-// warehouse_v183_stability: structural slot operations now drain same-column autosave chains before renumbering, preventing old slot saves from overwriting inserted/deleted/dragged cells. No renderer/setInterval/MutationObserver added.
+// warehouse_v182_stability: cache hydration and full DB responses now preserve exact cells being edited/saved/queued, not only pending columns. No renderer/timer/observer added.
+// warehouse_v183_stability: structural slot operations now drain same-column autosave chains before renumbering, preventing old slot saves from overwriting inserted/deleted/dragged cells. No renderer/timer/observer added.
 
-// warehouse_v184_stability: manual save now closes the modal without firing close-time autosave, preventing duplicate same-cell background writes and stale save races. No renderer/setInterval/MutationObserver added.
+// warehouse_v184_stability: manual save now closes the modal without firing close-time autosave, preventing duplicate same-cell background writes and stale save races. No renderer/timer/observer added.
 // warehouse_v219_stability: live editor input values flush into local cell/draft before quick switching or closing; input debounced autosave protects product/material/qty edits without adding renderer/timer loop/observer.
 
-// warehouse_v185_stability: preserves unsubmitted batch-add rows as local draft on close/switch and restores them safely; no renderer/setInterval/MutationObserver added.
+// warehouse_v185_stability: preserves unsubmitted batch-add rows as local draft on close/switch and restores them safely; no renderer/timer/observer added.
 
-// warehouse_v187_stability: stale save locks self-heal and immediate save exceptions release the lock; no renderer/setInterval/MutationObserver added.
-// warehouse_v186_stability: manual/autosave optimistic cell state is kept as local draft until DB confirms; no renderer/setInterval/MutationObserver added.
+// warehouse_v187_stability: stale save locks self-heal and immediate save exceptions release the lock; no renderer/timer/observer added.
+// warehouse_v186_stability: manual/autosave optimistic cell state is kept as local draft until DB confirms; no renderer/timer/observer added.
 
-// warehouse_v188_stability: delayed same-cell save is key-checked before execution; locked-cell edits are immediately reflected in local cell/draft; no renderer/setInterval/MutationObserver added.
+// warehouse_v188_stability: delayed same-cell save is key-checked before execution; locked-cell edits are immediately reflected in local cell/draft; no renderer/timer/observer added.
 
-// warehouse_v214_cross_sync: ship-completed warehouse deducts are session-deduped and locally protected before DB refresh, preventing duplicate front-end deductions or stale grid overwrite. No renderer/setInterval/MutationObserver added.
+// warehouse_v214_cross_sync: ship-completed warehouse deducts are session-deduped and locally protected before DB refresh, preventing duplicate front-end deductions or stale grid overwrite. No renderer/timer/observer added.
 
 // warehouse_v226_ship_preview_source_lock
-// warehouse_v221_cross_sync: keeps single renderer and existing queue/cache; paired with shipping/product customer-variant sync and final event emit guard. No renderer/setInterval/MutationObserver added.
+// warehouse_v221_cross_sync: keeps single renderer and existing queue/cache; paired with shipping/product customer-variant sync and final event emit guard. No renderer/timer/observer added.
 
 // warehouse_v222_unplaced_zone_sync: fixes A/B returned-item bucket, same-cell batch remaining qty, and local unplaced cache version without adding renderer/timer/observer.
 
@@ -4906,48 +4938,48 @@ function clean(v){ return String(v == null ? '' : v).trim(); }
   window.YXTargetedRetryRefresh={apply, version:VERSION};
 })();
 
-// warehouse_v408_drag_cache_sync: move-cell clears server/derived caches and slot-compacting operations clear unsafe per-slot drafts. No renderer/setInterval/MutationObserver added.
-// warehouse_v409_unplaced_source_sync: grouped dropdown/source_details optimistic mutations now deduct/return each source_id immediately, and A/B available API treats a source row as placed once it exists anywhere in the warehouse. No renderer/setInterval/MutationObserver added.
-// warehouse_v411_cell_edit_save_sync: delete/current-item edits redraw before autosave so removed products cannot be resurrected from stale DOM; explicit delete baseline returns quantities to unplaced correctly; same product in different placements is preserved. No renderer/setInterval/MutationObserver added.
-// warehouse_v423_fresh_reload_unplaced_sync: DB column readbacks now require the latest column operation token/local revision, preventing older drag/insert/delete/return responses from overwriting newer continuous warehouse changes. No renderer/setInterval/MutationObserver added.
+// warehouse_v408_drag_cache_sync: move-cell clears server/derived caches and slot-compacting operations clear unsafe per-slot drafts. No renderer/timer/observer added.
+// warehouse_v409_unplaced_source_sync: grouped dropdown/source_details optimistic mutations now deduct/return each source_id immediately, and A/B available API treats a source row as placed once it exists anywhere in the warehouse. No renderer/timer/observer added.
+// warehouse_v411_cell_edit_save_sync: delete/current-item edits redraw before autosave so removed products cannot be resurrected from stale DOM; explicit delete baseline returns quantities to unplaced correctly; same product in different placements is preserved. No renderer/timer/observer added.
+// warehouse_v423_fresh_reload_unplaced_sync: DB column readbacks now require the latest column operation token/local revision, preventing older drag/insert/delete/return responses from overwriting newer continuous warehouse changes. No renderer/timer/observer added.
 
-// warehouse_v423_fresh_reload_unplaced_sync: force/manual warehouse reload and unplaced dropdown refresh bypass local/server fast cache; normal entry still uses cache for speed. No renderer/setInterval/MutationObserver added; removed operation status panel stays removed.
+// warehouse_v423_fresh_reload_unplaced_sync: force/manual warehouse reload and unplaced dropdown refresh bypass local/server fast cache; normal entry still uses cache for speed. No renderer/timer/observer added; removed operation status panel stays removed.
 
-// V424 warehouse_visible_items_cache_guard: preserves existing cache architecture while preventing empty warehouse readbacks/cache writes from hiding saved products; normalize now keeps legacy/raw item fields. No renderer/setInterval/MutationObserver added.
+// V424 warehouse_visible_items_cache_guard: preserves existing cache architecture while preventing empty warehouse readbacks/cache writes from hiding saved products; normalize now keeps legacy/raw item fields. No renderer/timer/observer added.
 
-// warehouse_v427_mirror_rescue_visible_items: item parser accepts raw_text/legacy JSON and keeps mirror-rescued rows visible. Cache architecture unchanged; no renderer/setInterval/MutationObserver added.
+// warehouse_v427_mirror_rescue_visible_items: item parser accepts raw_text/legacy JSON and keeps mirror-rescued rows visible. Cache architecture unchanged; no renderer/timer/observer added.
 
-// warehouse_v428_save_readback_mirror_lock: preserves legacy product-only rows on save and merges DB mirror readback without changing cache/background architecture. No renderer/setInterval/MutationObserver added.
+// warehouse_v428_save_readback_mirror_lock: preserves legacy product-only rows on save and merges DB mirror readback without changing cache/background architecture. No renderer/timer/observer added.
 
-// warehouse_v432_max_repair: keeps yx_cache/yx_core/fast-cache/background-queue/SW API policy intact; adds only empty-readback guards and tolerant item readback. No renderer/setInterval/MutationObserver added.
+// warehouse_v432_max_repair: keeps yx_cache/yx_core/fast-cache/background-queue/SW API policy intact; adds only empty-readback guards and tolerant item readback. No renderer/timer/observer added.
 
-// warehouse_v438_longpress_maximum_repair: single global long-press rescue for all slots, pointercancel Android rescue, stronger menu tap isolation. No renderer/setInterval/MutationObserver/cache core changes added.
+// warehouse_v438_longpress_maximum_repair: single global long-press rescue for all slots, pointercancel Android rescue, stronger menu tap isolation. No renderer/timer/observer/cache core changes added.
 
-// warehouse_v439_longpress_maximum_action_proof: stronger long-press trigger, Android/WebView action fallback, one-shot menu display repair. No renderer/setInterval/MutationObserver/cache core changes added.
+// warehouse_v439_longpress_maximum_action_proof: stronger long-press trigger, Android/WebView action fallback, one-shot menu display repair. No renderer/timer/observer/cache core changes added.
 
-// warehouse_v440_longpress_maximum_input_proof: long-press is easier to trigger, lostpointercapture/context/touch action paths are guarded, menu buttons execute reliably on Android/WebView, stale suppress flags self-clear. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v440_longpress_maximum_input_proof: long-press is easier to trigger, lostpointercapture/context/touch action paths are guarded, menu buttons execute reliably on Android/WebView, stale suppress flags self-clear. No cache core/renderer/timer/observer change.
 
-// warehouse_v442_longpress_maximum_event_bridge: capture-level long-press bridge, context/touch/pointercancel rescue, menu action fallback. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v442_longpress_maximum_event_bridge: capture-level long-press bridge, context/touch/pointercancel rescue, menu action fallback. No cache core/renderer/timer/observer change.
 
-// warehouse_v442_longpress_maximum_gesture_action_proof: stronger touch/pointer/context long-press bridge, elementFromPoint menu action fallback, no cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v442_longpress_maximum_gesture_action_proof: stronger touch/pointer/context long-press bridge, elementFromPoint menu action fallback, no cache core/renderer/timer/observer change.
 
-// warehouse_v443_longpress_maximum_final_input_shield: last-resort capture/touch/pointer/context bridge, DOM-snapshot menu open, robust menu button action fallback. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v443_longpress_maximum_final_input_shield: last-resort capture/touch/pointer/context bridge, DOM-snapshot menu open, robust menu button action fallback. No cache core/renderer/timer/observer change.
 
-// warehouse_v444_longpress_single_path_maximum_proof: disables older competing delegated long-press bridges on fresh load and keeps one capture path + original menu/actions only. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v444_longpress_single_path_maximum_proof: disables older competing delegated long-press bridges on fresh load and keeps one capture path + original menu/actions only. No cache core/renderer/timer/observer change.
 
-// warehouse_v448_longpress_root_single_engine_proof: true single long-press engine; per-slot longpress timers disabled while preserving tap/drag/menu actions. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v448_longpress_root_single_engine_proof: true single long-press engine; per-slot longpress timers disabled while preserving tap/drag/menu actions. No cache core/renderer/timer/observer change.
 
-// warehouse_v448_longpress_root_single_engine_proof: robust warehouse detection, root-level single long-press engine, early-cancel rescue, menu hit-test fallback. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v448_longpress_root_single_engine_proof: robust warehouse detection, root-level single long-press engine, early-cancel rescue, menu hit-test fallback. No cache core/renderer/timer/observer change.
 
-// warehouse_v448_longpress_exact_touch_action_proof: root single engine now avoids preventing default on initial touch so normal tap still opens cells; menu button hit testing no longer triggers first action on whitespace; drag state is cleared before menu open; manual diagnose selector fixed. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v448_longpress_exact_touch_action_proof: root single engine now avoids preventing default on initial touch so normal tap still opens cells; menu button hit testing no longer triggers first action on whitespace; drag state is cleared before menu open; manual diagnose selector fixed. No cache core/renderer/timer/observer change.
 
-// warehouse_v448_longpress_true_single_engine_action_proof: removed per-slot longpress timers/preventDefault conflicts; root single engine owns long-press, slot engine only handles tap/intentional drag. Menu action fallback now requires open menu + recent pressed action. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v448_longpress_true_single_engine_action_proof: removed per-slot longpress timers/preventDefault conflicts; root single engine owns long-press, slot engine only handles tap/intentional drag. Menu action fallback now requires open menu + recent pressed action. No cache core/renderer/timer/observer change.
 
-// warehouse_v449_longpress_deghosted_single_engine_proof: de-ghosts legacy longpress bridges, keeps one root engine, preserves tap/drag/menu actions. No cache core/renderer/setInterval/MutationObserver change.
+// warehouse_v449_longpress_deghosted_single_engine_proof: de-ghosts legacy longpress bridges, keeps one root engine, preserves tap/drag/menu actions. No cache core/renderer/timer/observer change.
 
 // warehouse_v450_longpress_single_engine_cleanout_proof: removes dormant legacy v439/v442/v443 longpress bridge blocks from active file, keeps one root engine, makes cancel rescue less ghost-prone, preserves tap/drag/menu actions and cache core.
 
-// warehouse_v501_structure_slots_pack11_frontend: structure readback trusts exact DB slot list only after item-bag verification; base empty slot deletion stays hidden. No renderer/setInterval/MutationObserver added.
+// warehouse_v501_structure_slots_pack11_frontend: structure readback trusts exact DB slot list only after item-bag verification; base empty slot deletion stays hidden. No renderer/timer/observer added.
 
 /* V518 evidence markers: yx-v485-centered-action-sheet centered-action-sheet hideWarehouseMenu executeWarehouseMenuAction batch-add-slots queuedWarehousePost cacheWarehouseNow bumpColumnLocalRevision mark-cell canTrustStructureColumnReadback trustStructure yx499-cell-top yx499-count-split yx499-total manualUnplacedRefresh */
 /* V518 static token: v520-final-ship-cache-align-pack30 */

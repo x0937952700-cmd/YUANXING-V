@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
   {% set _ep = request.endpoint or '' %}
-  {% set _sv = static_version|default('mainline-520-js-extracted-safe-ui-20260516r') %}
+  {% set _sv = static_version|default('mainline-warehouse-cache-ship-source-fix-20260516s') %}
   {% set _is_ship = (_ep == 'ship_page' or _ep == 'shipping_page_alias_v520_full' or module_key|default('') == 'ship') %}
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v={{ _sv }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v={{ _sv }}">
@@ -21,7 +21,7 @@
     document.documentElement.dataset.yx117AppleUi="locked";
     document.documentElement.dataset.yx118AppleUi="locked";
     document.documentElement.dataset.yx124OrnateLabel="locked";
-    document.documentElement.dataset.yx520ExtractedMainFiles="20260516r";
+    document.documentElement.dataset.yx520ExtractedMainFiles="20260516s";
     {% if _is_ship %}document.documentElement.dataset.yxPage="ship";{% endif %}
   </script>
 
@@ -48,6 +48,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_stable_ui_repair.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_safe_520_visual_only.css') }}?v={{ _sv }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_warehouse_button_text_layout_fix_20260516s.css') }}?v={{ _sv }}">
   {% endif %}
 
   <script>
@@ -64,7 +65,7 @@
   <script>
   window.__YX_MASTER_BRIDGE_VERSION__={{ _sv|tojson }};
   window.__YX_STATIC_VERSION__={{ _sv|tojson }};
-  window.__YX_APP_VERSION__={{ app_version|default('mainline-520-js-extracted-safe-ui-20260516r', true)|tojson }};
+  window.__YX_APP_VERSION__={{ app_version|default('mainline-warehouse-cache-ship-source-fix-20260516s', true)|tojson }};
   window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
   window.__YX_DISABLE_LEGACY_LAYOUT_RENDER__=true;
   (function(){
