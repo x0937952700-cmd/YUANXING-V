@@ -127,14 +127,20 @@
     const qtys=items.map(itemQty).filter(n=>n>0);
     const totalQty=qtys.reduce((a,b)=>a+b,0);
     const sizeSums=sizeSummaryFor(items);
-    const itemRows=items.map(it=>{
-      const cn=cleanCustomer(it.customer_name||'庫存');
-      const mat=materialOf(it)||'未填';
-      let prod=sizeOnlyFromText(productText(it));
-      if(!prod || prod.length>18 || prod.includes('=')) prod='商品';
-      const q=itemQty(it);
-      return `<div class="yx520-wh-item-line"><span class="yx520-wh-customer">${esc(cn)}</span><span class="yx520-wh-material">${esc(mat)}</span><span class="yx520-wh-product">${esc(prod)}</span><b>${q}件</b></div>`;
-    }).join('');
+    const groupedRows=(()=>{
+      const map=new Map();
+      (items||[]).forEach(it=>{
+        const cn=cleanCustomer(it.customer_name||'庫存');
+        const mat=materialOf(it)||'未填';
+        let prod=sizeOnlyFromText(productText(it));
+        if(!prod || prod.length>18 || prod.includes('=')) prod='商品';
+        const k=[cn,mat,prod].join('|');
+        if(!map.has(k)) map.set(k,{cn,mat,prod,qty:0});
+        map.get(k).qty += itemQty(it);
+      });
+      return Array.from(map.values());
+    })();
+    const itemRows=groupedRows.map(row=>`<div class="yx520-wh-item-line"><span class="yx520-wh-customer">${esc(row.cn)}</span><span class="yx520-wh-material">${esc(row.mat)}</span><span class="yx520-wh-product">${esc(row.prod)}</span><b>${row.qty}件</b></div>`).join('');
     el.innerHTML=`<div class="yx520-wh-head"><span class="yx520-wh-slotno">${s}</span><span class="yx520-wh-size-sums">${esc(sizeSums)}</span><span class="yx520-wh-total">${totalQty}件</span></div><div class="yx520-wh-body">${itemRows}</div>`;
   }
   function updateAllSlots(){

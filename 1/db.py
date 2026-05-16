@@ -2679,7 +2679,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         items = _merge_items_by_size_material(items)
-        # 20260516av: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
+        # 20260516aw: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
         preview_warehouse_cells = warehouse_get_cells()
         for item in items:
             product_text = format_product_text_height2(item["product_text"])

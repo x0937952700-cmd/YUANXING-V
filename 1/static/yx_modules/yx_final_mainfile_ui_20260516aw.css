@@ -1,0 +1,551 @@
+
+/* 20260516aw final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
+:root{--yx-ink:#211712;--yx-ink-soft:#4b3b31;--yx-panel:rgba(255,255,255,.86);--yx-line:rgba(120,88,55,.22);--yx-brand:#8b5a2b;--yx-blue:#1e64c8;--yx-red:#c7352a;--yx-green:#238447;}
+html body{background:#f7f3ed url('/static/yx_assets/yx_dream_starry_background.png') center top/cover fixed no-repeat!important;color:var(--yx-ink)!important;}
+html body .card,html body .panel,html body .section-card,html body .yx-card{background:var(--yx-panel)!important;border:1px solid var(--yx-line)!important;border-radius:18px!important;box-shadow:0 10px 30px rgba(56,38,18,.10)!important;}
+html body button,html body [role="button"],html body a.primary-btn,html body a.ghost-btn,html body a.back-btn,html body .primary-btn,html body .ghost-btn,html body .small-btn,html body .tiny-btn,html body .menu-btn,html body .home-mini-btn,html body .chip,html body .pill,html body .tag,html body .customer-card,html body .customer-chip,html body .zone-switch,html body .btn,html body .yx-btn{
+  color:var(--yx-ink)!important;-webkit-text-fill-color:var(--yx-ink)!important;opacity:1!important;visibility:visible!important;text-indent:0!important;font-size:15px!important;line-height:1.25!important;font-weight:850!important;letter-spacing:.02em!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;min-height:34px!important;min-width:42px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;border-radius:999px!important;position:relative!important;z-index:2!important;text-shadow:0 1px 0 rgba(255,255,255,.72)!important;}
+html body button *,html body [role="button"] *,html body .primary-btn *,html body .ghost-btn *,html body .small-btn *,html body .tiny-btn *,html body .menu-btn *,html body .home-mini-btn *,html body .chip *,html body .pill *,html body .tag *,html body .customer-card *,html body .customer-chip *{color:inherit!important;-webkit-text-fill-color:inherit!important;opacity:1!important;visibility:visible!important;text-indent:0!important;font-size:inherit!important;line-height:inherit!important;overflow:visible!important;}
+html body button,html body .primary-btn,html body .menu-btn{background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(232,221,208,.88))!important;border:1px solid rgba(104,74,43,.25)!important;box-shadow:0 5px 16px rgba(65,42,18,.10), inset 0 1px 0 rgba(255,255,255,.8)!important;}
+html body .ghost-btn,html body .small-btn,html body .tiny-btn{background:rgba(255,255,255,.76)!important;border:1px solid rgba(104,74,43,.18)!important;}
+html body button::before,html body button::after,html body .primary-btn::before,html body .primary-btn::after,html body .ghost-btn::before,html body .ghost-btn::after,html body .menu-btn::before,html body .menu-btn::after{content:none!important;display:none!important;}
+html body button:empty::after,html body [role="button"]:empty::after,html body .primary-btn:empty::after,html body .ghost-btn:empty::after,html body .menu-btn:empty::after{content:attr(aria-label)!important;color:var(--yx-ink)!important;-webkit-text-fill-color:var(--yx-ink)!important;display:inline!important;}
+html body button:not([aria-label]):empty::after,html body [role="button"]:not([aria-label]):empty::after{content:'按鈕'!important;}
+/* labels/tags */
+html body .material-tag,html body .yx-material,html body [data-material]{color:var(--yx-green)!important;-webkit-text-fill-color:var(--yx-green)!important;font-weight:900!important;}
+html body .customer-name,html body .yx-customer,html body [data-customer-name]{color:var(--yx-red)!important;-webkit-text-fill-color:var(--yx-red)!important;font-weight:950!important;}
+html body .qty,html body .total-qty,html body .yx-total{color:var(--yx-blue)!important;-webkit-text-fill-color:var(--yx-blue)!important;font-weight:950!important;}
+/* Warehouse layout contract: A/B each 6 columns -> 3 columns x 2 rows */
+html body[data-module="warehouse_page"] #zone-A-grid,html body[data-module="warehouse_page"] #zone-B-grid,
+html body[data-module="warehouse_page"] .warehouse-zone-columns,html body[data-module="warehouse_page"] .warehouse-columns,
+html body[data-module="warehouse_page"] .warehouse-zone-grid,html body[data-module="warehouse_page"] .yx106-warehouse-zone-grid,html body[data-module="warehouse_page"] .yx116-warehouse-zone-grid,
+html body[data-module="warehouse_page"] .zone-grid.six-grid{
+  display:grid!important;grid-template-columns:repeat(3,minmax(280px,1fr))!important;grid-auto-flow:row!important;gap:16px!important;align-items:start!important;overflow:visible!important;max-height:none!important;height:auto!important;}
+html body[data-module="warehouse_page"] .vertical-column-card,html body[data-module="warehouse_page"] .yx106-warehouse-column,html body[data-module="warehouse_page"] .yx116-warehouse-column{
+  width:100%!important;min-width:0!important;height:auto!important;min-height:unset!important;overflow:visible!important;display:flex!important;flex-direction:column!important;gap:8px!important;}
+html body[data-module="warehouse_page"] .vertical-slot-list{height:auto!important;max-height:none!important;overflow:visible!important;display:flex!important;flex-direction:column!important;gap:8px!important;}
+html body[data-module="warehouse_page"] .vertical-slot,html body[data-module="warehouse_page"] .yx108-slot,html body[data-module="warehouse_page"] .yx106-slot,html body[data-module="warehouse_page"] .yx116-slot,html body[data-module="warehouse_page"] .warehouse-cell{
+  min-height:116px!important;height:auto!important;max-height:none!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important;padding:10px 12px!important;border-radius:16px!important;background:rgba(255,255,255,.84)!important;border:1px solid rgba(112,82,49,.22)!important;box-shadow:0 6px 18px rgba(38,25,12,.08)!important;font-size:18px!important;line-height:1.35!important;color:var(--yx-ink)!important;-webkit-text-fill-color:var(--yx-ink)!important;}
+html body[data-module="warehouse_page"] .vertical-slot *,html body[data-module="warehouse_page"] .yx108-slot *,html body[data-module="warehouse_page"] .yx106-slot *,html body[data-module="warehouse_page"] .yx116-slot *,html body[data-module="warehouse_page"] .warehouse-cell *{max-height:none!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important;font-size:18px!important;line-height:1.35!important;}
+html body[data-module="warehouse_page"] .yx-slot-head,html body[data-module="warehouse_page"] .slot-head,html body[data-module="warehouse_page"] .warehouse-cell-head{display:grid!important;grid-template-columns:44px minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;font-size:20px!important;font-weight:950!important;}
+html body[data-module="warehouse_page"] .yx-slot-line,html body[data-module="warehouse_page"] .slot-line,html body[data-module="warehouse_page"] .warehouse-item-line{display:grid!important;grid-template-columns:auto auto minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;}
+@media(max-width:920px){html body[data-module="warehouse_page"] #zone-A-grid,html body[data-module="warehouse_page"] #zone-B-grid,html body[data-module="warehouse_page"] .warehouse-zone-columns,html body[data-module="warehouse_page"] .warehouse-columns,html body[data-module="warehouse_page"] .warehouse-zone-grid,html body[data-module="warehouse_page"] .zone-grid.six-grid{grid-template-columns:repeat(3,minmax(240px,1fr))!important;overflow-x:auto!important;}} 
+
+/* 20260516aw: final direct controls audit - visual only, no DOM renderer, no click binding */
+html body .product-toolbar button,
+html body .product-toolbar .primary-btn,
+html body .product-toolbar .ghost-btn,
+html body .bulk-actions button,
+html body .batch-actions button,
+html body .customer-actions button,
+html body .ship-actions button,
+html body .warehouse-action-sheet button,
+html body .warehouse-cell-action button,
+html body .yx-context-menu button {
+  color:#201713!important;
+  -webkit-text-fill-color:#201713!important;
+  opacity:1!important;
+  visibility:visible!important;
+  min-height:40px!important;
+  padding:9px 12px!important;
+  border-radius:14px!important;
+  background:linear-gradient(180deg,#fffdf8,#efe5d4)!important;
+  border:1px solid rgba(84,61,36,.22)!important;
+  box-shadow:0 6px 16px rgba(61,42,21,.12)!important;
+  font-weight:900!important;
+  letter-spacing:.02em!important;
+}
+html body .warehouse-slot-summary,
+html body .warehouse-cell-summary,
+html body .yx-slot-head,
+html body .slot-head,
+html body .vertical-slot-head{
+  display:grid!important;
+  grid-template-columns:auto minmax(0,1fr) auto!important;
+  gap:8px!important;
+  align-items:center!important;
+  white-space:normal!important;
+  overflow:visible!important;
+}
+html body .warehouse-slot-summary .size-summary,
+html body .warehouse-cell-summary .size-summary,
+html body .yx-slot-size-summary{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+html body .warehouse-slot-row,
+html body .warehouse-item-row,
+html body .yx-slot-item-row{
+  display:grid!important;
+  grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;
+  gap:6px!important;
+  align-items:center!important;
+  font-size:18px!important;
+  line-height:1.35!important;
+  white-space:normal!important;
+  overflow:visible!important;
+}
+html body .warehouse-slot-row .customer,
+html body .warehouse-item-row .customer,
+html body .yx-slot-customer{color:#c1121f!important;font-weight:950!important;}
+html body .warehouse-slot-row .material,
+html body .warehouse-item-row .material,
+html body .yx-slot-material{color:#17803d!important;font-weight:950!important;}
+html body .warehouse-slot-total,
+html body .yx-slot-total{color:#0b5ed7!important;font-weight:950!important;}
+
+
+/* 20260516aw runtime hardening: final visual contract, no renderer/no click binding */
+html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag, html body .warehouse-action-sheet button, html body .warehouse-cell-action button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button {
+  color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:clamp(14px, 1.8vw, 18px) !important; line-height:1.25 !important; min-height:34px !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
+}
+html body button *, html body [role="button"] *, html body .primary-btn *, html body .ghost-btn *, html body .small-btn *, html body .tiny-btn *, html body .menu-btn *, html body .chip *, html body .pill *, html body .tag * {
+  color:inherit !important; -webkit-text-fill-color:inherit !important; opacity:1 !important; visibility:visible !important; font-size:inherit !important; line-height:inherit !important; text-indent:0 !important;
+}
+html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid {
+  display:grid !important; grid-template-columns:repeat(3,minmax(230px,1fr)) !important; grid-auto-flow:row !important; align-items:stretch !important; gap:14px !important; overflow-x:auto !important;
+}
+html body .vertical-column-card, html body .yx106-warehouse-column, html body .yx116-warehouse-column { min-width:230px !important; width:auto !important; height:auto !important; align-self:stretch !important; }
+html body .vertical-slot, html body .yx108-slot, html body .yx106-slot, html body .yx116-slot, html body .warehouse-cell, html body .warehouse-slot {
+  min-height:92px !important; height:auto !important; overflow:visible !important; white-space:normal !important; font-size:clamp(15px,2vw,20px) !important; line-height:1.25 !important;
+}
+html body .warehouse-slot-summary, html body .warehouse-cell-summary, html body .yx-slot-head, html body .slot-head, html body .vertical-slot-head {
+  display:grid !important; grid-template-columns:42px minmax(0,1fr) auto !important; gap:6px !important; align-items:center !important; font-weight:800 !important; white-space:normal !important; overflow:visible !important;
+}
+html body .warehouse-item-row, html body .warehouse-slot-row, html body .yx-slot-item-row {
+  display:grid !important; grid-template-columns:auto auto minmax(0,1fr) auto !important; gap:6px !important; align-items:center !important; white-space:normal !important; overflow:visible !important; font-size:clamp(15px,2vw,20px) !important;
+}
+html body .warehouse-customer, html body .slot-customer, html body .cell-customer { color:#b91c1c !important; -webkit-text-fill-color:#b91c1c !important; font-weight:900 !important; }
+html body .warehouse-material, html body .slot-material, html body .cell-material, html body .material-tag { color:#047857 !important; -webkit-text-fill-color:#047857 !important; font-weight:900 !important; }
+html body .warehouse-total, html body .slot-total, html body .cell-total { color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important; }
+@media (max-width: 980px){ html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3,minmax(220px,1fr)) !important; } }
+
+
+/* 20260516aw final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
+html body button:not([disabled]), html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
+  color:#111827 !important; -webkit-text-fill-color:#111827 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:max(14px, 1em) !important; line-height:1.25 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
+}
+html body .warehouse-action-sheet button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button {
+  color:#111827 !important; -webkit-text-fill-color:#111827 !important; min-height:40px !important; padding:8px 12px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
+}
+html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid {
+  display:grid !important; grid-template-columns:repeat(3, minmax(260px, 1fr)) !important; grid-auto-flow:row !important; gap:14px !important; align-items:stretch !important; overflow-x:auto !important;
+}
+html body .vertical-column-card, html body .yx106-warehouse-column, html body .yx116-warehouse-column {min-width:260px !important; width:100% !important;}
+html body .vertical-slot, html body .yx108-slot, html body .yx106-slot, html body .yx116-slot {min-height:118px !important; height:auto !important; overflow:visible !important; white-space:normal !important;}
+html body .warehouse-slot-summary, html body .warehouse-cell-summary, html body .yx-slot-head, html body .slot-head, html body .vertical-slot-head {display:grid !important; grid-template-columns:auto 1fr auto !important; gap:8px !important; align-items:center !important; font-weight:900 !important; font-size:18px !important;}
+html body .warehouse-slot-row, html body .warehouse-item-row, html body .yx-slot-item-row {display:grid !important; grid-template-columns:auto auto 1fr auto !important; gap:8px !important; align-items:center !important; font-size:17px !important; line-height:1.35 !important; white-space:normal !important;}
+html body .warehouse-customer-name, html body .slot-customer, html body .yx-slot-customer {color:#b91c1c !important; -webkit-text-fill-color:#b91c1c !important; font-weight:900 !important;}
+html body .warehouse-material, html body .slot-material, html body .yx-slot-material {color:#15803d !important; -webkit-text-fill-color:#15803d !important; font-weight:900 !important;}
+html body .warehouse-total-qty, html body .slot-total, html body .yx-slot-total {color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important;}
+
+/* 20260516aw final mainfile runtime audit: page buttons, tags, warehouse grid contract */
+html body button, html body [role="button"], html body a.menu-btn, html body .primary-btn, html body .ghost-btn,
+html body .small-btn, html body .tiny-btn, html body .home-mini-btn, html body .chip, html body .pill,
+html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag,
+html body .material-tag, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button,
+html body .ship-actions button, html body .warehouse-action-sheet button, html body .warehouse-cell-action button,
+html body .yx-context-menu button {
+  color:#1f2937 !important;
+  -webkit-text-fill-color:#1f2937 !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  text-indent:0 !important;
+  font-size:clamp(14px, 1.7vw, 18px) !important;
+  line-height:1.25 !important;
+  white-space:normal !important;
+  overflow:visible !important;
+  min-height:34px !important;
+  position:relative !important;
+  z-index:1 !important;
+}
+html body button *, html body [role="button"] *, html body .primary-btn *, html body .ghost-btn *, html body .small-btn *,
+html body .chip *, html body .pill *, html body .tag *, html body .customer-chip *, html body .warehouse-action-sheet button * {
+  color:inherit !important;
+  -webkit-text-fill-color:inherit !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  font-size:inherit !important;
+}
+html body .warehouse-zone-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid,
+html body .warehouse-zone-columns, html body .warehouse-columns, html body .zone-grid.six-grid,
+html body #zone-A-grid, html body #zone-B-grid {
+  display:grid !important;
+  grid-template-columns:repeat(3, minmax(260px, 1fr)) !important;
+  grid-auto-flow:row !important;
+  gap:14px !important;
+  align-items:stretch !important;
+  overflow-x:auto !important;
+}
+html body .vertical-column-card, html body .yx106-warehouse-column, html body .yx116-warehouse-column {
+  min-width:260px !important;
+  width:100% !important;
+  overflow:visible !important;
+}
+html body .vertical-slot-list, html body .warehouse-slot-list { overflow:visible !important; }
+html body .vertical-slot, html body .yx108-slot, html body .yx106-slot, html body .yx116-slot,
+html body .warehouse-cell, html body .warehouse-slot {
+  min-height:132px !important;
+  height:auto !important;
+  overflow:visible !important;
+  white-space:normal !important;
+  padding:10px !important;
+  font-size:17px !important;
+  line-height:1.35 !important;
+}
+html body .warehouse-slot-summary, html body .warehouse-cell-summary, html body .yx-slot-head, html body .slot-head,
+html body .vertical-slot-head {
+  display:grid !important;
+  grid-template-columns:auto 1fr auto !important;
+  gap:8px !important;
+  align-items:center !important;
+  font-weight:900 !important;
+  font-size:18px !important;
+  white-space:normal !important;
+  overflow:visible !important;
+}
+html body .warehouse-slot-row, html body .warehouse-item-row, html body .yx-slot-item-row {
+  display:grid !important;
+  grid-template-columns:auto auto 1fr auto !important;
+  gap:6px !important;
+  align-items:center !important;
+  font-size:17px !important;
+  white-space:normal !important;
+  overflow:visible !important;
+}
+html body .warehouse-customer, html body .slot-customer, html body .yx-slot-customer { color:#b91c1c !important; -webkit-text-fill-color:#b91c1c !important; font-weight:900 !important; }
+html body .warehouse-material, html body .slot-material, html body .yx-slot-material { color:#047857 !important; -webkit-text-fill-color:#047857 !important; font-weight:900 !important; }
+html body .warehouse-total, html body .slot-total, html body .yx-slot-total { color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important; }
+@media (max-width: 980px){
+  html body .warehouse-zone-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid,
+  html body .warehouse-zone-columns, html body .warehouse-columns, html body .zone-grid.six-grid,
+  html body #zone-A-grid, html body #zone-B-grid {
+    grid-template-columns:repeat(3, minmax(240px, 1fr)) !important;
+    overflow-x:auto !important;
+  }
+}
+
+/* 20260516aw: final runtime page-control and warehouse layout proof. Visual only; no renderer, no event binding. */
+html body button,
+html body [role="button"],
+html body a.primary-btn,
+html body a.ghost-btn,
+html body a.back-btn,
+html body .primary-btn,
+html body .ghost-btn,
+html body .small-btn,
+html body .tiny-btn,
+html body .menu-btn,
+html body .home-mini-btn,
+html body .chip,
+html body .pill,
+html body .tag,
+html body .badge,
+html body .customer-card,
+html body .customer-chip,
+html body .customer-tag,
+html body .material-tag,
+html body .product-toolbar button,
+html body .bulk-actions button,
+html body .batch-actions button,
+html body .customer-actions button,
+html body .ship-actions button,
+html body .warehouse-action-sheet button,
+html body .warehouse-cell-action button,
+html body .yx-context-menu button {
+  color:#201713 !important;
+  -webkit-text-fill-color:#201713 !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  text-indent:0 !important;
+  white-space:normal !important;
+  overflow:visible !important;
+  font-size:15px !important;
+  line-height:1.25 !important;
+  font-weight:850 !important;
+  min-height:34px !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:6px !important;
+}
+html body button *,
+html body [role="button"] *,
+html body .primary-btn *,
+html body .ghost-btn *,
+html body .small-btn *,
+html body .tiny-btn *,
+html body .menu-btn *,
+html body .chip *,
+html body .pill *,
+html body .tag * {
+  color:inherit !important;
+  -webkit-text-fill-color:inherit !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  text-indent:0 !important;
+  font-size:inherit !important;
+  line-height:inherit !important;
+}
+html body .warehouse-zone-columns,
+html body .warehouse-columns,
+html body .warehouse-zone-grid,
+html body .yx106-warehouse-zone-grid,
+html body .yx116-warehouse-zone-grid,
+html body .zone-grid.six-grid,
+html body #zone-A-grid,
+html body #zone-B-grid {
+  display:grid !important;
+  grid-template-columns:repeat(3, minmax(240px, 1fr)) !important;
+  grid-auto-flow:row !important;
+  gap:14px !important;
+  align-items:start !important;
+}
+html body .vertical-column-card,
+html body .yx106-warehouse-column,
+html body .yx116-warehouse-column {
+  min-width:0 !important;
+  width:auto !important;
+  overflow:visible !important;
+}
+html body .vertical-slot-list,
+html body .yx106-slot-list,
+html body .yx116-slot-list {
+  overflow:visible !important;
+  display:flex !important;
+  flex-direction:column !important;
+  gap:8px !important;
+}
+html body .vertical-slot,
+html body .yx108-slot,
+html body .yx106-slot,
+html body .yx116-slot,
+html body .yx-final-slot,
+html body .warehouse-slot,
+html body .warehouse-cell {
+  min-height:96px !important;
+  height:auto !important;
+  max-height:none !important;
+  overflow:visible !important;
+  white-space:normal !important;
+  padding:10px 12px !important;
+  font-size:18px !important;
+  line-height:1.32 !important;
+}
+html body .yx520-wh-head,
+html body .warehouse-slot-summary,
+html body .warehouse-cell-summary,
+html body .yx-slot-head,
+html body .slot-head,
+html body .vertical-slot-head {
+  display:grid !important;
+  grid-template-columns:minmax(26px,auto) 1fr auto !important;
+  gap:8px !important;
+  align-items:center !important;
+  white-space:normal !important;
+  overflow:visible !important;
+  font-size:18px !important;
+  font-weight:900 !important;
+}
+html body .yx520-wh-body,
+html body .warehouse-slot-body,
+html body .warehouse-cell-body {
+  margin-top:6px !important;
+  display:flex !important;
+  flex-direction:column !important;
+  gap:4px !important;
+  overflow:visible !important;
+}
+html body .yx520-wh-item-line,
+html body .warehouse-slot-row,
+html body .warehouse-item-row,
+html body .yx-slot-item-row {
+  display:grid !important;
+  grid-template-columns:auto auto 1fr auto !important;
+  gap:7px !important;
+  align-items:center !important;
+  font-size:17px !important;
+  line-height:1.28 !important;
+  white-space:normal !important;
+  overflow:visible !important;
+}
+html body .yx520-wh-customer,
+html body .warehouse-customer,
+html body .slot-customer { color:#b42318 !important; -webkit-text-fill-color:#b42318 !important; font-weight:950 !important; }
+html body .yx520-wh-material,
+html body .warehouse-material,
+html body .slot-material { color:#0f7a3f !important; -webkit-text-fill-color:#0f7a3f !important; font-weight:950 !important; }
+html body .yx520-wh-total,
+html body .warehouse-total,
+html body .slot-total { color:#1455d9 !important; -webkit-text-fill-color:#1455d9 !important; font-weight:950 !important; white-space:nowrap !important; }
+@media (max-width: 920px){
+  html body .warehouse-zone-columns,
+  html body .warehouse-columns,
+  html body .warehouse-zone-grid,
+  html body .zone-grid.six-grid,
+  html body #zone-A-grid,
+  html body #zone-B-grid {
+    grid-template-columns:repeat(3, minmax(230px, 1fr)) !important;
+    overflow-x:auto !important;
+    padding-bottom:8px !important;
+  }
+}
+
+
+/* 20260516aw final runtime UI/warehouse guard: visual-only, no renderer, no click binding */
+html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
+  color:#1f2933 !important; -webkit-text-fill-color:#1f2933 !important; opacity:1 !important; visibility:visible !important; font-size:max(14px, 1em) !important; text-indent:0 !important; white-space:normal !important; overflow:visible !important; line-height:1.25 !important;
+}
+html body .warehouse-action-sheet button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button, html body .yx-context-menu button {
+  min-height:36px !important; padding:8px 12px !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
+}
+html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid {
+  display:grid !important; grid-template-columns:repeat(3, minmax(220px, 1fr)) !important; grid-auto-flow:row !important; align-items:stretch !important; gap:14px !important; overflow-x:auto !important;
+}
+html body .vertical-column-card, html body .yx106-warehouse-column, html body .yx116-warehouse-column { min-width:220px !important; }
+html body .vertical-slot, html body .yx108-slot, html body .yx106-slot, html body .yx116-slot, html body .warehouse-cell, html body .warehouse-slot {
+  min-height:118px !important; height:auto !important; max-height:none !important; overflow:visible !important; white-space:normal !important; font-size:18px !important; line-height:1.35 !important;
+}
+html body .warehouse-slot-summary, html body .warehouse-cell-summary, html body .yx-slot-head, html body .slot-head, html body .vertical-slot-head {
+  display:grid !important; grid-template-columns:auto 1fr auto !important; gap:8px !important; align-items:center !important; font-weight:800 !important;
+}
+html body .warehouse-slot-row, html body .warehouse-item-row, html body .yx-slot-item-row {
+  display:grid !important; grid-template-columns:auto auto 1fr auto !important; gap:8px !important; align-items:center !important; font-size:18px !important;
+}
+html body .slot-customer, html body .warehouse-customer, html body .cell-customer { color:#b91c1c !important; -webkit-text-fill-color:#b91c1c !important; font-weight:900 !important; }
+html body .slot-material, html body .warehouse-material, html body .cell-material, html body .material-tag { color:#047857 !important; -webkit-text-fill-color:#047857 !important; font-weight:900 !important; }
+html body .slot-total, html body .warehouse-total, html body .cell-total { color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important; }
+@media (max-width: 980px){
+  html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3, minmax(220px, 1fr)) !important; overflow-x:auto !important; }
+}
+
+/* 20260516aw final safety contract */
+:is(button,[role="button"],.primary-btn,.ghost-btn,.small-btn,.tiny-btn,.menu-btn,.home-mini-btn,.chip,.pill,.tag,.badge,.customer-card,.customer-chip,.customer-tag,.material-tag,.warehouse-action-sheet button,.product-toolbar button,.bulk-actions button,.batch-actions button,.ship-actions button,.yx-context-menu button){
+  color:#1f2937 !important;
+  -webkit-text-fill-color:#1f2937 !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  text-indent:0 !important;
+  font-size:max(14px,1em) !important;
+  line-height:1.25 !important;
+  overflow:visible !important;
+  white-space:normal !important;
+}
+:is(button,[role="button"]):empty::after{content:"按鈕"; color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important;}
+#zone-A-grid,#zone-B-grid,.warehouse-zone-columns,.warehouse-columns,.warehouse-zone-grid,.zone-grid.six-grid,.yx106-warehouse-zone-grid,.yx116-warehouse-zone-grid{
+  display:grid !important;
+  grid-template-columns:repeat(3,minmax(240px,1fr)) !important;
+  grid-auto-rows:auto !important;
+  align-items:stretch !important;
+  gap:14px !important;
+  overflow-x:auto !important;
+}
+.vertical-column-card,.yx106-warehouse-column,.yx116-warehouse-column{min-width:240px !important; height:auto !important; overflow:visible !important;}
+.vertical-slot,.yx108-slot,.yx106-slot,.yx116-slot{height:auto !important; min-height:112px !important; overflow:visible !important; white-space:normal !important; font-size:1.15rem !important;}
+.warehouse-slot-summary,.warehouse-cell-summary,.yx-slot-head,.slot-head,.vertical-slot-head{display:grid !important; grid-template-columns:auto 1fr auto !important; gap:8px !important; align-items:center !important; font-weight:900 !important;}
+.warehouse-slot-row,.warehouse-item-row,.yx-slot-item-row{display:grid !important; grid-template-columns:auto auto 1fr auto !important; gap:8px !important; align-items:center !important; font-size:1.08rem !important;}
+.warehouse-customer,.customer-name,.yx-customer-name{color:#dc2626 !important;-webkit-text-fill-color:#dc2626 !important;font-weight:900 !important;}
+.warehouse-material,.material-tag{color:#15803d !important;-webkit-text-fill-color:#15803d !important;font-weight:900 !important;}
+.warehouse-total,.slot-total,.total-qty{color:#2563eb !important;-webkit-text-fill-color:#2563eb !important;font-weight:900 !important;}
+
+
+/* 20260516aw runtime contract hardening: keep labels visible after icon-only/global UI skins */
+html body button:empty::after, html body [role="button"]:empty::after { content: attr(data-yx-label); color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important; font-weight:800 !important; }
+html body button[data-yx-label=""]:empty::after, html body [role="button"][data-yx-label=""]:empty::after { content:"按鈕"; }
+html body .product-toolbar, html body .bulk-actions, html body .batch-actions, html body .ship-actions, html body .warehouse-action-sheet, html body .yx-context-menu { overflow:visible !important; white-space:normal !important; }
+html body .warehouse-zone-columns > *, html body .warehouse-columns > *, html body .warehouse-zone-grid > *, html body .zone-grid.six-grid > * { min-width:240px !important; }
+
+/* 20260516aw: home font enlarged + menu evenly fills page; warehouse slot number stays on one line. */
+html body[data-module="home"] .home-screen,
+html body .home-screen{
+  min-height:100dvh!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  padding:clamp(16px,2.4vh,28px) 18px clamp(28px,4vh,44px)!important;
+  box-sizing:border-box!important;
+}
+html body[data-module="home"] .page-title,
+html body .home-screen .page-title{
+  font-size:clamp(56px,7.2vw,88px)!important;
+  line-height:1.02!important;
+  letter-spacing:.04em!important;
+  margin:0 0 clamp(16px,2vh,26px)!important;
+  font-weight:950!important;
+}
+html body[data-module="home"] .home-top-actions,
+html body .home-screen .home-top-actions{
+  gap:clamp(12px,1.8vw,24px)!important;
+  margin-bottom:clamp(22px,3vh,38px)!important;
+}
+html body[data-module="home"] .home-mini-btn,
+html body .home-screen .home-mini-btn{
+  min-height:44px!important;
+  height:44px!important;
+  min-width:128px!important;
+  padding:0 26px!important;
+  font-size:20px!important;
+  font-weight:950!important;
+}
+html body[data-module="home"] .home-menu,
+html body .home-screen .home-menu{
+  width:min(760px,72vw)!important;
+  max-width:calc(100vw - 28px)!important;
+  flex:1 1 auto!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-evenly!important;
+  gap:clamp(12px,1.8vh,22px)!important;
+  margin:0 auto!important;
+  padding-bottom:clamp(12px,2vh,30px)!important;
+}
+html body[data-module="home"] .home-menu .menu-btn,
+html body .home-screen .home-menu .menu-btn{
+  width:100%!important;
+  min-height:clamp(54px,6.8vh,72px)!important;
+  height:auto!important;
+  font-size:clamp(22px,2.2vw,30px)!important;
+  font-weight:950!important;
+  letter-spacing:.08em!important;
+}
+html body .yx108-slot-no,
+html body .yx520-wh-slotno{
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  overflow-wrap:normal!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  min-width:2.2em!important;
+  flex:0 0 auto!important;
+  line-height:1!important;
+}
+html body .yx108-slot-row1,
+html body .yx520-wh-head{
+  grid-template-columns:auto minmax(0,1fr) auto!important;
+  white-space:nowrap!important;
+  align-items:center!important;
+}
+html body .yx520-wh-item-line{
+  display:grid!important;
+  grid-template-columns:auto auto minmax(0,1fr) auto!important;
+  gap:6px!important;
+  align-items:center!important;
+}
+html body #warehouse-root .yx108-slot-row1{
+  display:grid!important;
+  grid-template-columns:max-content minmax(0,1fr)!important;
+  gap:8px!important;
+  align-items:center!important;
+  white-space:nowrap!important;
+}
+html body #warehouse-root .yx108-slot-no{
+  min-width:2.2em!important;
+  white-space:nowrap!important;
+  word-break:keep-all!important;
+  overflow-wrap:normal!important;
+  display:inline-flex!important;
+  justify-content:center!important;
+}
+html body #warehouse-root .yx520-wh-head{
+  display:grid!important;
+  grid-template-columns:max-content minmax(0,1fr) max-content!important;
+  align-items:center!important;
+  white-space:nowrap!important;
+}

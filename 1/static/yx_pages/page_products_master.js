@@ -10,6 +10,12 @@
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
   const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, installedSource:'' };
+  const CACHE_PREFIX = 'yx_aw_product_visible_';
+  function cacheKey(source){ return CACHE_PREFIX + source + '_' + String(window.__YX_STATIC_VERSION__ || 'aw'); }
+  function writeProductCache(source, rows){ try { localStorage.setItem(cacheKey(source), JSON.stringify({at:Date.now(), rows:Array.isArray(rows)?rows:[]})); } catch(_e) {} }
+  function readProductCache(source){ try { const raw=localStorage.getItem(cacheKey(source)); if(!raw) return []; const obj=JSON.parse(raw); return Array.isArray(obj.rows) ? obj.rows : []; } catch(_e) { return []; } }
+  function paintRows(source, rows){ rowsStore(source, Array.isArray(rows)?rows:[]); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source); afterRenderProductUI(); }
+  function showSourceError(source, msg){ const box=ensureSummary(source); if(box) box.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(msg || title(source)+'載入失敗')}</div>`; }
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -214,11 +220,14 @@
       const moveButtons = source === 'inventory'
         ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
         : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}" aria-label="全部區" data-yx-label="全部區">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}" aria-label="A區" data-yx-label="A區">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}" aria-label="B區" data-yx-label="B區">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}" aria-label="套用材質" data-yx-label="套用材質">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" aria-label="批量刪除" data-yx-label="批量刪除">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" aria-label="批量編輯全部" data-yx-label="批量編輯全部">批量編輯全部</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>${moveButtons}</div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}" aria-label="全部區" data-yx-label="全部區">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}" aria-label="A區" data-yx-label="A區">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}" aria-label="B區" data-yx-label="B區">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}" aria-label="套用材質" data-yx-label="套用材質">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" aria-label="批量刪除" data-yx-label="批量刪除">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" aria-label="批量編輯全部" data-yx-label="批量編輯全部">批量編輯全部</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>${moveButtons}<button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}" style="display:none" aria-label="儲存批量編輯" data-yx-label="儲存批量編輯">儲存批量編輯</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}" style="display:none" aria-label="取消編輯" data-yx-label="取消編輯">取消編輯</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
     const search = $(`yx113-${source}-search`);
+    if (!bar.querySelector(`[data-yx128-save-all="${source}"]`)) {
+      bar.querySelector('.yx-direct-batch-actions,.yx114-batch-actions')?.insertAdjacentHTML('beforeend', `<button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}" style="display:none" aria-label="儲存批量編輯" data-yx-label="儲存批量編輯">儲存批量編輯</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}" style="display:none" aria-label="取消編輯" data-yx-label="取消編輯">取消編輯</button>`);
+    }
     if (search && search.dataset.yxHtmlDirectBound !== '1') {
       search.dataset.yxHtmlDirectBound = '1';
       search.addEventListener('input', () => { renderSummary(source); renderCards(source); });
@@ -321,8 +330,8 @@
     const moveButtons = source === 'inventory'
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>`;
-    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
+    // 20260516aw：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
+    const controls = '';
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -379,19 +388,21 @@
   async function loadSource(source, opts={}){
     source = source || sourceFromModule();
     if (!source) return [];
+    if (!opts.force && !rowsStore(source).length) {
+      const cached = readProductCache(source);
+      if (cached.length) paintRows(source, cached);
+    }
     state.loading = source;
     try {
-      const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1'}});
       const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
-      rowsStore(source, rows);
-      pruneSelected(source);
-      ensureBatchToolbar(source);
-      ensureSummary(source);
-      renderSummary(source);
-      renderCards(source);
+      paintRows(source, rows);
+      writeProductCache(source, rows);
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}
-      afterRenderProductUI();
       return rowsStore(source);
+    } catch(e) {
+      if (!rowsStore(source).length) showSourceError(source, e.message || `${title(source)}載入失敗`);
+      throw e;
     } finally {
       if (state.loading === source) state.loading = null;
     }

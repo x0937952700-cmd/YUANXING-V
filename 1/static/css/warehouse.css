@@ -1722,7 +1722,7 @@ button,button *, .primary-btn,.primary-btn *, .ghost-btn,.ghost-btn *, .small-bt
 #zone-A-grid,#zone-B-grid,.zone-grid.six-grid,.warehouse-zone-columns{display:grid!important;grid-template-columns:repeat(3,minmax(260px,1fr))!important;gap:16px!important;overflow:visible!important;} .yx-final-slot,.vertical-slot{height:auto!important;min-height:112px!important;max-height:none!important;overflow:visible!important;}
 
 
-/* 20260516av synced from final mainfile UI: button text and warehouse layout hardening */
+/* 20260516aw synced from final mainfile UI: button text and warehouse layout hardening */
  final visual hardening written in the single UI main CSS; no renderer, no event binding. */
 :root{--yx-btn-text:#201713;--yx-btn-bg:rgba(255,255,255,.88);--yx-btn-border:rgba(82,54,28,.22)}
 html body button,
@@ -1856,7 +1856,7 @@ html body .yx520-wh-item-line b{color:#b42318!important;-webkit-text-fill-color:
 }
 
 
-/* 20260516av final inspection: one visual UI file only; no DOM, no renderer, no click binding */
+/* 20260516aw final inspection: one visual UI file only; no DOM, no renderer, no click binding */
 button, .primary-btn, .ghost-btn, .small-btn, .tiny-btn, .menu-btn, .home-mini-btn, .back-btn, .chip, .pill, .tag, .customer-region-card, .yx113-customer-card, .yx114-customer-card, .deduct-card button {
   color:#201713 !important;
   -webkit-text-fill-color:#201713 !important;
@@ -1893,7 +1893,7 @@ button:empty::after,.primary-btn:empty::after,.ghost-btn:empty::after,.small-btn
 @media(max-width:980px){.warehouse-zone-columns,#zone-A-grid,#zone-B-grid,.zone-grid.six-grid,.warehouse-zone-wrap .vertical-card-grid{grid-template-columns:repeat(3,minmax(230px,1fr))!important;overflow-x:auto!important;}.warehouse-page-shell{overflow-x:auto!important;}}
 
 
-/* 20260516av: final visual hardening written in the single UI main CSS; no renderer, no event binding. */
+/* 20260516aw: final visual hardening written in the single UI main CSS; no renderer, no event binding. */
 :root{--yx-btn-text:#201713;--yx-btn-bg:rgba(255,255,255,.88);--yx-btn-border:rgba(82,54,28,.22)}
 html body button,
 html body [role="button"],
@@ -2025,7 +2025,7 @@ html body .yx520-wh-item-line b{color:#b42318!important;-webkit-text-fill-color:
   html body .warehouse-page-shell,html body .warehouse-board,html body .warehouse-zone-wrap{overflow-x:auto!important;}
 }
 
-/* 20260516av: final visible-text fallback without changing DOM renderer */
+/* 20260516aw: final visible-text fallback without changing DOM renderer */
 html body button[data-yx-label]:empty::before,
 html body a[data-yx-label]:empty::before,
 html body .chip[data-yx-label]:empty::before,
@@ -2080,7 +2080,7 @@ html body .yx116-warehouse-zone-grid > *{
 
 
 
-/* 20260516av final loader audit: visible labels and warehouse fixed 3x2 layout */
+/* 20260516aw final loader audit: visible labels and warehouse fixed 3x2 layout */
 html body button, html body [role="button"], html body a.primary-btn, html body a.ghost-btn, html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .customer-card, html body .customer-chip, html body .chip, html body .pill, html body .tag {
   color:#201713 !important; -webkit-text-fill-color:#201713 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:15px !important; line-height:1.28 !important; white-space:normal !important; min-height:34px !important;
 }
@@ -2102,7 +2102,7 @@ html body .yx520-wh-total, html body .yx108-slot-total { color:#1d4ed8 !importan
 @media(max-width:980px){ html body .warehouse-zone-grid, html body .yx106-warehouse-zone-grid, html body .yx116-warehouse-zone-grid, html body .warehouse-columns, html body .warehouse-zone-columns, html body .zone-grid.six-grid, html body #zone-A-grid, html body #zone-B-grid { grid-template-columns:repeat(3,minmax(245px,1fr)) !important; } }
 
 
-/* 20260516av DOM-audit UI hardening: only visual, no renderer, no event binding. */
+/* 20260516aw DOM-audit UI hardening: only visual, no renderer, no event binding. */
 html body a.menu-btn, html body a.home-mini-btn, html body a.back-btn,
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn,
 html body .small-btn, html body .tiny-btn, html body .chip, html body .pill, html body .tag,
@@ -2168,7 +2168,7 @@ html body .yx108-slot *, html body .yx116-slot *, html body .warehouse-cell * {
   html body .warehouse-zone-wrap, html body .warehouse-map-scroll, html body .module-screen[data-module="warehouse"] { overflow-x:auto !important; }
 }
 
-/* 20260516av final no-blank-label / warehouse layout contract reinforcement. CSS only, no DOM renderer, no click binding. */
+/* 20260516aw final no-blank-label / warehouse layout contract reinforcement. CSS only, no DOM renderer, no click binding. */
 html body [data-yx-label], html body [aria-label], html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .customer-card, html body .customer-chip {
   color:#201713 !important; -webkit-text-fill-color:#201713 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:max(15px, 1em) !important; line-height:1.25 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
 }
@@ -2181,8 +2181,8 @@ html body .warehouse-cell * , html body .vertical-slot * , html body .yx108-slot
 @media (max-width: 920px){ html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid, html body #zone-A-grid, html body #zone-B-grid { grid-template-columns:repeat(3, minmax(240px, 1fr)) !important; } }
 
 
-/* 20260516av: DOM-real layout guard, written to main CSS, no renderer/no setInterval/no MutationObserver. */
-html body .yx-final-ui-proof::before{content:"20260516av";display:none!important;}
+/* 20260516aw: DOM-real layout guard, written to main CSS, no renderer/no setInterval/no MutationObserver. */
+html body .yx-final-ui-proof::before{content:"20260516aw";display:none!important;}
 html body button,
 html body [role="button"],
 html body a.primary-btn,
@@ -2229,7 +2229,7 @@ html body .yx520-wh-total{color:#0b63ce!important;-webkit-text-fill-color:#0b63c
 @media(max-width:980px){html body .warehouse-zone-columns,html body .warehouse-columns,html body .warehouse-zone-grid,html body .zone-grid.six-grid,html body #zone-A-grid,html body #zone-B-grid{grid-template-columns:repeat(3,minmax(230px,1fr))!important;min-width:720px!important;overflow:visible!important;}html body .warehouse-page-shell,html body .warehouse-board,html body .warehouse-zone-wrap{overflow-x:auto!important;}}
 
 
-/* 20260516av: last-mile exact page controls, no renderer/no click binding. */
+/* 20260516aw: last-mile exact page controls, no renderer/no click binding. */
 html body .btn-row, html body .compact-row, html body .toolbar, html body .action-row, html body .yx-actions-row, html body .customer-region-row{
   overflow:visible!important; max-height:none!important; visibility:visible!important; opacity:1!important;
 }
@@ -2270,9 +2270,9 @@ html body .yx520-wh-item-line{font-size:19px!important;line-height:1.38!importan
 }
 
 
-/* 20260516av synchronized final UI guard */
+/* 20260516aw synchronized final UI guard */
 
-/* 20260516av final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
+/* 20260516aw final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
 :root{--yx-ink:#211712;--yx-ink-soft:#4b3b31;--yx-panel:rgba(255,255,255,.86);--yx-line:rgba(120,88,55,.22);--yx-brand:#8b5a2b;--yx-blue:#1e64c8;--yx-red:#c7352a;--yx-green:#238447;}
 html body{background:#f7f3ed url('/static/yx_assets/yx_dream_starry_background.png') center top/cover fixed no-repeat!important;color:var(--yx-ink)!important;}
 html body .card,html body .panel,html body .section-card,html body .yx-card{background:var(--yx-panel)!important;border:1px solid var(--yx-line)!important;border-radius:18px!important;box-shadow:0 10px 30px rgba(56,38,18,.10)!important;}
@@ -2305,12 +2305,12 @@ html body[data-module="warehouse_page"] .yx-slot-line,html body[data-module="war
 @media(max-width:920px){html body[data-module="warehouse_page"] #zone-A-grid,html body[data-module="warehouse_page"] #zone-B-grid,html body[data-module="warehouse_page"] .warehouse-zone-columns,html body[data-module="warehouse_page"] .warehouse-columns,html body[data-module="warehouse_page"] .warehouse-zone-grid,html body[data-module="warehouse_page"] .zone-grid.six-grid{grid-template-columns:repeat(3,minmax(240px,1fr))!important;overflow-x:auto!important;}} 
 
 
-/* 20260516av synced warehouse readable cell contract */
+/* 20260516aw synced warehouse readable cell contract */
 html body .warehouse-slot-summary,html body .warehouse-cell-summary,html body .yx-slot-head,html body .slot-head,html body .vertical-slot-head{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;white-space:normal!important;overflow:visible!important;}
 html body .warehouse-slot-row,html body .warehouse-item-row,html body .yx-slot-item-row{display:grid!important;grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;gap:6px!important;align-items:center!important;font-size:18px!important;line-height:1.35!important;white-space:normal!important;overflow:visible!important;}
 
 
-/* 20260516av runtime hardening: final visual contract, no renderer/no click binding */
+/* 20260516aw runtime hardening: final visual contract, no renderer/no click binding */
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag, html body .warehouse-action-sheet button, html body .warehouse-cell-action button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button {
   color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:clamp(14px, 1.8vw, 18px) !important; line-height:1.25 !important; min-height:34px !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
 }
@@ -2336,7 +2336,7 @@ html body .warehouse-total, html body .slot-total, html body .cell-total { color
 @media (max-width: 980px){ html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3,minmax(220px,1fr)) !important; } }
 
 
-/* 20260516av final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
+/* 20260516aw final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
 html body button:not([disabled]), html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
   color:#111827 !important; -webkit-text-fill-color:#111827 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:max(14px, 1em) !important; line-height:1.25 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
 }
@@ -2354,7 +2354,7 @@ html body .warehouse-customer-name, html body .slot-customer, html body .yx-slot
 html body .warehouse-material, html body .slot-material, html body .yx-slot-material {color:#15803d !important; -webkit-text-fill-color:#15803d !important; font-weight:900 !important;}
 html body .warehouse-total-qty, html body .slot-total, html body .yx-slot-total {color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important;}
 
-/* 20260516av final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
+/* 20260516aw final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
 :root{--yx-ink:#211712;--yx-ink-soft:#4b3b31;--yx-panel:rgba(255,255,255,.86);--yx-line:rgba(120,88,55,.22);--yx-brand:#8b5a2b;--yx-blue:#1e64c8;--yx-red:#c7352a;--yx-green:#238447;}
 html body{background:#f7f3ed url('/static/yx_assets/yx_dream_starry_background.png') center top/cover fixed no-repeat!important;color:var(--yx-ink)!important;}
 html body .card,html body .panel,html body .section-card,html body .yx-card{background:var(--yx-panel)!important;border:1px solid var(--yx-line)!important;border-radius:18px!important;box-shadow:0 10px 30px rgba(56,38,18,.10)!important;}
@@ -2386,7 +2386,7 @@ html body[data-module="warehouse_page"] .yx-slot-head,html body[data-module="war
 html body[data-module="warehouse_page"] .yx-slot-line,html body[data-module="warehouse_page"] .slot-line,html body[data-module="warehouse_page"] .warehouse-item-line{display:grid!important;grid-template-columns:auto auto minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;}
 @media(max-width:920px){html body[data-module="warehouse_page"] #zone-A-grid,html body[data-module="warehouse_page"] #zone-B-grid,html body[data-module="warehouse_page"] .warehouse-zone-columns,html body[data-module="warehouse_page"] .warehouse-columns,html body[data-module="warehouse_page"] .warehouse-zone-grid,html body[data-module="warehouse_page"] .zone-grid.six-grid{grid-template-columns:repeat(3,minmax(240px,1fr))!important;overflow-x:auto!important;}} 
 
-/* 20260516av: final direct controls audit - visual only, no DOM renderer, no click binding */
+/* 20260516aw: final direct controls audit - visual only, no DOM renderer, no click binding */
 html body .product-toolbar button,
 html body .product-toolbar .primary-btn,
 html body .product-toolbar .ghost-btn,
@@ -2447,7 +2447,7 @@ html body .warehouse-slot-total,
 html body .yx-slot-total{color:#0b5ed7!important;font-weight:950!important;}
 
 
-/* 20260516av runtime hardening: final visual contract, no renderer/no click binding */
+/* 20260516aw runtime hardening: final visual contract, no renderer/no click binding */
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag, html body .warehouse-action-sheet button, html body .warehouse-cell-action button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button {
   color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:clamp(14px, 1.8vw, 18px) !important; line-height:1.25 !important; min-height:34px !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
 }
@@ -2473,7 +2473,7 @@ html body .warehouse-total, html body .slot-total, html body .cell-total { color
 @media (max-width: 980px){ html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3,minmax(220px,1fr)) !important; } }
 
 
-/* 20260516av final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
+/* 20260516aw final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
 html body button:not([disabled]), html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
   color:#111827 !important; -webkit-text-fill-color:#111827 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:max(14px, 1em) !important; line-height:1.25 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
 }
@@ -2491,7 +2491,7 @@ html body .warehouse-customer-name, html body .slot-customer, html body .yx-slot
 html body .warehouse-material, html body .slot-material, html body .yx-slot-material {color:#15803d !important; -webkit-text-fill-color:#15803d !important; font-weight:900 !important;}
 html body .warehouse-total-qty, html body .slot-total, html body .yx-slot-total {color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important;}
 
-/* 20260516av final mainfile runtime audit: page buttons, tags, warehouse grid contract */
+/* 20260516aw final mainfile runtime audit: page buttons, tags, warehouse grid contract */
 html body button, html body [role="button"], html body a.menu-btn, html body .primary-btn, html body .ghost-btn,
 html body .small-btn, html body .tiny-btn, html body .home-mini-btn, html body .chip, html body .pill,
 html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag,
@@ -2577,7 +2577,7 @@ html body .warehouse-total, html body .slot-total, html body .yx-slot-total { co
   }
 }
 
-/* 20260516av: final runtime page-control and warehouse layout proof. Visual only; no renderer, no event binding. */
+/* 20260516aw: final runtime page-control and warehouse layout proof. Visual only; no renderer, no event binding. */
 html body button,
 html body [role="button"],
 html body a.primary-btn,
@@ -2743,7 +2743,7 @@ html body .slot-total { color:#1455d9 !important; -webkit-text-fill-color:#1455d
 }
 
 
-/* 20260516av final runtime UI/warehouse guard: visual-only, no renderer, no click binding */
+/* 20260516aw final runtime UI/warehouse guard: visual-only, no renderer, no click binding */
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
   color:#1f2933 !important; -webkit-text-fill-color:#1f2933 !important; opacity:1 !important; visibility:visible !important; font-size:max(14px, 1em) !important; text-indent:0 !important; white-space:normal !important; overflow:visible !important; line-height:1.25 !important;
 }
@@ -2770,7 +2770,7 @@ html body .slot-total, html body .warehouse-total, html body .cell-total { color
   html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3, minmax(220px, 1fr)) !important; overflow-x:auto !important; }
 }
 
-/* 20260516av final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
+/* 20260516aw final mainfile UI: single UI layer, visible labels, warehouse 3x2, no JS renderer replacement */
 :root{--yx-ink:#211712;--yx-ink-soft:#4b3b31;--yx-panel:rgba(255,255,255,.86);--yx-line:rgba(120,88,55,.22);--yx-brand:#8b5a2b;--yx-blue:#1e64c8;--yx-red:#c7352a;--yx-green:#238447;}
 html body{background:#f7f3ed url('/static/yx_assets/yx_dream_starry_background.png') center top/cover fixed no-repeat!important;color:var(--yx-ink)!important;}
 html body .card,html body .panel,html body .section-card,html body .yx-card{background:var(--yx-panel)!important;border:1px solid var(--yx-line)!important;border-radius:18px!important;box-shadow:0 10px 30px rgba(56,38,18,.10)!important;}
@@ -2802,7 +2802,7 @@ html body[data-module="warehouse_page"] .yx-slot-head,html body[data-module="war
 html body[data-module="warehouse_page"] .yx-slot-line,html body[data-module="warehouse_page"] .slot-line,html body[data-module="warehouse_page"] .warehouse-item-line{display:grid!important;grid-template-columns:auto auto minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;}
 @media(max-width:920px){html body[data-module="warehouse_page"] #zone-A-grid,html body[data-module="warehouse_page"] #zone-B-grid,html body[data-module="warehouse_page"] .warehouse-zone-columns,html body[data-module="warehouse_page"] .warehouse-columns,html body[data-module="warehouse_page"] .warehouse-zone-grid,html body[data-module="warehouse_page"] .zone-grid.six-grid{grid-template-columns:repeat(3,minmax(240px,1fr))!important;overflow-x:auto!important;}} 
 
-/* 20260516av: final direct controls audit - visual only, no DOM renderer, no click binding */
+/* 20260516aw: final direct controls audit - visual only, no DOM renderer, no click binding */
 html body .product-toolbar button,
 html body .product-toolbar .primary-btn,
 html body .product-toolbar .ghost-btn,
@@ -2863,7 +2863,7 @@ html body .warehouse-slot-total,
 html body .yx-slot-total{color:#0b5ed7!important;font-weight:950!important;}
 
 
-/* 20260516av runtime hardening: final visual contract, no renderer/no click binding */
+/* 20260516aw runtime hardening: final visual contract, no renderer/no click binding */
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag, html body .warehouse-action-sheet button, html body .warehouse-cell-action button, html body .product-toolbar button, html body .bulk-actions button, html body .batch-actions button, html body .ship-actions button {
   color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:clamp(14px, 1.8vw, 18px) !important; line-height:1.25 !important; min-height:34px !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important; display:inline-flex !important; align-items:center !important; justify-content:center !important; gap:6px !important;
 }
@@ -2889,7 +2889,7 @@ html body .warehouse-total, html body .slot-total, html body .cell-total { color
 @media (max-width: 980px){ html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3,minmax(220px,1fr)) !important; } }
 
 
-/* 20260516av final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
+/* 20260516aw final convergence: visible labels + warehouse 3 columns x 2 rows runtime-proof; visual only. */
 html body button:not([disabled]), html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
   color:#111827 !important; -webkit-text-fill-color:#111827 !important; opacity:1 !important; visibility:visible !important; text-indent:0 !important; font-size:max(14px, 1em) !important; line-height:1.25 !important; white-space:normal !important; overflow:visible !important; text-overflow:clip !important;
 }
@@ -2907,7 +2907,7 @@ html body .warehouse-customer-name, html body .slot-customer, html body .yx-slot
 html body .warehouse-material, html body .slot-material, html body .yx-slot-material {color:#15803d !important; -webkit-text-fill-color:#15803d !important; font-weight:900 !important;}
 html body .warehouse-total-qty, html body .slot-total, html body .yx-slot-total {color:#1d4ed8 !important; -webkit-text-fill-color:#1d4ed8 !important; font-weight:900 !important;}
 
-/* 20260516av final mainfile runtime audit: page buttons, tags, warehouse grid contract */
+/* 20260516aw final mainfile runtime audit: page buttons, tags, warehouse grid contract */
 html body button, html body [role="button"], html body a.menu-btn, html body .primary-btn, html body .ghost-btn,
 html body .small-btn, html body .tiny-btn, html body .home-mini-btn, html body .chip, html body .pill,
 html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag,
@@ -2993,7 +2993,7 @@ html body .warehouse-total, html body .slot-total, html body .yx-slot-total { co
   }
 }
 
-/* 20260516av: final runtime page-control and warehouse layout proof. Visual only; no renderer, no event binding. */
+/* 20260516aw: final runtime page-control and warehouse layout proof. Visual only; no renderer, no event binding. */
 html body button,
 html body [role="button"],
 html body a.primary-btn,
@@ -3159,7 +3159,7 @@ html body .slot-total { color:#1455d9 !important; -webkit-text-fill-color:#1455d
 }
 
 
-/* 20260516av final runtime UI/warehouse guard: visual-only, no renderer, no click binding */
+/* 20260516aw final runtime UI/warehouse guard: visual-only, no renderer, no click binding */
 html body button, html body [role="button"], html body .primary-btn, html body .ghost-btn, html body .small-btn, html body .tiny-btn, html body .menu-btn, html body .home-mini-btn, html body .chip, html body .pill, html body .tag, html body .badge, html body .customer-card, html body .customer-chip, html body .customer-tag, html body .material-tag {
   color:#1f2933 !important; -webkit-text-fill-color:#1f2933 !important; opacity:1 !important; visibility:visible !important; font-size:max(14px, 1em) !important; text-indent:0 !important; white-space:normal !important; overflow:visible !important; line-height:1.25 !important;
 }
@@ -3186,7 +3186,7 @@ html body .slot-total, html body .warehouse-total, html body .cell-total { color
   html body #zone-A-grid, html body #zone-B-grid, html body .warehouse-zone-columns, html body .warehouse-columns, html body .warehouse-zone-grid, html body .zone-grid.six-grid { grid-template-columns:repeat(3, minmax(220px, 1fr)) !important; overflow-x:auto !important; }
 }
 
-/* 20260516av final safety contract */
+/* 20260516aw final safety contract */
 :is(button,[role="button"],.primary-btn,.ghost-btn,.small-btn,.tiny-btn,.menu-btn,.home-mini-btn,.chip,.pill,.tag,.badge,.customer-card,.customer-chip,.customer-tag,.material-tag,.warehouse-action-sheet button,.product-toolbar button,.bulk-actions button,.batch-actions button,.ship-actions button,.yx-context-menu button){
   color:#1f2937 !important;
   -webkit-text-fill-color:#1f2937 !important;
