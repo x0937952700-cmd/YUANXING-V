@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'v520-action-cache-ship-warehouse-fix-20260516h';
+  const PWA_VERSION = 'mainline-cache-proof-repair-20260516j';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');
@@ -18,24 +18,13 @@
   window.addEventListener('appinstalled',()=>{ const btn=document.getElementById('pwa-install-btn'); if(btn) btn.classList.add('hidden'); deferredInstallPrompt=null; });
   if('serviceWorker' in navigator){
     window.addEventListener('load',()=>{
-      navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}`,{scope:'/'}).then(reg=>{
-        const key = `YX_SW_LAST_UPDATE_${PWA_VERSION}`;
-        const now = Date.now();
-        const last = Number(localStorage.getItem(key) || 0);
-        // FIX110：不要每次開頁都 reg.update()，避免手機/Render 每頁都多一次網路檢查。
-        if(!last || now - last > 6 * 60 * 60 * 1000){
-          localStorage.setItem(key, String(now));
-          reg.update().catch(()=>{});
-        }
-        const clearKey = `YX_CLEAR_CACHE_DONE_${PWA_VERSION}`;
-        if(!localStorage.getItem(clearKey)){
-          try { (reg.active || reg.waiting || reg.installing)?.postMessage({type:'CLEAR_YX_CACHES'}); } catch(_){}
-          localStorage.setItem(clearKey, '1');
-        }
-        if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+      navigator.serviceWorker.register(`/sw.js?v=${PWA_VERSION}`,{scope:'/'}).then(async reg=>{
+        try { await reg.update(); } catch(_) {}
+        try { (reg.waiting || reg.installing || reg.active)?.postMessage({type:'SKIP_WAITING'}); } catch(_) {}
+        try { (reg.waiting || reg.installing || reg.active)?.postMessage({type:'CLEAR_YX_CACHES'}); } catch(_) {}
         reg.addEventListener('updatefound',()=>{
           const worker=reg.installing; if(!worker) return;
-          worker.addEventListener('statechange',()=>{ if(worker.state==='installed'&&navigator.serviceWorker.controller) worker.postMessage({type:'SKIP_WAITING'}); });
+          worker.addEventListener('statechange',()=>{ if(worker.state==='installed') worker.postMessage({type:'SKIP_WAITING'}); });
         });
       }).catch(err=>console.warn('PWA service worker 註冊失敗',err));
     });

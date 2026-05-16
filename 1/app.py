@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'v520-action-cache-ship-warehouse-fix-20260516h'
-APP_VERSION = '還完整母版520_客戶點擊出貨倉庫快取修復_20260516h'
+STATIC_VERSION = 'mainline-cache-proof-repair-20260516j'
+APP_VERSION = '還完整主線回復_快取根因修復_20260516j'
 
 app = Flask(__name__)
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
