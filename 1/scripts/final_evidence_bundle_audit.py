@@ -17,17 +17,17 @@ pre=read('scripts/predeploy_audit.py')
 manifest=read('static/manifest.webmanifest')
 sw=read('static/service-worker.js')
 checks={
- 'app version V511':'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app,
- 'static version V511':'119-v518_restore_satisfied_ship_preview_diag_pack28' in app,
- 'schema version V511':'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+ 'app version V511':'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app,
+ 'static version V511':'119-v520_final_ship_cache_align_pack30' in app,
+ 'schema version V511':'v520-final-ship-cache-align-pack30' in app,
  'final evidence route':"/api/health/final-evidence-bundle" in app and 'def api_health_final_evidence_bundle' in app,
  'final evidence audit helper':'def _diag_v511_final_evidence_bundle_audit' in app,
  'bundle aggregates readiness loop gap diagnostics':all(t in app for t in ['release_readiness','operation_closed_loop','final_gap_report','diagnostics_export']),
  'diagnostics client checks evidence':'/api/health/final-evidence-bundle' in diag,
  'deploy smoke checks evidence':'/api/health/final-evidence-bundle' in smoke,
- 'postdeploy evidence script shipped':'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in post and '/api/health/final-evidence-bundle' in post,
+ 'postdeploy evidence script shipped':'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in post and '/api/health/final-evidence-bundle' in post,
  'predeploy includes evidence audit':'scripts/final_evidence_bundle_audit.py' in pre,
- 'manifest bumped':'119-v518_restore_satisfied_ship_preview_diag_pack28' in manifest,
+ 'manifest bumped':'119-v520_final_ship_cache_align_pack30' in manifest,
  'service worker bumped no API cache':'yuanxing-v518-static-css-icons' in sw and '/api/' in sw,
 }
 for name, ok in checks.items():

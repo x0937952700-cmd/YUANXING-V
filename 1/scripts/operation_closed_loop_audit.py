@@ -21,7 +21,7 @@ closed=read('scripts/postdeploy_operation_closed_loop_verify.py')
 deploy=read('scripts/deploy_smoke_verify.py')
 pre=read('scripts/predeploy_audit.py')
 
-for token in ['V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28','119-v518_restore_satisfied_ship_preview_diag_pack28','v518-restore-satisfied-ship-preview-diag-pack28']:
+for token in ['V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30','119-v520_final_ship_cache_align_pack30','v520-final-ship-cache-align-pack30']:
     if token not in app:
         fail.append('app.py missing version token '+token)
 for token in ['/api/health/operation-closed-loop','closed_loop_routes','closed_loop_tables_readable','no_mutation=True']:

@@ -12,7 +12,7 @@ today=read('static/yx_pages/today_changes_page.js')
 diag=read('static/yx_pages/diagnostics_page.js')
 pre=read('scripts/predeploy_audit.py')
 checks={
- 'version_v506': 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app and 'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+ 'version_v506': 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app and 'v520-final-ship-cache-align-pack30' in app,
  'today_manual_refresh_frontend': 'manualRefresh' in today and 'manual_refresh=' in today and 'force:true' not in today and 'force=1' not in today and 'force=0' not in today,
  'today_no_idle_autorefresh': 'requestIdleCallback' not in today and 'setInterval(' not in today and 'MutationObserver' not in today,
  'today_cache_clear_manual': 'clearTodayLightCaches' in today and 'flagTodayStale' in today,

@@ -14,9 +14,9 @@ import argparse, json, sys, time, urllib.error, urllib.request
 from http.cookiejar import CookieJar
 from pathlib import Path
 
-EXPECTED_APP_VERSION='V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
-EXPECTED_STATIC_VERSION='119-v518_restore_satisfied_ship_preview_diag_pack28'
-EXPECTED_SCHEMA_VERSION='v518-restore-satisfied-ship-preview-diag-pack28'
+EXPECTED_APP_VERSION='V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30'
+EXPECTED_STATIC_VERSION='119-v520_final_ship_cache_align_pack30'
+EXPECTED_SCHEMA_VERSION='v520-final-ship-cache-align-pack30'
 EVIDENCE_PATH='/api/health/postdeploy-evidence-report'
 
 

@@ -21,7 +21,7 @@ for rel in ['scripts/local_sqlite_write_loop_verify.py','scripts/local_sqlite_wr
         try: ast.parse(txt)
         except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
 checks = {
-    'version V512': 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app and 'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+    'version V512': 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app and 'v520-final-ship-cache-align-pack30' in app,
     'readiness endpoint': '/api/health/local-write-loop-readiness' in app and 'api_health_local_write_loop_readiness' in app,
     'audit helper': '_diag_v512_local_write_loop_audit' in app,
     'final evidence collects local readiness': "collect('local_write_loop_readiness'" in app,

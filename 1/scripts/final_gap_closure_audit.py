@@ -17,16 +17,16 @@ diag=read('static/yx_pages/diagnostics_page.js')
 manifest=read('static/manifest.webmanifest')
 sw=read('static/service-worker.js')
 checks={
- 'app version V510':'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app,
- 'static version V510':'119-v518_restore_satisfied_ship_preview_diag_pack28' in app,
- 'schema version V510':'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+ 'app version V510':'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app,
+ 'static version V510':'119-v520_final_ship_cache_align_pack30' in app,
+ 'schema version V510':'v520-final-ship-cache-align-pack30' in app,
  'final gap route':"/api/health/final-gap-report" in app and 'def api_health_final_gap_report' in app,
  'final gap report builder':'def _v510_build_final_gap_report' in app and 'remaining_to_100' in app,
  'diagnostics exports final gap':'final_gap_report' in app and 'ready_percent_estimate' in app,
  'deploy smoke checks final gap':'/api/health/final-gap-report' in smoke and 'readiness_payloads' in smoke,
  'postdeploy final gap script shipped':'EXPECTED_APP_VERSION' in post and '/api/health/final-gap-report' in post,
  'predeploy includes final gap audit':'scripts/final_gap_closure_audit.py' in pre and 'scripts/postdeploy_final_gap_verify.py' in pre,
- 'manifest bumped':'119-v518_restore_satisfied_ship_preview_diag_pack28' in manifest,
+ 'manifest bumped':'119-v520_final_ship_cache_align_pack30' in manifest,
  'service worker bumped no API cache':'yuanxing-v518-static-css-icons' in sw and '/api/' in sw,
  'diagnostics client knows final gap':'/api/health/final-gap-report' in diag,
 }

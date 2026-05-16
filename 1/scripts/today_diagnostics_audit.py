@@ -18,7 +18,7 @@ home=read('static/yx_pages/home_page.js')
 css=read('static/css/base.css')
 try: ast.parse(app)
 except SyntaxError as e: fail.append(f'app.py syntax error: {e}')
-for token in ['V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28','119-v518_restore_satisfied_ship_preview_diag_pack28','v518-restore-satisfied-ship-preview-diag-pack28']:
+for token in ['V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30','119-v520_final_ship_cache_align_pack30','v520-final-ship-cache-align-pack30']:
     if token not in app:
         fail.append(f'app.py missing version token {token}')
 for token in ['_today_changes_table_detail','today_changes_table_total','today_changes_table_unread','UPDATE today_changes SET unread=0','DELETE FROM today_changes WHERE id']:

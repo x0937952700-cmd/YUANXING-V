@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 js=(ROOT/'static/yx_pages/warehouse_page.js').read_text(encoding='utf-8')
 app=(ROOT/'app.py').read_text(encoding='utf-8')
 checks={
- 'v506 version app': "V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28" in app,
+ 'v506 version app': "V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30" in app,
  'warehouse cell GET enabled': '@app.route("/api/warehouse/cell", methods=["GET", "POST"])' in app and 'request.method == "GET"' in app,
  'fresh readback helper': 'fetchFreshWarehouseCellForModal' in js and '/api/warehouse/cell?zone=' in js,
  'draft protected': 'draftRestored' in js and 'modalUserTouchedAt' in js,

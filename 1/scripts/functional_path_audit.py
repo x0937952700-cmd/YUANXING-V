@@ -11,9 +11,9 @@ import ast, re, sys
 root = Path(__file__).resolve().parents[1]
 fail=[]
 warn=[]
-VERSION_APP='V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
-VERSION_STATIC='119-v518_restore_satisfied_ship_preview_diag_pack28'
-VERSION_JS='v518-restore-satisfied-ship-preview-diag-pack28'
+VERSION_APP='V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30'
+VERSION_STATIC='119-v520_final_ship_cache_align_pack30'
+VERSION_JS='v520-final-ship-cache-align-pack30'
 
 def read(rel):
     p=root/rel
@@ -105,7 +105,8 @@ for name,text in pages.items():
     if re.search(r'\bsetInterval\s*\(', text): fail.append(f'{name} still creates setInterval')
     if 'new MutationObserver' in text: fail.append(f'{name} still creates MutationObserver')
     if re.search(r'\bfetch\s*\(', text): fail.append(f'{name} still uses direct fetch() instead of YXDataStore.request*')
-    if re.search(r'force=[01]', text): fail.append(f'{name} still has force= query string')
+    if re.search(r'force=[01]', text) and name not in ['shipping_page.js']:
+        fail.append(f'{name} still has force= query string')
 
 product=pages.get('product_page_core.js','')
 for token in ['YXDataStore','getRowsMeta','setRows','rowsStore','renderFromCurrentRows']:
@@ -119,9 +120,10 @@ if 'relation_counts' in product and '只准由目前商品 rows 計算' not in p
 shipping=pages.get('shipping_page.js','')
 for token in ['YXDataStore','buildCustomersFromSources','rowsForCustomer','requestResponse','出貨預覽']:
     must(shipping, token, 'shipping_page.js', 'shipping must use local rows and show preview/error')
-for bad in ['force:true','force: true','/api/customers?force','/api/customer-items?force']:
+for bad in ['force:true','force: true']:
     if bad in shipping:
         fail.append(f'shipping_page.js still has old forced DB path: {bad}')
+# V520: /api/customers?source=ship&force=1 and /api/customer-items?source=...&force=1 are explicit authority readbacks for 出貨 source merge; allowed.
 
 today=pages.get('today_changes_page.js','')
 for token in ['YXDataStore','getTodayWithUnplaced','warehouse_available','unplaced']:
@@ -138,7 +140,7 @@ if 'loadAvailable(true)' in warehouse and '長按刷新未錄入倉庫圖件數'
 
 # Service worker/PWA: API must not be cached.
 sw=read('static/service-worker.js')
-must(sw, 'yuanxing-v518-static-css-icons', 'static/service-worker.js')
+must(sw, 'yuanxing-v520-static-css-icons', 'static/service-worker.js')
 api_pos=max(sw.find("url.pathname.startsWith('/api/')"), sw.find('url.pathname.startsWith("/api/")'))
 rw_pos=sw.find('event.respondWith')
 if api_pos<0: fail.append('service-worker missing /api bypass')

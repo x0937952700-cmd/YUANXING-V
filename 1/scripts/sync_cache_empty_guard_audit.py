@@ -13,7 +13,7 @@ for rel, src in [('app.py',app),('scripts/sync_cache_empty_guard_audit.py',Path(
     try: ast.parse(src)
     except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
 checks=[
-    ('version bumped to V507', 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app and 'v518-restore-satisfied-ship-preview-diag-pack28' in device and 'v518-restore-satisfied-ship-preview-diag-pack28' in store),
+    ('version bumped to V507', 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app and 'v520-final-ship-cache-align-pack30' in device and 'v520-final-ship-cache-align-pack30' in store),
     ('empty overwrite guard exists', 'shouldPreserveOldPayload' in device and 'preserved_empty_overwrite' in device and 'explicitEmptyOk' in device),
     ('background queue drains before sync', 'drainBackgroundQueueBeforeSync' in device and 'queue-drain' in device and 'YXBackgroundSave' in device),
     ('sync meta includes queue status', 'queue_status' in device and 'pending_after' in settings),

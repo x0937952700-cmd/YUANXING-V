@@ -18,12 +18,12 @@ for rel in ['scripts/postdeploy_operation_closed_loop_verify.py','scripts/write_
     if txt:
         try: ast.parse(txt)
         except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
-required_app=['V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28','119-v518_restore_satisfied_ship_preview_diag_pack28','v518-restore-satisfied-ship-preview-diag-pack28','/api/health/write-test-safety','def api_health_write_test_safety','_diag_v513_write_test_safety_audit']
+required_app=['V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30','119-v520_final_ship_cache_align_pack30','v520-final-ship-cache-align-pack30','/api/health/write-test-safety','def api_health_write_test_safety','_diag_v513_write_test_safety_audit']
 for token in required_app:
     if token not in app: fail.append(f'app.py missing {token}')
 for token in ['--write-test','--i-understand-this-writes-data','--backup-confirmed','--allow-without-backup','--keep-test-data','cleanup_sentinel_data','YX_WRITE_TEST_V515_','write-test refused']:
     if token not in op: fail.append(f'postdeploy_operation_closed_loop_verify.py missing safety token {token}')
-for token in ['/api/health/write-test-safety','V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28']:
+for token in ['/api/health/write-test-safety','V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30']:
     if token not in deploy: fail.append(f'deploy_smoke_verify.py missing {token}')
 if '/api/health/write-test-safety' not in diag: fail.append('diagnostics_page.js missing write-test safety endpoint')
 if '/api/health/write-test-safety' not in evidence: fail.append('postdeploy_final_evidence_verify.py missing write-test safety endpoint')

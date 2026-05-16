@@ -73,7 +73,7 @@ else:
         fail.append(f'calc segments should keep display segment and math_segment: {calc}')
 
 shipping_js = read('static/yx_pages/shipping_page.js')
-for token in ['stripSupportNotes', 'supportTotalPieces', 'supportSticksSum', 'v518-restore-satisfied-ship-preview-diag-pack28']:
+for token in ['stripSupportNotes', 'supportTotalPieces', 'supportSticksSum', 'v520-final-ship-cache-align-pack30']:
     if token not in shipping_js:
         fail.append(f'shipping_page.js missing {token}')
 if re.search(r'function\s+supportSticksSum\([^)]*\)\{[^}]*stripSupportNotes', shipping_js, flags=re.S) is None:

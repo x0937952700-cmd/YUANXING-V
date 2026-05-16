@@ -16,9 +16,9 @@ import json, os, sys, tempfile, time, importlib
 from pathlib import Path
 from typing import Any
 
-EXPECTED_APP_VERSION = 'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28'
-EXPECTED_STATIC_VERSION = '119-v518_restore_satisfied_ship_preview_diag_pack28'
-EXPECTED_SCHEMA_VERSION = 'v518-restore-satisfied-ship-preview-diag-pack28'
+EXPECTED_APP_VERSION = 'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30'
+EXPECTED_STATIC_VERSION = '119-v520_final_ship_cache_align_pack30'
+EXPECTED_SCHEMA_VERSION = 'v520-final-ship-cache-align-pack30'
 PACK_MARKER = 'V518_RESTORE_SATISFIED_SHIP_PREVIEW_DIAG_PACK25'
 SENTINEL_PRODUCT = '132×11*12=123*4 (-3揚玉)'
 SENTINEL_PRODUCT_NORMALIZED = '132x11x12=123x4 (-3揚玉)'

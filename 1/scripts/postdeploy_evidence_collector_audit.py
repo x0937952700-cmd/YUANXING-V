@@ -19,9 +19,9 @@ for rel in ['scripts/postdeploy_evidence_collect.py','scripts/postdeploy_evidenc
         try: ast.parse(txt)
         except SyntaxError as e: fail.append(f'{rel} syntax error: {e}')
 checks={
-    'app version V515':'V119-V518-RESTORE-SATISFIED-SHIP-PREVIEW-DIAG-PACK28' in app,
-    'static version V515':'119-v518_restore_satisfied_ship_preview_diag_pack28' in app,
-    'schema version V515':'v518-restore-satisfied-ship-preview-diag-pack28' in app,
+    'app version V515':'V119-V520-FINAL-SHIP-CACHE-ALIGN-PACK30' in app,
+    'static version V515':'119-v520_final_ship_cache_align_pack30' in app,
+    'schema version V515':'v520-final-ship-cache-align-pack30' in app,
     'postdeploy evidence route':"/api/health/postdeploy-evidence-report" in app and 'def api_health_postdeploy_evidence_report' in app,
     'collector route read-only':'This does not write data' in app and 'no_mutation' in app,
     'collector aggregates evidence':all(t in app for t in ['final_evidence_bundle','release_readiness','operation_closed_loop','final_gap_report','write_test_safety','diagnostics_export']),
