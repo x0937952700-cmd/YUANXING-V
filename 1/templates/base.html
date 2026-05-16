@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3ed">
   <title>{{ title or '沅興木業' }}</title>
-  {% set _sv = static_version|default('mainline-safe-520-css-20260516t') %}
+  {% set _sv = static_version|default('mainfile-integrated-ui-warehouse-ship-20260516u') %}
   {% set _ep = request.endpoint or '' %}
   {% set _is_ship = _ep in ['ship_page','shipping_page_alias_v520_full'] or (request.path or '').startswith('/shipping') or (request.path or '').startswith('/ship') %}
   <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
@@ -30,24 +30,44 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix138_final_master_hardlock.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix140_readme_master_hardlock.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_stable_ui_repair.css') }}?v={{ _sv }}">
+  {% if not _is_ship %}
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_safe_520_visual_only.css') }}?v={{ _sv }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_safe_520_css_text_warehouse_20260516t.css') }}?v={{ _sv }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_ui_buttons_warehouse_20260516u.css') }}?v={{ _sv }}">
+  {% endif %}
   <script src="{{ url_for('static', filename='yx_modules/yx_runtime_stability_guard.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v={{ _sv }}"></script>
+  {% if _ep in ['inventory_page','orders_page','master_order_page','customers_page'] %}
   <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/page_products_master.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/page_customers_master.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _is_ship %}
+  <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v={{ _sv }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/ship_single_lock.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'warehouse_page' %}
   <script defer src="{{ url_for('static', filename='yx_modules/warehouse_hardlock.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'today_changes_page' %}
   <script defer src="{{ url_for('static', filename='yx_modules/today_changes_hardlock.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'settings_page' %}
   <script defer src="{{ url_for('static', filename='yx_modules/settings_manual.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'shipping_query_page' %}
   <script defer src="{{ url_for('static', filename='yx_modules/shipping_query_manual.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'todos_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/page_todos_master.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'diagnostics_page' %}
   <script defer src="{{ url_for('static', filename='yx_diagnostics_client.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/diagnostics_page.js') }}?v={{ _sv }}"></script>
+  {% endif %}
   <script defer src="{{ url_for('static', filename='yx_pages/page_bootstrap_master.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_force_cache_reset.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='pwa.js') }}?v={{ _sv }}"></script>

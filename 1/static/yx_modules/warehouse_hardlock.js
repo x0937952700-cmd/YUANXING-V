@@ -1,4 +1,4 @@
-/* 20260516t stable warehouse: current-satisfied mainline + 520 visual layout, no 520 renderer overwrite.
+/* 20260516u stable warehouse: current-satisfied mainline + 520 visual layout, no 520 renderer overwrite.
    沅興木業 倉庫頁最終鎖死版
    原則：倉庫頁只吃 templates/module.html 內唯一 HTML；本檔只更新資料、事件、API，不再整頁 render / 不再吃舊 render。 */
 (function(){
@@ -96,15 +96,16 @@
     }
     const qtys=items.map(itemQty).filter(n=>n>0);
     const totalQty=qtys.reduce((a,b)=>a+b,0);
-    const itemRows=items.slice(0,6).map(it=>{
+    const sizeSums=items.map(it=>`${productText(it)||'未填尺寸'} ${itemQty(it)}件`).join('｜');
+    const itemRows=items.slice(0,8).map(it=>{
       const cn=cleanCustomer(it.customer_name||'庫存');
-      const mat=materialOf(it);
+      const mat=materialOf(it)||'未填';
       const prod=productText(it);
       const q=itemQty(it);
-      return `<div class="yx520-wh-item-line"><span class="yx520-wh-customer">${esc(cn)}</span><span class="yx520-wh-product">${mat?`<em>${esc(mat)}</em>`:''}${esc(prod)}</span><b>${q}件</b></div>`;
+      return `<div class="yx520-wh-item-line"><span class="yx520-wh-customer">${esc(cn)}</span><span class="yx520-wh-material">${esc(mat)}</span><span class="yx520-wh-product">${esc(prod)}</span><b>${q}件</b></div>`;
     }).join('');
-    const more=items.length>6?`<div class="yx520-wh-more">另 ${items.length-6} 筆，點開查看</div>`:'';
-    el.innerHTML=`<div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">${s}</span><span class="yx108-slot-customers">${itemRows}${more}</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum">${esc(qtys.join('+')||String(totalQty))}</span><span class="yx108-slot-total">${totalQty}件</span></div>`;
+    const more=items.length>8?`<div class="yx520-wh-more">另 ${items.length-8} 筆，點開查看</div>`:'';
+    el.innerHTML=`<div class="yx520-wh-head"><span class="yx520-wh-slotno">${s}</span><span class="yx520-wh-size-sums">${esc(sizeSums)}</span><span class="yx520-wh-total">${totalQty}件</span></div><div class="yx520-wh-body">${itemRows}${more}</div>`;
   }
   function updateAllSlots(){
     ensureSlotRange();
@@ -129,7 +130,7 @@
     if(!force && loadCache()){ updateAllSlots(); }
     if(state.loading && !force) return state.loading;
     state.loading=(async()=>{ try{ const [d]=await Promise.all([api('/api/warehouse?ts='+Date.now()), loadAvailable()]);
-      if(force || canApplyServer()){
+      if(canApplyServer() || !state.data.cells.length){
         state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}};
         cacheNow();
       }
@@ -209,7 +210,7 @@
   async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原上一步','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
   async function insertWarehouseCell(z,c,s){ const d=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),insert_after:Number(s||0),slot_type:'direct'})}); toast('已插入格子','ok'); if(Array.isArray(d.cells)){ state.data.cells=d.cells; markLocal(); updateAllSlots(); } highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); }
   async function deleteWarehouseCell(z,c,s){ if(cellItems(z,c,s).length) return toast('格子內還有商品，請先移除商品後再刪除','warn'); if(!confirm(`確定刪除 ${z} 區第 ${c} 欄第 ${s} 格？`)) return; const d=await api('/api/warehouse/remove-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_number:Number(s),slot_type:'direct'})}); toast('已刪除格子','ok'); if(Array.isArray(d.cells)){ state.data.cells=d.cells; markLocal(); updateAllSlots(); } }
-  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">開啟 / 編輯格位</button><button data-wh-act="insert">在此格後插入格子</button><button data-wh-act="delete">刪除此格</button>'; document.body.appendChild(m); return m; }
+  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button data-wh-act="open">開啟 / 編輯格位</button><button data-wh-act="insert">在此格後插入格子</button><button data-wh-act="insert5">批量新增 5 格</button><button data-wh-act="delete">刪除此格</button><button data-wh-act="refresh">重新讀取此格</button><button data-wh-act="searchCustomer">搜尋同客戶</button>'; document.body.appendChild(m); return m; }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }
   function bindSlot(slot){
     if(!slot || slot.dataset.yxFinalBound==='1') return; slot.dataset.yxFinalBound='1'; let press=null;
@@ -226,7 +227,7 @@
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
     document.addEventListener('click',async ev=>{
-      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
+      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); if(act.dataset.whAct==='insert5'){ for(let i=0;i<5;i++) await insertWarehouseCell(z,c,s+i); } if(act.dataset.whAct==='refresh'){ state.localMutationAt=0; await renderWarehouse(true); highlightWarehouseCell(z,c,s); } if(act.dataset.whAct==='searchCustomer'){ const its=cellItems(z,c,s); if(its[0]) highlightWarehouseSameCustomer(its[0].customer_name||''); } }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) menu().classList.add('hidden');
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; renderCellItems(); return; }
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }

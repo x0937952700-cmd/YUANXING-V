@@ -9,7 +9,7 @@
   if (!YX) return;
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, installedSource:'' };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -33,13 +33,13 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
     if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
     const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
     const xParts = parts.filter(isSingleQtyX);
     const bareParts = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
-    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) { const m0=xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1]||0)+bareParts.length; }
     let total = 0;
     let hit = false;
     for (const seg of parts){
@@ -649,27 +649,7 @@
     });
     ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source);
   }
-  function scheduleRepair(source){
-    if (state.repairTimer) return;
-    state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
-  }
-  function observeProductPage(source){
-    if (state.observer || !source) return;
-    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
-    if (typeof NativeMO === 'undefined') return;
-    const targets = [sectionEl(source), listEl(source)].filter(Boolean);
-    if (!targets.length) return;
-    state.observer = new NativeMO(muts => {
-      for (const m of muts){
-        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
-        if (added.some(n => n.matches?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel') || n.querySelector?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel'))) {
-          scheduleRepair(source);
-          break;
-        }
-      }
-    });
-    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
-  }
+  function scheduleProductRepair(source){ cleanupLegacyProductDom(source); }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
@@ -677,14 +657,14 @@
     document.documentElement.dataset.yx132Products = 'locked';
     document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
-    ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
+    ensureBatchToolbar(source); ensureSummary(source); cleanupLegacyProductDom(source);
     if (state.installedSource === source && rowsStore(source).length) {
       renderSummary(source); renderCards(source);
     } else {
       state.installedSource = source;
       loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
     }
-    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
+    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
   const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };
@@ -726,7 +706,7 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : 0;
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(x=>x.trim()).filter(Boolean);
     if (!parts.length) return 1;
     let total = 0, hit = false;

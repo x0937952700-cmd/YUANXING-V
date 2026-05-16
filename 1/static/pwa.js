@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'mainline-520-js-extracted-safe-ui-20260516t';
+  const PWA_VERSION = 'mainfile-integrated-ui-warehouse-ship-20260516u';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

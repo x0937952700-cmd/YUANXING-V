@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yx-stable-js-full-css-20260516t';
+const CACHE_NAME = 'yx-mainfile-ui-warehouse-ship-20260516u';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/css/base.css',
@@ -6,10 +6,6 @@ const SAFE_ASSETS = [
   '/static/css/product.css',
   '/static/css/warehouse.css',
   '/static/css/mobile.css',
-  '/static/yx_cache.js',
-  '/static/yx_core.js',
-  '/static/yx_data_store.js',
-  '/static/yx_device_sync.js',
   '/static/yx_assets/home_cloud_background.jpg',
   '/static/yx_assets/yx_dream_pill_button.png',
   '/static/yx_assets/yx_dream_starry_background.png',
@@ -23,7 +19,7 @@ const SAFE_ASSETS = [
   '/static/yx_modules/fix140_readme_master_hardlock.css',
   '/static/yx_modules/yx_stable_ui_repair.css',
   '/static/yx_modules/yx_safe_520_visual_only.css',
-  '/static/yx_modules/yx_final_safe_520_css_text_warehouse_20260516t.css',
+  '/static/yx_modules/yx_final_ui_buttons_warehouse_20260516u.css',
   '/static/yx_modules/yx_warehouse_button_text_layout_fix_20260516s.css',
   '/static/yx_modules/fix142_speed_ship_hardlock.css',
   '/static/yx_modules/yx_ship_safe_ui_520.css',
