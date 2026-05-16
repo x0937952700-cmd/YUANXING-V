@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'stable-mainline-safe-visual-css-20260516q'
-APP_VERSION = '還完整主線_安全純CSS視覺_出貨獨立保護_20260516q'
+STATIC_VERSION = 'mainline-520-js-extracted-safe-ui-20260516r'
+APP_VERSION = '還完整主線_520JS剝離進主檔_UI背景按鈕_出貨倉庫速度修復_20260516r'
 
 app = Flask(__name__)
 
@@ -3449,6 +3449,27 @@ def _yx_diag_full_requirement_report():
             'issues': issues,
             'summary': {'total':len(all_checks),'issues':len(issues),'critical':len([c for c in issues if c.get('severity')=='critical'])}}
 
+
+
+def _yx_diag_issue_overview(issues):
+    """Human-readable diagnostic overview for the top summary card."""
+    issues = [x for x in (issues or []) if isinstance(x, dict)]
+    def sev(x): return str(x.get('severity') or '').lower()
+    major = [x for x in issues if sev(x) in ('critical','major','重大')]
+    normal = [x for x in issues if sev(x) in ('warn','warning','normal','普通')]
+    minor = [x for x in issues if sev(x) not in ('critical','major','重大','warn','warning','normal','普通')]
+    def compact(xs):
+        return [{'section':x.get('section') or '', 'name':x.get('name') or '', 'detail':x.get('detail') or '', 'severity':x.get('severity') or ''} for x in xs[:20]]
+    return {
+        'major_count': len(major),
+        'normal_count': len(normal),
+        'minor_count': len(minor),
+        'major_items': compact(major),
+        'normal_items': compact(normal),
+        'minor_items': compact(minor),
+        'message': f"重大 {len(major)} 項、普通 {len(normal)} 項、小 BUG {len(minor)} 項"
+    }
+
 @app.route('/api/diagnostics/full-requirements', methods=['GET'])
 @login_required_json
 def api_diagnostics_full_requirements():
@@ -3463,7 +3484,9 @@ def api_diagnostics_summary():
     columns = {t: _yx_diag_columns(t) for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','logs','errors']}
     full = _yx_diag_full_requirement_report()
     db_ok = not bool(STARTUP_DB_ERROR)
-    return jsonify(success=(db_ok and full.get('success')), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=full.get('checks', []), issues=full.get('issues', []), sections=full.get('sections', []), summary={'checks': full.get('summary',{}).get('total',0), 'issues': full.get('summary',{}).get('issues',0), 'critical': full.get('summary',{}).get('critical',0)})
+    issues = full.get('issues', [])
+    overview = _yx_diag_issue_overview(issues)
+    return jsonify(success=(db_ok and full.get('success')), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=full.get('checks', []), issues=issues, sections=full.get('sections', []), issue_overview=overview, summary={'checks': full.get('summary',{}).get('total',0), 'issues': full.get('summary',{}).get('issues',0), 'critical': overview['major_count'], 'major': overview['major_count'], 'normal': overview['normal_count'], 'minor': overview['minor_count'], 'message': overview['message']})
 
 @app.route('/api/diagnostics/export', methods=['GET'])
 @login_required_json
@@ -3472,7 +3495,7 @@ def api_diagnostics_export():
     action_resp = api_diagnostics_action_audit().get_json()
     master_resp = api_diagnostics_master_requirements().get_json()
     full_resp = _yx_diag_full_requirement_report()
-    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(11).txt', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整母版核心，不載入新增快取核心。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
+    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(11).txt', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     resp = Response(payload, mimetype='application/json; charset=utf-8')
     resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_report.json"'

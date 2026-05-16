@@ -3,7 +3,7 @@
   20260516q
   Rules:
   - CSS only: no DOM changes, no events, no renderer changes.
-  - Do not use display:none / pointer-events:none / visibility:hidden.
+  - Do not use hidden/click-blocking layout rules.
   - Do not change functional layout containers aggressively.
   - Shipping page is excluded in base.html and uses its own safe CSS.
 */
@@ -206,3 +206,26 @@ body:not(.yx-ship-page) .blank-state{
   body:not(.yx-ship-page) .customer-tag,
   body:not(.yx-ship-page) .region-customer{font-size:1.12rem;min-height:40px;}
 }
+
+
+/* YX 20260516r safe visual bridge: visual only, no DOM/renderer/event changes. */
+:root{--yx-wood:#7b4a26;--yx-wood-dark:#4d2d16;--yx-cream:#fff8ef;--yx-card:#fffaf4;--yx-line:rgba(88,56,30,.16);--yx-shadow:0 14px 34px rgba(72,43,18,.10)}
+body:not(.yx-ship-page){background:#f7efe3;background-image:linear-gradient(180deg,rgba(255,255,255,.82),rgba(246,237,222,.92)),url('/static/yx_assets/home_cloud_background.jpg');background-size:cover;background-attachment:fixed;color:#2f2116}
+body:not(.yx-ship-page) .page-shell{max-width:1180px;margin:0 auto;padding:14px}
+body:not(.yx-ship-page) .glass,body:not(.yx-ship-page) .panel,body:not(.yx-ship-page) .subsection,body:not(.yx-ship-page) .table-card,body:not(.yx-ship-page) .result-card{background:rgba(255,250,244,.94);border:1px solid var(--yx-line);border-radius:20px;box-shadow:var(--yx-shadow);backdrop-filter:blur(10px)}
+body:not(.yx-ship-page) button,body:not(.yx-ship-page) .primary-btn,body:not(.yx-ship-page) .ghost-btn,body:not(.yx-ship-page) .back-btn{border-radius:999px;font-weight:800;min-height:38px;transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
+body:not(.yx-ship-page) button:active,body:not(.yx-ship-page) .primary-btn:active,body:not(.yx-ship-page) .ghost-btn:active{transform:scale(.98)}
+body:not(.yx-ship-page) .primary-btn{background:linear-gradient(135deg,#6f3f1e,#9b6a37);border:1px solid rgba(80,45,20,.18);color:#fff;box-shadow:0 8px 20px rgba(111,63,30,.22)}
+body:not(.yx-ship-page) .ghost-btn,body:not(.yx-ship-page) .back-btn{background:rgba(255,255,255,.72);border:1px solid rgba(87,55,29,.18);color:#3a2515}
+body:not(.yx-ship-page) .danger-btn{color:#b32820;border-color:rgba(179,40,32,.26)}
+body:not(.yx-ship-page) .text-input,body:not(.yx-ship-page) .text-area,body:not(.yx-ship-page) select{border-radius:14px;border:1px solid rgba(100,65,30,.18);background:rgba(255,255,255,.92);min-height:40px}
+body:not(.yx-ship-page) .yx113-table{width:100%;border-collapse:separate;border-spacing:0 8px;table-layout:fixed}
+body:not(.yx-ship-page) .yx113-table th{font-size:13px;color:#6a4527;text-align:left;padding:8px 10px;white-space:nowrap}
+body:not(.yx-ship-page) .yx113-table td{background:#fff;border-top:1px solid rgba(87,55,29,.10);border-bottom:1px solid rgba(87,55,29,.10);padding:10px;vertical-align:middle;word-break:break-word}
+body:not(.yx-ship-page) .yx113-table td:first-child{border-left:1px solid rgba(87,55,29,.10);border-radius:14px 0 0 14px;width:72px}
+body:not(.yx-ship-page) .yx113-table td:last-child{border-right:1px solid rgba(87,55,29,.10);border-radius:0 14px 14px 0}
+body:not(.yx-ship-page) .customer-card,body:not(.yx-ship-page) .customer-chip,body:not(.yx-ship-page) [data-customer-name]{border-radius:16px;background:linear-gradient(180deg,#fff,#fff7ed);border:1px solid rgba(126,82,39,.18);box-shadow:0 8px 18px rgba(96,58,23,.08);font-weight:900;color:#6a371b}
+body:not(.yx-ship-page) .warehouse-cell,body:not(.yx-ship-page) [data-warehouse-cell],body:not(.yx-ship-page) .yx-warehouse-cell{border-radius:14px;background:linear-gradient(180deg,#fffaf3,#f8ead9);border:1px solid rgba(92,58,26,.18);box-shadow:0 8px 18px rgba(77,45,18,.08);min-height:74px}
+body:not(.yx-ship-page) .warehouse-cell.is-filled,body:not(.yx-ship-page) .yx-warehouse-cell.is-filled{background:linear-gradient(180deg,#fff7ec,#f3dcc0)}
+body:not(.yx-ship-page) .warehouse-modal,body:not(.yx-ship-page) .modal-card{border-radius:22px;background:#fffaf3;box-shadow:0 18px 48px rgba(49,30,12,.22)}
+@media (max-width:720px){body:not(.yx-ship-page) .page-shell{padding:10px}body:not(.yx-ship-page) .yx113-table-wrap{overflow-x:auto}body:not(.yx-ship-page) .btn-row,body:not(.yx-ship-page) .yx114-batch-actions{gap:8px;display:flex;flex-wrap:wrap}body:not(.yx-ship-page) button{min-height:42px}}

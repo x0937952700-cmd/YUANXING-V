@@ -5,6 +5,7 @@ import re
 import sqlite3
 import hashlib
 from datetime import datetime
+import time
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -20,6 +21,28 @@ def _normalize_database_url(url: str) -> str:
 
 DATABASE_URL = _normalize_database_url(DATABASE_URL)
 USE_POSTGRES = DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
+
+# Runtime warehouse cache: prevents every page/preview request from running
+# the expensive 240-slot safety scan and repeatedly scanning warehouse cells.
+_WAREHOUSE_GRID_ENSURED_AT = 0.0
+_WAREHOUSE_GRID_ENSURE_TTL = 120.0
+_WAREHOUSE_CELLS_CACHE = {"at": 0.0, "rows": None}
+_WAREHOUSE_CELLS_CACHE_TTL = 8.0
+
+def _warehouse_invalidate_cache():
+    global _WAREHOUSE_CELLS_CACHE
+    _WAREHOUSE_CELLS_CACHE = {"at": 0.0, "rows": None}
+
+def _warehouse_rows_copy(rows):
+    return [dict(r) for r in (rows or [])]
+
+def _ensure_fixed_warehouse_grid_cached(conn, cur):
+    global _WAREHOUSE_GRID_ENSURED_AT
+    now_ts = time.time()
+    if now_ts - _WAREHOUSE_GRID_ENSURED_AT < _WAREHOUSE_GRID_ENSURE_TTL:
+        return
+    ensure_fixed_warehouse_grid(conn, cur)
+    _WAREHOUSE_GRID_ENSURED_AT = now_ts
 
 if USE_POSTGRES:
     import psycopg2
@@ -2339,45 +2362,61 @@ def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_targ
         remain -= use_qty
     return used
 
-def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None):
-    """Find warehouse locations by normalized size, and optionally by customer.
 
-    Older versions compared the full product text exactly.  After the warehouse
-    unplaced-list feature, warehouse cells may store only the size part
-    (for example ``132x23x05``) while orders/shipping may carry
-    ``132x23x05=249x3``.  Matching by size prevents location lookup from
-    missing valid cells, and filtering by customer prevents same-size goods for
-    another customer from being shown in shipping previews.
+def _build_warehouse_location_index(cells):
+    """Build a one-pass lookup index for shipping preview warehouse locations.
+
+    Preview used to scan every warehouse cell for every item.  On live data that
+    makes preview latency grow as items x cells.  This index keeps the exact
+    matching rules (size + optional customer) but scans warehouse_cells once.
     """
-    target_size = _warehouse_size_key(product_text or '')
-    want_customer = (customer_name or '').strip()
-    cells = warehouse_get_cells()
-    out = []
-    for cell in cells:
+    index = {}
+    for cell in cells or []:
         try:
             items = json.loads(cell.get('items_json') or '[]')
         except Exception:
             items = []
         for it in items:
             item_size = _warehouse_size_key(it.get('product_text') or it.get('product') or '')
-            item_customer = (it.get('customer_name') or '').strip()
-            qty = int(it.get('qty') or 0)
-            if not target_size or item_size != target_size or qty <= 0:
+            if not item_size:
                 continue
-            if want_customer and item_customer and item_customer != want_customer:
+            item_customer = (it.get('customer_name') or '').strip()
+            try:
+                qty = int(it.get('qty') or 0)
+            except Exception:
+                qty = 0
+            if qty <= 0:
                 continue
             visual_num = int(cell.get('slot_number') or 0)
-            out.append({
+            row = {
                 'zone': cell.get('zone'),
                 'column_index': int(cell.get('column_index') or 0),
                 'slot_type': 'direct',
                 'slot_number': visual_num,
                 'visual_slot': visual_num,
                 'qty': qty,
-                'product_text': it.get('product_text') or product_text or '',
+                'product_text': it.get('product_text') or item_size,
                 'customer_name': item_customer,
-            })
-    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
+            }
+            index.setdefault(item_size, []).append(row)
+    for rows in index.values():
+        rows.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
+    return index
+
+def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None, cells=None, location_index=None):
+    """Find warehouse locations by normalized size, optionally using a prebuilt index."""
+    target_size = _warehouse_size_key(product_text or '')
+    want_customer = (customer_name or '').strip()
+    if location_index is None:
+        cells = cells if cells is not None else warehouse_get_cells()
+        location_index = _build_warehouse_location_index(cells)
+    rows = list((location_index or {}).get(target_size, []))
+    out = []
+    for row in rows:
+        item_customer = (row.get('customer_name') or '').strip()
+        if want_customer and item_customer and item_customer != want_customer:
+            continue
+        out.append(dict(row))
     if qty_needed is None:
         return out
     remain = int(qty_needed or 0)
@@ -2428,6 +2467,10 @@ def preview_ship_order(customer_name, items):
         needs_inventory_fallback = False
         master_errors = []
         items = _merge_items_by_size_material(items)
+        # Shipping preview used to scan warehouse cells once per item/location, making
+        # previews slow on real data.  Read the warehouse cells once and reuse them.
+        preview_warehouse_cells = warehouse_get_cells()
+        preview_location_index = _build_warehouse_location_index(preview_warehouse_cells)
         for item in items:
             product_text = format_product_text_height2(item['product_text'])
             material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
@@ -2489,7 +2532,7 @@ def preview_ship_order(customer_name, items):
                         {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': source_pref == 'orders'},
                         {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
                     ],
-                    'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None),
+                    'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None, location_index=preview_location_index),
                 })
                 continue
 
@@ -2538,7 +2581,7 @@ def preview_ship_order(customer_name, items):
                     {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': auto_source == 'orders'},
                     {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None),
+                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, location_index=preview_location_index),
             })
         return {
             'success': True,
@@ -2632,7 +2675,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "source_customer_name": source_customer,
                 "ship_customer_name": customer_name,
                 "is_borrowed": is_borrowed,
-                "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None),
+                "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, cells=preview_warehouse_cells),
                 "deduct_before": before,
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
@@ -2708,13 +2751,19 @@ def _normalize_warehouse_items(items):
                 merged[key]['source_summary'] = raw.get('source_summary')
     return list(merged.values())
 
-def warehouse_get_cells():
+def warehouse_get_cells(force_refresh=False):
+    global _WAREHOUSE_CELLS_CACHE
+    if not force_refresh:
+        cached = _WAREHOUSE_CELLS_CACHE.get('rows')
+        if cached is not None and time.time() - float(_WAREHOUSE_CELLS_CACHE.get('at') or 0) < _WAREHOUSE_CELLS_CACHE_TTL:
+            return _warehouse_rows_copy(cached)
     conn = get_db()
     cur = conn.cursor()
-    ensure_fixed_warehouse_grid(conn, cur)
-    cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(slot_type, 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
+    _ensure_fixed_warehouse_grid_cached(conn, cur)
+    cur.execute(sql("SELECT * FROM warehouse_cells WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ? ORDER BY zone, column_index, slot_number"), ('direct',))
     rows = rows_to_dict(cur)
     conn.close()
+    _WAREHOUSE_CELLS_CACHE = {'at': time.time(), 'rows': _warehouse_rows_copy(rows)}
     return rows
 
 def warehouse_get_cell(zone, column_index, slot_type, slot_number):
@@ -2759,6 +2808,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """), (zone, column_index, slot_type, slot_number, items_json, note, now()))
     conn.commit()
+    _warehouse_invalidate_cache()
     conn.close()
 
 def warehouse_add_column(zone):
@@ -2772,7 +2822,7 @@ def warehouse_add_column(zone):
             INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """), (zone, next_col, 'direct', num, '[]', '', now()))
-    conn.commit(); conn.close(); return next_col
+    conn.commit(); _warehouse_invalidate_cache(); conn.close(); return next_col
 
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
@@ -2844,7 +2894,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
         raise ValueError('格位參數錯誤')
     conn = get_db(); cur = conn.cursor()
     try:
-        ensure_fixed_warehouse_grid(conn, cur)
+        _ensure_fixed_warehouse_grid_cached(conn, cur)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if insert_after is None or insert_after == '':
@@ -2861,7 +2911,7 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
             """), (zone, column_index, insert_after))
         except Exception as e:
             log_error('warehouse_recent_shift_add', str(e))
-        conn.commit(); return new_slot
+        conn.commit(); _warehouse_invalidate_cache(); return new_slot
     except Exception:
         conn.rollback(); raise
     finally:
@@ -2880,7 +2930,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
         return {'success': False, 'error': '格位參數錯誤'}
     conn = get_db(); cur = conn.cursor()
     try:
-        ensure_fixed_warehouse_grid(conn, cur)
+        _ensure_fixed_warehouse_grid_cached(conn, cur)
         slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
         max_slot = len(slots)
         if max_slot <= 1:
@@ -2908,7 +2958,7 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
             """), (zone, column_index, slot_number))
         except Exception as e:
             log_error('warehouse_recent_shift_remove', str(e))
-        conn.commit(); return {'success': True, 'removed_slot': slot_number}
+        conn.commit(); _warehouse_invalidate_cache(); return {'success': True, 'removed_slot': slot_number}
     except Exception:
         conn.rollback(); raise
     finally:

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
   {% set _ep = request.endpoint or '' %}
-  {% set _sv = static_version|default('stable-mainline-safe-visual-css-20260516q') %}
+  {% set _sv = static_version|default('mainline-520-js-extracted-safe-ui-20260516r') %}
   {% set _is_ship = (_ep == 'ship_page' or _ep == 'shipping_page_alias_v520_full' or module_key|default('') == 'ship') %}
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v={{ _sv }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v={{ _sv }}">
@@ -21,7 +21,7 @@
     document.documentElement.dataset.yx117AppleUi="locked";
     document.documentElement.dataset.yx118AppleUi="locked";
     document.documentElement.dataset.yx124OrnateLabel="locked";
-    document.documentElement.dataset.yxSafeVisualOnly="20260516q";
+    document.documentElement.dataset.yx520ExtractedMainFiles="20260516r";
     {% if _is_ship %}document.documentElement.dataset.yxPage="ship";{% endif %}
   </script>
 
@@ -31,7 +31,13 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_ship_safe_ui_520.css') }}?v={{ _sv }}">
   {% else %}
-    <!-- 還完整穩定主線 CSS + 安全純視覺 520 UI。禁止載入 520 頁面 JS / raw layout CSS。 -->
+    <!-- not _is_ship: non-shipping pages load 520 visual CSS and stable mainline renderers only. -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ _sv }}">
+    {% if _ep == 'home' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}?v={{ _sv }}">{% endif %}
+    {% if _ep in ['inventory_page','orders_page','master_order_page','customers_page'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/product.css') }}?v={{ _sv }}">{% endif %}
+    {% if _ep == 'warehouse_page' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/warehouse.css') }}?v={{ _sv }}">{% endif %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile.css') }}?v={{ _sv }}" media="(max-width: 920px), (pointer: coarse)">
+    <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_520_alignment_repairs.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/final_mother_lock.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.css') }}?v={{ _sv }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/home_background_hardlock.css') }}?v={{ _sv }}">
@@ -58,7 +64,7 @@
   <script>
   window.__YX_MASTER_BRIDGE_VERSION__={{ _sv|tojson }};
   window.__YX_STATIC_VERSION__={{ _sv|tojson }};
-  window.__YX_APP_VERSION__={{ app_version|default('stable-mainline-safe-visual-css-20260516q', true)|tojson }};
+  window.__YX_APP_VERSION__={{ app_version|default('mainline-520-js-extracted-safe-ui-20260516r', true)|tojson }};
   window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
   window.__YX_DISABLE_LEGACY_LAYOUT_RENDER__=true;
   (function(){
@@ -73,10 +79,18 @@
     window.setTimeout=function(fn,delay,...args){ if(window.__YX_HTML_DIRECT_MASTER__ && typeof fn==='function' && shouldBlock(fn)) return 0; return st(fn,delay,...args); };
   })();
   </script>
+  <script defer src="{{ url_for('static', filename='yx_device_sync.js') }}?v={{ _sv }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v={{ _sv }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_core.js') }}?v={{ _sv }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_data_store.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v={{ _sv }}"></script>
   {% if _ep in ['inventory_page','orders_page','master_order_page'] %}
+  <script>
+    window.YX = window.YX || {}; window.YX.products = window.YX.products || {};
+    window.YX.products.page = {{ ('inventory' if _ep == 'inventory_page' else ('orders' if _ep == 'orders_page' else 'master_order'))|tojson }};
+  </script>
   <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/page_products_master.js') }}?v={{ _sv }}"></script>
   {% endif %}
@@ -115,7 +129,7 @@
   <script defer src="{{ url_for('static', filename='yx_force_cache_reset.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='pwa.js') }}?v={{ _sv }}"></script>
 </head>
-<body data-yx-dream-ui="safe-520-visual-only" class="{% if _is_ship %}yx-ship-page{% endif %}">
+<body data-yx-dream-ui="520-ui-restored-formal" data-yx-js-extracted="520-into-main-files" class="{% if _is_ship %}yx-ship-page{% endif %}">
   <div class="page-shell">
     {% block body %}{% endblock %}
   </div>

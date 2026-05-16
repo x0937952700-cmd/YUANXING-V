@@ -1,0 +1,10 @@
+20260516r 部署說明
+1. 將本包內容覆蓋到 GitHub 專案根目錄。
+2. 不要再另外載入 520 的 inventory_page.js / orders_page.js / master_order_page.js / warehouse_page.js / shipping_page.js。
+3. 520 的功能 JS 已剝離進：
+   - page_products_master.js
+   - warehouse_hardlock.js
+   - today_changes_hardlock.js
+   - settings_manual.js
+4. 出貨頁仍使用 ship_single_lock.js，預覽速度由後端索引與前端即時預覽處理。
+5. 部署後請確認診斷頁 app_version 為 20260516r。

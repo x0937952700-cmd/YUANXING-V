@@ -1,6 +1,18 @@
-const CACHE_NAME = 'yx-mainline-speed-repair-20260516q';
+const CACHE_NAME = 'yx-mainline-520-extracted-20260516r';
 const SAFE_ASSETS = [
   '/static/style.css',
+  '/static/css/base.css',
+  '/static/css/home.css',
+  '/static/css/product.css',
+  '/static/css/warehouse.css',
+  '/static/css/mobile.css',
+  '/static/yx_cache.js',
+  '/static/yx_core.js',
+  '/static/yx_data_store.js',
+  '/static/yx_device_sync.js',
+  '/static/yx_assets/home_cloud_background.jpg',
+  '/static/yx_assets/yx_dream_pill_button.png',
+  '/static/yx_assets/yx_dream_starry_background.png',
   '/static/yx_modules/final_mother_lock.css',
   '/static/yx_modules/ornate_label_hardlock.css',
   '/static/yx_modules/home_background_hardlock.css',
