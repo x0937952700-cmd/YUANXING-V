@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'mainline-warehouse-cache-ship-source-fix-20260516s'
-APP_VERSION = '還完整主線_倉庫快取不洗回_出貨總單來源修復_20260516s'
+STATIC_VERSION = 'stable-js-full-520-css-warehouse-ship-20260516t'
+APP_VERSION = '還完整主線_穩定JS_520完整CSS_出貨總單倉庫不洗回_20260516t'
 
 app = Flask(__name__)
 
@@ -1193,11 +1193,52 @@ def api_ship_preview():
         log_error("ship_preview", str(e))
         return error_response("出貨預覽失敗")
 
+
+def _yx_ship_customer_union_items():
+    """出貨頁客戶來源必須合併 訂單 + 總單 + 庫存 + 客戶檔，不可只顯示訂單。"""
+    base = []
+    try:
+        base = list(get_customers())
+    except Exception:
+        base = []
+    by_name = {}
+    for it in base:
+        name = (it.get('name') or it.get('customer_name') or '').strip()
+        if name:
+            row = dict(it); row.setdefault('name', name); row.setdefault('customer_name', name); row.setdefault('sources', [])
+            by_name[name] = row
+    conn = get_db(); cur = conn.cursor()
+    try:
+        for table, label in [('orders','訂單'), ('master_orders','總單'), ('inventory','庫存')]:
+            try:
+                cur.execute(sql(f"SELECT customer_name, customer_uid, COUNT(*) AS item_count, COALESCE(SUM(qty),0) AS qty_count FROM {table} WHERE COALESCE(customer_name,'')<>'' GROUP BY customer_name, customer_uid"))
+                for r in rows_to_dict(cur):
+                    name = (r.get('customer_name') or '').strip()
+                    if not name: continue
+                    row = by_name.setdefault(name, {'name': name, 'customer_name': name, 'region': resolve_customer_region(name), 'sources': []})
+                    if r.get('customer_uid') and not row.get('customer_uid'): row['customer_uid'] = r.get('customer_uid')
+                    row.setdefault('sources', [])
+                    if label not in row['sources']: row['sources'].append(label)
+                    row[label+'_筆數'] = int(r.get('item_count') or 0)
+                    row[label+'_件數'] = int(r.get('qty_count') or 0)
+            except Exception:
+                continue
+    finally:
+        conn.close()
+    out = list(by_name.values())
+    def region_rank(x):
+        return {'北區':0,'中區':1,'南區':2}.get((x.get('region') or ''), 9)
+    out.sort(key=lambda x: (region_rank(x), x.get('name') or x.get('customer_name') or ''))
+    return out
+
 @app.route("/api/customers", methods=["GET", "POST"])
 @login_required_json
 def api_customers():
     try:
         if request.method == "GET":
+            if (request.args.get('ship_single') or '') == '1' or (request.args.get('include_sources') or '') == '1':
+                items = _yx_ship_customer_union_items()
+                return jsonify(success=True, items=items, customers=items)
             return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
