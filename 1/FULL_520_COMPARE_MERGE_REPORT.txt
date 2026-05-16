@@ -1,5 +1,0 @@
-YUANXING FULL 520 COMPARE MERGE REPORT
-Base runtime: 還完整母版. Ship runtime files are not overwritten.
-Copied v520 folders into package for full diagnostics/assets/reference: scripts, services, static/css, static/yx_assets, static/yx_pages, yx_data_store/device_sync/mutation_bus/regression_guard.
-Not copied as live runtime because they could overwrite protected base or ship: 520 app.py/db.py/templates/module.html/base.html/settings.html/today_changes.html; archived under reference_520_same_path_not_runtime.
-warehouse.db from 520 archived as sample only to avoid overwriting live local DB.

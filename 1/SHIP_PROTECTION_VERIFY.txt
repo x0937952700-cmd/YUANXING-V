@@ -1,4 +1,0 @@
-templates/module.html: True
-static/yx_modules/ship_single_lock.js: True
-static/yx_modules/fix142_speed_ship_hardlock.css: True
-static/yx_modules/shipping_query_manual.js: True

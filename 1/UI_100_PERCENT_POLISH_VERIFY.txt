@@ -1,9 +1,0 @@
-頁面精緻度 100% 補強紀錄
-
-1. 新增 static/yx_modules/yx_premium_ui_100.css。
-2. 只做 CSS 視覺精緻，不新增 renderer、不新增 JS、不綁事件。
-3. CSS 全部使用 body:not([data-module="ship"]) 限制，出貨頁不套用。
-4. templates/base.html 只在非出貨分支載入 yx_premium_ui_100.css。
-5. 出貨頁原本的 ship_page 分支仍維持還完整原始載入，不載入 yx_cache/yx_core/yx_premium_ui_100。
-6. 補強範圍：首頁、設定、診斷、今日異動、庫存/訂單/總單表格、客戶標籤、倉庫格子、按鈕、輸入框、空狀態、錯誤卡、手機版。
-7. 沒有放 reference_520 或 reference_520_same_path_not_runtime。
