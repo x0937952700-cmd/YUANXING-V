@@ -12,6 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   {% set _ep = request.endpoint or '' %}
   {% set _sv = static_version|default('v20-true-clean-master') %}
+  {% set _is_ship = (_ep == 'ship_page' or _ep == 'shipping_page_alias_v520_full' or module_key|default('') == 'ship') %}
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v={{ _sv }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/icon-180x180.png') }}?v={{ _sv }}">
   <link rel="apple-touch-icon" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192x192.png') }}?v={{ _sv }}">
@@ -24,7 +25,7 @@
     .glass,.panel,.table-card{background:rgba(255,255,255,.82);border:1px solid rgba(120,90,50,.14);border-radius:16px}.yx-fast-paint-note{font-size:12px;color:#8a765f;padding:6px 12px}
   </style>
   <!-- V520 runtime UI restored. Shipping page is intentionally isolated to preserve 還完整出貨預覽. -->
-  {% if _ep != 'ship_page' %}
+  {% if not _is_ship %}
   <link rel="preload" as="style" href="{{ url_for('static', filename='css/base.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ _sv }}">
   {% if _ep == 'home' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}?v={{ _sv }}">{% endif %}
@@ -35,6 +36,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_520_ui_alignment.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_520_refined_merge.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_premium_ui_100.css') }}?v={{ _sv }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_520_alignment_repairs.css') }}?v={{ _sv }}">
   {% else %}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/fix142_speed_ship_hardlock.css') }}?v={{ _sv }}">
@@ -45,13 +47,13 @@
     window.__YX_APP_VERSION__={{ app_version|default('', true)|tojson }};
     window.__YX_USERNAME__={{ (username or '')|tojson }};
     window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};
-    window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _ep == 'ship_page' else 'false' }};
-    window.__YX_SHIP_SINGLE_MAIN__={{ 'true' if _ep == 'ship_page' else 'false' }};
+    window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};
+    window.__YX_SHIP_SINGLE_MAIN__={{ 'true' if _is_ship else 'false' }};
     window.__YX_HTML_DIRECT_MASTER__=true;
     window.__YX_FINAL_WAREHOUSE_HTML_LOCK__={{ 'true' if _ep == 'warehouse_page' else 'false' }};
     window.__YX_FINAL_WAREHOUSE_HTML_MAIN__={{ 'true' if _ep == 'warehouse_page' else 'false' }};
   </script>
-  {% if _ep != 'ship_page' %}
+  {% if not _is_ship %}
   <script defer src="{{ url_for('static', filename='yx_cache.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_core.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_device_sync.js') }}?v={{ _sv }}"></script>
@@ -74,7 +76,7 @@
   {% elif _ep == 'master_order_page' %}
   <link rel="modulepreload" href="{{ url_for('static', filename='yx_pages/product_page_core.js') }}?v={{ _sv }}">
   <script type="module" src="{{ url_for('static', filename='yx_pages/master_order_page.js') }}?v={{ _sv }}"></script>
-  {% elif _ep == 'ship_page' %}
+  {% elif _is_ship %}
   <script defer src="{{ url_for('static', filename='yx_modules/ship_single_lock.js') }}?v={{ _sv }}"></script>
   {% elif _ep == 'warehouse_page' %}
   <script defer src="{{ url_for('static', filename='yx_pages/warehouse_page.js') }}?v={{ _sv }}"></script>
@@ -102,7 +104,7 @@
   'inventory_page':'inventory', 'orders_page':'orders', 'master_order_page':'master_order', 'ship_page':'ship',
   'warehouse_page':'warehouse', 'shipping_query_page':'shipping_query', 'customers_page':'customers', 'todos_page':'todos'
 }.get(_ep, module_key|default('')) %}
-<body data-module="{{ _yx_body_module }}" data-yx-dream-ui="v520-ui-aligned-all-pages-ship-safe-polish">
+<body data-module="{{ 'ship' if _is_ship else _yx_body_module }}" data-yx-dream-ui="520-ui-restored-formal" data-yx-ui-pack="v520-ui-aligned-all-pages-ship-safe-polish">
   <div class="page-shell">
     {% block body %}{% endblock %}
   </div>

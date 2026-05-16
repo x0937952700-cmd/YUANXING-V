@@ -1,7 +1,7 @@
 // 沅興木業 Service Worker：520 速度版靜態資產快取；不快取 API / HTML / 出貨資料。
-const CACHE_VERSION = 'yuanxing-static-v520-ui-align-ship-safe-20260516e';
+const CACHE_VERSION = 'yuanxing-static-v520-ui-align-ship-safe-20260516f';
 const PRECACHE = [
-  '/static/css/base.css','/static/css/home.css','/static/css/mobile.css','/static/css/product.css','/static/css/warehouse.css','/static/yx_modules/yx_520_ui_alignment.css','/static/yx_modules/yx_520_refined_merge.css','/static/yx_modules/yx_premium_ui_100.css','/static/yx_modules/yx_ship_safe_ui_520.css',
+  '/static/css/base.css','/static/css/home.css','/static/css/mobile.css','/static/css/product.css','/static/css/warehouse.css','/static/yx_modules/yx_520_ui_alignment.css','/static/yx_modules/yx_520_refined_merge.css','/static/yx_modules/yx_premium_ui_100.css','/static/yx_modules/yx_final_520_alignment_repairs.css','/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/style.css','/static/yx_cache.js','/static/yx_core.js','/static/yx_data_store.js','/static/yx_device_sync.js','/static/yx_route_warm_cache.js','/static/yx_regression_guard.js',
   '/static/yx_pages/home_page.js','/static/yx_pages/inventory_page.js','/static/yx_pages/orders_page.js','/static/yx_pages/master_order_page.js','/static/yx_pages/product_page_core.js','/static/yx_pages/warehouse_page.js','/static/yx_pages/today_changes_page.js',
   '/static/yx_assets/yx_dream_starry_background.png','/static/yx_assets/yx_dream_pill_button.png','/static/yx_assets/home_cloud_background.jpg'

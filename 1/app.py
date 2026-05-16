@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'v520-speed-full-warm-cache-20260516d'
-APP_VERSION = '還完整母版整合520完整速度快取補齊-出貨保留'
+STATIC_VERSION = 'v520-ui-diagnostics-warehouse-fix-20260516g'
+APP_VERSION = '還完整母版520_UI對齊_診斷全修_出貨完全保護_20260516g'
 
 app = Flask(__name__)
 # FIX52：優先使用 Render 環境變數 SECRET_KEY。
@@ -3319,7 +3319,7 @@ def _yx_diag_frontend_full_checks():
     ship=_yx_diag_read_text('static/yx_modules/ship_single_lock.js')
     css=_yx_diag_read_text('static/yx_modules/yx_premium_ui_100.css') + _yx_diag_read_text('static/yx_modules/yx_520_refined_merge.css')
     checks=[]
-    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['page_products_master.js','warehouse_hardlock.js','today_changes_hardlock.js','ship_single_lock.js','settings_manual.js']), 'base.html 必須依 endpoint 載入對應頁面 JS。', 'critical'))
+    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','today_changes_page.js','ship_single_lock.js','settings_page.js']), 'base.html 必須依 endpoint 載入對應頁面 JS。', 'critical'))
     checks.append(_yx_diag_check('出貨頁排除新增快取/精緻共用干擾', "!= 'ship_page'" in base and "== 'ship_page'" in base and 'ship_single_lock.js' in base, '出貨頁只載入還完整核心出貨檔，不套新增快取/精緻 CSS。', 'critical'))
     checks.append(_yx_diag_check('禁止 setInterval 硬塞按鈕', 'setInterval' not in products+warehouse+today+ship, '主流程 JS 不可用 setInterval 補按鈕。', 'warn'))
     checks.append(_yx_diag_check('禁止 MutationObserver 硬塞按鈕', 'MutationObserver' not in products+warehouse+today+ship, '主流程 JS 不可用 MutationObserver 補按鈕。', 'warn'))
@@ -3908,7 +3908,7 @@ def _yx_diag_ui_520_restore_checks():
         _yx_check_contains('templates/base.html', ['css/product.css', 'inventory_page', 'orders_page', 'master_order_page'], '庫存/訂單/總單載入 520 product.css', 'critical'),
         _yx_check_contains('templates/base.html', ['css/warehouse.css', 'warehouse_page'], '倉庫載入 520 warehouse.css', 'critical'),
         _yx_check_contains('templates/base.html', ['css/mobile.css', 'pointer: coarse'], '手機版載入 520 mobile.css', 'warn'),
-        _yx_check_contains('templates/base.html', ['data-yx-dream-ui="520-ui-restored-formal"'], 'body 標記 520 精緻 UI 已復原', 'warn'),
+        _yx_check_contains('templates/base.html', ['data-yx-dream-ui="520-ui-restored-formal"','yx_final_520_alignment_repairs.css'], 'body 標記 520 精緻 UI 已復原', 'warn'),
         _yx_check_contains('static/css/base.css', ['yx_dream_starry_background', 'primary-btn', 'ghost-btn'], '520 背景與按鈕樣式存在於 base.css', 'critical', mode='all'),
         _yx_check_contains('static/css/product.css', ['customer-chip', 'product', 'batch'], '520 商品頁/客戶/批量樣式存在', 'warn', mode='any'),
         _yx_check_contains('static/css/warehouse.css', ['warehouse', 'slot', 'cell'], '520 倉庫格樣式存在', 'warn', mode='any'),
@@ -3992,8 +3992,8 @@ def _yx_diag_detailed_frontend_checks():
     today = _yx_diag_read_text('static/yx_modules/today_changes_hardlock.js', 1000000)
     ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1000000)
     # one renderer / endpoint loading
-    for endpoint, token in [('inventory_page','page_products_master.js'),('orders_page','page_products_master.js'),('master_order_page','page_products_master.js'),('warehouse_page','warehouse_hardlock.js'),('today_changes_page','today_changes_hardlock.js'),('ship_page','ship_single_lock.js'),('diagnostics_page','diagnostics_page.js')]:
-        checks.append(_yx_diag_check('前端載入分流：%s -> %s' % (endpoint, token), endpoint in base and token in base, 'base.html 需依 endpoint 載入單一主檔。', 'critical'))
+    for endpoint, token in [('inventory_page','inventory_page.js'),('orders_page','orders_page.js'),('master_order_page','master_order_page.js'),('warehouse_page','warehouse_page.js'),('today_changes_page','today_changes_page.js'),('settings_page','settings_page.js'),('ship_page','ship_single_lock.js'),('diagnostics_page','diagnostics_page.js')]:
+        checks.append(_yx_diag_check('前端載入分流：%s -> %s' % (endpoint, token), endpoint in base and token in base, 'base.html 需依 endpoint 載入對應 520 主檔；出貨仍只載入還完整 ship_single_lock。', 'critical'))
     # no timers/observers in main current files
     for name, text in [('商品主檔',products),('倉庫主檔',wh),('今日異動主檔',today),('出貨主檔',ship)]:
         checks.append(_yx_diag_check(name+' 無 setInterval 硬塞', 'setInterval' not in text, '不能靠 setInterval 塞按鈕/重刷。', 'warn'))
@@ -4082,8 +4082,8 @@ def yx520_alias_warehouse_insert():
         col = int(data.get('column_index') or data.get('col') or 1)
         slot = int(data.get('slot_number') or data.get('slot') or 1)
         # if insert-specific function exists in existing app, use add slot after target slot.
-        result = warehouse_add_slot(zone, col, slot)
-        return jsonify(success=True, result=result)
+        new_slot = warehouse_add_slot(zone, col, 'direct', insert_after=slot)
+        return jsonify(success=True, slot_number=new_slot, result={'slot_number': new_slot})
     except Exception as e:
         return error_response('插入格子失敗：' + str(e), 500)
 
@@ -4107,7 +4107,7 @@ def _yx_diag_master_requirement_checks():
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
     checks.append(_yx_diag_check('快取不碰出貨頁', "!= 'ship_page'" in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
-    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and "!= 'ship_page'" in base and 'body:not([data-module="ship"])' in css100 and 'primary-btn' in v520css), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
+    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_final_520_alignment_repairs.css' in base and 'body:not([data-module="ship"])' in css100 and 'primary-btn' in v520css), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))

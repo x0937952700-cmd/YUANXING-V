@@ -1,0 +1,8 @@
+本包修復重點：
+1. 商品主檔 page_products_master.js 移除 MutationObserver 監控式補按鈕，改為安裝/刷新後主動整理。
+2. 客戶區 customer_regions_hardlock.js 移除 MutationObserver 監控式補卡，保留 pointer 拖拉、右鍵 contextmenu、長按、刪除/封存。
+3. ornate_label_hardlock.js 移除 DOM 監控，改由頁面事件/既有時點主動套樣式。
+4. 520 背景/按鈕 UI 檔案保留。
+5. 出貨核心檔不動：templates/module.html、ship_single_lock.js、fix142_speed_ship_hardlock.css、shipping_query_manual.js。
+6. migrations 補齊 warehouse_cells 診斷要求欄位：slot_no、customer_name、product_text、material、qty、placement_label、created_at。
+7. Python 編譯通過；/、/settings、/diagnostics、/shipping 可開。
