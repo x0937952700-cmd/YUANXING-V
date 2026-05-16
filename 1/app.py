@@ -199,6 +199,19 @@ def login_required_json(f):
     return wrapper
 
 
+def login_required_page(f):
+    """Page-route login guard used by 520 compatibility aliases.
+
+    Keeps Render import safe and matches the existing before_request page protection.
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not require_login():
+            return redirect(url_for("login_page"))
+        return f(*args, **kwargs)
+    return wrapper
+
+
 @app.context_processor
 def inject_yx_versions():
     return {"static_version": STATIC_VERSION, "app_version": APP_VERSION}
