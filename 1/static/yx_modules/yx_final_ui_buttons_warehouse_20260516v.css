@@ -1,0 +1,343 @@
+/* 20260516v final visual safety layer: buttons text visible + warehouse full content */
+:root{--yx-btn-text:#241f1b;--yx-red:#d32020;--yx-green:#059669;--yx-blue:#1267ff;}
+button,.primary-btn,.ghost-btn,.small-btn,.tiny-btn,.menu-btn,.home-mini-btn,a.back-btn,.yx-final-warehouse-menu button,.warehouse-action-sheet button,.action-sheet button,.query-bar button,.btn-row button,.yx113-toolbar button,.yx114-toolbar button,.yx128-summary-controls button,.yx22-location-btn,.deduct-card button,.yx-ship-open-product-card,.yx-ship-selected-html-card button{
+  color:var(--yx-btn-text)!important;
+  -webkit-text-fill-color:var(--yx-btn-text)!important;
+  opacity:1!important;visibility:visible!important;text-indent:0!important;text-shadow:none!important;
+  font-size:15px!important;font-weight:900!important;line-height:1.25!important;letter-spacing:.03em!important;
+  min-width:fit-content!important;min-height:32px!important;white-space:normal!important;overflow:visible!important;
+}
+button::before,button::after,.primary-btn::before,.primary-btn::after,.ghost-btn::before,.ghost-btn::after,.menu-btn::before,.menu-btn::after,.home-mini-btn::before,.home-mini-btn::after{color:inherit!important;-webkit-text-fill-color:currentColor!important;opacity:1!important;visibility:visible!important;}
+.primary-btn,.ghost-btn,.small-btn,.tiny-btn,.home-mini-btn,.menu-btn,a.back-btn,.yx-final-warehouse-menu button,.yx22-location-btn{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;
+  padding:8px 14px!important;border-radius:999px!important;border:1.5px solid rgba(160,95,24,.55)!important;
+  background:linear-gradient(135deg,rgba(219,241,255,.95),rgba(255,218,237,.94))!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 2px 8px rgba(92,64,26,.12)!important;
+}
+.yx114-batch-actions,.yx-direct-batch-actions,.btn-row,.query-bar{gap:8px!important;flex-wrap:wrap!important;align-items:center!important;}
+.yx113-toolbar,.yx114-toolbar{overflow:visible!important;}
+/* warehouse A/B zones: 3 columns x 2 rows, equal large cells */
+#warehouse-root,.warehouse-zone-root,.warehouse-zone,.warehouse-grid,.warehouse-columns,.vertical-zone-grid{overflow:visible!important;}
+.vertical-zone-grid,.warehouse-columns{display:grid!important;grid-template-columns:repeat(3,minmax(260px,1fr))!important;gap:16px!important;align-items:stretch!important;}
+.vertical-column-card{min-width:0!important;width:100%!important;overflow:visible!important;border-radius:22px!important;}
+.vertical-slot-list{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;overflow:visible!important;max-height:none!important;height:auto!important;}
+.yx-final-slot,.vertical-slot,.yx108-slot,.yx116-slot{
+  width:100%!important;min-height:148px!important;height:auto!important;padding:10px 12px!important;
+  display:grid!important;grid-template-rows:auto 1fr!important;gap:8px!important;overflow:visible!important;
+  border-radius:18px!important;text-align:left!important;white-space:normal!important;
+}
+.yx-final-slot *,.vertical-slot *,.yx108-slot *{overflow:visible!important;text-overflow:clip!important;white-space:normal!important;line-height:1.22!important;}
+.yx520-wh-head{display:grid!important;grid-template-columns:42px minmax(0,1fr) auto!important;gap:8px!important;align-items:center!important;width:100%!important;}
+.yx520-wh-slotno{font-size:22px!important;font-weight:1000!important;color:#111827!important;}
+.yx520-wh-size-sums{font-size:18px!important;font-weight:1000!important;color:#111827!important;word-break:break-word!important;}
+.yx520-wh-total{font-size:20px!important;font-weight:1000!important;color:var(--yx-blue)!important;text-align:right!important;}
+.yx520-wh-body{display:grid!important;gap:4px!important;width:100%!important;}
+.yx520-wh-item-line{display:grid!important;grid-template-columns:auto auto minmax(0,1fr) auto!important;gap:6px!important;align-items:baseline!important;font-size:17px!important;font-weight:900!important;}
+.yx520-wh-customer{color:var(--yx-red)!important;font-weight:1000!important;font-size:18px!important;white-space:nowrap!important;}
+.yx520-wh-material{color:var(--yx-green)!important;font-style:normal!important;font-weight:1000!important;font-size:17px!important;white-space:nowrap!important;}
+.yx520-wh-product{color:#1f2937!important;font-size:17px!important;font-weight:900!important;word-break:break-word!important;}
+.yx520-wh-item-line b{color:var(--yx-blue)!important;font-size:17px!important;font-weight:1000!important;white-space:nowrap!important;}
+.yx520-wh-more{font-size:15px!important;font-weight:800!important;color:#92400e!important;}
+.yx-final-slot.filled{background:linear-gradient(180deg,#fff7e5,#fffdf5)!important;border:2px solid rgba(245,158,11,.45)!important;}
+.yx-final-warehouse-menu{position:fixed!important;z-index:999999!important;background:rgba(255,255,255,.98)!important;border:1px solid rgba(160,95,24,.35)!important;border-radius:22px!important;box-shadow:0 20px 60px rgba(15,23,42,.25)!important;padding:12px!important;display:grid!important;gap:8px!important;min-width:230px!important;transform:translate(-20px,-20px)!important;}
+.yx-final-warehouse-menu.hidden{display:none!important;}
+@media(max-width:980px){.vertical-zone-grid,.warehouse-columns{grid-template-columns:1fr!important}.yx-final-slot,.vertical-slot{min-height:132px!important}.yx520-wh-item-line{grid-template-columns:auto auto 1fr auto!important;font-size:16px!important}}
+
+/* 20260516v final: absolute last visual layer, buttons/tags text must be visible on every page */
+html body button,
+html body [role="button"],
+html body a.menu-btn,
+html body a.back-btn,
+html body .menu-btn,
+html body .back-btn,
+html body .primary-btn,
+html body .ghost-btn,
+html body .small-btn,
+html body .tiny-btn,
+html body .home-mini-btn,
+html body .chip,
+html body .pill,
+html body .interactive-pill,
+html body .customer-region-card,
+html body .yx113-customer-card,
+html body .yx114-customer-card,
+html body #yx-final-warehouse-menu button,
+html body .yx113-product-actions button,
+html body .yx114-batch-actions button,
+html body .warehouse-zone-nav button,
+html body .warehouse-meta-bar button,
+html body .search-row button,
+html body .query-bar button{
+  color:#111827!important;
+  -webkit-text-fill-color:#111827!important;
+  font-size:16px!important;
+  font-weight:950!important;
+  line-height:1.28!important;
+  text-indent:0!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.72)!important;
+  opacity:1!important;
+  visibility:visible!important;
+  overflow:visible!important;
+  white-space:normal!important;
+  min-height:38px!important;
+  min-width:56px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:6px!important;
+  position:relative!important;
+  z-index:auto!important;
+  background-color:rgba(255,255,255,.86)!important;
+  background-image:url('/static/yx_assets/yx_dream_pill_button.png'),linear-gradient(135deg,rgba(222,241,255,.92),rgba(255,220,238,.96))!important;
+  background-size:100% 100%,100% 100%!important;
+  background-position:center!important;
+  background-repeat:no-repeat!important;
+  border:1.5px solid rgba(190,132,44,.68)!important;
+  border-radius:999px!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 8px 18px rgba(103,74,28,.12)!important;
+}
+html body button *,
+html body [role="button"] *,
+html body a.menu-btn *,
+html body a.back-btn *,
+html body .menu-btn *,
+html body .back-btn *,
+html body .primary-btn *,
+html body .ghost-btn *,
+html body .small-btn *,
+html body .tiny-btn *,
+html body .home-mini-btn *,
+html body .chip *,
+html body .pill *,
+html body .interactive-pill *,
+html body .customer-region-card *,
+html body #yx-final-warehouse-menu button *{
+  color:inherit!important;
+  -webkit-text-fill-color:currentColor!important;
+  opacity:1!important;
+  visibility:visible!important;
+  text-indent:0!important;
+  font-size:inherit!important;
+  line-height:inherit!important;
+  display:inline!important;
+  position:relative!important;
+  z-index:2!important;
+}
+html body button::before,
+html body button::after,
+html body .primary-btn::before,
+html body .primary-btn::after,
+html body .ghost-btn::before,
+html body .ghost-btn::after,
+html body .menu-btn::before,
+html body .menu-btn::after{
+  pointer-events:none!important;
+  z-index:0!important;
+  color:inherit!important;
+  -webkit-text-fill-color:currentColor!important;
+}
+html body .primary-btn,
+html body button[id*="save"],
+html body button[id*="Save"],
+html body button[id*="submit"],
+html body button[id*="Submit"],
+html body button[id*="confirm"],
+html body button[id*="Confirm"],
+html body button[id*="ship"],
+html body button[id*="Ship"],
+html body button[data-yx128-save-all],
+html body button[data-yx128-card-save],
+html body #yx121-save-cell{
+  color:#8b1d1d!important;
+  -webkit-text-fill-color:#8b1d1d!important;
+}
+html body button[hidden],html body .hidden{display:none!important;}
+/* product toolbars: all buttons and tags keep UI */
+html body .yx114-batch-actions,
+html body .yx-direct-batch-actions,
+html body .btn-row,
+html body .query-bar,
+html body .warehouse-meta-bar,
+html body .warehouse-zone-nav{display:flex!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important;overflow:visible!important;}
+html body .yx113-toolbar,html body .yx114-toolbar,html body .yx-html-direct-toolbar{overflow:visible!important;}
+/* warehouse 6 columns as 3 columns x 2 rows */
+body[data-module="warehouse"] .zone-grid.six-grid.vertical-card-grid,
+body[data-module="warehouse"] .vertical-card-grid,
+body[data-module="warehouse"] #zone-A-grid,
+body[data-module="warehouse"] #zone-B-grid{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(280px,1fr))!important;
+  gap:18px!important;
+  align-items:start!important;
+}
+body[data-module="warehouse"] .vertical-column-card{
+  min-width:0!important;
+  width:100%!important;
+  overflow:visible!important;
+  border-radius:22px!important;
+}
+body[data-module="warehouse"] .vertical-slot-list{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:12px!important;
+  max-height:none!important;
+  height:auto!important;
+  overflow:visible!important;
+}
+body[data-module="warehouse"] .yx-final-slot,
+body[data-module="warehouse"] .vertical-slot,
+body[data-module="warehouse"] .yx108-slot,
+body[data-module="warehouse"] .yx116-slot{
+  width:100%!important;
+  min-height:190px!important;
+  height:auto!important;
+  padding:12px 14px!important;
+  display:grid!important;
+  grid-template-rows:auto 1fr!important;
+  gap:10px!important;
+  align-items:start!important;
+  justify-content:stretch!important;
+  text-align:left!important;
+  white-space:normal!important;
+  overflow:visible!important;
+  color:#111827!important;
+  -webkit-text-fill-color:#111827!important;
+}
+body[data-module="warehouse"] .yx-final-slot *,
+body[data-module="warehouse"] .vertical-slot *,
+body[data-module="warehouse"] .yx108-slot *,
+body[data-module="warehouse"] .yx116-slot *{
+  white-space:normal!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  visibility:visible!important;
+  opacity:1!important;
+  text-indent:0!important;
+  line-height:1.28!important;
+}
+body[data-module="warehouse"] .yx520-wh-head{display:grid!important;grid-template-columns:48px minmax(0,1fr) auto!important;gap:10px!important;align-items:center!important;width:100%!important;}
+body[data-module="warehouse"] .yx520-wh-slotno{font-size:32px!important;font-weight:1000!important;color:#111827!important;-webkit-text-fill-color:#111827!important;}
+body[data-module="warehouse"] .yx520-wh-size-sums{font-size:20px!important;font-weight:950!important;color:#0f172a!important;-webkit-text-fill-color:#0f172a!important;}
+body[data-module="warehouse"] .yx520-wh-total{font-size:24px!important;font-weight:1000!important;color:#1267ff!important;-webkit-text-fill-color:#1267ff!important;text-align:right!important;}
+body[data-module="warehouse"] .yx520-wh-body{display:grid!important;gap:8px!important;width:100%!important;}
+body[data-module="warehouse"] .yx520-wh-item-line{display:grid!important;grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;gap:9px!important;align-items:center!important;font-size:20px!important;font-weight:950!important;}
+body[data-module="warehouse"] .yx520-wh-customer{color:#d32020!important;-webkit-text-fill-color:#d32020!important;font-size:21px!important;font-weight:1000!important;}
+body[data-module="warehouse"] .yx520-wh-material{color:#059669!important;-webkit-text-fill-color:#059669!important;font-size:20px!important;font-weight:1000!important;}
+body[data-module="warehouse"] .yx520-wh-product{color:#111827!important;-webkit-text-fill-color:#111827!important;font-size:20px!important;font-weight:950!important;}
+body[data-module="warehouse"] .yx520-wh-item-line b{color:#d32020!important;-webkit-text-fill-color:#d32020!important;font-size:20px!important;font-weight:1000!important;}
+body[data-module="warehouse"] .yx520-wh-empty{font-size:21px!important;font-weight:950!important;color:#d32020!important;-webkit-text-fill-color:#d32020!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu{position:fixed!important;z-index:99999!important;display:grid!important;gap:8px!important;width:min(320px,calc(100vw - 24px))!important;padding:12px!important;background:rgba(255,255,255,.96)!important;border:1px solid rgba(190,132,44,.55)!important;border-radius:22px!important;box-shadow:0 22px 50px rgba(15,23,42,.22)!important;transform:translate(-50%,-8px)!important;}
+body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{display:none!important;}
+@media(max-width:980px){body[data-module="warehouse"] .zone-grid.six-grid.vertical-card-grid,body[data-module="warehouse"] .vertical-card-grid,body[data-module="warehouse"] #zone-A-grid,body[data-module="warehouse"] #zone-B-grid{grid-template-columns:1fr!important;} body[data-module="warehouse"] .yx520-wh-item-line{grid-template-columns:1fr!important;}}
+/* diagnostic marker: warehouse-cell */
+
+
+/* 20260516w MAINFILE UI SAFETY: all page buttons/tags must show text and 520 visual, no JS renderer change. */
+:root{--yx-w-btn-text:#14121f;--yx-w-btn-red:#b91c1c;--yx-w-gold:#c58a2d;--yx-w-blue:#1267ff;--yx-w-bg-pill:url('/static/yx_assets/yx_dream_pill_button.png');}
+html body button:not([hidden]):not([style*="display:none"]),
+html body a[class*="btn"],
+html body [class$="-btn"],
+html body [class*="-btn "],
+html body .menu-btn,
+html body .home-mini-btn,
+html body .back-btn,
+html body .primary-btn,
+html body .ghost-btn,
+html body .small-btn,
+html body .tiny-btn,
+html body .icon-btn,
+html body .chip,
+html body .pill,
+html body .tag,
+html body .mat-tag,
+html body .material-tag,
+html body .customer-chip,
+html body .customer-region-card,
+html body .yx113-customer-card,
+html body .yx114-customer-card,
+html body .warehouse-zone-nav button,
+html body .warehouse-meta-bar button,
+html body #yx-final-warehouse-menu button,
+html body .yx-final-warehouse-menu button,
+html body .yx113-product-actions button,
+html body .yx114-batch-actions button,
+html body .yx-direct-batch-actions button,
+html body .btn-row button,
+html body .query-bar button,
+html body .search-row button,
+html body .section-head a.primary-btn{
+  color:var(--yx-w-btn-text)!important;
+  -webkit-text-fill-color:var(--yx-w-btn-text)!important;
+  opacity:1!important;visibility:visible!important;text-indent:0!important;text-shadow:0 1px 0 rgba(255,255,255,.72)!important;
+  font-size:clamp(15px,1.1vw,18px)!important;font-weight:950!important;line-height:1.25!important;letter-spacing:.02em!important;
+  min-height:38px!important;min-width:max-content!important;width:auto!important;max-width:none!important;
+  padding:8px 14px!important;overflow:visible!important;white-space:normal!important;text-overflow:clip!important;
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:6px!important;
+  border-radius:999px!important;border:1.5px solid rgba(197,138,45,.72)!important;
+  background-color:rgba(255,255,255,.88)!important;
+  background-image:var(--yx-w-bg-pill),linear-gradient(135deg,rgba(219,241,255,.96),rgba(255,221,239,.96))!important;
+  background-size:100% 100%,100% 100%!important;background-position:center!important;background-repeat:no-repeat!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.96),0 6px 16px rgba(92,62,24,.12)!important;
+  mix-blend-mode:normal!important;filter:none!important;transform:none;
+  isolation:isolate!important;position:relative!important;
+}
+html body button:not([hidden]) *,
+html body a[class*="btn"] *,
+html body [class$="-btn"] *,
+html body [class*="-btn "] *,
+html body .menu-btn *,
+html body .home-mini-btn *,
+html body .back-btn *,
+html body .primary-btn *,
+html body .ghost-btn *,
+html body .small-btn *,
+html body .tiny-btn *,
+html body .icon-btn *,
+html body .chip *,
+html body .pill *,
+html body .tag *,
+html body .mat-tag *,
+html body .material-tag *,
+html body .customer-chip *,
+html body .customer-region-card *,
+html body #yx-final-warehouse-menu button *{
+  color:inherit!important;-webkit-text-fill-color:currentColor!important;opacity:1!important;visibility:visible!important;text-indent:0!important;text-shadow:inherit!important;
+  font-size:inherit!important;font-weight:inherit!important;line-height:inherit!important;display:inline!important;position:relative!important;z-index:2!important;
+}
+html body button::before,html body button::after,html body .primary-btn::before,html body .primary-btn::after,html body .ghost-btn::before,html body .ghost-btn::after,html body .menu-btn::before,html body .menu-btn::after,html body .home-mini-btn::before,html body .home-mini-btn::after{pointer-events:none!important;z-index:-1!important;opacity:.38!important;}
+html body .hidden,html body [hidden]{display:none!important;}
+html body button[disabled],html body .disabled{opacity:.55!important;filter:grayscale(.12)!important;}
+html body .danger-btn,html body button[data-yx113-batch-delete],html body button[data-yx113-action="delete"],html body button[data-wh-act="delete"],html body button[id*="delete"],html body button[id*="Delete"]{color:var(--yx-w-btn-red)!important;-webkit-text-fill-color:var(--yx-w-btn-red)!important;}
+html body .yx114-batch-actions,html body .yx-direct-batch-actions,html body .btn-row,html body .query-bar,html body .warehouse-meta-bar,html body .warehouse-zone-nav,html body .chip-list{display:flex!important;flex-wrap:wrap!important;gap:10px!important;align-items:center!important;overflow:visible!important;}
+html body .yx113-toolbar,html body .yx114-toolbar,html body .yx-html-direct-toolbar{overflow:visible!important;min-height:48px!important;}
+/* 20260516w warehouse layout: exact 3 columns x 2 rows for A/B six columns, no body dependency. */
+#warehouse-root .zone-grid.six-grid.vertical-card-grid,
+#warehouse-root #zone-A-grid,
+#warehouse-root #zone-B-grid,
+.warehouse-fixed-layout .zone-grid.six-grid,
+.warehouse-zone-wrap .vertical-card-grid{
+  display:grid!important;grid-template-columns:repeat(3,minmax(300px,1fr))!important;gap:18px!important;align-items:start!important;overflow:visible!important;
+}
+#warehouse-root .vertical-column-card{min-width:0!important;width:100%!important;overflow:visible!important;border-radius:22px!important;}
+#warehouse-root .vertical-slot-list{display:grid!important;grid-template-columns:1fr!important;gap:12px!important;max-height:none!important;height:auto!important;overflow:visible!important;}
+#warehouse-root .yx-final-slot,#warehouse-root .vertical-slot,#warehouse-root .yx108-slot,#warehouse-root .yx116-slot{
+  width:100%!important;min-height:192px!important;height:auto!important;padding:12px 14px!important;overflow:visible!important;white-space:normal!important;text-align:left!important;
+  display:grid!important;grid-template-rows:auto 1fr!important;gap:10px!important;align-items:start!important;justify-content:stretch!important;
+  color:#111827!important;-webkit-text-fill-color:#111827!important;border-radius:18px!important;
+}
+#warehouse-root .yx-final-slot *,#warehouse-root .vertical-slot *,#warehouse-root .yx108-slot *,#warehouse-root .yx116-slot *{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;visibility:visible!important;opacity:1!important;text-indent:0!important;line-height:1.28!important;}
+#warehouse-root .yx520-wh-head{display:grid!important;grid-template-columns:48px minmax(0,1fr) auto!important;gap:10px!important;align-items:center!important;width:100%!important;}
+#warehouse-root .yx520-wh-slotno{font-size:32px!important;font-weight:1000!important;color:#111827!important;-webkit-text-fill-color:#111827!important;}
+#warehouse-root .yx520-wh-size-sums{font-size:20px!important;font-weight:950!important;color:#0f172a!important;-webkit-text-fill-color:#0f172a!important;word-break:break-word!important;}
+#warehouse-root .yx520-wh-total{font-size:24px!important;font-weight:1000!important;color:#1267ff!important;-webkit-text-fill-color:#1267ff!important;text-align:right!important;white-space:nowrap!important;}
+#warehouse-root .yx520-wh-body{display:grid!important;gap:8px!important;width:100%!important;}
+#warehouse-root .yx520-wh-item-line{display:grid!important;grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;gap:9px!important;align-items:center!important;font-size:20px!important;font-weight:950!important;}
+#warehouse-root .yx520-wh-customer{color:#d32020!important;-webkit-text-fill-color:#d32020!important;font-size:21px!important;font-weight:1000!important;white-space:nowrap!important;}
+#warehouse-root .yx520-wh-material{color:#059669!important;-webkit-text-fill-color:#059669!important;font-size:20px!important;font-weight:1000!important;white-space:nowrap!important;}
+#warehouse-root .yx520-wh-product{color:#111827!important;-webkit-text-fill-color:#111827!important;font-size:20px!important;font-weight:950!important;word-break:break-word!important;}
+#warehouse-root .yx520-wh-item-line b{color:#d32020!important;-webkit-text-fill-color:#d32020!important;font-size:20px!important;font-weight:1000!important;white-space:nowrap!important;}
+#warehouse-root .yx520-wh-empty{font-size:21px!important;font-weight:950!important;color:#d32020!important;-webkit-text-fill-color:#d32020!important;}
+#yx-final-warehouse-menu,.yx-final-warehouse-menu{z-index:2147483647!important;}
+#yx-final-warehouse-menu button,.yx-final-warehouse-menu button{width:100%!important;min-height:44px!important;justify-content:center!important;}
+@media(max-width:980px){#warehouse-root .zone-grid.six-grid.vertical-card-grid,#warehouse-root #zone-A-grid,#warehouse-root #zone-B-grid,.warehouse-fixed-layout .zone-grid.six-grid,.warehouse-zone-wrap .vertical-card-grid{grid-template-columns:1fr!important;}#warehouse-root .yx520-wh-item-line{grid-template-columns:1fr!important;}}
+/* diagnostic marker: warehouse-cell ui-button-text-visible */

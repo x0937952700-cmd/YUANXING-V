@@ -4,7 +4,7 @@
   const YX = window.YXHardLock;
   if (!YX) return;
   const $ = id => document.getElementById(id);
-  const state = {items:[], bound:false, oldSelect:null, rendering:false, observer:null, repairTimer:null, lastRenderAt:0, itemCache:new Map()};
+  const state = {items:[], bound:false, oldSelect:null, rendering:false, repairTimer:null, lastRenderAt:0, itemCache:new Map()};
   const REGIONS = ['北區','中區','南區'];
   const moduleKey = () => YX.moduleKey();
   const isRegionPage = () => ['orders','master_order','ship','customers'].includes(moduleKey()) || !!$('region-north') || !!$('customers-north');
@@ -206,11 +206,7 @@
       renderBoards(state.items);
     }, 50);
   }
-  function observeCustomerBoards(){
-    // 正式收斂版：不使用 DOM 監控硬塞客戶卡；由 loadCustomerBlocks/renderBoards 主動更新。
-    if (moduleKey() === 'ship' || !isRegionPage()) return;
-    if (hasLegacyCustomerDom()) scheduleRepair();
-  }
+  function observeCustomerBoards(){ return; }
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
@@ -230,7 +226,7 @@
     modal = document.createElement('div');
     modal.id = 'yx113-customer-actions';
     modal.className = 'modal hidden yx113-customer-actions';
-    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除 / 封存客戶</button></div></div>`;
+    modal.innerHTML = `<div class="modal-card glass yx113-customer-action-card"><div class="modal-head"><div class="section-title" id="yx113-customer-action-title">客戶操作</div><button class="icon-btn" type="button" id="yx113-customer-action-close">✕</button></div><div class="yx113-action-stack"><button class="ghost-btn" type="button" data-yx113-customer-act="open">打開客戶商品</button><button class="ghost-btn" type="button" data-yx113-customer-act="edit">編輯客戶</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-north">移到北區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-center">移到中區</button><button class="ghost-btn" type="button" data-yx113-customer-act="move-south">移到南區</button><button class="ghost-btn danger-btn" type="button" data-yx113-customer-act="delete">刪除客戶</button></div></div>`;
     document.body.appendChild(modal);
     const close = () => modal.classList.add('hidden');
     $('yx113-customer-action-close').onclick = close;
@@ -355,8 +351,8 @@
     document.documentElement.dataset.yx115Customers = 'locked';
     document.documentElement.dataset.yx116Customers = 'locked';
     document.documentElement.dataset.yx117Customers = 'locked';
-    bindEvents(); lockGlobals(); observeCustomerBoards(); loadCustomerBlocks(true);
-    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); observeCustomerBoards(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
+    bindEvents(); lockGlobals(); loadCustomerBlocks(true);
+    [80, 160, 320, 700, 1500, 3000, 5200].forEach(ms => setTimeout(() => { lockGlobals(); if (hasLegacyCustomerDom() || Date.now() - state.lastRenderAt > 1200) renderBoards(state.items); }, ms));
   }
   YX.register('customer_regions', {install, loadCustomerBlocks, selectCustomer});
 })();

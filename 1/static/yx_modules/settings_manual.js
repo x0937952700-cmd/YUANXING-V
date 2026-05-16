@@ -21,6 +21,9 @@
     if (!raw) return fb || 0;
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (fb || 0);
+    const rightCompact = right.replace(/\s+/g,'');
+    const parenQty = rightCompact.match(/^(\d+)[(（][^)）]*[)）]$/);
+    if (parenQty) return Number(parenQty[1] || 0) || 1; // 123x11x12=12(-6) => 12件
     const rightForCanonical = stripParen(right).replace(/\s+/g,'').toLowerCase();
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
     if (rightForCanonical === canonical) return 15;
@@ -30,7 +33,7 @@
     const bare = parts.filter(p => !isSingleQtyX(p) && /\d/.test(stripParen(p)));
     if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0]
         && /^\d{3,}\s*x\s*\d+\s*$/i.test(stripParen(xParts[0]).replace(/\s+/g,''))
-        && bare.length >= 8) return bare.length;
+        && bare.length >= 8) { const m0=xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1]||0)+bare.length; }
     let total = 0;
     let hit = false;
     for (const seg of parts){

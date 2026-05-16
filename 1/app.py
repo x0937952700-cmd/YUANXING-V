@@ -29,8 +29,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'mainfile-integrated-ui-warehouse-ship-20260516u'
-APP_VERSION = '還完整主線_主檔整合_UI按鈕倉庫長按出貨清空修復_20260516u'
+STATIC_VERSION = 'qty-ui-final-check-20260516x'
+APP_VERSION = '還完整主線_件數筆數括號規則_UI全頁按鈕倉庫最終檢查_20260516x'
 
 app = Flask(__name__)
 
@@ -3536,7 +3536,7 @@ def api_diagnostics_export():
     action_resp = api_diagnostics_action_audit().get_json()
     master_resp = api_diagnostics_master_requirements().get_json()
     full_resp = _yx_diag_full_requirement_report()
-    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(11).txt', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
+    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(13).txt', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     resp = Response(payload, mimetype='application/json; charset=utf-8')
     resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_report.json"'
@@ -4248,13 +4248,13 @@ def _yx_diag_master_requirement_checks():
     app_src = _yx_diag_read_text('app.py')
     db_src = _yx_diag_read_text('db.py')
     base = _yx_diag_read_text('templates/base.html')
-    css100 = _yx_diag_read_text('static/yx_modules/yx_premium_ui_100.css')
+    css100 = _yx_diag_read_text('static/yx_modules/yx_final_ui_buttons_warehouse_20260516v.css')
     v520css = _yx_diag_read_text('static/css/base.css') + _yx_diag_read_text('static/css/product.css') + _yx_diag_read_text('static/css/warehouse.css')
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
     checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
-    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_final_520_alignment_repairs.css' in base and 'body:not([data-module="ship"])' in css100 and 'primary-btn' in v520css), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
+    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_safe_520_visual_only.css' in base and 'yx_final_ui_buttons_warehouse_20260516v.css' in base and 'primary-btn' in (v520css+css100) and 'warehouse-cell' in (v520css+css100)), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))

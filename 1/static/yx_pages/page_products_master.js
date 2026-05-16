@@ -1,7 +1,7 @@
 /* 沅興木業 v20-true-clean-master product page master
    來源：完整商品事件已吸收後重新收斂；移除內部 v11～v16 疊加補丁，避免同頁重複 renderer / submit handler 互相覆蓋。 */
 
-/* ===== absorbed from product_actions_hardlock.js ===== */
+/* ===== absorbed from product_actions_mainfile.js ===== */
 /* v20 TRUE CLEAN PRODUCT MASTER：商品頁唯一 renderer / 唯一事件主線；批量操作走單次 API。 */
 (function(){
   'use strict';
@@ -32,6 +32,8 @@
     const raw = norm(text || '');
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
+    const parenQty = right.match(/^(\d+)[(（][^)）]*[)）]$/);
+    if (parenQty) return Number(parenQty[1] || 0) || 1; // 123x11x12=12(-6) => 12件
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
     if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
@@ -637,7 +639,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-mainfile', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
@@ -705,6 +707,8 @@
     const raw = norm(text);
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : 0;
+    const parenQty = right.match(/^(\d+)[(（][^)）]*[)）]$/);
+    if (parenQty) return Number(parenQty[1] || 0) || 1; // 123x11x12=12(-6) => 12件
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
     if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(x=>x.trim()).filter(Boolean);

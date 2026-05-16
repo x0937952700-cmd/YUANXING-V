@@ -423,9 +423,14 @@ def effective_product_qty(product_text, fallback_qty=0):
     if not right:
         return 1
 
+    # 20260516x：括號扣數備註不改變原件數，例如 123x11x12=12(-6) 仍判定 12 件。
+    paren_qty = re.match(r'^\s*(\d+)\s*[\(（][^\)）]*[\)）]\s*$', right)
+    if paren_qty:
+        return int(paren_qty.group(1))
+
     canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
     if right.replace(' ', '').lower() == canonical:
-        return 10
+        return 15
 
     segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
     if not segments:
@@ -440,7 +445,8 @@ def effective_product_qty(product_text, fallback_qty=0):
     if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
             and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
             and len(bare_segments) >= 8):
-        return len(bare_segments)
+        m0 = re.search(r'x\s*(\d+)\s*$', x_segments[0], flags=re.I)
+        return int(m0.group(1) if m0 else 0) + len(bare_segments)
 
     total = 0
     parsed = False

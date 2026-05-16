@@ -59,8 +59,17 @@
     window.__YX124_ORNATE_LABEL_ACTIVE__ = true;
     apply(document);
     if (!observer) {
-      observer = {disabled:true};
-      try { window.addEventListener('yx:page-rendered', schedule, {passive:true}); } catch(_e) {}
+      try{
+        const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+        if (NativeMO && document.body) {
+          observer = new NativeMO(mutations => {
+            for (const m of mutations) {
+              if ((m.addedNodes && m.addedNodes.length) || (m.removedNodes && m.removedNodes.length)) { schedule(); break; }
+            }
+          });
+          observer.observe(document.body, {childList:true, subtree:true});
+        }
+      }catch(_e){}
     }
     [0,120,360,900,1800,3600].forEach(ms => setTimeout(() => apply(document), ms));
     return true;

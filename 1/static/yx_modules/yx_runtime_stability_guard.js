@@ -23,7 +23,7 @@
   // 清掉舊診斷事件，避免已修復後仍被舊 localStorage 事件誤判。
   try { localStorage.removeItem('yx_diagnostics_events_v1'); } catch(_) {}
   // 只在版本切換第一次清理舊快取，避免舊 service worker / 舊 JS 造成全頁面像沒改到。
-  const VERSION = 'mainline-cache-proof-repair-20260516j';
+  const VERSION = 'mainline-speed-full-check-repair-20260516m';
   const key = 'YX_MAINLINE_REPAIR_CACHE_CLEARED_' + VERSION;
   async function clearOldCaches(){
     if (localStorage.getItem(key)) return;
