@@ -284,8 +284,10 @@
     syncBatchSelectLimits();
     afterWarehouseRender();
   }
-  async function openWarehouseModal(z,c,s){ await loadAvailable(); z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; $('warehouse-modal')?.classList.remove('hidden'); renderCellItems(); }
-  function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); }
+  async function openWarehouseModal(z,c,s){ await loadAvailable(); z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; const modal=$('warehouse-modal'); modal?.classList.remove('hidden');
+    try{ document.body.classList.add('yx-warehouse-modal-open'); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); requestAnimationFrame(()=>{ try{ modal?.scrollIntoView?.({block:'center',inline:'nearest'}); }catch(_e){} }); }catch(_e){}
+    renderCellItems(); }
+  function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); try{document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
   function syncBatchSelectLimits(){
     // 20260516bi：下拉件數即時扣掉同一批次已選件數；同一品項選兩列時，不會兩列都各自顯示完整可加入件數。
     const rows=Array.from(document.querySelectorAll('#yx121-batch-rows .yx121-batch-row'));

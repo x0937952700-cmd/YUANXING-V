@@ -1,0 +1,21 @@
+/* 20260517 user request: restore product buttons from reference, unify scale, center warehouse edit modal, auto-visible shipping preview */
+:root{--yx-page-max:1180px;--yx-ui-scale:1;--yx-radius:18px;}
+html,body{font-size:16px!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body .page-shell, body main, body .module-shell, body .home-shell{max-width:var(--yx-page-max)!important;margin-left:auto!important;margin-right:auto!important;width:min(100%,var(--yx-page-max))!important;}
+.glass,.panel,.result-card,.table-card,.subsection,.inventory-inline-panel{border-radius:22px!important;}
+.yx-html-direct-toolbar .yx114-batch-actions,.yx-direct-batch-actions,.yx-html-one-row-actions{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px!important;justify-content:flex-start!important;}
+.yx-html-direct-toolbar .text-input.small,.yx-direct-batch-actions .text-input.small{height:40px!important;font-size:14px!important;border-radius:14px!important;}
+.yx-html-direct-toolbar button,.yx-html-direct-toolbar .ghost-btn,.yx-html-direct-toolbar .primary-btn{min-height:38px!important;padding:8px 12px!important;border-radius:999px!important;font-size:14px!important;line-height:1.15!important;white-space:nowrap!important;}
+.yx113-summary,.yx-html-direct-summary{margin-top:12px!important;}
+.yx113-table-wrap{max-height:none!important;overflow:auto!important;}
+.yx113-table,.yx128-inline-table{font-size:15px!important;}
+.yx113-table th,.yx113-table td{padding:10px 8px!important;vertical-align:middle!important;}
+#warehouse-modal{position:fixed!important;inset:0!important;z-index:10050!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:18px!important;background:rgba(15,23,42,.32)!important;overscroll-behavior:contain!important;}
+#warehouse-modal.hidden{display:none!important;}
+#warehouse-modal .modal-card,#warehouse-modal .warehouse-modal-card,#warehouse-modal .glass{width:min(620px,calc(100vw - 36px))!important;max-height:min(88vh,760px)!important;overflow:auto!important;margin:0!important;transform:none!important;scroll-margin-top:0!important;}
+#warehouse-modal .modal-head{position:sticky!important;top:0!important;z-index:2!important;background:rgba(255,255,255,.92)!important;backdrop-filter:blur(8px)!important;border-radius:18px 18px 0 0!important;}
+#warehouse-modal .yx-direct-section:first-of-type,#warehouse-modal #warehouse-cell-items,#warehouse-modal #yx121-current-items{margin-top:8px!important;}
+#warehouse-modal .yx121-batch-row,#warehouse-modal .yx105-batch-row,#warehouse-modal .yx106-batch-row{grid-template-columns:64px minmax(0,1fr) 84px!important;gap:8px!important;}
+#ship-preview-section,#ship-preview-panel,#module-result{scroll-margin-top:16px!important;}
+.yx22-preview{margin-top:12px!important;}
+@media(max-width:760px){:root{--yx-page-max:100%;}body .page-shell,body main,body .module-shell{width:100%!important;padding-left:10px!important;padding-right:10px!important}.yx-html-direct-toolbar .yx114-batch-actions,.yx-direct-batch-actions{gap:7px!important}.yx-html-direct-toolbar button,.yx-html-direct-toolbar .ghost-btn,.yx-html-direct-toolbar .primary-btn{font-size:13px!important;padding:8px 10px!important}.yx-html-direct-toolbar .text-input.small{flex:1 1 100%!important;max-width:none!important}#warehouse-modal{align-items:center!important;padding:10px!important}#warehouse-modal .modal-card,#warehouse-modal .warehouse-modal-card,#warehouse-modal .glass{width:calc(100vw - 20px)!important;max-height:86vh!important}.yx113-table,.yx128-inline-table{font-size:14px!important}}

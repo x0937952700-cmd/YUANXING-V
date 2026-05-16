@@ -1,7 +1,7 @@
 /* 沅興木業 v20-true-clean-master product page master
    來源：完整商品事件已吸收後重新收斂；移除內部 v11～v16 疊加補丁，避免同頁重複 renderer / submit handler 互相覆蓋。 */
 
-/* ===== absorbed from product_actions_mainfile.js ===== */
+/* ===== absorbed from product_actions_hardlock.js ===== */
 /* v20 TRUE CLEAN PRODUCT MASTER：商品頁唯一 renderer / 唯一事件主線；批量操作走單次 API。 */
 (function(){
   'use strict';
@@ -9,30 +9,7 @@
   if (!YX) return;
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, installedSource:'' };
-  try { Object.keys(localStorage||{}).forEach(k=>{ if(/^yx_b[a-r]_product_visible_|^yx_ba_product_visible_/.test(k)) localStorage.removeItem(k); }); } catch(_e) {}
-  const CACHE_PREFIX = 'yx_bs_product_visible_';
-  function cacheKey(source){ return CACHE_PREFIX + source + '_' + String(window.__YX_STATIC_VERSION__ || 'aw'); }
-  function writeProductCache(source, rows){ try { localStorage.setItem(cacheKey(source), JSON.stringify({at:Date.now(), rows:Array.isArray(rows)?rows:[]})); } catch(_e) {} }
-  function readProductCache(source){ try { const raw=localStorage.getItem(cacheKey(source)); if(!raw) return []; const obj=JSON.parse(raw); return Array.isArray(obj.rows) ? obj.rows : []; } catch(_e) { return []; } }
-  function paintRows(source, rows){ rowsStore(source, Array.isArray(rows)?rows:[]); pruneSelected(source); ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source); document.documentElement.dataset.yxProductLoaded=source; afterRenderProductUI(); }
-  function showSourceError(source, msg){ const box=ensureSummary(source); if(box) box.innerHTML = `<div class="empty-state-card compact-empty">${YX.esc(msg || title(source)+'載入失敗')}</div>`; }
-  function extractRowsFromResponse(d){
-    if (Array.isArray(d)) return d;
-    if (!d || typeof d !== 'object') return [];
-    const keys = ['raw_items','items','rows','data','inventory','orders','master_orders','master','list','results'];
-    for (const k of keys){ if (Array.isArray(d[k])) return d[k]; }
-    for (const k of keys){ if (d[k] && typeof d[k] === 'object'){ const nested = extractRowsFromResponse(d[k]); if (nested.length) return nested; } }
-    return [];
-  }
-  function restoreRowsFromKnownGlobals(source){
-    const pools=[];
-    try{ pools.push(window.__YX112_ROWS__?.[source]); }catch(_e){}
-    try{ pools.push(window.__yx63Rows?.[source]); }catch(_e){}
-    try{ pools.push(window.state?.[source], window.state?.rows?.[source], window.state?.inventory, window.state?.orders, window.state?.master_orders); }catch(_e){}
-    for (const x of pools){ if(Array.isArray(x) && x.length) return x; }
-    return [];
-  }
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -40,9 +17,7 @@
     return m === 'inventory' ? 'inventory' : m === 'orders' ? 'orders' : m === 'master_order' ? 'master_order' : '';
   };
   const apiSource = s => s === 'master_order' ? 'master_orders' : s;
-  const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master-orders';
-  const fallbackEndpoint = s => s === 'inventory' ? '/api/inventory-visible' : s === 'orders' ? '/api/order' : '/api/master_order';
-  const rescueEndpoint = s => s === 'inventory' ? '/api/inventory-visible' : '';
+  const endpoint = s => s === 'inventory' ? '/api/inventory' : s === 'orders' ? '/api/orders' : '/api/master_orders';
   const title = s => s === 'inventory' ? '庫存清單' : s === 'orders' ? '訂單清單' : '總單清單';
   const listEl = s => s === 'inventory' ? $('inventory-inline-list') : s === 'orders' ? $('orders-list') : $('master-list');
   const sectionEl = s => s === 'inventory' ? ($('inventory-inline-panel') || listEl(s)?.closest('.panel,.result-card,.subsection')) : s === 'orders' ? $('orders-list-section') : $('master-list-section');
@@ -57,16 +32,14 @@
     const raw = norm(text || '');
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
-    const parenQty = right.match(/^(\d+)[(（][^)）]*[)）]$/);
-    if (parenQty) return Number(parenQty[1] || 0) || 1; // 123x11x12=12(-6) => 12件
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 15;
+    if (right.toLowerCase() === canonical) return 10;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
     if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
     const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
     const xParts = parts.filter(isSingleQtyX);
     const bareParts = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
-    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) { const m0=xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1]||0)+bareParts.length; }
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
     let total = 0;
     let hit = false;
     for (const seg of parts){
@@ -99,7 +72,7 @@
     return q > 1 ? `${s}x${q}` : s;
   }
   function urlFor(source, id){
-    return source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master-orders/${encodeURIComponent(id)}`;
+    return source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
   }
   function payloadFromParts(source, row, parts){
     const rawSupport = norm(parts.support || '');
@@ -171,7 +144,7 @@
     let rows = [...rowsStore(source)];
     const cust = selectedCustomer();
     if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => sameCustomerName(r.customer_name || '', cust));
-    // 20260516aa：總單未點客戶時也顯示全部總單，點客戶後才即時篩選。
+    if (source === 'master_order' && !cust) rows = [];
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
     if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''} ${zoneLabel(r)}`.toLowerCase().includes(q));
     const z = state.zoneFilter[source] || 'ALL';
@@ -224,10 +197,10 @@
     const saveBtn = document.querySelector(`[data-yx128-save-all="${source}"]`);
     const cancelBtn = document.querySelector(`[data-yx128-cancel-all="${source}"]`);
     const count = selectedIds(source).size;
-    if (editBtn) editBtn.textContent = count ? '批量編輯已勾選' : '批量編輯全部';
-    if (editBtn) editBtn.style.display = editing ? 'none' : '';
-    if (saveBtn) { saveBtn.textContent='儲存批量編輯'; saveBtn.style.display = editing ? '' : 'none'; }
-    if (cancelBtn) { cancelBtn.textContent='取消編輯'; cancelBtn.style.display = editing ? '' : 'none'; }
+    if (editBtn) editBtn.textContent = editing ? '儲存批量編輯' : (count ? '批量編輯已勾選' : '批量編輯全部');
+    if (editBtn) editBtn.style.display = '';
+    if (saveBtn) saveBtn.remove();
+    if (cancelBtn) cancelBtn.remove();
   }
   function ensureBatchToolbar(source){
     const sec = sectionEl(source); if (!sec) return null;
@@ -236,17 +209,11 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      const moveButtons = source === 'inventory'
-        ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
-        : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}" aria-label="全部區" data-yx-label="全部區">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}" aria-label="A區" data-yx-label="A區">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}" aria-label="B區" data-yx-label="B區">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}" aria-label="套用材質" data-yx-label="套用材質">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" aria-label="批量刪除" data-yx-label="批量刪除">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" aria-label="批量編輯全部" data-yx-label="批量編輯全部">批量編輯全部</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>${moveButtons}<button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}" style="display:none" aria-label="儲存批量編輯" data-yx-label="儲存批量編輯">儲存批量編輯</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}" style="display:none" aria-label="取消編輯" data-yx-label="取消編輯">取消編輯</button></div>`;
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
     const search = $(`yx113-${source}-search`);
-    if (!bar.querySelector(`[data-yx128-save-all="${source}"]`)) {
-      bar.querySelector('.yx-direct-batch-actions,.yx114-batch-actions')?.insertAdjacentHTML('beforeend', `<button class="primary-btn small-btn" type="button" data-yx128-save-all="${source}" style="display:none" aria-label="儲存批量編輯" data-yx-label="儲存批量編輯">儲存批量編輯</button><button class="ghost-btn small-btn" type="button" data-yx128-cancel-all="${source}" style="display:none" aria-label="取消編輯" data-yx-label="取消編輯">取消編輯</button>`);
-    }
     if (search && search.dataset.yxHtmlDirectBound !== '1') {
       search.dataset.yxHtmlDirectBound = '1';
       search.addEventListener('input', () => { renderSummary(source); renderCards(source); });
@@ -333,43 +300,27 @@
   async function batchMoveZone(source, zone){
     const ids = Array.from(selectedIds(source));
     if (!ids.length) return YX.toast('請先勾選要移到 A/B 區的商品', 'warn');
-    const items = selectedItems(source);
-    const idSet = new Set(ids.map(String));
-    const before = rowsStore(source).map(r => ({...r}));
-    rowsStore(source).forEach(r => {
-      if (idSet.has(String(r.id || ''))) {
-        r.area = zone;
-        r.location = zone;
-      }
-    });
-    renderSummary(source);
-    renderCards(source);
-    try{
-      const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items})});
-      clearSelected(source);
-      YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
-      await loadSource(source);
-    }catch(e){
-      rowsStore(source, before);
-      renderSummary(source);
-      renderCards(source);
-      await loadSource(source);
-      throw e;
-    }
+    const d = await YX.api('/api/customer-items/batch-zone', {method:'POST', body:JSON.stringify({zone, items:selectedItems(source)})});
+    clearSelected(source);
+    YX.toast(`已移到 ${zone}區：${d.count || ids.length} 筆`, 'ok');
+    await loadSource(source);
   }
   function renderSummary(source){
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
-    // 20260516z：總單沒有點客戶時也顯示目前清單，避免使用者看到空白；點客戶後仍即時篩選。
+    if (source === 'master_order' && !selectedCustomer()) {
+      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻完整顯示該客戶商品。</span></div>';
+      return;
+    }
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);
     const moveButtons = source === 'inventory'
-      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
-      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
-    // 20260516bb：操作按鈕只保留在上方 toolbar，summary 不再重複產生加到訂單/總單/A/B區按鈕。
-    const controls = '';
+      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
+      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
+    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
+    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {
@@ -386,13 +337,12 @@
         <td><select class="text-input small yx128-field" data-yx128-field="zone"><option value="" ${zoneOf(r)?'':'selected'}>未分區</option><option value="A" ${zoneOf(r)==='A'?'selected':''}>A區</option><option value="B" ${zoneOf(r)==='B'?'selected':''}>B區</option></select><input type="hidden" data-yx128-field="customer_name" value="${YX.esc(customerOf(r) || '')}"></td><td class="yx131-action-cell"><span class="small-note">編輯中</span></td>
       </tr>`;
     }).join('') : `<tr><td colspan="6">目前沒有資料</td></tr>`;
-    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
+    box.innerHTML = `<div class="yx113-summary-head yx128-summary-head"><div class="yx132-summary-title">${custTag ? `<span class="yx132-customer-tag">${YX.esc(custTag)}</span>` : ''}<strong>${total}件 / ${rows.length}筆</strong><span>${YX.esc(title(source))}｜完整直列顯示，不用下拉式</span></div>${controls}</div><datalist id="yx128-material-list-${source}">${materialOptions('').replace(/ selected/g,'')}</datalist><div class="yx113-table-wrap"><table class="yx113-table yx128-inline-table"><thead><tr><th>材質</th><th>尺寸</th><th>支數 x 件數</th><th>總數量</th><th>A/B區</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`;
     const ids = idsBefore;
     box.querySelectorAll('.yx113-summary-row').forEach(row => { if (!editing) setRowSelected(row, ids.has(String(row.dataset.id || ''))); });
     syncSelectButton(source);
     syncZoneButtons(source);
     syncEditButtons(source);
-    afterRenderProductUI();
   }
   function ensureFilterNote(source, n){
     let note = $(`yx113-${source}-filter-note`);
@@ -409,9 +359,9 @@
     const p = splitProduct(r.product_text || '');
     const q = qtyOf(r);
     const actions = source === 'inventory'
-      ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete" aria-label="刪除" data-yx-label="刪除">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
-      : `<button class="ghost-btn tiny-btn" data-yx113-action="ship" aria-label="直接出貨" data-yx-label="直接出貨">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete" aria-label="刪除" data-yx-label="刪除">刪除</button>`;
-    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit" aria-label="編輯" data-yx-label="編輯">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
+      ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master">加到總單</button>`
+      : `<button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
+    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
   function renderCards(source){
     // FIX131：庫存 / 訂單 / 總單不再產生下方小卡，所有操作統一移到上方完整清單。
@@ -421,57 +371,22 @@
     list.classList.add('yx131-hidden-card-list');
     list.innerHTML = '';
     list.style.display = 'none';
-    afterRenderProductUI();
   }
   async function loadSource(source, opts={}){
     source = source || sourceFromModule();
     if (!source) return [];
-    if (!rowsStore(source).length) {
-      const cached = readProductCache(source);
-      if (cached.length) paintRows(source, cached);
-    }
     state.loading = source;
     try {
-      if (source === 'inventory') {
-        try {
-          const vd = await YX.api('/api/inventory-visible?bs=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Visible':'1'}});
-          const vrows = extractRowsFromResponse(vd);
-          if (vrows.length) { paintRows(source, vrows); writeProductCache(source, vrows); }
-        } catch(_visibleFirstErr) {}
-      }
-      let d = await YX.api(endpoint(source) + '?yx129_master=1&yx_force_visible=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Visible-List':'1'}});
-      let rows = extractRowsFromResponse(d);
-      if (!rows.length && fallbackEndpoint(source) !== endpoint(source)) {
-        try {
-          const fd = await YX.api(fallbackEndpoint(source) + '?yx129_master=1&yx_force_visible=1&ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Force-Fresh':'1','X-YX-Product-Fallback':'1','X-YX-Visible-List':'1'}});
-          const frows = extractRowsFromResponse(fd);
-          if (frows.length) rows = frows;
-        } catch(_fallbackErr) {}
-      }
-      if (!rows.length && rescueEndpoint(source)) {
-        try {
-          const rd = await YX.api(rescueEndpoint(source) + '?ts=' + Date.now(), {method:'GET', headers:{'Cache-Control':'no-cache','X-YX-Inventory-Rescue':'1'}});
-          const rrows = extractRowsFromResponse(rd);
-          if (rrows.length) rows = rrows;
-        } catch(_rescueErr) {}
-      }
-      if (!rows.length) {
-        const globals = restoreRowsFromKnownGlobals(source);
-        if (globals.length) rows = globals;
-      }
-      if (!rows.length && rowsStore(source).length) {
-        // 20260516bb：後端暫時空回應時，不准用空資料把已顯示畫面蓋掉。
-        rows = rowsStore(source);
-      }
-      paintRows(source, rows);
-      if (rows.length) writeProductCache(source, rows);
+      const d = await YX.api(endpoint(source) + '?yx129_master=1&ts=' + Date.now(), {method:'GET'});
+      const rows = Array.isArray(d.items) ? d.items : (Array.isArray(d.rows) ? d.rows : []);
+      rowsStore(source, rows);
+      pruneSelected(source);
+      ensureBatchToolbar(source);
+      ensureSummary(source);
+      renderSummary(source);
+      renderCards(source);
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}
       return rowsStore(source);
-    } catch(e) {
-      const globals = restoreRowsFromKnownGlobals(source);
-      if (globals.length) { paintRows(source, globals); return rowsStore(source); }
-      if (!rowsStore(source).length) showSourceError(source, e.message || `${title(source)}載入失敗`);
-      throw e;
     } finally {
       if (state.loading === source) state.loading = null;
     }
@@ -492,7 +407,7 @@
       <label>支數 x 件數<input class="text-input small" data-yx128-card-field="support" value="${YX.esc(p.support || '')}" placeholder="例如 371x4；只有支數會判定 1 件"></label>
       <label>數量<input class="text-input small" type="number" min="1" data-yx128-card-field="qty" value="${qtyOf(row)}" placeholder="數量"></label>
       <datalist id="yx128-card-materials">${materialOptions('').replace(/ selected/g,'')}</datalist>
-      <div class="btn-row compact-row"><button class="primary-btn small-btn" type="button" data-yx128-card-save="1" aria-label="儲存" data-yx-label="儲存">儲存</button><button class="ghost-btn small-btn" type="button" data-yx128-card-cancel="1" aria-label="取消" data-yx-label="取消">取消</button></div>`;
+      <div class="btn-row compact-row"><button class="primary-btn small-btn" type="button" data-yx128-card-save="1">儲存</button><button class="ghost-btn small-btn" type="button" data-yx128-card-cancel="1">取消</button></div>`;
   }
   function readCardPayload(card){
     const row = rowFromCard(card); if (!row) return null;
@@ -515,7 +430,7 @@
   async function deleteItem(card){
     const source = card.dataset.source, id = card.dataset.id;
     if (!confirm(`確定刪除這筆${title(source)}商品？`)) return;
-    const url = source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master-orders/${encodeURIComponent(id)}`;
+    const url = source === 'inventory' ? `/api/inventory/${encodeURIComponent(id)}` : source === 'orders' ? `/api/orders/${encodeURIComponent(id)}` : `/api/master_orders/${encodeURIComponent(id)}`;
     await YX.api(url, {method:'DELETE'}); YX.toast('已刪除', 'ok'); await loadSource(source);
   }
   async function moveInventory(card, target){
@@ -722,7 +637,7 @@
       renderMasterRows: YX.mark(renderRows('master_order'), 'render_master_121')
     };
     Object.entries(bridges).forEach(([name, fn]) => { try { YX.hardAssign(name, fn, {configurable:false}); } catch(_e) {} });
-    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-mainfile', productActions:window.YX113ProductActions}); } catch(_e) {}
+    try { window.YX_MASTER = Object.freeze({...(window.YX_MASTER || {}), version:'fix142-speed-ship-master-hardlock', productActions:window.YX113ProductActions}); } catch(_e) {}
   }
   function cleanupLegacyProductDom(source){
     document.documentElement.dataset.yx115Products = 'locked';
@@ -734,7 +649,27 @@
     });
     ensureBatchToolbar(source); ensureSummary(source); renderSummary(source); renderCards(source);
   }
-  function scheduleProductRepair(source){ cleanupLegacyProductDom(source); }
+  function scheduleRepair(source){
+    if (state.repairTimer) return;
+    state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
+  }
+  function observeProductPage(source){
+    if (state.observer || !source) return;
+    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
+    if (typeof NativeMO === 'undefined') return;
+    const targets = [sectionEl(source), listEl(source)].filter(Boolean);
+    if (!targets.length) return;
+    state.observer = new NativeMO(muts => {
+      for (const m of muts){
+        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
+        if (added.some(n => n.matches?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel') || n.querySelector?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel'))) {
+          scheduleRepair(source);
+          break;
+        }
+      }
+    });
+    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
+  }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
@@ -742,18 +677,14 @@
     document.documentElement.dataset.yx132Products = 'locked';
     document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
-    ensureBatchToolbar(source); ensureSummary(source); cleanupLegacyProductDom(source);
+    ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
     if (state.installedSource === source && rowsStore(source).length) {
       renderSummary(source); renderCards(source);
     } else {
       state.installedSource = source;
-      loadSource(source,{force:true}).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
-      // 20260516bb：庫存/訂單/總單如果第一次載入被網路或舊快取干擾，短時間內補救讀取；不使用 timerLoop，不重複綁事件。
-      [450, 1200, 2600].forEach(ms => setTimeout(() => {
-        try { if (!rowsStore(source).length) loadSource(source,{force:true}).catch(()=>{}); } catch(_e) {}
-      }, ms));
+      loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
     }
-    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); cleanupLegacyProductDom(source); }, ms));
+    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
   const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };
@@ -794,10 +725,8 @@
     const raw = norm(text);
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : 0;
-    const parenQty = right.match(/^(\d+)[(（][^)）]*[)）]$/);
-    if (parenQty) return Number(parenQty[1] || 0) || 1; // 123x11x12=12(-6) => 12件
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 15;
+    if (right.toLowerCase() === canonical) return 10;
     const parts = right.split('+').map(x=>x.trim()).filter(Boolean);
     if (!parts.length) return 1;
     let total = 0, hit = false;
@@ -857,7 +786,6 @@
         result.classList.remove('hidden');
         result.style.display = '';
         result.innerHTML = `<strong>新增成功，已重新讀取後端清單</strong><div class="small-note">${items.map(i=>i.product_text).join('、')}</div>`;
-        afterRenderProductUI();
       }
       toast(`已新增 ${items.length} 筆商品`,'ok');
     } catch(e){
@@ -881,3 +809,4 @@
     finalConfirmSubmit(ev);
   }, true);
 })();
+

@@ -8,7 +8,7 @@
   const clean=(v)=>String(v??'').replace(/\s+/g,' ').trim();
   async function api(url,opt={}){const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});const txt=await res.text();let data={};try{data=txt?JSON.parse(txt):{};}catch(_){data={success:false,error:txt||'伺服器回應格式錯誤'};}if(!res.ok||data.success===false)throw new Error(data.error||data.message||`請求失敗 ${res.status}`);return data;}
   function toast(msg,kind='ok'){let box=$('yx-ship-toast');if(!box){box=document.createElement('div');box.id='yx-ship-toast';document.body.appendChild(box);}box.className='yx-ship-toast '+kind;box.textContent=msg;clearTimeout(box._t);box._t=setTimeout(()=>box.classList.remove('ok','warn','error'),2800);}
-  function jumpToPreview(){
+  function jumpToPreview(){ /* YX20260517_PREVIEW_JUMP */
     const section=$('ship-preview-section');
     const panel=$('ship-preview-panel')||$('module-result');
     if(section){section.style.display='block';section.classList.remove('hidden');}
@@ -19,7 +19,7 @@
       try{target.scrollIntoView({behavior:'smooth',block:'start',inline:'nearest'});}catch(_e){}
       try{window.scrollTo({top:Math.max(0,target.getBoundingClientRect().top+window.scrollY-12),behavior:'smooth'});}catch(_e){}
     };
-    try{history.replaceState(null,'','#ship-preview-section');}catch(_e){try{location.hash='ship-preview-section';}catch(_e2){}}
+    try{history.replaceState(null,'','#ship-preview-section');}catch(_e){try{location.hash='ship-preview-section';}catch(_e2){}} try{setTimeout(()=>{const t=document.getElementById('ship-preview-section')||document.getElementById('ship-preview-panel')||document.getElementById('module-result'); t&&t.scrollIntoView({behavior:'smooth',block:'start',inline:'nearest'});},80);}catch(_e){}
     doJump(); setTimeout(doJump,120); setTimeout(doJump,420); setTimeout(doJump,900);
   }
   function normalizeText(t){return clean(t).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');}
