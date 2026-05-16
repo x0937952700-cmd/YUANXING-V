@@ -1,7 +1,0 @@
-YUANXING CLEAN DEPLOY VERIFY
-- 正式收斂包：不含 reference_520 / reference_520_same_path_not_runtime
-- 不含 warehouse.db / test.db / __pycache__ / scripts 稽核備份 / services 未載入骨架
-- 保留出貨核心：templates/module.html + ship_single_lock.js + fix142_speed_ship_hardlock.css + shipping_query_manual.js
-- 修復 templates/base.html 重複 block body 造成首頁/登入 500
-- Flask test client 已測：/login、登入後 /、/settings、/diagnostics、/shipping、/api/diagnostics/summary、/api/health、/api/health/extended 皆非 500
-- /api/ship/preview 以空 payload 測試回 400，代表路由存在且未崩潰
