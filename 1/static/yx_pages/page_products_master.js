@@ -146,7 +146,7 @@
     let rows = [...rowsStore(source)];
     const cust = selectedCustomer();
     if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => sameCustomerName(r.customer_name || '', cust));
-    if (source === 'master_order' && !cust) rows = [];
+    // 20260516aa：總單未點客戶時也顯示全部總單，點客戶後才即時篩選。
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
     if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''} ${zoneLabel(r)}`.toLowerCase().includes(q));
     const z = state.zoneFilter[source] || 'ALL';
@@ -199,10 +199,10 @@
     const saveBtn = document.querySelector(`[data-yx128-save-all="${source}"]`);
     const cancelBtn = document.querySelector(`[data-yx128-cancel-all="${source}"]`);
     const count = selectedIds(source).size;
-    if (editBtn) editBtn.textContent = editing ? '儲存批量編輯' : (count ? '批量編輯已勾選' : '批量編輯全部');
-    if (editBtn) editBtn.style.display = '';
-    if (saveBtn) saveBtn.remove();
-    if (cancelBtn) cancelBtn.remove();
+    if (editBtn) editBtn.textContent = count ? '批量編輯已勾選' : '批量編輯全部';
+    if (editBtn) editBtn.style.display = editing ? 'none' : '';
+    if (saveBtn) { saveBtn.textContent='儲存批量編輯'; saveBtn.style.display = editing ? '' : 'none'; }
+    if (cancelBtn) { cancelBtn.textContent='取消編輯'; cancelBtn.style.display = editing ? '' : 'none'; }
   }
   function ensureBatchToolbar(source){
     const sec = sectionEl(source); if (!sec) return null;
@@ -211,7 +211,10 @@
       bar = document.createElement('div');
       bar.id = `yx113-${source}-toolbar`;
       bar.className = 'yx113-toolbar yx114-toolbar';
-      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button></div>`;
+      const moveButtons = source === 'inventory'
+        ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
+        : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
+      bar.innerHTML = `<div class="yx114-toolbar-main"></div><div class="yx114-batch-actions yx-direct-batch-actions"><input id="yx113-${source}-search" class="text-input small yx113-search" placeholder="搜尋商品 / 客戶 / 材質 / A區 / B區"><button class="ghost-btn small-btn yx132-zone-filter is-active" type="button" data-yx132-zone-filter="ALL" data-source="${source}" aria-label="全部區" data-yx-label="全部區">全部區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="A" data-source="${source}" aria-label="A區" data-yx-label="A區">A區</button><button class="ghost-btn small-btn yx132-zone-filter" type="button" data-yx132-zone-filter="B" data-source="${source}" aria-label="B區" data-yx-label="B區">B區</button><select id="yx113-${source}-material" class="text-input small"><option value="">批量增加材質</option>${MATERIALS.map(m => `<option value="${YX.esc(m)}">${YX.esc(m)}</option>`).join('')}</select><button class="ghost-btn small-btn" type="button" data-yx113-batch-material="${source}" aria-label="套用材質" data-yx-label="套用材質">套用材質</button><button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}" aria-label="批量刪除" data-yx-label="批量刪除">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}" aria-label="批量編輯全部" data-yx-label="批量編輯全部">批量編輯全部</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>${moveButtons}</div>`;
       const head = sec.querySelector('.section-head,.inventory-inline-head') || sec.firstElementChild || sec;
       head.insertAdjacentElement('afterend', bar);
     }
@@ -311,17 +314,14 @@
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
-    if (source === 'master_order' && !selectedCustomer()) {
-      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻完整顯示該客戶商品。</span></div>';
-      return;
-    }
+    // 20260516z：總單沒有點客戶時也顯示目前清單，避免使用者看到空白；點客戶後仍即時篩選。
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);
     const moveButtons = source === 'inventory'
-      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
-      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
-    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
+      ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
+      : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>` : '');
+    const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}" aria-label="移到A區" data-yx-label="移到A區">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}" aria-label="移到B區" data-yx-label="移到B區">移到B區</button>`;
     const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
@@ -345,6 +345,7 @@
     syncSelectButton(source);
     syncZoneButtons(source);
     syncEditButtons(source);
+    afterRenderProductUI();
   }
   function ensureFilterNote(source, n){
     let note = $(`yx113-${source}-filter-note`);
@@ -361,9 +362,9 @@
     const p = splitProduct(r.product_text || '');
     const q = qtyOf(r);
     const actions = source === 'inventory'
-      ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master">加到總單</button>`
-      : `<button class="ghost-btn tiny-btn" data-yx113-action="ship">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete">刪除</button>`;
-    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
+      ? `<button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete" aria-label="刪除" data-yx-label="刪除">刪除</button><button class="ghost-btn tiny-btn" data-yx113-action="to-orders" aria-label="加到訂單" data-yx-label="加到訂單">加到訂單</button><button class="ghost-btn tiny-btn" data-yx113-action="to-master" aria-label="加到總單" data-yx-label="加到總單">加到總單</button>`
+      : `<button class="ghost-btn tiny-btn" data-yx113-action="ship" aria-label="直接出貨" data-yx-label="直接出貨">直接出貨</button><button class="ghost-btn tiny-btn danger-btn" data-yx113-action="delete" aria-label="刪除" data-yx-label="刪除">刪除</button>`;
+    return `<div class="deduct-card yx113-product-card yx112-product-card ${Number(r.unplaced_qty || 0) > 0 ? 'needs-red' : ''}" data-source="${source}" data-id="${Number(r.id || 0)}"><div class="yx128-card-top"><strong class="material-text">${YX.esc(materialOf(r))}</strong><button class="ghost-btn tiny-btn yx128-card-edit-btn" type="button" data-yx113-action="edit" aria-label="編輯" data-yx-label="編輯">編輯</button><strong>${q}件</strong></div><button class="yx113-product-main" type="button" data-yx113-action="filter"><span>${YX.esc(p.size || r.product_text || '')}</span><span>${YX.esc(p.support || String(q))}</span></button>${customerOf(r) ? `<div class="small-note">${YX.esc(customerOf(r))}</div>` : ''}<div class="btn-row compact-row yx113-product-actions">${actions}</div></div>`;
   }
   function renderCards(source){
     // FIX131：庫存 / 訂單 / 總單不再產生下方小卡，所有操作統一移到上方完整清單。
@@ -373,6 +374,7 @@
     list.classList.add('yx131-hidden-card-list');
     list.innerHTML = '';
     list.style.display = 'none';
+    afterRenderProductUI();
   }
   async function loadSource(source, opts={}){
     source = source || sourceFromModule();
@@ -388,6 +390,7 @@
       renderSummary(source);
       renderCards(source);
       try { window.dispatchEvent(new CustomEvent('yx:product-source-loaded', {detail:{source, count:rows.length}})); } catch(_e) {}
+      afterRenderProductUI();
       return rowsStore(source);
     } finally {
       if (state.loading === source) state.loading = null;
@@ -409,7 +412,7 @@
       <label>支數 x 件數<input class="text-input small" data-yx128-card-field="support" value="${YX.esc(p.support || '')}" placeholder="例如 371x4；只有支數會判定 1 件"></label>
       <label>數量<input class="text-input small" type="number" min="1" data-yx128-card-field="qty" value="${qtyOf(row)}" placeholder="數量"></label>
       <datalist id="yx128-card-materials">${materialOptions('').replace(/ selected/g,'')}</datalist>
-      <div class="btn-row compact-row"><button class="primary-btn small-btn" type="button" data-yx128-card-save="1">儲存</button><button class="ghost-btn small-btn" type="button" data-yx128-card-cancel="1">取消</button></div>`;
+      <div class="btn-row compact-row"><button class="primary-btn small-btn" type="button" data-yx128-card-save="1" aria-label="儲存" data-yx-label="儲存">儲存</button><button class="ghost-btn small-btn" type="button" data-yx128-card-cancel="1" aria-label="取消" data-yx-label="取消">取消</button></div>`;
   }
   function readCardPayload(card){
     const row = rowFromCard(card); if (!row) return null;
@@ -770,6 +773,7 @@
         result.classList.remove('hidden');
         result.style.display = '';
         result.innerHTML = `<strong>新增成功，已重新讀取後端清單</strong><div class="small-note">${items.map(i=>i.product_text).join('、')}</div>`;
+        afterRenderProductUI();
       }
       toast(`已新增 ${items.length} 筆商品`,'ok');
     } catch(e){

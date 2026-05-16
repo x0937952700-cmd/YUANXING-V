@@ -461,7 +461,7 @@
   // no pageshow reinstall: avoid settings -> home lag
 })();
 
-/* ===== END static/yx_pages/page_bootstrap_master.js ===== */
+/* 20260516ao: merged bootstrap-safe code into this main file; no page_bootstrap runtime load */
 
 /* formal page module */
 (function(){

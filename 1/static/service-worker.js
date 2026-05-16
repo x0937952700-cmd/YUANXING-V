@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yx-mainfile-final-ui-warehouse-20260516v';
+const CACHE_NAME = 'yx-final-mainfile-contract-ui-warehouse-20260516av';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/css/base.css',
@@ -10,7 +10,7 @@ const SAFE_ASSETS = [
   '/static/yx_assets/yx_dream_pill_button.png',
   '/static/yx_assets/yx_dream_starry_background.png',
   '/static/yx_modules/yx_safe_520_visual_only.css',
-  '/static/yx_modules/yx_final_ui_buttons_warehouse_20260516x.css',
+  '/static/yx_modules/yx_final_mainfile_ui_20260516av.css',
   '/static/yx_modules/fix142_speed_ship_hardlock.css',
   '/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/favicon.png',

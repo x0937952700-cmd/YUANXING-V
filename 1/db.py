@@ -402,6 +402,75 @@ def product_support_text(text):
     return ''
 
 
+def _yx_volume_coeff_length(v):
+    try:
+        n = float(str(v or '').strip().lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 1000.0 if n > 210 else n / 100.0
+
+def _yx_volume_coeff_width(v):
+    try:
+        n = float(str(v or '').strip().lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 10.0
+
+def _yx_volume_coeff_height(v):
+    raw = str(v or '').strip()
+    try:
+        n = float(raw.lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 100.0 if n >= 100 else n / 10.0
+
+def _yx_support_sticks_sum(support):
+    total = 0.0
+    raw = str(support or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+')
+    for seg in [x.strip() for x in raw.split('+') if x.strip()]:
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?$', seg, flags=re.I)
+        if m:
+            total += float(m.group(1) or 0) * float(m.group(2) or 1)
+    return total
+
+def calculate_product_volume(product_text):
+    """出貨預覽 / 診斷共用材積計算；與前端 ship_single_lock.js 的試算規則一致。"""
+    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
+    left = raw.split('=', 1)[0].strip()
+    support = raw.split('=', 1)[1].strip() if '=' in raw else ''
+    m = re.search(r'(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)', left, flags=re.I)
+    if not m:
+        return {'product': raw, 'pieces_sum': 0, 'formula': '', 'volume': 0.0, 'length_coeff': 0, 'width_coeff': 0, 'height_coeff': 0}
+    sticks = _yx_support_sticks_sum(support)
+    lc = _yx_volume_coeff_length(m.group(1))
+    wc = _yx_volume_coeff_width(m.group(2))
+    hc = _yx_volume_coeff_height(m.group(3))
+    volume = sticks * lc * wc * hc
+    return {
+        'product': raw,
+        'product_text': raw,
+        'pieces_sum': sticks,
+        'formula': f'{sticks:g} × {lc:g} × {wc:g} × {hc:g}',
+        'volume': round(volume, 4),
+        'length_coeff': lc,
+        'width_coeff': wc,
+        'height_coeff': hc,
+    }
+
+def calculate_shipment_volume(items):
+    rows = []
+    total_qty = 0
+    total_volume = 0.0
+    for item in items or []:
+        product_text = item.get('product_text') if isinstance(item, dict) else str(item or '')
+        qty = effective_product_qty(product_text, (item.get('qty') if isinstance(item, dict) else 0) or 0)
+        total_qty += int(qty or 0)
+        row = calculate_product_volume(product_text)
+        rows.append(row)
+        total_volume += float(row.get('volume') or 0)
+    return {'rows': rows, 'items': rows, 'total_qty': total_qty, 'total_volume': round(total_volume, 4)}
+
+
 def effective_product_qty(product_text, fallback_qty=0):
     """
     FIX126 件數規則：
@@ -1773,14 +1842,9 @@ def get_customers(active_only=True):
         def add_grouped_counts(table, prefix):
             try:
                 cur.execute(sql(f"""
-                    SELECT
-                        customer_uid,
-                        customer_name,
-                        COUNT(*) AS row_count,
-                        COALESCE(SUM(COALESCE(qty, 0)), 0) AS qty_sum
+                    SELECT customer_uid, customer_name, product_text, qty
                     FROM {table}
                     WHERE COALESCE(customer_uid, '') <> '' OR COALESCE(customer_name, '') <> ''
-                    GROUP BY customer_uid, customer_name
                 """))
                 for r in rows_to_dict(cur):
                     uid = (r.get('customer_uid') or '').strip()
@@ -1794,11 +1858,14 @@ def get_customers(active_only=True):
                     if uid and key not in key_uid_map:
                         key_uid_map[key] = uid
                     c = count_map.setdefault(key, empty_counts())
-                    c[f'{prefix}_rows'] += int(r.get('row_count') or 0)
+                    c[f'{prefix}_rows'] += 1
                     try:
-                        c[f'{prefix}_qty'] += int(float(r.get('qty_sum') or 0))
+                        c[f'{prefix}_qty'] += int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
                     except Exception:
-                        c[f'{prefix}_qty'] += 0
+                        try:
+                            c[f'{prefix}_qty'] += int(r.get('qty') or 0)
+                        except Exception:
+                            c[f'{prefix}_qty'] += 0
             except Exception as e:
                 log_error('get_customers_grouped_counts', f'{table}: {e}')
 
@@ -2539,6 +2606,7 @@ def preview_ship_order(customer_name, items):
                         {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
                     ],
                     'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None, location_index=preview_location_index),
+                    'volume_calc': calculate_product_volume(product_text),
                 })
                 continue
 
@@ -2588,10 +2656,14 @@ def preview_ship_order(customer_name, items):
                     {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
                 'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, location_index=preview_location_index),
+                'volume_calc': calculate_product_volume(product_text),
             })
+        volume_calc = calculate_shipment_volume(preview)
         return {
             'success': True,
             'items': preview,
+            'volume_calc': volume_calc,
+            'calc': volume_calc,
             'needs_inventory_fallback': needs_inventory_fallback,
             'master_exceeded': bool(master_errors),
             'master_errors': master_errors,
@@ -2607,6 +2679,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         items = _merge_items_by_size_material(items)
+        # 20260516av: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
+        preview_warehouse_cells = warehouse_get_cells()
         for item in items:
             product_text = format_product_text_height2(item["product_text"])
             material = clean_material_value(item.get("material") or item.get("product_code") or "", product_text)
@@ -2682,6 +2756,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "ship_customer_name": customer_name,
                 "is_borrowed": is_borrowed,
                 "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, cells=preview_warehouse_cells),
+                "volume_calc": calculate_product_volume(product_text),
                 "deduct_before": before,
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
@@ -2690,7 +2765,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 },
             })
         conn.commit()
-        return {"success": True, "breakdown": breakdown}
+        volume_calc = calculate_shipment_volume(breakdown)
+        return {"success": True, "breakdown": breakdown, "volume_calc": volume_calc, "calc": volume_calc}
     except Exception as e:
         conn.rollback()
         log_error("ship_order", e)

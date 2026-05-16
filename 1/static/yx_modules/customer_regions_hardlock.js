@@ -106,10 +106,16 @@
   }
 
   function qtyFromProduct(text, fallback){
+    if (typeof window.YX126Qty === 'function') {
+      const q = Number(window.YX126Qty(text || '', fallback || 0));
+      if (Number.isFinite(q) && q > 0) return Math.floor(q);
+    }
     const raw = String(text || '').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : '';
     if (right) {
-      const parts = right.split('+').map(x => x.trim()).filter(Boolean);
+      const paren = right.replace(/\s+/g,'').match(/^(\d+)[(（][^)）]*[)）]$/);
+      if (paren) return Number(paren[1] || 0) || 1;
+      const parts = right.split(/[+＋,，;；]/).map(x => x.trim()).filter(Boolean);
       let total = 0;
       parts.forEach(seg => { const m = seg.match(/x\s*(\d+)$/i); total += m ? Number(m[1] || 0) : (/\d/.test(seg) ? 1 : 0); });
       if (total) return total;

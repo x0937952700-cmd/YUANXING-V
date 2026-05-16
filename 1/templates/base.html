@@ -5,10 +5,133 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3ed">
   <title>{{ title or '沅興木業' }}</title>
-  {% set _sv = static_version|default('qty-ui-final-check-20260516x') %}
+  {% set _sv = static_version|default('final-mainfile-contract-ui-warehouse-20260516av') %}
   {% set _ep = request.endpoint or '' %}
   {% set _is_ship = _ep in ['ship_page','shipping_page_alias_v520_full'] or (request.path or '').startswith('/shipping') or (request.path or '').startswith('/ship') %}
-  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('還完整主線_件數筆數括號規則_UI全頁按鈕倉庫最終檢查_20260516x')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
+  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('還完整主線_主檔契約巡檢_UI倉庫出貨材積補齊_20260516av')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_FORCE_FINAL_UI_VERSION__='20260516av';window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_FINAL_RUNTIME_AUDIT__='20260516av';window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
+  <script id="yx-mainfile-label-guard-20260516av">
+  (function(){
+    function clean(t){return String(t||'').replace(/\s+/g,' ').trim();}
+    function setText(el, txt){ if(!el || !txt) return; if(!el.getAttribute('aria-label')) el.setAttribute('aria-label', txt); if(!el.getAttribute('data-yx-label')) el.setAttribute('data-yx-label', txt); if(clean(el.textContent)) return; el.textContent = txt; el.setAttribute('data-yx-label-restored','1'); }
+
+    // 20260516av: deterministic single-run DOM audit, no setInterval / no MutationObserver.
+    function inferLabelFromHref(el){
+      var href=String(el.getAttribute('href')||'');
+      if(/inventory/.test(href)) return '庫存';
+      if(/orders/.test(href) && !/master/.test(href)) return '訂單';
+      if(/master/.test(href)) return '總單';
+      if(/shipping-query/.test(href)) return '出貨查詢';
+      if(/shipping|ship/.test(href)) return '出貨';
+      if(/warehouse/.test(href)) return '倉庫圖';
+      if(/customer/.test(href)) return '客戶資料';
+      if(/today/.test(href)) return '今日異動';
+      if(/setting/.test(href)) return '設定';
+      if(/todo/.test(href)) return '代辦事項';
+      return '';
+    }
+    function labelFor(el){
+      if(!el) return '';
+      var ds=el.dataset||{};
+      if(ds.yxLabel) return ds.yxLabel;
+      if(el.getAttribute && el.getAttribute('data-yx-label')) return el.getAttribute('data-yx-label');
+      if(el.tagName==='A'){ var hl=inferLabelFromHref(el); if(hl) return hl; }
+      if(el.value && /button|submit|reset/i.test(el.type||'')) return el.value;
+      if(el.id==='submit-btn') return '確認送出';
+      if(el.id==='yx121-warehouse-undo') return '還原上一步';
+      if(ds.yx128EditAll) return '批量編輯全部';
+      if(ds.yx128SaveAll) return '儲存批量編輯';
+      if(ds.yx128CancelAll) return '取消編輯';
+      if(ds.yx113ClearFilter) return '清除篩選';
+      if(ds.yx121Max) return '加入件數';
+      if(ds.yx113BatchMaterial) return '套用材質';
+      if(ds.yx113BatchDelete) return '批量刪除';
+      if(ds.yx132BatchTransfer==='orders') return '加到訂單';
+      if(ds.yx132BatchTransfer==='master_order') return '加到總單';
+      if(ds.yx132BatchZone==='A') return '移到A區';
+      if(ds.yx132BatchZone==='B') return '移到B區';
+      if(ds.yx132ZoneFilter==='ALL') return '全部區';
+      if(ds.yx132ZoneFilter==='A') return 'A區';
+      if(ds.yx132ZoneFilter==='B') return 'B區';
+      if(ds.whAct==='open') return '開啟 / 編輯格位';
+      if(ds.whAct==='insert') return '在此格後插入格子';
+      if(ds.whAct==='insert5') return '批量新增 5 格';
+      if(ds.whAct==='delete') return '刪除此格';
+      if(ds.whAct==='return') return '返回該格';
+      if(ds.whAct==='refresh') return '重新讀取此格';
+      if(ds.whAct==='searchCustomer') return '搜尋同客戶';
+      if(el.id==='yx121-add-batch-row') return '新增更多批量';
+      if(el.id==='yx121-save-cell') return '儲存格位';
+      if(el.id==='yx22-confirm-ship') return '確認扣除';
+      if(el.id==='yx22-cancel-preview') return '取消';
+      if(el.id==='pwa-install-btn') return /iphone|ipad|ipod/i.test(navigator.userAgent)?'加入主畫面':'安裝 App';
+
+      if(ds.whAction==='open') return '開啟 / 編輯格位';
+      if(ds.whAction==='insert') return '在此格後插入格子';
+      if(ds.whAction==='delete') return '刪除此格';
+      if(ds.action==='edit') return '編輯';
+      if(ds.action==='delete') return '刪除';
+      if(ds.action==='ship') return '直接出貨';
+      if(ds.action==='save') return '儲存';
+      if(ds.action==='cancel') return '取消';
+      if(ds.action==='refresh') return '刷新';
+      if(/save|confirm|submit/i.test(el.name||'')) return '儲存';
+      if(/delete|remove/i.test(el.name||'')) return '刪除';
+      if(/edit/i.test(el.name||'')) return '編輯';
+      if(ds.yx113Action==='edit') return '編輯';
+      if(ds.yx113Action==='delete') return '刪除';
+      if(ds.yx113Action==='ship') return '直接出貨';
+      if(ds.yx113Action==='toOrders') return '加到訂單';
+      if(ds.yx113Action==='toMaster') return '加到總單';
+      if(ds.yx113CustomerAct==='open') return '打開客戶商品';
+      if(ds.yx113CustomerAct==='edit') return '編輯客戶';
+      if(ds.yx113CustomerAct==='moveNorth') return '移到北區';
+      if(ds.yx113CustomerAct==='moveCenter') return '移到中區';
+      if(ds.yx113CustomerAct==='moveSouth') return '移到南區';
+      if(ds.yx113CustomerAct==='delete') return '刪除客戶';
+      if(ds.yx128CardSave) return '儲存';
+      if(ds.yx128CardCancel) return '取消';
+      var cls=String(el.className||'');
+      var txt=clean(el.textContent);
+      if(!txt && el.matches && el.matches('button,[role=button],a.primary-btn,a.ghost-btn,.menu-btn,.small-btn,.tiny-btn')) return '按鈕';
+      if(cls.includes('danger')) return '刪除';
+      if(cls.includes('primary-btn') && /save|confirm|submit/i.test(el.id||'')) return '確認';
+      if(cls.includes('ghost-btn') && /cancel/i.test(el.id||'')) return '取消';
+      if(cls.includes('back-btn')) return '← 返回';
+      return el.getAttribute('aria-label') || el.getAttribute('title') || '';
+    }
+    function run(){
+      document.querySelectorAll('button,[role=button],a.primary-btn,a.ghost-btn,a.back-btn,.menu-btn,.home-mini-btn,.small-btn,.tiny-btn,.chip,.pill,.tag,.customer-card,.customer-chip,.zone-switch,[data-yx-label],[aria-label]').forEach(function(el){ var t=labelFor(el); if(t) setText(el,t); });
+    }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',run,{once:true}); else run();
+    requestAnimationFrame(run);
+    requestAnimationFrame(function(){requestAnimationFrame(run);});
+    window.addEventListener('load', run, {once:true});
+    window.addEventListener('pageshow', run);
+    document.addEventListener('yx:page-rendered', run);
+    document.addEventListener('click', function(){ requestAnimationFrame(run); }, true);
+    document.addEventListener('focusin', function(){ requestAnimationFrame(run); }, true);
+    window.YXRestoreButtonLabels = run;
+    window.YXAfterRender = function(){ try{run();}catch(_e){} try{document.dispatchEvent(new CustomEvent('yx:page-rendered'));}catch(_e){} try{document.dispatchEvent(new CustomEvent('yx:labels-restored'));}catch(_e){} };
+    window.YXDomAudit = function(){
+      try{
+        run();
+        var blank=[];
+        document.querySelectorAll('button,[role=button],a.menu-btn,a.primary-btn,a.ghost-btn,a.back-btn,.chip,.pill').forEach(function(el){
+          var txt=clean(el.textContent)||clean(el.getAttribute('aria-label'))||clean(el.getAttribute('data-yx-label'));
+          if(!txt) blank.push((el.id?('#'+el.id):el.className)||el.tagName);
+        });
+        var whA=document.querySelectorAll('#zone-A-grid .vertical-column-card,.warehouse-zone-grid[data-zone="A"] .vertical-column-card,.warehouse-zone-columns[data-zone="A"] .vertical-column-card').length;
+        var whB=document.querySelectorAll('#zone-B-grid .vertical-column-card,.warehouse-zone-grid[data-zone="B"] .vertical-column-card,.warehouse-zone-columns[data-zone="B"] .vertical-column-card').length;
+        var cssLoaded=!!document.querySelector('link[href*="yx_final_mainfile_ui_20260516av.css"]');
+        var gridA=document.querySelector('#zone-A-grid,.warehouse-zone-grid[data-zone="A"],.warehouse-zone-columns[data-zone="A"],.warehouse-zone-columns');
+        var gridB=document.querySelector('#zone-B-grid,.warehouse-zone-grid[data-zone="B"],.warehouse-zone-columns[data-zone="B"]');
+        var csA=gridA?getComputedStyle(gridA):null;
+        var csB=gridB?getComputedStyle(gridB):null;
+        return {blank_buttons: blank.slice(0,30), blank_count: blank.length, warehouse_columns_A: whA, warehouse_columns_B: whB, final_ui_css_loaded: cssLoaded, grid_A_display: csA?csA.display:'', grid_A_template: csA?csA.gridTemplateColumns:'', grid_B_display: csB?csB.display:'', grid_B_template: csB?csB.gridTemplateColumns:'', static_version: window.__YX_STATIC_VERSION__};
+      }catch(e){ return {error:String(e&&e.message||e)}; }
+    };
+  })();
+  </script>
   <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_starry_background.png') }}?v={{ _sv }}">
   <link rel="preload" as="image" href="{{ url_for('static', filename='yx_assets/yx_dream_pill_button.png') }}?v={{ _sv }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ _sv }}">
@@ -23,15 +146,22 @@
   {% endif %}
   {% if not _is_ship %}
   <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_safe_520_visual_only.css') }}?v={{ _sv }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_ui_buttons_warehouse_20260516x.css') }}?v={{ _sv }}">
   {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='yx_modules/yx_final_mainfile_ui_20260516av.css') }}?v={{ _sv }}">
+  <style id="yx-critical-visible-buttons-20260516av">
+    html body button,html body button *,html body a.primary-btn,html body a.ghost-btn,html body a.back-btn,html body .primary-btn,html body .ghost-btn,html body .small-btn,html body .menu-btn,html body .home-mini-btn,html body .chip,html body .pill,html body .tag,html body label,html body .label,html body .section-title{color:#201713!important;-webkit-text-fill-color:#201713!important;opacity:1!important;visibility:visible!important;text-indent:0!important;overflow:visible!important;font-size:15px!important;line-height:1.25!important;font-weight:850!important;text-shadow:0 1px 0 rgba(255,255,255,.85)!important;}
+    html body button::before,html body button::after,html body .primary-btn::before,html body .primary-btn::after,html body .ghost-btn::before,html body .ghost-btn::after,html body .menu-btn::before,html body .menu-btn::after{content:none!important;display:none!important;}
+  </style>
   <script src="{{ url_for('static', filename='yx_modules/yx_runtime_stability_guard.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/core_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/quantity_rule_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_modules/ornate_label_hardlock.js') }}?v={{ _sv }}"></script>
-  {% if _ep in ['inventory_page','orders_page','master_order_page','customers_page'] %}
+  {% if _ep in ['inventory_page','orders_page','master_order_page'] %}
   <script defer src="{{ url_for('static', filename='yx_modules/product_sort_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/page_products_master.js') }}?v={{ _sv }}"></script>
+  <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v={{ _sv }}"></script>
+  {% endif %}
+  {% if _ep == 'customers_page' %}
   <script defer src="{{ url_for('static', filename='yx_modules/customer_regions_hardlock.js') }}?v={{ _sv }}"></script>
   <script defer src="{{ url_for('static', filename='yx_pages/page_customers_master.js') }}?v={{ _sv }}"></script>
   {% endif %}
