@@ -1,0 +1,29 @@
+20260516bb 差異部署說明
+
+修正重點：
+- 庫存有 7 筆 raw DB 資料但畫面 0 筆：原因是 /api/inventory 只回 grouped_inventory，前端遇到空格式/summary 空值時直接渲染 0；已改為 grouped 空時強制回 list_inventory raw，且前端先讀 /api/inventory-visible。
+- 訂單/總單/出貨北中南標籤突出：原因是客戶卡片沒有固定三欄寬度，長客戶名把件數欄推出容器；已改固定 客戶名/標籤/件數 三欄，長名省略。
+- 出貨預覽跳轉：已改 jumpToPreview 多段 scroll + hash + section 強制顯示。
+- 庫存/訂單/總單重複按鈕：隱藏空 toolbar-main，summary 不再重複產生控制列，按鈕集中 toolbar。
+- 倉庫格子：移除格內「編輯/加格/刪格」常駐按鈕，改回點格開啟，長按/右鍵選單操作。
+- 長按選單：新增清空此格回下拉、批量刪除空格、標記此格淺粉色。
+- 倉庫上方：新增清空所有格子、重新比對修復數量。
+- 楊喻 代：顯示清理成楊喻，不顯示 FOB/CNF/代。
+- 主頁沅興木業字體改成楷體系。
+
+改動檔案：
+app.py
+db.py
+static/pwa.js
+static/service-worker.js
+static/yx_force_cache_reset.js
+templates/base.html
+templates/module.html
+static/css/base.css
+static/css/home.css
+static/css/warehouse.css
+static/yx_modules/customer_regions_hardlock.js
+static/yx_modules/ship_single_lock.js
+static/yx_modules/warehouse_hardlock.js
+static/yx_modules/yx_final_mainfile_ui_20260516bb.css
+static/yx_pages/page_products_master.js

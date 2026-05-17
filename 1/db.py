@@ -27,7 +27,7 @@ USE_POSTGRES = DATABASE_URL.lower().startswith(("postgres://", "postgresql://"))
 _WAREHOUSE_GRID_ENSURED_AT = 0.0
 _WAREHOUSE_GRID_ENSURE_TTL = 120.0
 _WAREHOUSE_CELLS_CACHE = {"at": 0.0, "rows": None}
-_WAREHOUSE_CELLS_CACHE_TTL = 2.5
+_WAREHOUSE_CELLS_CACHE_TTL = 8.0
 
 def _warehouse_invalidate_cache():
     global _WAREHOUSE_CELLS_CACHE
@@ -402,6 +402,75 @@ def product_support_text(text):
     return ''
 
 
+def _yx_volume_coeff_length(v):
+    try:
+        n = float(str(v or '').strip().lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 1000.0 if n > 210 else n / 100.0
+
+def _yx_volume_coeff_width(v):
+    try:
+        n = float(str(v or '').strip().lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 10.0
+
+def _yx_volume_coeff_height(v):
+    raw = str(v or '').strip()
+    try:
+        n = float(raw.lstrip('0') or '0')
+    except Exception:
+        return 0.0
+    return n / 100.0 if n >= 100 else n / 10.0
+
+def _yx_support_sticks_sum(support):
+    total = 0.0
+    raw = str(support or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+')
+    for seg in [x.strip() for x in raw.split('+') if x.strip()]:
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?$', seg, flags=re.I)
+        if m:
+            total += float(m.group(1) or 0) * float(m.group(2) or 1)
+    return total
+
+def calculate_product_volume(product_text):
+    """出貨預覽 / 診斷共用材積計算；與前端 ship_single_lock.js 的試算規則一致。"""
+    raw = str(product_text or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＝','=').strip()
+    left = raw.split('=', 1)[0].strip()
+    support = raw.split('=', 1)[1].strip() if '=' in raw else ''
+    m = re.search(r'(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)', left, flags=re.I)
+    if not m:
+        return {'product': raw, 'pieces_sum': 0, 'formula': '', 'volume': 0.0, 'length_coeff': 0, 'width_coeff': 0, 'height_coeff': 0}
+    sticks = _yx_support_sticks_sum(support)
+    lc = _yx_volume_coeff_length(m.group(1))
+    wc = _yx_volume_coeff_width(m.group(2))
+    hc = _yx_volume_coeff_height(m.group(3))
+    volume = sticks * lc * wc * hc
+    return {
+        'product': raw,
+        'product_text': raw,
+        'pieces_sum': sticks,
+        'formula': f'{sticks:g} × {lc:g} × {wc:g} × {hc:g}',
+        'volume': round(volume, 4),
+        'length_coeff': lc,
+        'width_coeff': wc,
+        'height_coeff': hc,
+    }
+
+def calculate_shipment_volume(items):
+    rows = []
+    total_qty = 0
+    total_volume = 0.0
+    for item in items or []:
+        product_text = item.get('product_text') if isinstance(item, dict) else str(item or '')
+        qty = effective_product_qty(product_text, (item.get('qty') if isinstance(item, dict) else 0) or 0)
+        total_qty += int(qty or 0)
+        row = calculate_product_volume(product_text)
+        rows.append(row)
+        total_volume += float(row.get('volume') or 0)
+    return {'rows': rows, 'items': rows, 'total_qty': total_qty, 'total_volume': round(total_volume, 4)}
+
+
 def effective_product_qty(product_text, fallback_qty=0):
     """
     FIX126 件數規則：
@@ -419,13 +488,26 @@ def effective_product_qty(product_text, fallback_qty=0):
     if not raw:
         return fallback
 
-    right = raw.split('=', 1)[1].strip() if '=' in raw else raw.strip()
+    # 20260516be：倉庫/庫存來源數量修正。
+    # 純尺寸文字（例如 71x12x10）不能再被固定判成 1 件；
+    # 這類資料的真正件數要吃 DB qty，否則倉庫比對會全部少算。
+    has_formula = '=' in raw
+    right = raw.split('=', 1)[1].strip() if has_formula else raw.strip()
     if not right:
-        return 1
+        return max(1, fallback) if fallback > 0 else 1
+    if not has_formula:
+        compact_left = right.replace(' ', '').lower()
+        if re.match(r'^\d+(?:x\d+){2,}$', compact_left) and fallback > 0:
+            return fallback
+
+    # 20260516x：括號扣數備註不改變原件數，例如 123x11x12=12(-6) 仍判定 12 件。
+    paren_qty = re.match(r'^\s*(\d+)\s*[\(（][^\)）]*[\)）]\s*$', right)
+    if paren_qty:
+        return int(paren_qty.group(1))
 
     canonical = '504x5+588+587+502+420+382+378+280+254+237+174'
     if right.replace(' ', '').lower() == canonical:
-        return 10
+        return 15
 
     segments = [seg.strip() for seg in re.split(r'[+＋,，;；]', right) if seg.strip()]
     if not segments:
@@ -440,7 +522,8 @@ def effective_product_qty(product_text, fallback_qty=0):
     if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
             and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
             and len(bare_segments) >= 8):
-        return len(bare_segments)
+        m0 = re.search(r'x\s*(\d+)\s*$', x_segments[0], flags=re.I)
+        return int(m0.group(1) if m0 else 0) + len(bare_segments)
 
     total = 0
     parsed = False
@@ -1767,14 +1850,9 @@ def get_customers(active_only=True):
         def add_grouped_counts(table, prefix):
             try:
                 cur.execute(sql(f"""
-                    SELECT
-                        customer_uid,
-                        customer_name,
-                        COUNT(*) AS row_count,
-                        COALESCE(SUM(COALESCE(qty, 0)), 0) AS qty_sum
+                    SELECT customer_uid, customer_name, product_text, qty
                     FROM {table}
                     WHERE COALESCE(customer_uid, '') <> '' OR COALESCE(customer_name, '') <> ''
-                    GROUP BY customer_uid, customer_name
                 """))
                 for r in rows_to_dict(cur):
                     uid = (r.get('customer_uid') or '').strip()
@@ -1788,11 +1866,14 @@ def get_customers(active_only=True):
                     if uid and key not in key_uid_map:
                         key_uid_map[key] = uid
                     c = count_map.setdefault(key, empty_counts())
-                    c[f'{prefix}_rows'] += int(r.get('row_count') or 0)
+                    c[f'{prefix}_rows'] += 1
                     try:
-                        c[f'{prefix}_qty'] += int(float(r.get('qty_sum') or 0))
+                        c[f'{prefix}_qty'] += int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
                     except Exception:
-                        c[f'{prefix}_qty'] += 0
+                        try:
+                            c[f'{prefix}_qty'] += int(r.get('qty') or 0)
+                        except Exception:
+                            c[f'{prefix}_qty'] += 0
             except Exception as e:
                 log_error('get_customers_grouped_counts', f'{table}: {e}')
 
@@ -2185,6 +2266,7 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
     material = clean_material_value(material or product_code or '', product_text)
     product_code = material
     location = (location or '').strip()
+    area = location
     customer_name = (customer_name or '').strip()
     customer_uid = _customer_uid_for_name_cur(cur, customer_name)
     qty = int(qty or 0)
@@ -2195,14 +2277,14 @@ def save_inventory_item(product_text, product_code, qty, location="", customer_n
         merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
         cur.execute(sql("""
             UPDATE inventory
-            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
+            SET qty = qty + ?, product_code = ?, material = ?, product_text = ?, area = ?, location = ?, customer_name = ?, customer_uid = ?, operator = ?, source_text = ?, updated_at = ?
             WHERE id = ?
-        """), (qty, product_code, material, merged_product_text, customer_name, customer_uid, operator, source_text, now(), rid))
+        """), (qty, product_code, material, merged_product_text, area, location, customer_name, customer_uid, operator, source_text, now(), rid))
     else:
         cur.execute(sql("""
-            INSERT INTO inventory(product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (product_text, product_code, material, qty, location, customer_name, customer_uid, operator, source_text, now(), now()))
+            INSERT INTO inventory(product_text, product_code, material, qty, area, location, customer_name, customer_uid, operator, source_text, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (product_text, product_code, material, qty, area, location, customer_name, customer_uid, operator, source_text, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2230,21 +2312,22 @@ def save_order(customer_name, items, operator, duplicate_mode='merge'):
             continue
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
         product_code = material
+        location = (item.get('location') or item.get('area') or '').strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
         if duplicate_mode == 'merge':
-            rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name)
+            rows = _fetch_matching_size_material_rows(cur, 'orders', product_text, material, customer_name=customer_name, location=(location if location else None))
             if rows:
                 matched = rows[-1]
                 rid = matched['id']
                 merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
-                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, order_customer_uid, operator, now(), rid))
+                cur.execute(sql("UPDATE orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, area = ?, location = ?, customer_uid = ?, operator = ?, updated_at = ? WHERE id = ?"), (qty, merged_product_text, product_code, material, location, location, order_customer_uid, operator, now(), rid))
                 continue
         cur.execute(sql("""
-            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, status, operator, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+            INSERT INTO orders(customer_name, customer_uid, product_text, product_code, material, qty, area, location, status, operator, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+        """), (customer_name, order_customer_uid, product_text, product_code, material, qty, location, location, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2263,23 +2346,24 @@ def save_master_order(customer_name, items, operator, duplicate_mode='merge'):
             continue
         material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
         product_code = material
+        location = (item.get('location') or item.get('area') or '').strip()
         qty = int(item.get('qty') or 0)
         if qty <= 0:
             continue
-        rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name)
+        rows = _fetch_matching_size_material_rows(cur, 'master_orders', product_text, material, customer_name=customer_name, location=(location if location else None))
         if rows and duplicate_mode == 'merge':
             matched = rows[-1]
             rid = matched['id']
             merged_product_text = _merge_product_text_supports(matched.get('product_text') or '', product_text)
             cur.execute(sql("""
-                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, customer_uid = ?, operator = ?, updated_at = ?
+                UPDATE master_orders SET qty = qty + ?, product_text = ?, product_code = ?, material = ?, area = ?, location = ?, customer_uid = ?, operator = ?, updated_at = ?
                 WHERE id = ?
-            """), (qty, merged_product_text, product_code, material, master_customer_uid, operator, now(), rid))
+            """), (qty, merged_product_text, product_code, material, location, location, master_customer_uid, operator, now(), rid))
         else:
             cur.execute(sql("""
-                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, operator, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, operator, now(), now()))
+                INSERT INTO master_orders(customer_name, customer_uid, product_text, product_code, material, qty, area, location, operator, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (customer_name, master_customer_uid, product_text, product_code, material, qty, location, location, operator, now(), now()))
     conn.commit()
     conn.close()
 
@@ -2362,45 +2446,61 @@ def _deduct_from_table_partial(cur, table, customer_name, product_text, qty_targ
         remain -= use_qty
     return used
 
-def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None, cells=None):
-    """Find warehouse locations by normalized size, and optionally by customer.
 
-    Older versions compared the full product text exactly.  After the warehouse
-    unplaced-list feature, warehouse cells may store only the size part
-    (for example ``132x23x05``) while orders/shipping may carry
-    ``132x23x05=249x3``.  Matching by size prevents location lookup from
-    missing valid cells, and filtering by customer prevents same-size goods for
-    another customer from being shown in shipping previews.
+def _build_warehouse_location_index(cells):
+    """Build a one-pass lookup index for shipping preview warehouse locations.
+
+    Preview used to scan every warehouse cell for every item.  On live data that
+    makes preview latency grow as items x cells.  This index keeps the exact
+    matching rules (size + optional customer) but scans warehouse_cells once.
     """
-    target_size = _warehouse_size_key(product_text or '')
-    want_customer = (customer_name or '').strip()
-    cells = cells if cells is not None else warehouse_get_cells()
-    out = []
-    for cell in cells:
+    index = {}
+    for cell in cells or []:
         try:
             items = json.loads(cell.get('items_json') or '[]')
         except Exception:
             items = []
         for it in items:
             item_size = _warehouse_size_key(it.get('product_text') or it.get('product') or '')
-            item_customer = (it.get('customer_name') or '').strip()
-            qty = int(it.get('qty') or 0)
-            if not target_size or item_size != target_size or qty <= 0:
+            if not item_size:
                 continue
-            if want_customer and item_customer and item_customer != want_customer:
+            item_customer = (it.get('customer_name') or '').strip()
+            try:
+                qty = int(it.get('qty') or 0)
+            except Exception:
+                qty = 0
+            if qty <= 0:
                 continue
             visual_num = int(cell.get('slot_number') or 0)
-            out.append({
+            row = {
                 'zone': cell.get('zone'),
                 'column_index': int(cell.get('column_index') or 0),
                 'slot_type': 'direct',
                 'slot_number': visual_num,
                 'visual_slot': visual_num,
                 'qty': qty,
-                'product_text': it.get('product_text') or product_text or '',
+                'product_text': it.get('product_text') or item_size,
                 'customer_name': item_customer,
-            })
-    out.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
+            }
+            index.setdefault(item_size, []).append(row)
+    for rows in index.values():
+        rows.sort(key=lambda r: (r['zone'], r['column_index'], r['visual_slot'], r.get('customer_name') or ''))
+    return index
+
+def _warehouse_locations_for_product(product_text, qty_needed=None, customer_name=None, cells=None, location_index=None):
+    """Find warehouse locations by normalized size, optionally using a prebuilt index."""
+    target_size = _warehouse_size_key(product_text or '')
+    want_customer = (customer_name or '').strip()
+    if location_index is None:
+        cells = cells if cells is not None else warehouse_get_cells()
+        location_index = _build_warehouse_location_index(cells)
+    rows = list((location_index or {}).get(target_size, []))
+    out = []
+    for row in rows:
+        item_customer = (row.get('customer_name') or '').strip()
+        if want_customer and item_customer and item_customer != want_customer:
+            continue
+        out.append(dict(row))
     if qty_needed is None:
         return out
     remain = int(qty_needed or 0)
@@ -2454,6 +2554,7 @@ def preview_ship_order(customer_name, items):
         # Shipping preview used to scan warehouse cells once per item/location, making
         # previews slow on real data.  Read the warehouse cells once and reuse them.
         preview_warehouse_cells = warehouse_get_cells()
+        preview_location_index = _build_warehouse_location_index(preview_warehouse_cells)
         for item in items:
             product_text = format_product_text_height2(item['product_text'])
             material = clean_material_value(item.get('material') or item.get('product_code') or '', product_text)
@@ -2515,7 +2616,8 @@ def preview_ship_order(customer_name, items):
                         {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': source_pref == 'orders'},
                         {'source': '庫存', 'available': inventory_available, 'selected': source_pref == 'inventory'},
                     ],
-                    'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None, cells=preview_warehouse_cells),
+                    'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if source_pref != 'inventory' else None, location_index=preview_location_index),
+                    'volume_calc': calculate_product_volume(product_text),
                 })
                 continue
 
@@ -2564,11 +2666,15 @@ def preview_ship_order(customer_name, items):
                     {'source': ('訂單' if not is_borrowed else f'{source_customer}訂單'), 'available': order_available, 'selected': auto_source == 'orders'},
                     {'source': '庫存', 'available': inventory_available, 'selected': auto_source == 'inventory'},
                 ],
-                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, cells=preview_warehouse_cells),
+                'locations': _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, location_index=preview_location_index),
+                'volume_calc': calculate_product_volume(product_text),
             })
+        volume_calc = calculate_shipment_volume(preview)
         return {
             'success': True,
             'items': preview,
+            'volume_calc': volume_calc,
+            'calc': volume_calc,
             'needs_inventory_fallback': needs_inventory_fallback,
             'master_exceeded': bool(master_errors),
             'master_errors': master_errors,
@@ -2584,6 +2690,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
     try:
         breakdown = []
         items = _merge_items_by_size_material(items)
+        # 20260516bb: ship_order 原本引用 preview_warehouse_cells 但未宣告，會造成確認扣除直接失敗。
+        preview_warehouse_cells = warehouse_get_cells()
         for item in items:
             product_text = format_product_text_height2(item["product_text"])
             material = clean_material_value(item.get("material") or item.get("product_code") or "", product_text)
@@ -2659,6 +2767,7 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "ship_customer_name": customer_name,
                 "is_borrowed": is_borrowed,
                 "locations": _warehouse_locations_for_product(product_text, qty_needed, customer_name=source_customer if auto_source != 'inventory' else None, cells=preview_warehouse_cells),
+                "volume_calc": calculate_product_volume(product_text),
                 "deduct_before": before,
                 "remaining_after": {
                     "master": max(0, master_available - sum(x["qty"] for x in used_master)),
@@ -2667,7 +2776,8 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 },
             })
         conn.commit()
-        return {"success": True, "breakdown": breakdown}
+        volume_calc = calculate_shipment_volume(breakdown)
+        return {"success": True, "breakdown": breakdown, "volume_calc": volume_calc, "calc": volume_calc}
     except Exception as e:
         conn.rollback()
         log_error("ship_order", e)
@@ -2701,32 +2811,61 @@ def _warehouse_size_key(text):
     return _normalize_size_key(text)
 
 def _normalize_warehouse_items(items):
-    """合併同尺寸 / 同客戶商品，清掉空白或 0 數量，避免格位資料越存越亂。"""
+    """20260516bf：倉庫格位保存前的唯一正規化。
+
+    修正舊版件數與合併錯誤：
+    - 件數使用 effective_product_qty(product_text, qty)，公式文字與純尺寸 DB qty 同規則。
+    - 合併 key 必須含「尺寸 + 客戶 + 材質 + 前/中/後」，避免同尺寸不同材質被混成一筆。
+    - 客戶顯示清掉 FOB/CNF/代，避免「楊喻 代」與「楊喻」被視為不同客戶。
+    """
+    import re as _re
     merged = {}
+
+    def _clean_wh_customer(v):
+        name = str(v or '').strip() or '庫存'
+        name = _re.sub(r'FOB代付|FOB代|FOB|CNF', '', name, flags=_re.I)
+        name = _re.sub(r'[()（）]', '', name)
+        name = _re.sub(r'\s*[代]\s*$', '', name)
+        name = _re.sub(r'\s+', ' ', name).strip()
+        return name or '庫存'
+
+    def _clean_wh_material(raw, product_text=''):
+        mat = clean_material_value(raw or '', product_text or '')
+        mat = _re.sub(r'FOB代付|FOB代|FOB|CNF', '', str(mat or ''), flags=_re.I).strip().upper()
+        if _re.search(r'\d+\s*[x×XＸ✕＊*]\s*\d+', mat):
+            return ''
+        return mat
+
     for raw in (items or []):
         if not isinstance(raw, dict):
             continue
         product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or '').strip())
         if not product_text:
             continue
+        qty = effective_product_qty(product_text, raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or 0)
         try:
-            qty = int(raw.get('qty') or 0)
+            qty = int(qty or 0)
         except Exception:
             qty = 0
         if qty <= 0:
             continue
-        customer_name = str(raw.get('customer_name') or '').strip()
-        # FIX80：格位批量加入需保留 後排 / 中間 / 前排 顯示層，不同層不可被合併。
+        customer_name = _clean_wh_customer(raw.get('customer_name') or raw.get('customer') or '')
+        material = _clean_wh_material(raw.get('material') or raw.get('wood_type') or raw.get('product_code') or '', product_text)
         placement_label = str(raw.get('placement_label') or raw.get('layer_label') or raw.get('position_label') or '').strip()
-        key = (_warehouse_size_key(product_text), customer_name, placement_label)
+        key = (_warehouse_size_key(product_text), customer_name, material, placement_label)
         if key not in merged:
             next_item = dict(raw)
             next_item['product_text'] = product_text
-            next_item['product_code'] = str(raw.get('product_code') or product_text).strip()
+            next_item['product'] = product_text
+            next_item['product_code'] = material
+            next_item['material'] = material
             next_item['customer_name'] = customer_name
             if placement_label:
                 next_item['placement_label'] = placement_label
+                next_item['layer_label'] = placement_label
             next_item['qty'] = qty
+            next_item.pop('quantity', None)
+            next_item.pop('pieces', None)
             merged[key] = next_item
         else:
             merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
@@ -2754,7 +2893,7 @@ def warehouse_get_cell(zone, column_index, slot_type, slot_number):
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT * FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
     """), (zone, column_index, slot_type, slot_number))
     row = fetchone_dict(cur)
     conn.close()
@@ -2772,7 +2911,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute("""
             UPDATE warehouse_cells
             SET items_json = %s, note = %s, updated_at = %s
-            WHERE zone = %s AND column_index = %s AND COALESCE(slot_type, 'direct') = %s AND slot_number = %s
+            WHERE zone = %s AND column_index = %s AND COALESCE(NULLIF(slot_type,''), 'direct') = %s AND slot_number = %s
         """, (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute("""
@@ -2783,7 +2922,7 @@ def warehouse_save_cell(zone, column_index, slot_type, slot_number, items, note=
         cur.execute(sql("""
             UPDATE warehouse_cells
             SET items_json = ?, note = ?, updated_at = ?
-            WHERE zone = ? AND column_index = ? AND COALESCE(slot_type, 'direct') = ? AND slot_number = ?
+            WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''), 'direct') = ? AND slot_number = ?
         """), (items_json, note, now(), zone, column_index, slot_type, slot_number))
         if cur.rowcount == 0:
             cur.execute(sql("""
@@ -2810,9 +2949,9 @@ def warehouse_add_column(zone):
 def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
     """讀取某欄格位並收斂重複格號，供插入/刪除格子安全重排。"""
     cur.execute(sql("""
-        SELECT zone, column_index, COALESCE(slot_type,'direct') AS slot_type, slot_number, items_json, note, updated_at
+        SELECT id, zone, column_index, COALESCE(NULLIF(slot_type,''),'direct') AS slot_type, slot_number, items_json, note, updated_at
         FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
         ORDER BY slot_number
     """), (zone, column_index, 'direct'))
     rows = rows_to_dict(cur)
@@ -2839,10 +2978,11 @@ def _warehouse_column_slots(cur, zone, column_index, slot_type='direct'):
 
 
 def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
+    raise RuntimeError('unsafe warehouse column rewrite is disabled; use slot shifting helpers')
     """整欄刪掉後依序重寫，避免 UNIQUE(zone,column,slot_type,slot_number) 位移衝突。"""
     cur.execute(sql("""
-        DELETE FROM warehouse_cells
-        WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ?
+        DELETE FROM /* disabled unsafe rewrite */ warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
     """), (zone, column_index, 'direct'))
     cleaned = []
     for row in slots:
@@ -2863,6 +3003,74 @@ def _warehouse_rewrite_column_slots(cur, zone, column_index, slots):
         """), (zone, column_index, 'direct', idx, row.get('items_json') or '[]', row.get('note') or '', row.get('updated_at') or now()))
 
 
+def _warehouse_clean_cell_note(note):
+    note = note or ''
+    if str(note).startswith('__USER_') or note in ('__USER_ADDED__', '__USER_INSERTED_SLOT__'):
+        return ''
+    return note
+
+
+def _warehouse_parse_items_json(raw):
+    try:
+        items = json.loads(raw or '[]') if isinstance(raw, str) else (raw or [])
+    except Exception:
+        items = []
+    return items if isinstance(items, list) else []
+
+
+def _warehouse_delete_cell_by_id(cur, row_id):
+    table = 'warehouse_cells'
+    cur.execute(sql(f"DELETE FROM {table} WHERE id = ?"), (row_id,))
+
+
+def _warehouse_dedupe_direct_slots(cur, zone, column_index):
+    """Merge duplicate direct/blank slot_type rows without clearing a column."""
+    cur.execute(sql("""
+        SELECT id, slot_type, slot_number, items_json, note, updated_at
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+        ORDER BY slot_number, id
+    """), (zone, column_index, 'direct'))
+    groups = {}
+    for row in rows_to_dict(cur):
+        slot_no = int(row.get('slot_number') or 0)
+        if slot_no < 1:
+            continue
+        groups.setdefault(slot_no, []).append(row)
+
+    for _slot_no, rows in groups.items():
+        if not rows:
+            continue
+        primary = next((r for r in rows if _warehouse_parse_items_json(r.get('items_json'))), rows[0])
+        merged_json = primary.get('items_json') or '[]'
+        note = _warehouse_clean_cell_note(primary.get('note') or '')
+        updated_at = primary.get('updated_at') or now()
+        for row in rows:
+            if row is primary:
+                continue
+            merged_json = _merge_json_item_lists(merged_json, row.get('items_json'))
+            note = note or _warehouse_clean_cell_note(row.get('note') or '')
+            updated_at = max(str(updated_at or ''), str(row.get('updated_at') or '')) or now()
+            if row.get('id'):
+                _warehouse_delete_cell_by_id(cur, row.get('id'))
+        if primary.get('id'):
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET slot_type = ?, items_json = ?, note = ?, updated_at = ?
+                WHERE id = ?
+            """), ('direct', merged_json or '[]', note or '', updated_at or now(), primary.get('id')))
+
+
+def _warehouse_direct_max_slot(cur, zone, column_index):
+    cur.execute(sql("""
+        SELECT COALESCE(MAX(slot_number), 0) AS max_slot
+        FROM warehouse_cells
+        WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+    """), (zone, column_index, 'direct'))
+    row = fetchone_dict(cur) or {}
+    return int(row.get('max_slot') or 0)
+
+
 def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None):
     """新增格子。
 
@@ -2878,14 +3086,30 @@ def warehouse_add_slot(zone, column_index, slot_type='direct', insert_after=None
     conn = get_db(); cur = conn.cursor()
     try:
         _ensure_fixed_warehouse_grid_cached(conn, cur)
-        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
-        max_slot = len(slots)
+        _warehouse_dedupe_direct_slots(cur, zone, column_index)
+        max_slot = _warehouse_direct_max_slot(cur, zone, column_index)
         if insert_after is None or insert_after == '':
             insert_after = max_slot
         insert_after = max(0, min(int(insert_after), max_slot))
         new_slot = insert_after + 1
-        slots.insert(insert_after, {'items_json': '[]', 'note': '', 'updated_at': now()})
-        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = 0 - slot_number
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number > ?
+        """), (zone, column_index, 'direct', insert_after))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = (0 - slot_number) + 1, slot_type = ?
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number < 0
+        """), ('direct', zone, column_index, 'direct'))
+        cur.execute(sql("""
+            INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (zone, column_index, 'direct', new_slot, '[]', '', now()))
         try:
             cur.execute(sql("""
                 UPDATE warehouse_recent_slots
@@ -2914,21 +3138,41 @@ def warehouse_remove_slot(zone, column_index, slot_type='direct', slot_number=1)
     conn = get_db(); cur = conn.cursor()
     try:
         _ensure_fixed_warehouse_grid_cached(conn, cur)
-        slots = _warehouse_column_slots(cur, zone, column_index, 'direct')
-        max_slot = len(slots)
+        _warehouse_dedupe_direct_slots(cur, zone, column_index)
+        max_slot = _warehouse_direct_max_slot(cur, zone, column_index)
         if max_slot <= 1:
             return {'success': False, 'error': '每欄至少要保留 1 格'}
         if slot_number < 1 or slot_number > max_slot:
             return {'success': False, 'error': '格號超出範圍'}
-        target = slots[slot_number - 1]
-        try:
-            items = json.loads(target.get('items_json') or '[]')
-        except Exception:
-            items = []
+        cur.execute(sql("""
+            SELECT id, items_json
+            FROM warehouse_cells
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number = ?
+            LIMIT 1
+        """), (zone, column_index, 'direct', slot_number))
+        target = fetchone_dict(cur)
+        if not target:
+            return {'success': False, 'error': '鏍艰櫉瓒呭嚭绡勫湇'}
+        items = _warehouse_parse_items_json(target.get('items_json'))
         if items:
             return {'success': False, 'error': '格子內還有商品，無法刪除'}
-        slots.pop(slot_number - 1)
-        _warehouse_rewrite_column_slots(cur, zone, column_index, slots)
+        _warehouse_delete_cell_by_id(cur, target.get('id'))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = 0 - slot_number
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number > ?
+        """), (zone, column_index, 'direct', slot_number))
+        cur.execute(sql("""
+            UPDATE warehouse_cells
+            SET slot_number = (0 - slot_number) - 1, slot_type = ?
+            WHERE zone = ? AND column_index = ?
+              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
+              AND slot_number < 0
+        """), ('direct', zone, column_index, 'direct'))
         try:
             cur.execute(sql("""
                 DELETE FROM warehouse_recent_slots
@@ -2961,7 +3205,7 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
             zone, column_index, slot_type, slot_number = _norm(key)
             cur.execute(sql("""
                 SELECT * FROM warehouse_cells
-                WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?
+                WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?
             """), (zone, column_index, slot_type, slot_number))
             return fetchone_dict(cur)
         from_norm = _norm(from_key)
@@ -3019,8 +3263,8 @@ def warehouse_move_item(from_key, to_key, product_text, qty, customer_name=None,
         normalized_dst = _normalize_warehouse_items(moved_front + dst_items)
         from_zone, from_col, _, from_slot = _norm(from_key)
         to_zone, to_col, _, to_slot = _norm(to_key)
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
-        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(slot_type,'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?"), (json.dumps(normalized_src, ensure_ascii=False), now(), from_zone, from_col, 'direct', from_slot))
+        cur.execute(sql("UPDATE warehouse_cells SET items_json = ?, updated_at = ? WHERE zone = ? AND column_index = ? AND COALESCE(NULLIF(slot_type,''),'direct') = ? AND slot_number = ?"), (json.dumps(normalized_dst, ensure_ascii=False), now(), to_zone, to_col, 'direct', to_slot))
         conn.commit(); return {'success': True}
     except Exception as e:
         conn.rollback(); log_error('warehouse_move_item', e); return {'success': False, 'error': '拖曳失敗'}
@@ -3047,7 +3291,16 @@ def inventory_placements():
 
 def inventory_summary():
     rows = list_inventory()
-    placement = inventory_placements()
+    # 20260516bb：倉庫統計或舊資料異常時，不准讓庫存清單空白。
+    # 庫存頁必須先顯示 DB 商品，再補上未入倉數量；warehouse_cells 有暫時重複/壞資料也不能卡住庫存。
+    try:
+        placement = inventory_placements()
+    except Exception as e:
+        try:
+            log_error('inventory_summary_placement_fallback', str(e))
+        except Exception:
+            pass
+        placement = {}
     result = []
     for r in rows:
         r = dict(r)

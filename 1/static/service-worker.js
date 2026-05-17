@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yx-mainline-speed-repair-20260516k';
+const CACHE_NAME = 'yx-final-mainfile-contract-ui-warehouse-20260516bs';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/css/base.css',
@@ -6,11 +6,13 @@ const SAFE_ASSETS = [
   '/static/css/product.css',
   '/static/css/warehouse.css',
   '/static/css/mobile.css',
-  '/static/yx_modules/yx_final_520_alignment_repairs.css',
-  '/static/yx_modules/yx_520_ui_alignment.css',
-  '/static/yx_modules/final_mother_lock.css',
-  '/static/yx_modules/ornate_label_hardlock.css',
-  '/static/yx_modules/home_background_hardlock.css',
+  '/static/yx_assets/home_cloud_background.jpg',
+  '/static/yx_assets/yx_dream_pill_button.png',
+  '/static/yx_assets/yx_dream_starry_background.png',
+  '/static/yx_modules/yx_safe_520_visual_only.css',
+  '/static/yx_modules/yx_final_mainfile_ui_20260516bs.css',
+  '/static/yx_modules/fix142_speed_ship_hardlock.css',
+  '/static/yx_modules/yx_ship_safe_ui_520.css',
   '/static/favicon.png',
   '/static/manifest.webmanifest'
 ];
@@ -46,3 +48,5 @@ self.addEventListener('fetch', event => {
     }).catch(() => caches.match(req)));
   }
 });
+
+// yx_perf_watch.js is network-first in this build
