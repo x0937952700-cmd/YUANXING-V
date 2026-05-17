@@ -288,10 +288,38 @@
     syncBatchSelectLimits();
     afterWarehouseRender();
   }
+  function positionWarehouseModalAtGridCenter(z,c,s){
+    // 20260517f：格位編輯不是「頁面最上方置中」，而是固定在目前看到的倉庫格子畫面正中間。
+    // 桌機三欄視圖時，優先對齊同區「第 2 欄第 5 格」的位置；沒有該格才退回目前可視倉庫區中央。
+    const modal=$('warehouse-modal'); if(!modal) return;
+    const card=modal.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); if(!card) return;
+    const zone=clean(z).toUpperCase();
+    let target=document.querySelector(`#zone-${zone} [data-zone="${zone}"][data-column="2"][data-slot="5"]`)
+      || document.querySelector(`#warehouse-root [data-zone="${zone}"][data-column="2"][data-slot="5"]`);
+    const visibleEnough=(el)=>{ if(!el) return false; const r=el.getBoundingClientRect(); return r.width>0 && r.height>0 && r.bottom>0 && r.top<window.innerHeight && r.right>0 && r.left<window.innerWidth; };
+    if(!visibleEnough(target)){
+      const visible=[...document.querySelectorAll(`#warehouse-root [data-zone="${zone}"][data-column][data-slot]`)].filter(visibleEnough);
+      target=visible.find(el=>Number(el.dataset.column)===2 && Number(el.dataset.slot)===5) || visible[Math.floor(visible.length/2)] || null;
+    }
+    let x=window.innerWidth/2, y=window.innerHeight/2;
+    if(target){ const r=target.getBoundingClientRect(); x=r.left+r.width/2; y=r.top+r.height/2; }
+    const pad=16;
+    x=Math.max(pad, Math.min(window.innerWidth-pad, x));
+    y=Math.max(pad, Math.min(window.innerHeight-pad, y));
+    modal.classList.add('yx-grid-centered-modal');
+    modal.style.setProperty('--yx-wh-modal-left', x+'px');
+    modal.style.setProperty('--yx-wh-modal-top', y+'px');
+  }
+  function focusWarehouseBatchPanel(){
+    try{
+      const modal=$('warehouse-modal'); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); const panel=$('yx121-batch-rows')?.closest?.('.yx-direct-batch-panel');
+      if(card && panel){ card.scrollTop=Math.max(0, panel.offsetTop-70); panel.classList.add('yx-batch-focus-flash'); setTimeout(()=>panel.classList.remove('yx-batch-focus-flash'),900); }
+    }catch(_e){}
+  }
   async function openWarehouseModal(z,c,s){ z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; const modal=$('warehouse-modal'); modal?.classList.remove('hidden');
-    try{ document.body.classList.add('yx-warehouse-modal-open'); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); }catch(_e){}
-    renderCellItems(); loadAvailable().then(()=>{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }).catch(()=>{}); }
-  function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); try{document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
+    try{ document.body.classList.add('yx-warehouse-modal-open'); positionWarehouseModalAtGridCenter(z,c,s); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); }catch(_e){}
+    renderCellItems(); focusWarehouseBatchPanel(); loadAvailable().then(()=>{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')){ renderCellItems(); positionWarehouseModalAtGridCenter(z,c,s); focusWarehouseBatchPanel(); } }).catch(()=>{}); }
+  function closeWarehouseModal(){ const modal=$('warehouse-modal'); modal?.classList.add('hidden'); try{ modal?.classList.remove('yx-grid-centered-modal'); modal?.style.removeProperty('--yx-wh-modal-left'); modal?.style.removeProperty('--yx-wh-modal-top'); document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
   function syncBatchSelectLimits(){
     // 20260516bi：下拉件數即時扣掉同一批次已選件數；同一品項選兩列時，不會兩列都各自顯示完整可加入件數。
     const rows=Array.from(document.querySelectorAll('#yx121-batch-rows .yx121-batch-row'));

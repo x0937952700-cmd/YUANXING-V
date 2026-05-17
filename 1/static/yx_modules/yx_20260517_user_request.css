@@ -172,3 +172,51 @@ html body[data-module="ship"] #region-picker-section .customer-region-card .yx11
 html body.yx-warehouse-modal-open{overflow:hidden!important;}
 html body #warehouse-modal:not(.hidden){position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;z-index:2147483000!important;padding:12px!important;overflow:hidden!important;}
 html body #warehouse-modal .modal-card,html body #warehouse-modal .warehouse-modal-card,html body #warehouse-modal .glass{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;margin:0!important;max-height:min(86vh,760px)!important;overflow:auto!important;overscroll-behavior:contain!important;}
+
+
+/* 20260517f：倉庫格位編輯要出現在目前格子畫面正中間（第二欄第五格位置），不是頁面上方或需要滑動尋找 */
+html body #warehouse-modal.yx-grid-centered-modal:not(.hidden){
+  position:fixed!important;
+  inset:0!important;
+  display:block!important;
+  z-index:2147483000!important;
+  padding:0!important;
+  overflow:visible!important;
+  background:rgba(15,23,42,.34)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .modal-card,
+html body #warehouse-modal.yx-grid-centered-modal .warehouse-modal-card,
+html body #warehouse-modal.yx-grid-centered-modal .glass{
+  position:fixed!important;
+  left:var(--yx-wh-modal-left,50vw)!important;
+  top:var(--yx-wh-modal-top,50vh)!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:translate(-50%,-50%)!important;
+  margin:0!important;
+  width:min(720px,calc(100vw - 36px))!important;
+  max-width:min(720px,calc(100vw - 36px))!important;
+  max-height:min(72vh,640px)!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  box-shadow:0 24px 70px rgba(15,23,42,.28)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel{
+  border-color:rgba(180,116,33,.35)!important;
+  box-shadow:0 10px 28px rgba(180,116,33,.12)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel.yx-batch-focus-flash{
+  outline:3px solid rgba(180,116,33,.28)!important;
+  outline-offset:2px!important;
+}
+@media(max-width:760px){
+  html body #warehouse-modal.yx-grid-centered-modal .modal-card,
+  html body #warehouse-modal.yx-grid-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-grid-centered-modal .glass{
+    left:50vw!important;
+    top:50vh!important;
+    width:calc(100vw - 24px)!important;
+    max-width:calc(100vw - 24px)!important;
+    max-height:78vh!important;
+  }
+}
