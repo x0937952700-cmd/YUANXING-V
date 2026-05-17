@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f3ed">
   <title>{{ title or '沅興木業' }}</title>
-  {% set _sv = static_version|default('final-mainfile-user-request-20260517') %}
+  {% set _sv = static_version|default('user-request-order-master-ship-20260517c') %}
   {% set _ep = request.endpoint or '' %}
   {% set _is_ship = _ep in ['ship_page','shipping_page_alias_v520_full'] or (request.path or '').startswith('/shipping') or (request.path or '').startswith('/ship') %}
-  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('母版按鈕倉庫出貨修復_20260517')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_FORCE_FINAL_UI_VERSION__='20260516bs';window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_FINAL_RUNTIME_AUDIT__='20260516bs';window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
+  <script>window.__YX_STATIC_VERSION__={{ _sv|tojson }};window.__YX_APP_VERSION__={{ app_version|default('母版按鈕出貨局部修復_20260517c')|tojson }};window.__YX_PAGE_ENDPOINT__={{ _ep|tojson }};window.__YX_FORCE_FINAL_UI_VERSION__='20260516bs';window.__YX_SHIP_SINGLE_LOCK__={{ 'true' if _is_ship else 'false' }};window.__YX_FINAL_RUNTIME_AUDIT__='20260516bs';window.__YX_USERNAME__={{ (username or '')|tojson }};</script>
   <script id="yx-mainfile-label-guard-20260516bs">
   (function(){
     function clean(t){return String(t||'').replace(/\s+/g,' ').trim();}

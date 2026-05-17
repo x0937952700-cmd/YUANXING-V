@@ -193,14 +193,13 @@
   }
   function syncEditButtons(source){
     const editing = !!state.editAll[source];
-    const editBtn = document.querySelector(`[data-yx128-edit-all="${source}"]`);
-    const saveBtn = document.querySelector(`[data-yx128-save-all="${source}"]`);
-    const cancelBtn = document.querySelector(`[data-yx128-cancel-all="${source}"]`);
+    const editBtns = Array.from(document.querySelectorAll(`[data-yx128-edit-all="${source}"]`));
+    const saveBtns = Array.from(document.querySelectorAll(`[data-yx128-save-all="${source}"]`));
+    const cancelBtns = Array.from(document.querySelectorAll(`[data-yx128-cancel-all="${source}"]`));
     const count = selectedIds(source).size;
-    if (editBtn) editBtn.textContent = editing ? '儲存批量編輯' : (count ? '批量編輯已勾選' : '批量編輯全部');
-    if (editBtn) editBtn.style.display = '';
-    if (saveBtn) saveBtn.remove();
-    if (cancelBtn) cancelBtn.remove();
+    editBtns.forEach(btn => { btn.textContent = editing ? '儲存批量編輯' : (count ? '批量編輯已勾選' : '批量編輯全部'); btn.style.display = ''; });
+    saveBtns.forEach(btn => btn.remove());
+    cancelBtns.forEach(btn => btn.remove());
   }
   function ensureBatchToolbar(source){
     const sec = sectionEl(source); if (!sec) return null;
@@ -320,7 +319,10 @@
       ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="orders" data-source="${source}">加到訂單</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>`
       : (source === 'orders' ? `<button class="ghost-btn small-btn" type="button" data-yx132-batch-transfer="master_order" data-source="${source}">加到總單</button>` : '');
     const zoneMoveButtons = `<button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="A" data-source="${source}">移到A區</button><button class="ghost-btn small-btn" type="button" data-yx132-batch-zone="B" data-source="${source}">移到B區</button>`;
-    const controls = `<div class="yx128-summary-controls">${moveButtons}${zoneMoveButtons}</div>`;
+    const batchButtons = (source === 'orders' || source === 'master_order')
+      ? `<button class="ghost-btn small-btn danger-btn" type="button" data-yx113-batch-delete="${source}">批量刪除</button><button class="ghost-btn small-btn" type="button" data-yx128-edit-all="${source}">批量編輯全部</button>`
+      : '';
+    const controls = `<div class="yx128-summary-controls yx20260517-summary-actions">${moveButtons}${zoneMoveButtons}${batchButtons}</div>`;
     const scope = editingIds(source);
     const displayRows = editing && scope ? rows.filter(r => scope.has(String(r.id || ''))) : rows;
     const body = displayRows.length ? displayRows.map(r => {

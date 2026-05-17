@@ -19,3 +19,135 @@ body .page-shell, body main, body .module-shell, body .home-shell{max-width:var(
 #ship-preview-section,#ship-preview-panel,#module-result{scroll-margin-top:16px!important;}
 .yx22-preview{margin-top:12px!important;}
 @media(max-width:760px){:root{--yx-page-max:100%;}body .page-shell,body main,body .module-shell{width:100%!important;padding-left:10px!important;padding-right:10px!important}.yx-html-direct-toolbar .yx114-batch-actions,.yx-direct-batch-actions{gap:7px!important}.yx-html-direct-toolbar button,.yx-html-direct-toolbar .ghost-btn,.yx-html-direct-toolbar .primary-btn{font-size:13px!important;padding:8px 10px!important}.yx-html-direct-toolbar .text-input.small{flex:1 1 100%!important;max-width:none!important}#warehouse-modal{align-items:center!important;padding:10px!important}#warehouse-modal .modal-card,#warehouse-modal .warehouse-modal-card,#warehouse-modal .glass{width:calc(100vw - 20px)!important;max-height:86vh!important}.yx113-table,.yx128-inline-table{font-size:14px!important}}
+
+
+/* 20260517 exact user request: order/master batch buttons in product table header, remove duplicate lower/top toolbar batch buttons, keep region customer buttons inside cards. */
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx113-batch-delete="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-edit-all="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-save-all="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-cancel-all="orders"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx113-batch-delete="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-edit-all="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-save-all="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-cancel-all="master_order"]{
+  display:none!important;
+}
+html body[data-module="orders"] .yx128-summary-head,
+html body[data-module="master_order"] .yx128-summary-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  flex-wrap:nowrap!important;
+  padding:14px 16px!important;
+}
+html body[data-module="orders"] .yx128-summary-head .yx132-summary-title,
+html body[data-module="master_order"] .yx128-summary-head .yx132-summary-title{
+  display:flex!important;
+  align-items:center!important;
+  gap:12px!important;
+  min-width:0!important;
+  flex:1 1 auto!important;
+  white-space:nowrap!important;
+}
+html body[data-module="orders"] .yx20260517-summary-actions,
+html body[data-module="master_order"] .yx20260517-summary-actions{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  flex:0 0 auto!important;
+  gap:10px!important;
+  flex-wrap:nowrap!important;
+}
+html body[data-module="orders"] .yx20260517-summary-actions button,
+html body[data-module="master_order"] .yx20260517-summary-actions button{
+  min-height:34px!important;
+  padding:7px 14px!important;
+  border-radius:999px!important;
+  font-size:14px!important;
+  font-weight:900!important;
+  white-space:nowrap!important;
+}
+html body[data-module="orders"] #region-picker-section .category-grid,
+html body[data-module="master_order"] #region-picker-section .category-grid,
+html body[data-module="ship"] #region-picker-section .category-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:14px!important;
+  align-items:start!important;
+  overflow:visible!important;
+}
+html body[data-module="orders"] #region-picker-section .category-box,
+html body[data-module="master_order"] #region-picker-section .category-box,
+html body[data-module="ship"] #region-picker-section .category-box{
+  min-width:0!important;
+  overflow:visible!important;
+  box-sizing:border-box!important;
+  padding:12px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card,
+html body[data-module="master_order"] #region-picker-section .customer-region-card,
+html body[data-module="ship"] #region-picker-section .customer-region-card{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto minmax(96px,max-content)!important;
+  align-items:center!important;
+  gap:8px!important;
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+  padding:9px 12px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-name,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-name,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-name{
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  font-size:clamp(20px,2.2vw,30px)!important;
+  line-height:1.12!important;
+  justify-self:start!important;
+  text-align:left!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-tag,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-tag,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-tag{
+  justify-self:center!important;
+  white-space:nowrap!important;
+  min-width:42px!important;
+  max-width:56px!important;
+  overflow:hidden!important;
+  text-overflow:clip!important;
+  font-size:11px!important;
+  padding:3px 8px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-count,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-count,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-count{
+  justify-self:end!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+  min-width:96px!important;
+  font-size:clamp(15px,1.45vw,18px)!important;
+  font-weight:900!important;
+  line-height:1.15!important;
+}
+@media(max-width:980px){
+  html body[data-module="orders"] #region-picker-section .category-grid,
+  html body[data-module="master_order"] #region-picker-section .category-grid,
+  html body[data-module="ship"] #region-picker-section .category-grid{grid-template-columns:repeat(3,minmax(260px,1fr))!important;overflow-x:auto!important;}
+  html body[data-module="orders"] .yx128-summary-head,
+  html body[data-module="master_order"] .yx128-summary-head{flex-wrap:wrap!important;}
+  html body[data-module="orders"] .yx20260517-summary-actions,
+  html body[data-module="master_order"] .yx20260517-summary-actions{flex-wrap:wrap!important;justify-content:flex-start!important;}
+}
