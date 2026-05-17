@@ -277,3 +277,18 @@ html body #warehouse-modal.yx-viewport-centered-modal .modal-head{
     max-height:calc(100vh - 20px)!important;
   }
 }
+
+/* 20260517i：長按「標記此格」只做非常淡粉紅標記，不影響格子操作 */
+html body .yx-final-slot.yx-bb-marked-cell,
+html body .vertical-slot.yx-bb-marked-cell,
+html body .yx108-slot.yx-bb-marked-cell,
+html body .yx116-slot.yx-bb-marked-cell{
+  background:rgba(255, 228, 238, .42)!important;
+  border-color:rgba(244, 114, 182, .42)!important;
+  box-shadow:0 0 0 2px rgba(244, 114, 182, .10) inset!important;
+}
+html body .yx-final-warehouse-menu button[data-wh-act]{
+  display:block!important;
+  width:100%!important;
+  text-align:left!important;
+}

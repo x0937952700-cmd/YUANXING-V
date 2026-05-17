@@ -18,6 +18,11 @@
   const key = (z,c,s)=>`${clean(z).toUpperCase()}-${Number(c)}-${Number(s)}`;
   const zones = ['A','B'];
   const CACHE_KEY='yx_warehouse_visible_snapshot_20260516bs';
+  const MARK_KEY='yx_warehouse_pink_marked_cells_20260517i';
+  function loadMarkedCells(){ try{ const arr=JSON.parse(localStorage.getItem(MARK_KEY)||'[]'); return new Set(Array.isArray(arr)?arr:[]); }catch(_e){ return new Set(); } }
+  function saveMarkedCells(set){ try{ localStorage.setItem(MARK_KEY, JSON.stringify(Array.from(set||[]))); }catch(_e){} }
+  function isCellMarked(z,c,s){ const k=key(z,c,s); if(loadMarkedCells().has(k)) return true; return /標記此格|marked|粉色|pink/i.test(cellNote(z,c,s)); }
+  function setCellMarkedLocal(z,c,s,on){ const set=loadMarkedCells(); const k=key(z,c,s); if(on) set.add(k); else set.delete(k); saveMarkedCells(set); }
   try{['v520stable','20260516bh','20260516bi','20260516bj','20260516bk','20260516bl','20260516bm','20260516bn','20260516bo','20260516bp','20260516bq'].forEach(v=>localStorage.removeItem('yx_warehouse_visible_snapshot_'+v));}catch(_e){}
   function cacheNow(){try{localStorage.setItem(CACHE_KEY,JSON.stringify({at:Date.now(),data:state.data,available:state.available,availableByZone:state.availableByZone}));}catch(_e){}}
   function loadCache(){try{const raw=localStorage.getItem(CACHE_KEY); if(!raw)return false; const o=JSON.parse(raw); if(!o||!o.data)return false; if(Date.now()-Number(o.at||0)>300000) return false; state.data=o.data||state.data; state.available=Array.isArray(o.available)?o.available:state.available; state.availableByZone=o.availableByZone||state.availableByZone; return true;}catch(_e){return false;}}
@@ -165,7 +170,9 @@
     const hi=state.searchKeys.has(key(z,c,s));
     el.classList.toggle('filled', items.length>0);
     el.classList.toggle('highlight', hi);
-    el.classList.toggle('yx-bb-marked-cell', /標記此格|marked|粉色/.test(cellNote(z,c,s)));
+    el.classList.toggle('yx-bb-marked-cell', isCellMarked(z,c,s));
+    if(isCellMarked(z,c,s)){ el.style.backgroundColor='rgba(255, 228, 238, 0.42)'; el.style.borderColor='rgba(244, 114, 182, 0.42)'; }
+    else { el.style.backgroundColor=''; el.style.borderColor=''; }
     el.dataset.hasItems=items.length?'1':'0';
     if(!items.length){
       el.innerHTML=`<div class="yx108-slot-row yx108-slot-row1 yx116-slot-row1"><span class="yx108-slot-no">${s}</span><span class="yx108-slot-customers yx108-slot-empty yx520-wh-empty">空格</span></div><div class="yx108-slot-row yx108-slot-row2 yx116-slot-row2"><span class="yx108-slot-sum"></span><span class="yx108-slot-total">0件</span></div>`;
@@ -412,16 +419,37 @@
   }
   async function markWarehouseCellPink(z,c,s){
     const items=cellItems(z,c,s), note=cellNote(z,c,s);
-    const nextNote = /標記此格|marked|粉色/.test(note) ? note.replace(/\s*標記此格/g,'').replace(/\s*marked/g,'').trim() : (note ? note + ' 標記此格' : '標記此格');
-    setCellLocal(z,c,s,items,nextNote); updateSlotUI(z,c,s);
-    const d=await saveCellRaw(z,c,s,items,nextNote); applyServerCells(d,false); toast(/標記此格|marked|粉色/.test(note)?'已取消粉色標記':'已標記此格為淺粉色','ok');
+    const was=isCellMarked(z,c,s);
+    const nextNote = was ? note.replace(/\s*標記此格/g,'').replace(/\s*marked/g,'').replace(/\s*粉色/g,'').trim() : (note ? note + ' 標記此格' : '標記此格');
+    setCellMarkedLocal(z,c,s,!was);
+    setCellLocal(z,c,s,items,nextNote);
+    updateSlotUI(z,c,s);
+    toast(was?'已取消粉紅標記':'已標記此格為非常淡粉紅色','ok');
+    try{
+      const d=await saveCellRaw(z,c,s,items,nextNote);
+      applyServerCells(d,false);
+      setCellMarkedLocal(z,c,s,!was);
+      updateSlotUI(z,c,s);
+    }catch(e){
+      // 標記是視覺/操作輔助，不因背景保存失敗讓前端完全沒反應。
+      toast('標記已先顯示，背景保存失敗時重新整理可能需再標一次','warn');
+    }
+  }
+  async function batchInsertWarehouseSlots(z,c,s){
+    const count=Math.max(1, Math.min(50, Number(prompt('要從此格後面批量加入幾格？', '5')||0)));
+    if(!count) return;
+    let latest=null;
+    for(let i=0;i<count;i++) latest=await insertWarehouseCell(z,c,Number(s)+i);
+    toast(`已批量加入 ${count} 格`,'ok');
+    await renderWarehouse(true);
   }
   async function batchDeleteEmptySlots(z,c,s){
-    const count=Math.max(1, Math.min(20, Number(prompt('要從此格開始批量刪除幾個空格？', '5')||0)));
+    const count=Math.max(1, Math.min(50, Number(prompt('要從此格開始批量刪除幾格？', '5')||0)));
     if(!count) return;
     const slots=[];
     for(let n=Number(s); n<Number(s)+count; n++){ if(!cellItems(z,c,n).length) slots.push(n); }
     if(!slots.length) return toast('沒有可刪除的空格，請先清空商品','warn');
+    if(!confirm(`確定從第 ${s} 格開始刪除 ${slots.length} 個空格？有商品的格子會自動略過。`)) return;
     const d=await api('/api/warehouse/batch-remove-slots',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slots})});
     toast(`已批量刪除 ${slots.length} 個空格`,'ok'); await renderWarehouse(true);
   }
@@ -456,7 +484,7 @@
     toast(ok?`倉庫閉環完成：來源${d.total_source_qty||0} = 格內${d.total_warehouse_qty||0} + 下拉${d.total_dropdown_should_be||0}`:`閉環仍有 ${problems} 筆需檢查：來源${d.total_source_qty||0} / 格內${d.total_warehouse_qty||0} / 下拉${d.total_dropdown_should_be||0}`, ok?'ok':'warn');
     return d;
   }
-  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button type="button" data-wh-act="open" aria-label="開啟 / 編輯格位" data-yx-label="開啟 / 編輯格位">開啟 / 編輯格位</button><button type="button" data-wh-act="return" aria-label="清空此格回下拉" data-yx-label="清空此格回下拉">清空此格回下拉</button><button type="button" data-wh-act="mark" aria-label="標記此格" data-yx-label="標記此格">標記此格</button><button type="button" data-wh-act="insert" aria-label="在此格後插入格子" data-yx-label="在此格後插入格子">在此格後插入格子</button><button type="button" data-wh-act="insert5" aria-label="批量新增 5 格" data-yx-label="批量新增 5 格">批量新增 5 格</button><button type="button" data-wh-act="batchDelete" aria-label="批量刪除空格" data-yx-label="批量刪除空格">批量刪除空格</button><button type="button" data-wh-act="delete" aria-label="刪除此格" data-yx-label="刪除此格">刪除此格</button><button type="button" data-wh-act="searchCustomer" aria-label="搜尋同客戶" data-yx-label="搜尋同客戶">搜尋同客戶</button>'; document.body.appendChild(m); afterWarehouseRender(); return m; }
+  function menu(){ let m=$('yx-final-warehouse-menu'); if(m) return m; m=document.createElement('div'); m.id='yx-final-warehouse-menu'; m.className='yx-final-warehouse-menu hidden'; m.innerHTML='<button type="button" data-wh-act="batchInsert" aria-label="批量加入格子" data-yx-label="批量加入格子">批量加入格子</button><button type="button" data-wh-act="batchDelete" aria-label="批量刪除格子" data-yx-label="批量刪除格子">批量刪除格子</button><button type="button" data-wh-act="mark" aria-label="標記此格" data-yx-label="標記此格">標記此格</button><button type="button" data-wh-act="return" aria-label="退回下拉選單" data-yx-label="退回下拉選單">退回下拉選單</button>'; document.body.appendChild(m); afterWarehouseRender(); return m; }
   function showMenu(z,c,s,x,y){ const m=menu(); m.dataset.zone=z; m.dataset.column=c; m.dataset.slot=s; m.style.left=(x||window.innerWidth/2)+'px'; m.style.top=(y||window.innerHeight/2)+'px'; m.classList.remove('hidden'); }
   function bindSlot(slot){
     if(!slot || slot.dataset.yxFinalBound==='1') return; slot.dataset.yxFinalBound='1'; let press=null;
@@ -475,7 +503,7 @@
     document.addEventListener('click',async ev=>{
       const cellAct=ev.target?.closest?.('[data-wh-cell-act]');
       if(cellAct){ ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation?.(); const slot=cellAct.closest('[data-zone][data-column][data-slot]'); if(!slot) return; const z=slot.dataset.zone,c=Number(slot.dataset.column),s=Number(slot.dataset.slot); try{ if(cellAct.dataset.whCellAct==='open') await openWarehouseModal(z,c,s); if(cellAct.dataset.whCellAct==='insert') await insertWarehouseCell(z,c,s); if(cellAct.dataset.whCellAct==='delete') await deleteWarehouseCell(z,c,s); }catch(e){ toast(e.message||'格位按鍵操作失敗','error'); } return; }
-      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='open') await openWarehouseModal(z,c,s); if(act.dataset.whAct==='insert') await insertWarehouseCell(z,c,s); if(act.dataset.whAct==='delete') await deleteWarehouseCell(z,c,s); if(act.dataset.whAct==='return'){ await returnCellToUnplaced(z,c,s); return; } if(act.dataset.whAct==='mark'){ await markWarehouseCellPink(z,c,s); return; } if(act.dataset.whAct==='batchDelete'){ await batchDeleteEmptySlots(z,c,s); return; } if(act.dataset.whAct==='insert5'){ for(let i=0;i<5;i++) await insertWarehouseCell(z,c,s+i); } if(act.dataset.whAct==='searchCustomer'){ const its=cellItems(z,c,s); if(its[0]) highlightWarehouseSameCustomer(its[0].customer_name||''); } }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
+      const act=ev.target?.closest?.('[data-wh-act]'); if(act){ ev.preventDefault(); const m=menu(); const z=m.dataset.zone,c=Number(m.dataset.column),s=Number(m.dataset.slot); m.classList.add('hidden'); try{ if(act.dataset.whAct==='batchInsert'){ await batchInsertWarehouseSlots(z,c,s); return; } if(act.dataset.whAct==='batchDelete'){ await batchDeleteEmptySlots(z,c,s); return; } if(act.dataset.whAct==='mark'){ await markWarehouseCellPink(z,c,s); return; } if(act.dataset.whAct==='return'){ await returnCellToUnplaced(z,c,s); return; } }catch(e){ toast(e.message||'格位操作失敗','error'); } return; }
       if(!ev.target?.closest?.('#yx-final-warehouse-menu')) menu().classList.add('hidden');
       if(ev.target?.id==='warehouse-clear-all-items'){ ev.preventDefault(); await clearAllWarehouseItems(); return; }
       if(ev.target?.id==='warehouse-reconcile-source'){ ev.preventDefault(); await reconcileWarehouseSource(); return; }
