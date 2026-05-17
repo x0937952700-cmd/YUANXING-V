@@ -289,13 +289,16 @@
     afterWarehouseRender();
   }
   function positionWarehouseModalAtGridCenter(z,c,s){
-    // 20260517g：依使用者要求，格位編輯固定在「目前瀏覽器可視畫面」正中間。
-    // 不再追第 2 欄第 5 格，避免點任一格都跳到固定格位，也避免卡在頁面上方關不掉。
+    // 20260517h：真正以「目前瀏覽器可視畫面」為準置中。
+    // 不能依格號、不能依頁面文件座標、也不能被倉庫容器 transform/overflow 影響。
     const modal=$('warehouse-modal'); if(!modal) return;
-    const card=modal.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); if(!card) return;
-    modal.classList.add('yx-grid-centered-modal');
-    modal.style.setProperty('--yx-wh-modal-left', '50vw');
-    modal.style.setProperty('--yx-wh-modal-top', '50vh');
+    try{
+      if(modal.parentElement!==document.body) document.body.appendChild(modal);
+      modal.classList.remove('yx-grid-centered-modal');
+      modal.classList.add('yx-viewport-centered-modal');
+      modal.style.removeProperty('--yx-wh-modal-left');
+      modal.style.removeProperty('--yx-wh-modal-top');
+    }catch(_e){}
   }
   function focusWarehouseBatchPanel(){
     try{
@@ -303,10 +306,10 @@
       if(card && panel){ card.scrollTop=Math.max(0, panel.offsetTop-70); panel.classList.add('yx-batch-focus-flash'); setTimeout(()=>panel.classList.remove('yx-batch-focus-flash'),900); }
     }catch(_e){}
   }
-  async function openWarehouseModal(z,c,s){ z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; const modal=$('warehouse-modal'); modal?.classList.remove('hidden');
-    try{ document.body.classList.add('yx-warehouse-modal-open'); positionWarehouseModalAtGridCenter(z,c,s); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); }catch(_e){}
+  async function openWarehouseModal(z,c,s){ z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; const modal=$('warehouse-modal'); try{ if(modal && modal.parentElement!==document.body) document.body.appendChild(modal); }catch(_e){} modal?.classList.remove('hidden');
+    try{ document.body.classList.add('yx-warehouse-modal-open'); positionWarehouseModalAtGridCenter(z,c,s); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); }catch(_e){}
     renderCellItems(); focusWarehouseBatchPanel(); loadAvailable().then(()=>{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')){ renderCellItems(); positionWarehouseModalAtGridCenter(z,c,s); focusWarehouseBatchPanel(); } }).catch(()=>{}); }
-  function closeWarehouseModal(){ const modal=$('warehouse-modal'); modal?.classList.add('hidden'); try{ modal?.classList.remove('yx-grid-centered-modal'); modal?.style.removeProperty('--yx-wh-modal-left'); modal?.style.removeProperty('--yx-wh-modal-top'); document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
+  function closeWarehouseModal(){ const modal=$('warehouse-modal'); modal?.classList.add('hidden'); try{ modal?.classList.remove('yx-grid-centered-modal'); modal?.classList.remove('yx-viewport-centered-modal'); modal?.style.removeProperty('--yx-wh-modal-left'); modal?.style.removeProperty('--yx-wh-modal-top'); document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
   function syncBatchSelectLimits(){
     // 20260516bi：下拉件數即時扣掉同一批次已選件數；同一品項選兩列時，不會兩列都各自顯示完整可加入件數。
     const rows=Array.from(document.querySelectorAll('#yx121-batch-rows .yx121-batch-row'));

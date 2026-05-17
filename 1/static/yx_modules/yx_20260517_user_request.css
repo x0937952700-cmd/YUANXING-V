@@ -224,3 +224,56 @@ html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel.yx-batc
 /* 20260517g: 關閉按鈕永遠可點，避免格位彈窗內部捲動後關不掉 */
 html body #warehouse-modal .modal-head{position:sticky!important;top:0!important;z-index:20!important;}
 html body #warehouse-modal .icon-btn{pointer-events:auto!important;}
+
+
+/* 20260517h: 倉庫格位彈窗＝目前可視畫面正中間。
+   不吃格子座標、不吃頁面捲動座標；彈窗搬到 body 後用 fixed flex 置中。 */
+html body.yx-warehouse-modal-open{overflow:auto!important;}
+html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:16px!important;
+  margin:0!important;
+  overflow:hidden!important;
+  box-sizing:border-box!important;
+  z-index:2147483647!important;
+  background:rgba(15,23,42,.34)!important;
+}
+html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+html body #warehouse-modal.yx-viewport-centered-modal .glass{
+  position:relative!important;
+  left:auto!important;
+  top:auto!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:none!important;
+  width:min(720px,calc(100vw - 32px))!important;
+  max-width:calc(100vw - 32px)!important;
+  max-height:calc(100vh - 32px)!important;
+  margin:0 auto!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  box-sizing:border-box!important;
+  box-shadow:0 24px 70px rgba(15,23,42,.28)!important;
+}
+html body #warehouse-modal.yx-viewport-centered-modal .modal-head{
+  position:sticky!important;
+  top:0!important;
+  z-index:30!important;
+}
+@media(max-width:760px){
+  html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){padding:10px!important;}
+  html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .glass{
+    width:calc(100vw - 20px)!important;
+    max-width:calc(100vw - 20px)!important;
+    max-height:calc(100vh - 20px)!important;
+  }
+}
