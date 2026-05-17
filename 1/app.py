@@ -8,7 +8,6 @@ import time
 import hashlib
 import json
 import re
-import pathlib
 from PIL import Image
 from werkzeug.utils import secure_filename
 from openpyxl import Workbook
@@ -30,25 +29,13 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'final-mainfile-contract-ui-warehouse-20260516bs'
-APP_VERSION = '還完整主線_主檔契約巡檢_UI倉庫圖操作與件數防回滾修復_20260516bs'
+STATIC_VERSION = 'mainline-speed-repair-20260517-95a'
+APP_VERSION = '還完整主線_速度修復_出貨倉庫加速_20260516k'
 
 app = Flask(__name__)
 
 YX_WAREHOUSE_AVAILABLE_CACHE = {}
 YX_WAREHOUSE_AVAILABLE_CACHE_TTL = 4.0
-
-YX_PERF_SNAPSHOT = {}
-
-def _yx_perf_record(name, start, **extra):
-    try:
-        elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
-        rec = {'elapsed_ms': elapsed_ms, 'at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        rec.update(extra)
-        YX_PERF_SNAPSHOT[name] = rec
-        return elapsed_ms
-    except Exception:
-        return 0
 
 def _yx_clear_runtime_caches(module=''):
     if not module or module in ('warehouse','all'):
@@ -371,26 +358,12 @@ def aggregate_customer_items(items):
 
 
 def warehouse_item_size_key(text):
-    """倉庫比對用尺寸 key。
-
-    20260516bs：舊版遇到「71x12x10 15件」、「LVL 71x12x10」、「71×12×10=...」
-    會把後面的件數/材質也吃進 key，導致來源、格子、下拉選單同一筆商品對不起來。
-    現在一律從文字中抓第一組三段尺寸，正規化成 71x12x10。
-    """
-    raw = str(text or '').replace('×', 'x').replace('Ｘ', 'x').replace('X', 'x').replace('✕', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
+    raw = str(text or '').replace('×', 'x').replace('X', 'x').replace('＊', 'x').replace('*', 'x').replace('＝', '=').strip()
     left = (raw.split('=', 1)[0].strip() or raw).lower()
-    m = re.search(r'(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)', left, flags=re.I)
-    if m:
-        vals=[]
-        for g in m.groups():
-            try:
-                f=float(g)
-                vals.append(str(int(f)) if f.is_integer() else str(f).rstrip('0').rstrip('.'))
-            except Exception:
-                vals.append(str(g).strip())
-        return 'x'.join(vals)
-    # 非標準尺寸仍保留乾淨文字，避免完全比不到。
-    return re.sub(r'\s+', ' ', left).strip()
+    parts = [p for p in left.split('x') if p != '']
+    if len(parts) >= 3 and all(part.strip().isdigit() for part in parts[:3]):
+        return 'x'.join(str(int(part.strip())) for part in parts[:3])
+    return left
 
 def safe_cell_items(cell):
     try:
@@ -398,167 +371,7 @@ def safe_cell_items(cell):
     except Exception:
         return []
 
-def yx_bc_clean_warehouse_customer(v):
-    s = (str(v or '').strip() or '庫存')
-    s = re.sub(r'FOB代付|FOB代|FOB|CNF', '', s, flags=re.I)
-    s = re.sub(r'[()（）]', '', s)
-    s = re.sub(r'\s*[代]\s*$', '', s)
-    s = re.sub(r'\s+', ' ', s).strip()
-    return s or '庫存'
-
-
-def yx_bc_clean_warehouse_material(row_or_value, product_text=''):
-    try:
-        if isinstance(row_or_value, dict):
-            mat = row_or_value.get('material') or row_or_value.get('wood_type') or row_or_value.get('product_code') or ''
-            product_text = row_or_value.get('product_text') or row_or_value.get('product') or product_text or ''
-        else:
-            mat = row_or_value or ''
-        mat = clean_material_value(mat or '', product_text or '')
-    except Exception:
-        mat = str(row_or_value or '').strip()
-    mat = re.sub(r'FOB代付|FOB代|FOB|CNF', '', str(mat or ''), flags=re.I).strip().upper()
-    # 避免把尺寸誤當材質，造成來源/格子比對對不起來。
-    if re.search(r'\d+\s*[x×XＸ✕＊*]\s*\d+', mat):
-        return ''
-    return mat
-
-
-def yx_bc_warehouse_key(product_text='', customer_name='', material=''):
-    size = warehouse_item_size_key(product_text)
-    customer = yx_bc_clean_warehouse_customer(customer_name)
-    mat = yx_bc_clean_warehouse_material(material, product_text)
-    return (size, customer, mat)
-
-
-def yx_bd_resolve_key_to_source(key, source_totals=None):
-    """20260516bs：倉庫格子舊資料常缺材質，導致 LVL/DF 等來源數量對不上。
-    exact key 優先；缺材質時，如果同尺寸+客戶只有一種來源材質，就自動歸到該來源 key。
-    """
-    try:
-        size, customer, material = key
-    except Exception:
-        return key
-    source_totals = source_totals or {}
-    if key in source_totals:
-        return key
-    if not material:
-        candidates = [k for k, v in source_totals.items() if int(v or 0) > 0 and k[0] == size and k[1] == customer]
-        if len(candidates) == 1:
-            return candidates[0]
-    return key
-
-
-def yx_bc_item_qty(product_text='', fallback_qty=0):
-    try:
-        fallback = int(fallback_qty or 0)
-    except Exception:
-        fallback = 0
-    try:
-        return int(effective_product_qty(product_text or '', fallback) or 0)
-    except Exception:
-        return max(0, fallback)
-
-
-def yx_bl_explicit_payload_qty(raw):
-    """20260516bs：格子保存只能吃使用者本次真正輸入的 qty。
-    下拉選單的 dropdown_qty / unplaced_qty 只是可加入上限，不能在 qty 缺失時被當作實際入格數，
-    否則選了商品但漏填數量時會把全部剩餘件數塞進格子。
-    """
-    if not isinstance(raw, dict):
-        return 0
-    for name in ('qty', 'quantity', 'pieces', 'count', 'piece_count'):
-        if name in raw and raw.get(name) not in (None, ''):
-            try:
-                return max(0, int(float(raw.get(name) or 0)))
-            except Exception:
-                return 0
-    return 0
-
-
-
-def yx_bn_payload_actual_qty(raw):
-    """20260516bs：格位保存只接受「本次實際加入件數」。
-
-    重點修正：下拉項目的 qty/source_total_qty/unplaced_qty 可能是來源或剩餘量，
-    不能在沒有 warehouse_qty_locked / actual_in_qty 時被當成入格件數。
-    前端批量加入會送 warehouse_qty_locked=True 與 actual_in_qty；舊格式則只接受已明確標記為格內商品的 qty。
-    """
-    if not isinstance(raw, dict):
-        return 0
-    explicit_names = ('actual_in_qty', 'warehouse_qty', 'added_qty', 'selected_qty', 'input_qty')
-    for name in explicit_names:
-        if raw.get(name) not in (None, ''):
-            try:
-                return max(0, int(float(raw.get(name) or 0)))
-            except Exception:
-                return 0
-    # 已鎖定為格內實際數量，才允許吃 qty/quantity/pieces。
-    locked = bool(raw.get('warehouse_qty_locked') or raw.get('is_warehouse_item'))
-    if locked:
-        for name in ('qty', 'quantity', 'pieces', 'count', 'piece_count'):
-            if raw.get(name) not in (None, ''):
-                try:
-                    return max(0, int(float(raw.get(name) or 0)))
-                except Exception:
-                    return 0
-    # 從下拉原始資料直接送來但沒有鎖定時，拒絕保存，避免把下拉剩餘量當入格量。
-    return 0
-
-def yx_bn_cell_actual_qty(item):
-    """20260516bs：已入格件數分新舊資料處理。
-
-    新資料：warehouse_qty_locked=True，代表使用者本次實際放入幾件，必須吃 item.qty。
-    舊資料：沒有 locked 時，若商品文字本身有明確件數/公式，且和舊 qty 不一致，優先用文字修正；
-    純尺寸才保留舊 qty。這可修掉 60+54+50 被舊 qty=1 蓋掉、或公式舊資料反覆算錯。
-    """
-    if not isinstance(item, dict):
-        return 0
-    product = item.get('product_text') or item.get('product') or ''
-    numeric = 0
-    for name in ('qty', 'quantity', 'pieces', 'count', 'piece_count'):
-        if item.get(name) not in (None, ''):
-            try:
-                n = int(float(item.get(name) or 0))
-                if n > 0:
-                    numeric = n
-                    break
-            except Exception:
-                pass
-    if item.get('warehouse_qty_locked') and numeric > 0:
-        return numeric
-    explicit = bool(re.search(r'[=＋+,，;；件片]', str(product or '')))
-    parsed = yx_bc_item_qty(product, numeric if numeric > 0 else 0) if explicit else 0
-    if explicit and parsed > 0 and (numeric <= 0 or parsed != numeric):
-        return parsed
-    if numeric > 0:
-        return numeric
-    return yx_bc_item_qty(product, 0)
-
-
-def yx_bl_cap_source_qty(details, cap_qty):
-    """把 source_summary 限制在下拉實際可加入量內，避免明明只剩 3 件卻標示庫存15。"""
-    remain = max(0, int(cap_qty or 0))
-    out = {}
-    used_details = []
-    for detail in details or []:
-        if remain <= 0:
-            break
-        q = max(0, int(detail.get('qty') or 0))
-        if q <= 0:
-            continue
-        use = min(q, remain)
-        src = detail.get('source') or 'unknown'
-        out[src] = int(out.get(src, 0) or 0) + use
-        d = dict(detail)
-        d['qty'] = use
-        used_details.append(d)
-        remain -= use
-    return out, used_details
-
-
 def warehouse_source_totals():
-    """20260516bs：來源總量用 庫存+訂單+總單 作主，key=尺寸+客戶+材質。"""
     totals = {}
     details = {}
     source_rows = []
@@ -570,62 +383,53 @@ def warehouse_source_totals():
         source_rows.append(('總單', row))
     for source_label, row in source_rows:
         product = (row.get('product_text') or row.get('product') or '').strip()
-        if not warehouse_item_size_key(product):
+        size = warehouse_item_size_key(product)
+        if not size:
             continue
-        customer = yx_bc_clean_warehouse_customer(row.get('customer_name') or '')
-        material = yx_bc_clean_warehouse_material(row, product)
-        qty = yx_bc_item_qty(product, row.get('qty') or row.get('quantity') or row.get('pieces') or 0)
+        customer = (row.get('customer_name') or '').strip()
+        try:
+            qty = int(row.get('qty') or 0)
+        except Exception:
+            qty = 0
         if qty <= 0:
             continue
-        key = yx_bc_warehouse_key(product, customer, material)
+        key = (size, customer)
         totals[key] = totals.get(key, 0) + qty
         details.setdefault(key, []).append({
             'source': source_label,
-            'source_table': {'庫存': 'inventory', '訂單': 'orders', '總單': 'master_orders'}.get(source_label, source_label),
             'id': row.get('id'),
-            'source_id': row.get('id'),
             'product_text': product,
             'qty': qty,
             'customer_name': customer,
-            'material': material,
-            'product_code': material,
-            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or row.get('area') or '').strip().upper(),
+            'zone': (row.get('location') or row.get('zone') or row.get('warehouse_zone') or '').strip().upper(),
         })
     return totals, details
 
-
-def warehouse_placed_totals(exclude_cell=None, proposed_items=None, source_totals=None):
-    """20260516bs：已入格總量以格子 item.qty 為準；舊格缺材質時會對齊唯一來源材質。"""
+def warehouse_placed_totals(exclude_cell=None, proposed_items=None):
     placed = {}
     exclude_cell = exclude_cell or None
-    for cell in warehouse_get_cells(force_refresh=True):
+    for cell in warehouse_get_cells():
         cell_key = (str(cell.get('zone')), int(cell.get('column_index') or 0), int(cell.get('slot_number') or 0))
         if exclude_cell and cell_key == exclude_cell:
             items = proposed_items or []
         else:
-            # 20260516bs：已入格件數也必須先走同一套正規化，
-            # 否則舊 items_json 裡的客戶名、材質、qty 錯值會讓下拉剩餘和格子顯示各算各的。
-            items, _changed = yx_bf_normalize_cell_items_for_output(safe_cell_items(cell), source_totals or {})
+            items = safe_cell_items(cell)
         for it in items:
-            product = it.get('product_text') or it.get('product') or ''
-            if not warehouse_item_size_key(product):
+            size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+            if not size:
                 continue
-            customer = yx_bc_clean_warehouse_customer(it.get('customer_name') or it.get('customer') or '')
-            material = yx_bc_clean_warehouse_material(it, product)
-            qty = yx_bn_cell_actual_qty(it)
+            customer = (it.get('customer_name') or '').strip()
+            try:
+                qty = int(it.get('qty') or 0)
+            except Exception:
+                qty = 0
             if qty <= 0:
                 continue
-            key = yx_bc_warehouse_key(product, customer, material)
-            key = yx_bd_resolve_key_to_source(key, source_totals)
+            key = (size, customer)
             placed[key] = placed.get(key, 0) + qty
     return placed
 
 def normalize_warehouse_payload_items(items):
-    """正規化格子保存資料。
-
-    20260516bs：保存時同時保留 placement_label（前/中/後），但同格同客戶+同材質+同尺寸+同位置才合併。
-    以前只用尺寸+客戶+材質，會把前排/中間/後排的資料混成一筆，造成後續拖拉、清空、稽核難以對齊。
-    """
     merged = {}
     for raw in (items or []):
         if not isinstance(raw, dict):
@@ -633,240 +437,47 @@ def normalize_warehouse_payload_items(items):
         product = (raw.get('product_text') or raw.get('product') or '').strip()
         if not product:
             continue
-        # 20260516bs：保存倉庫格時只接受本次實際輸入 qty。
-        # 不能在 qty 缺失時回頭解析商品文字，否則「71x12x10 15件」只加入 5 件會被還原成 15 件。
-        qty = yx_bn_payload_actual_qty(raw)
+        try:
+            qty = int(raw.get('qty') or 0)
+        except Exception:
+            qty = 0
         if qty <= 0:
             continue
-        customer = yx_bc_clean_warehouse_customer(raw.get('customer_name') or raw.get('customer') or '')
-        material = yx_bc_clean_warehouse_material(raw, product)
-        placement = (raw.get('placement_label') or raw.get('layer_label') or '前排').strip() or '前排'
-        size = warehouse_item_size_key(product)
-        key = (size, customer, material, placement)
+        customer = (raw.get('customer_name') or '').strip()
+        key = (warehouse_item_size_key(product), customer)
         if key not in merged:
             item = dict(raw)
             item['product_text'] = product
-            item['product'] = product
-            item['product_size'] = size
-            item['product_code'] = material or (raw.get('product_code') or '')
-            item['material'] = material
+            item['product_code'] = (raw.get('product_code') or product)
             item['customer_name'] = customer
-            item['qty'] = int(qty)
-            item['actual_in_qty'] = int(qty)
-            item['warehouse_qty'] = int(qty)
-            item['warehouse_qty_locked'] = True
-            item['is_warehouse_item'] = True
-            item['placement_label'] = placement
-            item['layer_label'] = placement
-            # 20260516bs：下拉專用欄位絕對不可存進格子，避免「下拉剩餘量」又被誤認為已入格件數。
-            for _k in ('quantity','pieces','dropdown_qty','unplaced_qty','total_qty','source_total_qty','source_total_qty_all','warehouse_placed_qty','warehouse_placed_qty_all','warehouse_placed_qty_zone','eligible_zone_qty','qty_formula','qty_check_ok'):
-                item.pop(_k, None)
+            item['qty'] = qty
             merged[key] = item
         else:
-            merged[key]['qty'] = int(merged[key].get('qty') or 0) + int(qty)
+            merged[key]['qty'] = int(merged[key].get('qty') or 0) + qty
             if not merged[key].get('source_summary') and raw.get('source_summary'):
                 merged[key]['source_summary'] = raw.get('source_summary')
     return list(merged.values())
 
-
-
-def yx_bf_normalize_cell_items_for_output(items, source_totals=None):
-    """API 回前端前先正規化並合併同格重複品項。
-
-    20260516bs：舊 items_json 可能同一格有多筆完全相同商品，或尺寸 key 含「15件」造成比對錯。
-    這裡先修 customer/material/qty/product_size，再用 尺寸+客戶+材質+前中後+來源 合併，避免畫面與稽核各算各的。
-    """
-    merged = {}
-    changed = False
-    for raw in (items or []):
-        if not isinstance(raw, dict):
-            changed = True
-            continue
-        product = (raw.get('product_text') or raw.get('product') or '').strip()
-        if not product:
-            changed = True
-            continue
-        old_qty = raw.get('qty') or raw.get('quantity') or raw.get('pieces') or 0
-        qty = yx_bn_cell_actual_qty(raw)
-        if qty <= 0:
-            changed = True
-            continue
-        customer = yx_bc_clean_warehouse_customer(raw.get('customer_name') or raw.get('customer') or '')
-        material = yx_bc_clean_warehouse_material(raw, product)
-        key0 = yx_bc_warehouse_key(product, customer, material)
-        resolved = yx_bd_resolve_key_to_source(key0, source_totals or {})
-        if resolved != key0:
-            material = resolved[2]
-        placement = (raw.get('placement_label') or raw.get('layer_label') or '前排').strip() or '前排'
-        size = warehouse_item_size_key(product)
-        source_label = raw.get('source_table') or raw.get('source') or ''
-        merge_key = (size, customer, material, placement)
-        item = dict(raw)
-        item['product_text'] = product
-        item['product'] = product
-        item['product_size'] = size
-        item['customer_name'] = customer
-        item['material'] = material
-        item['product_code'] = material
-        item['qty'] = int(qty)
-        item['actual_in_qty'] = int(qty)
-        item['warehouse_qty_locked'] = True
-        item['placement_label'] = placement
-        item['layer_label'] = placement
-        item.pop('quantity', None); item.pop('pieces', None)
-        if merge_key in merged:
-            merged[merge_key]['qty'] = int(merged[merge_key].get('qty') or 0) + int(qty)
-            changed = True
-        else:
-            merged[merge_key] = item
-        if (str(raw.get('customer_name') or '') != customer or
-            str(raw.get('material') or raw.get('product_code') or '') != material or
-            warehouse_item_size_key(raw.get('product_text') or raw.get('product') or '') != size or
-            int(raw.get('qty') or raw.get('quantity') or raw.get('pieces') or 0) != int(qty)):
-            changed = True
-    return list(merged.values()), changed
-
-
-def yx_bf_cells_for_client(cells=None, source_totals=None):
-    """把 warehouse_cells 轉成前端安全版本：含 items 陣列、總件數、正規化警示，不直接改資料庫。"""
-    source_totals = source_totals or warehouse_source_totals()[0]
-    out = []
-    for cell in (cells if cells is not None else warehouse_get_cells(force_refresh=True)):
-        c = dict(cell)
-        items, changed = yx_bf_normalize_cell_items_for_output(safe_cell_items(c), source_totals)
-        c['items'] = items
-        c['items_json'] = json.dumps(items, ensure_ascii=False)
-        c['qty_total'] = sum(int(it.get('qty') or 0) for it in items)
-        c['client_qty_normalized'] = bool(changed)
-        out.append(c)
-    return out
-
 def validate_warehouse_cell_quantities(zone, column_index, slot_number, items):
-    """20260516bs：尺寸+客戶+材質比對，支數差異合併看總件數；避免倉庫圖超放。"""
+    """防止入倉超過來源數量；FIX108：下拉資料若來自舊快取或客戶名不一致，不再直接擋住儲存。"""
     source_totals, _details = warehouse_source_totals()
     exclude_key = (str(zone), int(column_index), int(slot_number))
-    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items, source_totals=source_totals)
-    # 20260516bs：同一格內先彙總 proposed items 的 key，讓錯誤訊息更準，
-    # 並避免同 key 分多筆時只檢查第一筆造成超放提示漏掉。
-    proposed_by_key = {}
-    for _it in items:
-        _product = _it.get('product_text') or _it.get('product') or ''
-        _key = yx_bc_warehouse_key(_product, _it.get('customer_name') or _it.get('customer') or '', _it)
-        _key = yx_bd_resolve_key_to_source(_key, source_totals)
-        proposed_by_key[_key] = proposed_by_key.get(_key, 0) + yx_bn_cell_actual_qty(_it)
-    checked = set()
+    placed = warehouse_placed_totals(exclude_cell=exclude_key, proposed_items=items)
     for it in items:
-        product = it.get('product_text') or it.get('product') or ''
-        key = yx_bc_warehouse_key(product, it.get('customer_name') or it.get('customer') or '', it)
-        key = yx_bd_resolve_key_to_source(key, source_totals)
-        if key in checked:
-            continue
-        checked.add(key)
-        size, customer, material = key
+        size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+        customer = (it.get('customer_name') or '').strip()
+        key = (size, customer)
         source_total = int(source_totals.get(key, 0) or 0)
         if source_total <= 0:
-            # 20260516bs：只允許同尺寸+同客戶+缺材質時回補；不可退化成只比尺寸，避免不同客戶/材質互相借量造成倉庫件數錯。
-            same_customer = [(k, int(v or 0)) for k, v in source_totals.items() if k[0] == size and k[1] == customer]
-            if len(same_customer) == 1:
-                source_total = same_customer[0][1]
-                key = same_customer[0][0]
+            size_matches = [int(v or 0) for (s, _c), v in source_totals.items() if s == size]
+            source_total = max(size_matches) if size_matches else 0
         placed_total = int(placed.get(key, 0) or 0)
-        # 20260516bs：不再退化用「同尺寸+同客戶」推估 placed_total。
-        # 這種 fallback 會讓不同材質的同尺寸互相借件數，造成倉庫圖明明超放卻驗證通過。
-        if source_total <= 0:
-            label = ' / '.join([x for x in [customer, material, size] if x])
-            return False, f"找不到來源商品，不能加入倉庫圖：{label}"
-        if placed_total > source_total:
-            label = ' / '.join([x for x in [customer, material, size] if x])
-            proposed_qty = int(proposed_by_key.get(key, 0) or 0)
-            return False, f"{label} 的入倉件數超過來源件數（來源 {source_total}，本格送出 {proposed_qty}，目前格子合計 {placed_total}）"
+        if placed_total <= 0 and size:
+            placed_total = sum(int(v or 0) for (s, _c), v in placed.items() if s == size)
+        if source_total > 0 and placed_total > source_total:
+            return False, f"{it.get('product_text') or size} 的入倉數量超過來源數量（來源 {source_total}，目前要放 {placed_total}）"
+        # FIX108：如果後端目前查不到來源，不再回傳「找不到可入倉來源」卡住；讓使用者可先放格，之後來源重整再校正。
     return True, ''
-
-
-def yx_br_warehouse_integrity_snapshot(auto_fix=False):
-    """20260516bs：倉庫圖閉環稽核。
-    目標不是只看格子，而是同時比對：來源總量、格內已入量、下拉應剩量、舊 JSON 正規化需求。
-    auto_fix=True 時只修安全事項：正規化舊格子、移除來源不存在商品、扣回超放。
-    """
-    source_totals, source_details = warehouse_source_totals()
-    cells = warehouse_get_cells(force_refresh=True)
-    normalized_cells = 0
-    removed_missing = 0
-    if auto_fix:
-        for cell in cells:
-            z = (cell.get('zone') or 'A').strip().upper()
-            c = int(cell.get('column_index') or cell.get('band') or 0)
-            sn = int(cell.get('slot_number') or cell.get('slot') or 0)
-            raw = safe_cell_items(cell)
-            fixed, changed = yx_bf_normalize_cell_items_for_output(raw, source_totals)
-            kept = []
-            for it in fixed:
-                k = yx_bc_warehouse_key(it.get('product_text') or it.get('product') or '', it.get('customer_name') or '', it)
-                k = yx_bd_resolve_key_to_source(k, source_totals)
-                if int(source_totals.get(k, 0) or 0) <= 0:
-                    removed_missing += int(yx_bn_cell_actual_qty(it) or 0)
-                    changed = True
-                    continue
-                kept.append(it)
-            if changed:
-                warehouse_save_cell(z, c, 'direct', sn, kept, cell.get('note') or '')
-                normalized_cells += 1
-        _yx_clear_runtime_caches('warehouse')
-        # 若正規化後仍超放，使用既有 reconcile 方式扣回超放。
-        cells = warehouse_get_cells(force_refresh=True)
-        placed = warehouse_placed_totals(source_totals=source_totals)
-        excess = {k: int(placed.get(k, 0) or 0) - int(source_totals.get(k, 0) or 0) for k in placed if int(placed.get(k,0) or 0) > int(source_totals.get(k,0) or 0)}
-        if excess:
-            cell_items=[]
-            for cell in cells:
-                z=(cell.get('zone') or 'A').strip().upper(); c=int(cell.get('column_index') or 0); sn=int(cell.get('slot_number') or 0)
-                for idx,it in enumerate(safe_cell_items(cell)):
-                    k=yx_bc_warehouse_key(it.get('product_text') or it.get('product') or '', it.get('customer_name') or '', it)
-                    k=yx_bd_resolve_key_to_source(k, source_totals)
-                    cell_items.append((z,c,sn,cell,idx,it,k,int(yx_bn_cell_actual_qty(it) or 0)))
-            touched={}
-            for z,c,sn,cell,idx,it,k,q in reversed(cell_items):
-                over=int(excess.get(k,0) or 0)
-                if over<=0 or q<=0: continue
-                remove=min(q,over); ck=(z,c,sn)
-                if ck not in touched: touched[ck]=safe_cell_items(cell)
-                arr=touched[ck]
-                if idx>=len(arr): continue
-                if q<=remove: arr[idx]=None
-                else:
-                    arr[idx]=dict(arr[idx]); arr[idx]['qty']=q-remove; arr[idx]['actual_in_qty']=q-remove; arr[idx]['warehouse_qty']=q-remove; arr[idx]['warehouse_qty_locked']=True
-                excess[k]=over-remove
-            for (z,c,sn),arr in touched.items():
-                clean_arr=[x for x in arr if isinstance(x,dict) and int(yx_bn_cell_actual_qty(x) or 0)>0]
-                note=''
-                for cell in cells:
-                    if (cell.get('zone') or '').strip().upper()==z and int(cell.get('column_index') or 0)==c and int(cell.get('slot_number') or 0)==sn:
-                        note=cell.get('note') or ''; break
-                warehouse_save_cell(z,c,'direct',sn,clean_arr,note)
-            _yx_clear_runtime_caches('warehouse')
-            cells = warehouse_get_cells(force_refresh=True)
-    placed = warehouse_placed_totals(source_totals=source_totals)
-    all_keys = set(source_totals.keys()) | set(placed.keys())
-    problems=[]
-    rows=[]
-    for k in sorted(all_keys, key=lambda x:(x[1],x[0],x[2])):
-        src=int(source_totals.get(k,0) or 0); wh=int(placed.get(k,0) or 0); remain=max(0,src-wh); over=max(0,wh-src)
-        ok=(over==0)
-        if not ok:
-            problems.append({'type':'over_placed','key':k,'source_qty':src,'warehouse_qty':wh,'over_qty':over})
-        rows.append({'key':k,'source_qty':src,'warehouse_qty':wh,'dropdown_should_be':remain,'over_qty':over,'ok':ok})
-    total_source=sum(int(v or 0) for v in source_totals.values())
-    total_warehouse=sum(int(v or 0) for v in placed.values())
-    total_dropdown=sum(max(0, int(r['dropdown_should_be'])) for r in rows)
-    return {
-        'success': True, 'auto_fixed': bool(auto_fix), 'source_keys': len(source_totals), 'placed_keys': len(placed),
-        'normalized_cells': normalized_cells, 'removed_missing_source_qty': removed_missing,
-        'problems': problems, 'rows': rows, 'dropdown_summary': rows,
-        'total_source_qty': total_source, 'total_warehouse_qty': total_warehouse, 'total_dropdown_should_be': total_dropdown,
-        'global_qty_ok': (total_source == total_warehouse + total_dropdown and not problems),
-        'cells': yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals),
-    }
-
 
 def grouped_inventory():
     return inventory_summary()
@@ -1329,23 +940,7 @@ def api_duplicate_check():
 def api_inventory():
     try:
         if request.method == "GET":
-            # 20260516bs：庫存頁顯示以 DB raw inventory 為第一優先。
-            # 原本 grouped_inventory 會被倉庫統計/summary 鏈路影響，DB 明明有資料但畫面可能顯示 0 筆。
-            raw_items = []
-            summary_items = []
-            try:
-                raw_items = list_inventory() or []
-            except Exception as e_raw:
-                log_error('inventory_get_raw_first_failed', str(e_raw))
-                raw_items = []
-            try:
-                summary_items = grouped_inventory() or []
-            except Exception as e_sum:
-                log_error('inventory_get_summary_side_failed', str(e_sum))
-                summary_items = []
-            # items/rows/data 永遠給前端 raw DB 列；summary_items 只當輔助，不准蓋掉商品清單。
-            items = raw_items or summary_items or []
-            return jsonify(success=True, items=items, rows=items, data=items, inventory=items, raw_items=raw_items, summary_items=summary_items, count=len(items), raw_count=len(raw_items), source='inventory-raw-first-bs')
+            return jsonify(success=True, items=grouped_inventory())
         data = request.get_json(silent=True) or {}
         if not request_key_from_payload(data, endpoint='/api/inventory'):
             return duplicate_success('相同庫存送出已忽略')
@@ -1367,36 +962,6 @@ def api_inventory():
     except Exception as e:
         log_error("inventory", str(e))
         return error_response("建立失敗")
-
-
-@app.route("/api/inventory-visible", methods=["GET"])
-@login_required_json
-def api_inventory_visible_rescue():
-    """20260516bs：庫存頁顯示救援端點。只讀取資料，不改 DB。"""
-    try:
-        # 20260516bs：救援端點一律先讀 raw inventory，避免 summary 0 筆蓋掉 DB 商品。
-        raw_items = []
-        summary_items = []
-        try:
-            raw_items = list_inventory() or []
-        except Exception as e2:
-            log_error('inventory_visible_raw_fallback', str(e2))
-            raw_items = []
-        try:
-            summary_items = grouped_inventory() or []
-        except Exception as e3:
-            log_error('inventory_visible_summary_fallback', str(e3))
-            summary_items = []
-        items = raw_items or summary_items or []
-        return jsonify(success=True, items=items, rows=items, data=items, raw_items=raw_items, summary_items=summary_items, count=len(items), raw_count=len(raw_items), source='inventory-visible-raw-first-bs')
-    except Exception as e:
-        log_error('inventory_visible_rescue', str(e))
-        try:
-            items = list_inventory()
-            return jsonify(success=True, items=items, rows=items, data=items, source='inventory-visible-raw')
-        except Exception as e2:
-            log_error('inventory_visible_rescue_raw', str(e2))
-            return error_response('庫存清單載入失敗')
 
 
 @app.route("/api/inventory/<int:item_id>", methods=["GET", "PUT", "DELETE"])
@@ -1428,16 +993,6 @@ def api_inventory_item(item_id):
         product_code = material
         qty = normalize_item_quantity(product_text, 1)
         location = (data.get('location') if data.get('location') is not None else row.get('location') or '').strip()
-        area = (data.get('area') if data.get('area') is not None else location or row.get('area') or '').strip()
-        if location in ('A', 'B') and area not in ('A', 'B'):
-            area = location
-        if area in ('A', 'B') and not location:
-            location = area
-        area = (data.get('area') if data.get('area') is not None else location or row.get('area') or '').strip()
-        if location in ('A', 'B') and area not in ('A', 'B'):
-            area = location
-        if area in ('A', 'B') and not location:
-            location = area
         customer_name = (data.get('customer_name') if data.get('customer_name') is not None else row.get('customer_name') or '').strip()
         if not product_text:
             conn.close()
@@ -1447,9 +1002,9 @@ def api_inventory_item(item_id):
         before = dict(row)
         cur.execute(sql("""
             UPDATE inventory
-            SET product_text = ?, product_code = ?, material = ?, qty = ?, area = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+            SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
             WHERE id = ?
-        """), (product_text, product_code, material, qty, area, location, customer_name, current_username(), now(), item_id))
+        """), (product_text, product_code, material, qty, location, customer_name, current_username(), now(), item_id))
         conn.commit()
         conn.close()
         log_action(current_username(), f"編輯庫存商品 #{item_id}")
@@ -1489,8 +1044,7 @@ def api_inventory_item_move(item_id):
         product_code = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
         conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        item_location = (row.get('location') or row.get('area') or '').strip()
-        item = {'product_text': product_text, 'product_code': product_code, 'material': product_code, 'qty': move_qty, 'area': item_location, 'location': item_location}
+        item = {'product_text': product_text, 'product_code': product_code, 'qty': move_qty}
         if target == 'orders':
             save_order(customer_name, [item], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
             target_label = '訂單'
@@ -1607,7 +1161,6 @@ def api_shipping_records():
 @app.route("/api/ship-preview", methods=["POST"])
 @login_required_json
 def api_ship_preview():
-    _t0 = time.perf_counter()
     try:
         data = request.get_json(silent=True) or {}
         items = _parse_items_from_request(data)
@@ -1617,9 +1170,6 @@ def api_ship_preview():
         if not items:
             return error_response("沒有可預覽的商品")
         preview = preview_ship_order(customer_name, items)
-        elapsed = _yx_perf_record('api/ship-preview', _t0, items=len(items), customer_name=customer_name)
-        if isinstance(preview, dict):
-            preview['elapsed_ms'] = elapsed
         if preview.get('master_exceeded'):
             return error_response(preview.get('message') or '超過總單，禁止出貨')
         return jsonify(preview)
@@ -1627,64 +1177,11 @@ def api_ship_preview():
         log_error("ship_preview", str(e))
         return error_response("出貨預覽失敗")
 
-
-def _yx_ship_customer_union_items():
-    """出貨頁客戶來源必須合併 訂單 + 總單 + 庫存 + 客戶檔，不可只顯示訂單。"""
-    base = []
-    try:
-        base = list(get_customers())
-    except Exception:
-        base = []
-    by_name = {}
-    for it in base:
-        name = (it.get('name') or it.get('customer_name') or '').strip()
-        if name:
-            row = dict(it); row.setdefault('name', name); row.setdefault('customer_name', name); row.setdefault('sources', [])
-            by_name[name] = row
-    conn = get_db(); cur = conn.cursor()
-    try:
-        for table, label in [('orders','訂單'), ('master_orders','總單'), ('inventory','庫存')]:
-            try:
-                cur.execute(sql(f"SELECT customer_name, customer_uid, product_text, qty FROM {table} WHERE COALESCE(customer_name,'')<>''"))
-                grouped = {}
-                for r in rows_to_dict(cur):
-                    name = (r.get('customer_name') or '').strip()
-                    if not name: continue
-                    uid = (r.get('customer_uid') or '').strip()
-                    g = grouped.setdefault((name, uid), {'rows': 0, 'qty': 0})
-                    g['rows'] += 1
-                    try:
-                        g['qty'] += int(effective_product_qty(r.get('product_text') or '', r.get('qty') or 0) or 0)
-                    except Exception:
-                        try:
-                            g['qty'] += int(r.get('qty') or 0)
-                        except Exception:
-                            pass
-                for (name, uid), g in grouped.items():
-                    row = by_name.setdefault(name, {'name': name, 'customer_name': name, 'region': resolve_customer_region(name), 'sources': []})
-                    if uid and not row.get('customer_uid'): row['customer_uid'] = uid
-                    row.setdefault('sources', [])
-                    if label not in row['sources']: row['sources'].append(label)
-                    row[label+'_筆數'] = int(g.get('rows') or 0)
-                    row[label+'_件數'] = int(g.get('qty') or 0)
-            except Exception:
-                continue
-    finally:
-        conn.close()
-    out = list(by_name.values())
-    def region_rank(x):
-        return {'北區':0,'中區':1,'南區':2}.get((x.get('region') or ''), 9)
-    out.sort(key=lambda x: (region_rank(x), x.get('name') or x.get('customer_name') or ''))
-    return out
-
 @app.route("/api/customers", methods=["GET", "POST"])
 @login_required_json
 def api_customers():
     try:
         if request.method == "GET":
-            if (request.args.get('ship_single') or '') == '1' or (request.args.get('include_sources') or '') == '1':
-                items = _yx_ship_customer_union_items()
-                return jsonify(success=True, items=items, customers=items)
             return jsonify(success=True, items=get_customers())
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
@@ -1840,28 +1337,21 @@ def api_customer_detail(name):
 @app.route("/api/warehouse", methods=["GET"])
 @login_required_json
 def api_warehouse():
-    _t0 = time.perf_counter()
     try:
         # Single DB read only. Older code called warehouse_summary() and
         # warehouse_get_cells() separately, which doubled the warehouse load time.
-        raw_cells = warehouse_get_cells(force_refresh=True)
-        source_totals, _details = warehouse_source_totals()
-        cells = yx_bf_cells_for_client(raw_cells, source_totals)
+        cells = warehouse_get_cells()
         zones = {'A': {}, 'B': {}}
-        abnormal_count = 0
         for cell in cells:
             try:
                 zone = str(cell.get('zone') or '').strip().upper() or 'A'
                 col = int(cell.get('column_index') or 0)
                 num = int(cell.get('slot_number') or 0)
-                if cell.get('client_qty_normalized'):
-                    abnormal_count += 1
                 if col and num:
                     zones.setdefault(zone, {}).setdefault(col, {})[num] = cell
             except Exception:
                 continue
-        elapsed = _yx_perf_record('api/warehouse', _t0, cells=len(cells))
-        return jsonify(success=True, zones=zones, cells=cells, source_qty_keys=len(source_totals), normalized_cell_count=abnormal_count, elapsed_ms=elapsed)
+        return jsonify(success=True, zones=zones, cells=cells)
     except Exception as e:
         log_error("api_warehouse", str(e))
         return jsonify(success=True, zones={"A": {}, "B": {}}, cells=[])
@@ -1883,10 +1373,7 @@ def api_warehouse_cell():
         if not any(str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number for c in existing_cells):
             return error_response("格位不存在，請先在格子內點「插入格子」")
         previous_cell = next((c for c in existing_cells if str(c.get('zone')) == zone and int(c.get('column_index') or 0) == column_index and int(c.get('slot_number') or 0) == slot_number), {})
-        raw_items = data.get("items") or []
-        items = normalize_warehouse_payload_items(raw_items)
-        if raw_items and not items:
-            return error_response("格位商品缺少實際加入件數，請重新選擇件數後再儲存")
+        items = normalize_warehouse_payload_items(data.get("items") or [])
         ok, msg = validate_warehouse_cell_quantities(zone, column_index, slot_number, items)
         if not ok:
             return error_response(msg)
@@ -1899,8 +1386,7 @@ def api_warehouse_cell():
         add_audit_trail(current_username(), 'upsert', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items_json': previous_cell.get('items_json'), 'note': previous_cell.get('note')}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'items': items, 'note': note})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫格位已更新', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
         _yx_clear_runtime_caches('warehouse')
-        source_totals, _details = warehouse_source_totals()
-        return jsonify(success=True, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
+        return jsonify(success=True, zones=warehouse_summary())
     except Exception as e:
         log_error("warehouse_cell", str(e))
         return error_response("格位更新失敗")
@@ -1973,194 +1459,76 @@ def api_warehouse_search():
 @app.route("/api/warehouse/available-items", methods=["GET"])
 @login_required_json
 def api_warehouse_available_items():
-    _t0 = time.perf_counter()
-    """列出尚未放入倉庫圖的商品。
-
-    20260516L：同一輪只重算一次。以前前端會同時呼叫 ALL/A/B 三次，
-    三個請求各自重算 warehouse_source_totals + warehouse_get_cells，
-    倉庫圖就會卡住。現在 ALL 回傳 by_zone，前端只需打一個 API。
-    """
+    """列出尚未放入倉庫圖的商品；FIX138 支援 A/B 區未入倉篩選。"""
     try:
         zone_filter = (request.args.get("zone") or "").strip().upper()
-        if zone_filter not in ("A", "B"):
-            zone_filter = ""
-        cache_key = zone_filter if zone_filter else "ALL_WITH_ZONES"
-        # 20260516bs：倉庫圖剛保存/清空/比對後，前端都會帶 ts 重新拉下拉選單。
-        # 只要有 ts 就完全跳過短快取，避免「格子已改、下拉還吃 4 秒前舊數量」。
-        bypass_cache = bool(request.args.get('ts') or request.args.get('fresh') or request.args.get('force'))
-        cached = None if bypass_cache else YX_WAREHOUSE_AVAILABLE_CACHE.get(cache_key)
+        cache_key = zone_filter if zone_filter in ("A", "B") else "ALL"
+        cached = YX_WAREHOUSE_AVAILABLE_CACHE.get(cache_key)
         if cached and time.time() - float(cached.get('at') or 0) < YX_WAREHOUSE_AVAILABLE_CACHE_TTL:
             payload = dict(cached.get('payload') or {})
             payload['cached'] = True
-            payload['elapsed_ms'] = _yx_perf_record('api/warehouse/available-items', _t0, cached=True, zone=zone_filter or 'ALL')
             return jsonify(payload)
-
+        if zone_filter not in ("A", "B"):
+            zone_filter = ""
         source_totals, source_details = warehouse_source_totals()
-        placed_all = warehouse_placed_totals(source_totals=source_totals)
+        placed_all = warehouse_placed_totals()
         placed_by_zone = {}
-        # warehouse_get_cells() 內部已有短快取；本函式只呼叫一次。
         for cell in warehouse_get_cells():
             cell_zone = str(cell.get('zone') or '').strip().upper()
-            # 20260516bs：A/B 區下拉剩餘要扣掉「正規化後」的已入格件數。
-            # 不能直接讀舊 items_json，避免 楊喻代 / 缺材質 / qty 舊值 導致 A/B 下拉多算。
-            items_in_cell, _changed = yx_bf_normalize_cell_items_for_output(safe_cell_items(cell), source_totals)
+            try:
+                items_in_cell = json.loads(cell.get("items_json") or "[]")
+            except Exception:
+                items_in_cell = []
             for it in items_in_cell:
-                product = it.get('product_text') or it.get('product') or ''
-                size = warehouse_item_size_key(product)
-                customer = yx_bc_clean_warehouse_customer(it.get('customer_name') or it.get('customer') or '')
-                material = yx_bc_clean_warehouse_material(it, product)
-                q = yx_bn_cell_actual_qty(it)
+                size = warehouse_item_size_key(it.get('product_text') or it.get('product') or '')
+                customer = (it.get('customer_name') or '').strip()
+                try:
+                    q = int(it.get('qty') or 0)
+                except Exception:
+                    q = 0
                 if size and q > 0:
-                    k3 = yx_bd_resolve_key_to_source((size, customer, material), source_totals)
-                    placed_by_zone[(k3[0], k3[1], k3[2], cell_zone)] = placed_by_zone.get((k3[0], k3[1], k3[2], cell_zone), 0) + q
-
-        def build_items(zf=""):
-            """20260516bs：下拉件數用同一套來源/已入格公式。
-
-            總原則：下拉可加入 = 來源可用量 - 已入格量。
-            A/B 分區時：
-            - 本區明確來源一定只給本區。
-            - 未指定來源 A/B 都可看，但會用全域剩餘量截斷。
-            - 已入該區的格子數量會先扣本區可用，避免同一區已放 10 件，下拉還顯示原本 10 件。
-            """
-            result = []
-            for key, total_qty_all in source_totals.items():
-                size, customer, material = key
-                details_all = source_details.get(key, [])
-                placed_global = int(placed_all.get(key, 0) or 0)
-                global_unplaced = max(0, int(total_qty_all or 0) - placed_global)
-                if global_unplaced <= 0:
-                    continue
-
-                if zf:
-                    explicit = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zf)]
-                    unspecified = [d for d in details_all if not str(d.get('zone') or '').strip().upper().startswith(('A','B'))]
-                    if not explicit and not unspecified:
-                        continue
-                    explicit_total = sum(int(d.get('qty') or 0) for d in explicit)
-                    unspecified_total = sum(int(d.get('qty') or 0) for d in unspecified)
-                    eligible_total = max(0, explicit_total + unspecified_total)
-                    placed_in_zone = int(placed_by_zone.get((size, customer, material, zf), 0) or 0)
-                    zone_unplaced = max(0, eligible_total - placed_in_zone)
-                    # 雙保險：本區不能超過本區可用，也不能超過全域剩餘。
-                    dropdown_qty = min(int(global_unplaced or 0), int(zone_unplaced or 0))
-                    details_for_item = explicit + unspecified
-                    total_qty = eligible_total
-                    placed_qty = min(eligible_total, placed_in_zone)
-                else:
-                    details_for_item = details_all
-                    total_qty = int(total_qty_all or 0)
-                    placed_qty = placed_global
-                    dropdown_qty = global_unplaced
-
-                if dropdown_qty <= 0:
-                    continue
-                source_qty, capped_details = yx_bl_cap_source_qty(details_for_item, dropdown_qty)
-                result.append({
-                    'product_text': size,
-                    'product_size': size,
-                    'customer_name': customer,
-                    'material': material,
-                    'product_code': material,
-                    'total_qty': int(total_qty or 0),
-                    'source_total_qty': int(total_qty or 0),
-                    'source_total_qty_all': int(total_qty_all or 0),
-                    'placed_qty': int(placed_qty or 0),
-                    'warehouse_placed_qty': int(placed_qty or 0),
-                    'warehouse_placed_qty_all': placed_global,
-                    'warehouse_placed_qty_zone': int(placed_qty or 0),
-                    'eligible_zone_qty': int(total_qty or 0),
-                    'unplaced_qty': int(dropdown_qty or 0),
-                    'dropdown_qty': int(dropdown_qty or 0),
-                    'qty': int(dropdown_qty or 0),
-                    'zone': zf or '',
-                    'source_qty': source_qty,
-                    'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
-                    'source_details': capped_details,
-                    'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
-                    'qty_formula': f"{int(total_qty_all or 0)}-{int(placed_global or 0)}={int(global_unplaced or 0)}" if zf else f"{int(total_qty or 0)}-{int(placed_qty or 0)}={int(dropdown_qty or 0)}",
-                    'qty_check_ok': True,
-                    'needs_red': True,
-                })
-            result.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
-            return result
-
-        if zone_filter:
-            payload = {'success': True, 'items': build_items(zone_filter), 'zone': zone_filter}
-        else:
-            items_all = build_items('')
-            items_a = build_items('A')
-            items_b = build_items('B')
-            payload = {'success': True, 'items': items_all, 'zone': '', 'by_zone': {'A': items_a, 'B': items_b}}
-        payload['elapsed_ms'] = _yx_perf_record('api/warehouse/available-items', _t0, cached=False, zone=zone_filter or 'ALL', items=len(payload.get('items') or []))
+                    placed_by_zone[(size, customer, cell_zone)] = placed_by_zone.get((size, customer, cell_zone), 0) + q
+        items = []
+        for key, total_qty_all in source_totals.items():
+            size, customer = key
+            details_all = source_details.get(key, [])
+            if zone_filter:
+                zone_details = [d for d in details_all if str(d.get('zone') or '').strip().upper().startswith(zone_filter)]
+                total_qty = sum(int(d.get('qty') or 0) for d in zone_details)
+                placed_qty = int(placed_by_zone.get((size, customer, zone_filter), 0) or 0)
+                details_for_item = zone_details
+            else:
+                total_qty = int(total_qty_all or 0)
+                placed_qty = int(placed_all.get(key, 0) or 0)
+                details_for_item = details_all
+            unplaced_qty = max(0, int(total_qty or 0) - placed_qty)
+            if unplaced_qty <= 0:
+                continue
+            source_qty = {}
+            for detail in details_for_item:
+                source_qty[detail['source']] = int(source_qty.get(detail['source'], 0) or 0) + int(detail.get('qty') or 0)
+            items.append({
+                'product_text': size,
+                'product_size': size,
+                'customer_name': customer,
+                'total_qty': int(total_qty or 0),
+                'placed_qty': placed_qty,
+                'unplaced_qty': unplaced_qty,
+                'qty': unplaced_qty,
+                'zone': zone_filter or '',
+                'source_qty': source_qty,
+                'sources': [{'source': k, 'qty': v} for k, v in source_qty.items()],
+                'source_details': details_for_item,
+                'source_summary': '、'.join([f"{k}{v}" for k, v in source_qty.items()]),
+                'needs_red': True,
+            })
+        items.sort(key=lambda r: (r.get('customer_name') or '未指定客戶', r.get('product_text') or ''))
+        payload = {'success': True, 'items': items, 'zone': zone_filter}
         YX_WAREHOUSE_AVAILABLE_CACHE[cache_key] = {'at': time.time(), 'payload': payload}
         return jsonify(payload)
     except Exception as e:
         log_error("api_warehouse_available_items", str(e))
-        return jsonify(success=True, items=[], by_zone={'A': [], 'B': []})
-
-
-@app.route("/api/warehouse/qty-audit", methods=["GET", "POST"])
-@login_required_json
-def api_warehouse_qty_audit_bg():
-    """20260516bs：倉庫圖件數深度稽核。
-    比對來源(庫存+訂單+總單)、已入格、A/B 下拉可加入，讓前端與人工都能看出哪一筆還不對。
-    """
-    try:
-        auto_fix = request.method == 'POST' and bool((request.get_json(silent=True) or {}).get('auto_fix'))
-        source_totals, source_details = warehouse_source_totals()
-        placed = warehouse_placed_totals(source_totals=source_totals)
-        problems = []
-        all_keys = set(source_totals.keys()) | set(placed.keys())
-        for key in sorted(all_keys, key=lambda k: (k[1], k[0], k[2])):
-            src = int(source_totals.get(key, 0) or 0)
-            wh = int(placed.get(key, 0) or 0)
-            if wh > src:
-                problems.append({'type':'over_placed','key':key,'source_qty':src,'warehouse_qty':wh,'diff':wh-src})
-            elif src > wh:
-                problems.append({'type':'unplaced_remaining','key':key,'source_qty':src,'warehouse_qty':wh,'diff':src-wh})
-        cell_warnings = []
-        for cell in warehouse_get_cells(force_refresh=True):
-            z = str(cell.get('zone') or '').strip().upper()
-            c = int(cell.get('column_index') or 0)
-            sn = int(cell.get('slot_number') or 0)
-            raw_items = safe_cell_items(cell)
-            fixed_items, changed = yx_bf_normalize_cell_items_for_output(raw_items, source_totals)
-            if changed:
-                cell_warnings.append({'zone':z,'column_index':c,'slot_number':sn,'type':'normalized_needed','before_count':len(raw_items),'after_count':len(fixed_items)})
-                if auto_fix:
-                    warehouse_save_cell(z, c, 'direct', sn, fixed_items, cell.get('note') or '')
-        # 20260516bs：同時計算下拉剩餘量，讓件數稽核能看出「來源 - 格子 = 下拉」是否合理。
-        dropdown_summary = []
-        for key in sorted(all_keys, key=lambda k: (k[1], k[0], k[2])):
-            src = int(source_totals.get(key, 0) or 0)
-            wh = int(placed.get(key, 0) or 0)
-            dropdown_summary.append({'key': key, 'source_qty': src, 'warehouse_qty': wh, 'dropdown_should_be': max(0, src - wh), 'over_qty': max(0, wh - src)})
-        if auto_fix:
-            _yx_clear_runtime_caches('warehouse')
-            # 20260516bs：auto_fix 正規化後重新計算 placed/problems，不回傳修復前舊問題數。
-            placed = warehouse_placed_totals(source_totals=source_totals)
-            problems = []
-            all_keys = set(source_totals.keys()) | set(placed.keys())
-            for key in sorted(all_keys, key=lambda k: (k[1], k[0], k[2])):
-                src = int(source_totals.get(key, 0) or 0)
-                wh = int(placed.get(key, 0) or 0)
-                if wh > src:
-                    problems.append({'type':'over_placed','key':key,'source_qty':src,'warehouse_qty':wh,'diff':wh-src})
-                elif src > wh:
-                    problems.append({'type':'unplaced_remaining','key':key,'source_qty':src,'warehouse_qty':wh,'diff':src-wh})
-            dropdown_summary = []
-            for key in sorted(all_keys, key=lambda k: (k[1], k[0], k[2])):
-                src = int(source_totals.get(key, 0) or 0)
-                wh = int(placed.get(key, 0) or 0)
-                dropdown_summary.append({'key': key, 'source_qty': src, 'warehouse_qty': wh, 'dropdown_should_be': max(0, src - wh), 'over_qty': max(0, wh - src)})
-        total_source_qty = sum(int(v or 0) for v in source_totals.values())
-        total_warehouse_qty = sum(int(v or 0) for v in placed.values())
-        total_dropdown_should_be = sum(max(0, int(x.get('dropdown_should_be') or 0)) for x in dropdown_summary)
-        return jsonify(success=True, auto_fixed=auto_fix, source_keys=len(source_totals), placed_keys=len(placed), problems=problems, dropdown_summary=dropdown_summary, cell_warnings=cell_warnings, total_source_qty=total_source_qty, total_warehouse_qty=total_warehouse_qty, total_dropdown_should_be=total_dropdown_should_be, global_qty_ok=(total_source_qty == total_warehouse_qty + total_dropdown_should_be), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
-    except Exception as e:
-        log_error('warehouse_qty_audit_bg', str(e))
-        return error_response('倉庫件數稽核失敗')
+        return jsonify(success=True, items=[])
 
 
 @app.route("/api/customer-items", methods=["GET"])
@@ -2333,19 +1701,12 @@ def api_customer_items_batch_zone():
                 if row_before:
                     touched.append({'source': source, 'table': table, 'id': item_id, 'row': row_before})
                 try:
-                    cur.execute(sql(f"UPDATE {table} SET area = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
+                    cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                 except Exception:
                     # 舊資料表尚未補 location 欄位時，補完再重試。
                     try:
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                        except Exception:
-                            pass
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
-                        except Exception:
-                            pass
-                        cur.execute(sql(f"UPDATE {table} SET area = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, zone, current_username(), now(), item_id))
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                        cur.execute(sql(f"UPDATE {table} SET location = ?, operator = ?, updated_at = ? WHERE id = ?"), (zone, current_username(), now(), item_id))
                     except Exception:
                         cur.execute(sql(f"UPDATE {table} SET updated_at = ? WHERE id = ?"), (now(), item_id))
                 if cur.rowcount:
@@ -2463,42 +1824,33 @@ def api_customer_items_batch_update():
                 product_code = material or product_text
                 customer_name = (it.get("customer_name") if it.get("customer_name") is not None else before.get("customer_name") or "").strip()
                 location = (it.get("location") if it.get("location") is not None else before.get("location") or "").strip()
-                area = (it.get("area") if it.get("area") is not None else location or before.get("area") or "").strip()
-                if location in ("A", "B") and area not in ("A", "B"):
-                    area = location
-                if area in ("A", "B") and not location:
-                    location = area
                 if table == "inventory":
                     cur.execute(sql("""
                         UPDATE inventory
-                        SET product_text = ?, product_code = ?, material = ?, qty = ?, area = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
+                        SET product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, customer_name = ?, operator = ?, updated_at = ?
                         WHERE id = ?
-                    """), (product_text, product_code, material, qty, area, location, customer_name, current_username(), ts, item_id))
+                    """), (product_text, product_code, material, qty, location, customer_name, current_username(), ts, item_id))
                 else:
                     # orders/master_orders 舊表若還沒 location 欄位，先補欄位後再更新，讓 A/B 區也能單次批量儲存。
                     try:
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, area = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, qty, customer_name, area, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                     except Exception:
                         try:
                             cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
                         except Exception:
                             pass
-                        try:
-                            cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
-                        except Exception:
-                            pass
                         cur.execute(sql(f"""
                             UPDATE {table}
-                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, area = ?, location = ?, operator = ?, updated_at = ?
+                            SET product_text = ?, product_code = ?, material = ?, qty = ?, customer_name = ?, location = ?, operator = ?, updated_at = ?
                             WHERE id = ?
-                        """), (product_text, product_code, material, qty, customer_name, area, location, current_username(), ts, item_id))
+                        """), (product_text, product_code, material, qty, customer_name, location, current_username(), ts, item_id))
                 if cur.rowcount:
                     updated += cur.rowcount or 0
-                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "area": area, "location": location})
+                    changed.append({"source": source, "id": item_id, "product_text": product_text, "material": material, "qty": qty, "customer_name": customer_name, "location": location})
             conn.commit()
         except Exception:
             conn.rollback(); raise
@@ -2616,190 +1968,10 @@ def api_warehouse_return_unplaced():
         log_action(current_username(), f"倉庫格位返回上一步 {zone}{column_index}-{slot_number}")
         add_audit_trail(current_username(), 'undo', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'items': items, 'note': note}, after_json={'items': [], 'note': note, 'returned_to_unplaced': True})
         notify_sync_event(kind='refresh', module='warehouse', message='格位商品已回到未錄入倉庫圖', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'count': len(items)})
-        source_totals, _details = warehouse_source_totals()
-        return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
+        return jsonify(success=True, returned_items=items, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_return_unplaced", str(e))
         return error_response("返回上一步失敗")
-
-
-@app.route("/api/warehouse/final-verify", methods=["GET", "POST"])
-@login_required_json
-def api_warehouse_final_verify_br():
-    """20260516bs：倉庫圖最終閉環驗證。GET 只稽核；POST 會安全自動修復後再回報。"""
-    try:
-        auto_fix = request.method == 'POST' and bool((request.get_json(silent=True) or {}).get('auto_fix', True))
-        snap = yx_br_warehouse_integrity_snapshot(auto_fix=auto_fix)
-        if auto_fix:
-            _yx_clear_runtime_caches('warehouse')
-            log_action(current_username(), f"倉庫最終閉環驗證 auto_fix={auto_fix}，問題 {len(snap.get('problems') or [])} 筆")
-            notify_sync_event(kind='refresh', module='warehouse', message='倉庫閉環稽核完成', extra={'ok': snap.get('global_qty_ok')})
-        return jsonify(snap)
-    except Exception as e:
-        log_error('warehouse_final_verify_br', str(e))
-        return error_response('倉庫最終閉環驗證失敗')
-
-@app.route("/api/warehouse/clear-all-items", methods=["POST"])
-@login_required_json
-def api_warehouse_clear_all_items_bb():
-    """20260516bs：清空所有格子商品，但不刪格、不重排；商品會回到未入倉下拉。"""
-    try:
-        cells = warehouse_get_cells()
-        cleared = 0
-        returned = 0
-        for cell in cells:
-            zone = (cell.get('zone') or 'A').strip().upper()
-            column_index = int(cell.get('column_index') or cell.get('band') or 0)
-            slot_number = int(cell.get('slot_number') or cell.get('slot') or 0)
-            if zone not in ('A','B') or column_index < 1 or slot_number < 1:
-                continue
-            items = safe_cell_items(cell)
-            if not items and not (cell.get('items_json') or '').strip():
-                continue
-            returned += len(items)
-            warehouse_save_cell(zone, column_index, 'direct', slot_number, [], cell.get('note') or '')
-            cleared += 1
-        log_action(current_username(), f"清空全部倉庫格子商品 {cleared} 格")
-        add_audit_trail(current_username(), 'clear_all_items', 'warehouse_cells', 'ALL', before_json={'cleared_cells': cleared, 'returned_items': returned}, after_json={'all_items_returned_to_unplaced': True})
-        notify_sync_event(kind='refresh', module='warehouse', message='已清空全部格子商品並回到未入倉', extra={'cleared_cells': cleared, 'returned_items': returned})
-        _yx_clear_runtime_caches('warehouse')
-        source_totals, _details = warehouse_source_totals()
-        return jsonify(success=True, cleared_cells=cleared, returned_items=returned, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
-    except Exception as e:
-        log_error('warehouse_clear_all_items_bb', str(e))
-        return error_response('清空全部格子商品失敗')
-
-
-def _yx_bb_item_key(item):
-    if not isinstance(item, dict):
-        return ('', '', '')
-    product = (item.get('product_text') or item.get('product') or '').strip()
-    customer = yx_bc_clean_warehouse_customer(item.get('customer_name') or item.get('customer') or '')
-    material = yx_bc_clean_warehouse_material(item, product)
-    size = warehouse_item_size_key(product)
-    return (customer, material, size)
-
-
-def _yx_bb_qty(item):
-    if not isinstance(item, dict):
-        return 0
-    return max(0, yx_bn_cell_actual_qty(item))
-
-
-def _yx_bd_normalize_cell_item_qty(item):
-    """回傳 (new_item, changed)。修正舊格 item.qty 與商品文字件數不一致。"""
-    if not isinstance(item, dict):
-        return item, False
-    product = item.get('product_text') or item.get('product') or ''
-    old_qty = int(item.get('qty') or item.get('quantity') or item.get('pieces') or 0)
-    new_qty = max(0, yx_bn_cell_actual_qty(item))
-    if new_qty > 0 and old_qty != new_qty:
-        fixed = dict(item)
-        fixed['qty'] = new_qty
-        fixed.pop('quantity', None); fixed.pop('pieces', None)
-        return fixed, True
-    return item, False
-
-@app.route("/api/warehouse/reconcile-source", methods=["POST"])
-@login_required_json
-def api_warehouse_reconcile_source_bb():
-    """20260516bs：以 庫存+訂單+總單 作主表，修復倉庫格子超放與舊 JSON 件數。
-
-    修復原則：
-    - 正規化每格 items_json：客戶名、材質、尺寸、qty、前中後。
-    - 若格子放入來源表不存在的商品，從格子移除，讓它不再污染件數。
-    - 若格子已入量超過來源總量，從後面格子開始扣回。
-    - 未入倉不足不硬塞進格子，只會回到下拉選單。
-    """
-    try:
-        source_totals, _details = warehouse_source_totals()
-        cells = warehouse_get_cells(force_refresh=True)
-        touched = {}
-        removed_missing_source = 0
-        normalized_qty_items = 0
-
-        # 先正規化每格，並移除來源表不存在的格子商品。
-        for cell in cells:
-            z = (cell.get('zone') or 'A').strip().upper()
-            c = int(cell.get('column_index') or cell.get('band') or 0)
-            s_no = int(cell.get('slot_number') or cell.get('slot') or 0)
-            raw_items = safe_cell_items(cell)
-            fixed_items, changed = yx_bf_normalize_cell_items_for_output(raw_items, source_totals)
-            kept = []
-            for it in fixed_items:
-                key = yx_bc_warehouse_key(it.get('product_text') or it.get('product') or '', it.get('customer_name') or '', it)
-                key = yx_bd_resolve_key_to_source(key, source_totals)
-                if int(source_totals.get(key, 0) or 0) <= 0:
-                    removed_missing_source += int(it.get('qty') or 0)
-                    changed = True
-                    continue
-                kept.append(it)
-            if changed or len(kept) != len(raw_items):
-                normalized_qty_items += 1
-                touched[(z, c, s_no)] = (kept, cell.get('note') or '')
-
-        for (z, c, s_no), (items, note) in touched.items():
-            warehouse_save_cell(z, c, 'direct', s_no, items, note)
-
-        # 重新讀正規化後資料，計算是否超放。
-        cells = warehouse_get_cells(force_refresh=True)
-        placed_totals = warehouse_placed_totals(source_totals=source_totals)
-        excess = {k: int(placed_totals.get(k, 0) or 0) - int(source_totals.get(k, 0) or 0)
-                  for k in placed_totals if int(placed_totals.get(k, 0) or 0) > int(source_totals.get(k, 0) or 0)}
-        fixed_items = 0
-        cell_items = []
-        for cell in cells:
-            z = (cell.get('zone') or 'A').strip().upper()
-            c = int(cell.get('column_index') or cell.get('band') or 0)
-            s_no = int(cell.get('slot_number') or cell.get('slot') or 0)
-            items = safe_cell_items(cell)
-            for idx, it in enumerate(items):
-                key = yx_bc_warehouse_key(it.get('product_text') or it.get('product') or '', it.get('customer_name') or '', it)
-                key = yx_bd_resolve_key_to_source(key, source_totals)
-                q = yx_bn_cell_actual_qty(it)
-                cell_items.append({'cell': cell, 'zone': z, 'column_index': c, 'slot_number': s_no, 'index': idx, 'item': it, 'key': key, 'qty': q})
-
-        touched_after = {}
-        if excess:
-            for ci in reversed(cell_items):
-                key = ci['key']
-                over = int(excess.get(key, 0) or 0)
-                if over <= 0:
-                    continue
-                q = int(ci.get('qty') or 0)
-                if q <= 0:
-                    continue
-                remove = min(q, over)
-                cell_key = (ci['zone'], ci['column_index'], ci['slot_number'])
-                if cell_key not in touched_after:
-                    touched_after[cell_key] = safe_cell_items(ci['cell'])
-                arr = touched_after[cell_key]
-                if ci['index'] >= len(arr):
-                    continue
-                if q <= remove:
-                    arr[ci['index']] = None
-                else:
-                    arr[ci['index']]['qty'] = q - remove
-                excess[key] = over - remove
-                fixed_items += remove
-            for (z, c, s_no), arr in touched_after.items():
-                clean_arr = [x for x in arr if isinstance(x, dict) and yx_bn_cell_actual_qty(x) > 0]
-                note = ''
-                for cell in cells:
-                    if (cell.get('zone') or '').strip().upper() == z and int(cell.get('column_index') or 0) == c and int(cell.get('slot_number') or 0) == s_no:
-                        note = cell.get('note') or ''
-                        break
-                warehouse_save_cell(z, c, 'direct', s_no, clean_arr, note)
-
-        _yx_clear_runtime_caches('warehouse')
-        log_action(current_username(), f"倉庫來源數量重新比對，修復 {fixed_items} 件，移除不存在來源 {removed_missing_source} 件")
-        add_audit_trail(current_username(), 'reconcile', 'warehouse_cells', 'ALL', before_json={'source_keys': len(source_totals)}, after_json={'fixed_items': fixed_items, 'removed_missing_source': removed_missing_source, 'normalized_cells': normalized_qty_items, 'touched_cells': len(touched_after)})
-        fresh_cells = yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals)
-        fresh_placed = warehouse_placed_totals(source_totals=source_totals)
-        return jsonify(success=True, fixed_items=fixed_items, removed_missing_source=removed_missing_source, normalized_qty_items=normalized_qty_items, touched_cells=len(touched_after) + len(touched), ok=(fixed_items == 0 and removed_missing_source == 0 and normalized_qty_items == 0), zones=warehouse_summary(), cells=fresh_cells, source_keys=len(source_totals), placed_keys=len(fresh_placed))
-    except Exception as e:
-        log_error('warehouse_reconcile_source_bk', str(e))
-        return error_response('重新比對倉庫數量失敗')
 
 @app.route("/api/warehouse/add-slot", methods=["POST"])
 @login_required_json
@@ -2818,8 +1990,7 @@ def api_warehouse_add_slot():
         log_action(current_username(), f"新增格子 {zone}{column_index}-{slot_number}")
         add_audit_trail(current_username(), 'create', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={}, after_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after, 'action': '新增格子'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫新增格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number, 'insert_after': insert_after})
-        source_totals, _details = warehouse_source_totals()
-        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
+        return jsonify(success=True, slot_number=slot_number, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_add_slot", str(e))
         return error_response("新增格子失敗")
@@ -2841,8 +2012,7 @@ def api_warehouse_remove_slot():
         log_action(current_username(), f"刪除格子 {zone}{column_index}-{slot_number}")
         add_audit_trail(current_username(), 'delete', 'warehouse_cells', f'{zone}-{column_index}-{slot_number}', before_json={'zone': zone, 'column_index': column_index, 'slot_number': slot_number}, after_json={'action': '刪除格子'})
         notify_sync_event(kind='refresh', module='warehouse', message='倉庫刪除格子', extra={'zone': zone, 'column_index': column_index, 'slot_number': slot_number})
-        source_totals, _details = warehouse_source_totals()
-        return jsonify(success=True, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
+        return jsonify(success=True, zones=warehouse_summary(), cells=warehouse_get_cells())
     except Exception as e:
         log_error("warehouse_remove_slot", str(e))
         return error_response("刪除格子失敗")
@@ -2978,7 +2148,7 @@ def _today_unplaced_all_sources():
         return []
     out = []
     for key, total_qty in source_totals.items():
-        size, customer, material = key
+        size, customer = key
         total_qty = int(total_qty or 0)
         placed_qty = int(placed.get(key, 0) or 0)
         unplaced_qty = max(0, total_qty - placed_qty)
@@ -2991,8 +2161,7 @@ def _today_unplaced_all_sources():
             source_qty[src] = int(source_qty.get(src, 0) or 0) + int(detail.get('qty') or 0)
             product_text = detail.get('product_text') or product_text
         source_summary = '、'.join(f'{k}{v}' for k, v in source_qty.items())
-        mat_label = (material + '｜') if material else ''
-        label = f"尚未加入倉庫圖：{customer + '｜' if customer else ''}{mat_label}{product_text}｜未錄入 {unplaced_qty} 件"
+        label = f"尚未加入倉庫圖：{customer + '｜' if customer else ''}{product_text}｜未錄入 {unplaced_qty} 件"
         if source_summary:
             label += f"｜來源：{source_summary}"
         out.append({
@@ -3471,28 +2640,6 @@ def api_backup_restore():
             for table in tables:
                 if table not in payload:
                     continue
-                if table == 'warehouse_cells':
-                    for row in payload.get(table) or []:
-                        zone = (row.get('zone') or 'A').strip().upper()[:1] or 'A'
-                        column_index = int(row.get('column_index') or row.get('band') or 1)
-                        slot_type = (row.get('slot_type') or 'direct').strip() or 'direct'
-                        slot_number = int(row.get('slot_number') or row.get('slot') or row.get('slot_no') or 1)
-                        items_json = row.get('items_json') or '[]'
-                        note = row.get('note') or ''
-                        updated_at = row.get('updated_at') or now()
-                        cur.execute(sql("""
-                            UPDATE warehouse_cells
-                            SET items_json = ?, note = ?, updated_at = ?
-                            WHERE zone = ? AND column_index = ?
-                              AND COALESCE(NULLIF(slot_type,''),'direct') = ?
-                              AND slot_number = ?
-                        """), (items_json, note, updated_at, zone, column_index, slot_type, slot_number))
-                        if cur.rowcount == 0:
-                            cur.execute(sql("""
-                                INSERT INTO warehouse_cells(zone, column_index, slot_type, slot_number, items_json, note, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            """), (zone, column_index, slot_type, slot_number, items_json, note, updated_at))
-                    continue
                 cur.execute(sql(f'DELETE FROM {table}'))
                 rows = payload.get(table) or []
                 for row in rows:
@@ -3819,25 +2966,18 @@ def _fix28_update_item_api(table, item_id):
             qty = 0
         conn = get_db(); cur = conn.cursor()
         try:
-            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, area = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, area, location, current_username(), now(), int(item_id)))
+            cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
         except Exception:
             # FIX134：舊 PostgreSQL / SQLite 若 orders 或 master_orders 尚未有 location 欄位，
             # 先補欄位再重試，避免 A/B 區在「編輯全部」後沒有存進去。
             try:
-                try:
-                    cur.execute(f"ALTER TABLE {table} ADD COLUMN area TEXT")
-                except Exception:
-                    pass
-                try:
-                    cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
-                except Exception:
-                    pass
-                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, area = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, area, location, current_username(), now(), int(item_id)))
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, location = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, location, current_username(), now(), int(item_id)))
             except Exception:
                 cur.execute(sql(f"UPDATE {table} SET customer_name = ?, product_text = ?, product_code = ?, material = ?, qty = ?, operator = ?, updated_at = ? WHERE id = ?"), (customer_name, product_text, product_code, material, qty, current_username(), now(), int(item_id)))
         conn.commit(); conn.close()
         upsert_customer(customer_name, region=resolve_customer_region(customer_name, data.get('region')))
-        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty, 'area': area, 'location': location})
+        add_audit_trail(current_username(), 'update', table, str(item_id), before_json=row, after_json={'customer_name': customer_name, 'product_text': product_text, 'material': material, 'qty': qty, 'location': location})
         log_action(current_username(), f"修改{('訂單' if table=='orders' else '總單')}商品 #{item_id}")
         notify_sync_event(kind='refresh', module=('orders' if table=='orders' else 'master_order'), message='商品已更新', extra={'id': item_id})
         return jsonify(success=True, items=(get_orders() if table=='orders' else get_master_orders()))
@@ -3878,12 +3018,11 @@ def api_fix28_items_transfer():
         material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
         product_code = clean_material_value(row.get('product_code') or material or '', product_text)
         customer_name = (data.get('customer_name') or row.get('customer_name') or '').strip()
-        item_location = (data.get('location') or data.get('area') or row.get('location') or row.get('area') or '').strip()
-        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': item_location, 'location': item_location}
+        item = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
         target_label = ''
         result_payload = {}
         if target == 'inventory':
-            save_inventory_item(product_text, product_code, qty, item_location, customer_name, current_username(), f'from {source_table}', material)
+            save_inventory_item(product_text, product_code, qty, (data.get('location') or row.get('location') or '').strip(), customer_name, current_username(), f'from {source_table}', material)
             target_label = '庫存'
             ok, moved = _fix28_update_or_delete_source(source_table, item_id, qty)
             if not ok: return error_response(moved)
@@ -3978,9 +3117,9 @@ def api_v17_items_batch_transfer():
                 material = (row.get('material') or ((row.get('product_code') or '') if (row.get('product_code') or '') != product_text else '')).strip()
                 product_code = clean_material_value(row.get('product_code') or material or '', product_text)
                 final_customer = customer_name or (row.get('customer_name') or '').strip()
-                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty, 'area': (row.get('area') or row.get('location') or '').strip(), 'location': (row.get('location') or row.get('area') or '').strip()}
+                item_payload = {'product_text': product_text, 'product_code': product_code, 'material': material, 'qty': qty}
                 if target == 'inventory':
-                    save_inventory_item(product_text, product_code, qty, (row.get('location') or row.get('area') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
+                    save_inventory_item(product_text, product_code, qty, (row.get('location') or '').strip(), final_customer, current_username(), f'batch from {source_table}', material)
                     target_label = '庫存'
                 elif target == 'orders':
                     save_order(final_customer, [item_payload], current_username(), (data.get('duplicate_mode') or 'merge').strip() or 'merge')
@@ -4074,7 +3213,7 @@ def _yx_diag_build_action_checks():
     checks = []
     checks.append(_yx_diag_check('診斷頁入口在設定頁', ('/diagnostics' in settings or 'diagnostics_page' in settings) and '系統診斷' in settings, '設定頁必須可進入診斷頁。', 'critical'))
     checks.append(_yx_diag_check('診斷頁 JS 只在診斷頁載入', 'diagnostics_page.js' in base and "diagnostics_page" in base, '避免到其他頁硬塞診斷 renderer。', 'warn'))
-    checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and '_is_ship' in base and 'yx_safe_520_visual_only.css' in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
+    checks.append(_yx_diag_check('出貨核心仍使用還完整檔案', 'ship_single_lock.js' in base and 'yx_cache.js' in base and '_is_ship' in base, '出貨頁不載入新增快取核心，保護原出貨。', 'critical'))
     checks.append(_yx_diag_check('庫存/訂單/總單批量 API 存在', '/api/customer-items/batch-update' in app_src and '/api/customer-items/batch-material' in app_src and '/api/customer-items/batch-zone' in app_src, '批量編輯/材質/移區 API。', 'critical'))
     checks.append(_yx_diag_check('訂單轉總單/批量轉入 API 存在', '/api/orders/to-master' in app_src and '/api/items/batch-transfer' in app_src, '訂單/庫存/總單互通 API。', 'critical'))
     checks.append(_yx_diag_check('倉庫格子 API 存在', all(x in app_src for x in ['/api/warehouse/add-slot','/api/warehouse/remove-slot','/api/warehouse/available-items','/api/warehouse/move']), '新增/刪除/未入倉/拖拉 API。', 'critical'))
@@ -4094,8 +3233,8 @@ def _yx_diag_master_requirement_checks():
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
-    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
-    checks.append(_yx_diag_check('安全純 CSS 視覺已補入且出貨獨立', 'yx_safe_520_visual_only.css' in base and 'yx_ship_safe_ui_520.css' in base, '畫面精緻不可改壞出貨。', 'warn'))
+    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
+    checks.append(_yx_diag_check('精緻 UI 已補入但排除出貨', 'yx_520_refined_merge' in base and 'body:not([data-module="ship"])' in css, '畫面精緻不可改壞出貨。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
@@ -4211,14 +3350,14 @@ def _yx_diag_frontend_full_checks():
     warehouse=_yx_diag_read_text('static/yx_modules/warehouse_hardlock.js')
     today=_yx_diag_read_text('static/yx_modules/today_changes_hardlock.js')
     ship=_yx_diag_read_text('static/yx_modules/ship_single_lock.js')
-    css=_yx_diag_read_text('static/yx_modules/yx_safe_520_visual_only.css') + _yx_diag_read_text('static/yx_modules/yx_ship_safe_ui_520.css')
+    css=_yx_diag_read_text('static/yx_modules/yx_premium_ui_100.css') + _yx_diag_read_text('static/yx_modules/yx_520_refined_merge.css')
     checks=[]
-    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['page_products_master.js','warehouse_hardlock.js','today_changes_hardlock.js','ship_single_lock.js','settings_manual.js']) and all(x not in base for x in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','shipping_page.js']), 'base.html 必須依 endpoint 載入穩定主檔，不載入 520 page JS。', 'critical'))
+    checks.append(_yx_diag_check('每頁主 renderer 載入分流', all(x in base for x in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','today_changes_page.js','ship_single_lock.js','settings_page.js']), 'base.html 必須依 endpoint 載入對應頁面 JS。', 'critical'))
     checks.append(_yx_diag_check('出貨頁排除新增快取/精緻共用干擾', '_is_ship' in base and 'not _is_ship' in base and 'ship_single_lock.js' in base, '出貨頁只載入還完整核心出貨檔，不套新增快取/精緻 CSS。', 'critical'))
     checks.append(_yx_diag_check('禁止 setInterval 硬塞按鈕', 'setInterval' not in products+warehouse+today+ship, '主流程 JS 不可用 setInterval 補按鈕。', 'warn'))
     checks.append(_yx_diag_check('禁止 MutationObserver 硬塞按鈕', 'MutationObserver' not in products+warehouse+today+ship, '主流程 JS 不可用 MutationObserver 補按鈕。', 'warn'))
     checks.append(_yx_diag_check('前端 Undo 不會未定義', ('function pushProductUndo' in products+warehouse+ship or 'pushProductUndo' not in products+warehouse+ship), '不能再出現 pushProductUndo is not defined。', 'critical'))
-    checks.append(_yx_diag_check('頁面精緻 CSS 存在', _yx_diag_has_any(css, ['--yx-bg-1','glass','empty','shadow','rounded','yx-ship-page']), '精緻 UI/手機/卡片/按鈕樣式必須存在，且排除出貨。', 'warn'))
+    checks.append(_yx_diag_check('頁面精緻 CSS 存在', _yx_diag_has_any(css, ['premium','glass','empty','shadow','rounded','body:not([data-module="ship"])']), '精緻 UI/手機/卡片/按鈕樣式必須存在，且排除出貨。', 'warn'))
     return checks
 
 def _yx_diag_business_requirement_checks():
@@ -4272,27 +3411,6 @@ def _yx_diag_full_requirement_report():
             'issues': issues,
             'summary': {'total':len(all_checks),'issues':len(issues),'critical':len([c for c in issues if c.get('severity')=='critical'])}}
 
-
-
-def _yx_diag_issue_overview(issues):
-    """Human-readable diagnostic overview for the top summary card."""
-    issues = [x for x in (issues or []) if isinstance(x, dict)]
-    def sev(x): return str(x.get('severity') or '').lower()
-    major = [x for x in issues if sev(x) in ('critical','major','重大')]
-    normal = [x for x in issues if sev(x) in ('warn','warning','normal','普通')]
-    minor = [x for x in issues if sev(x) not in ('critical','major','重大','warn','warning','normal','普通')]
-    def compact(xs):
-        return [{'section':x.get('section') or '', 'name':x.get('name') or '', 'detail':x.get('detail') or '', 'severity':x.get('severity') or ''} for x in xs[:20]]
-    return {
-        'major_count': len(major),
-        'normal_count': len(normal),
-        'minor_count': len(minor),
-        'major_items': compact(major),
-        'normal_items': compact(normal),
-        'minor_items': compact(minor),
-        'message': f"重大 {len(major)} 項、普通 {len(normal)} 項、小 BUG {len(minor)} 項"
-    }
-
 @app.route('/api/diagnostics/full-requirements', methods=['GET'])
 @login_required_json
 def api_diagnostics_full_requirements():
@@ -4307,9 +3425,7 @@ def api_diagnostics_summary():
     columns = {t: _yx_diag_columns(t) for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','logs','errors']}
     full = _yx_diag_full_requirement_report()
     db_ok = not bool(STARTUP_DB_ERROR)
-    issues = full.get('issues', [])
-    overview = _yx_diag_issue_overview(issues)
-    return jsonify(success=(db_ok and full.get('success')), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=full.get('checks', []), issues=issues, sections=full.get('sections', []), issue_overview=overview, summary={'checks': full.get('summary',{}).get('total',0), 'issues': full.get('summary',{}).get('issues',0), 'critical': overview['major_count'], 'major': overview['major_count'], 'normal': overview['normal_count'], 'minor': overview['minor_count'], 'message': overview['message']})
+    return jsonify(success=(db_ok and full.get('success')), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=full.get('checks', []), issues=full.get('issues', []), sections=full.get('sections', []), summary={'checks': full.get('summary',{}).get('total',0), 'issues': full.get('summary',{}).get('issues',0), 'critical': full.get('summary',{}).get('critical',0)})
 
 @app.route('/api/diagnostics/export', methods=['GET'])
 @login_required_json
@@ -4318,7 +3434,7 @@ def api_diagnostics_export():
     action_resp = api_diagnostics_action_audit().get_json()
     master_resp = api_diagnostics_master_requirements().get_json()
     full_resp = _yx_diag_full_requirement_report()
-    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(13).txt / 20260516bs 主檔契約巡檢', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整 ship_single_lock；520 商品/倉庫/今日異動 JS 已剝離進各頁主檔，不再以獨立 520 page JS 載入。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
+    report = {'report_type': 'yuanxing_full_diagnostics_report', 'generated_at': now(), 'app_version': APP_VERSION, 'static_version': STATIC_VERSION, 'summary': summary_resp, 'action_audit': action_resp, 'master_requirement_audit': {k:v for k,v in master_resp.items() if k != 'requirement_text'}, 'full_requirement_audit': full_resp, 'requirement_source': 'diagnostics_master_requirements.txt / 新文字文件(11).txt', 'notes': ['診斷 API 為讀取式，不會新增、刪除或重排業務資料。','出貨頁維持還完整母版核心，不載入新增快取核心。','倉庫檢查會覆蓋你提供文字檔的庫存、訂單、總單、倉庫、出貨、今日異動、DB、API、前端與測試清單。']}
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     resp = Response(payload, mimetype='application/json; charset=utf-8')
     resp.headers['Content-Disposition'] = 'attachment; filename="yuanxing_diagnostics_report.json"'
@@ -4372,7 +3488,7 @@ def api_yx520_warehouse_batch_remove_slots():
     if not isinstance(slots, list): slots=[slots]
     results=[]
     for slot in slots:
-        with app.test_request_context(json={'zone':zone,'column_index':band,'slot_number':slot,'slot':slot}):
+        with app.test_request_context(json={'zone':zone,'band':band,'slot':slot}):
             try:
                 resp=api_warehouse_remove_slot(); results.append(resp.get_json() if hasattr(resp,'get_json') else {'success': True})
             except Exception as e:
@@ -4520,7 +3636,7 @@ def api_yx520_performance_status():
             'ttl_seconds': 240
         })
     if path.endswith('/cache-summary'):
-        return jsonify(success=True, cache_files=['service-worker.js','pwa.js','yx_force_cache_reset.js','yx_perf_watch.js','yx_slow_request_helper.js'],
+        return jsonify(success=True, cache_files=['yx_cache.js','yx_core.js','yx_data_store.js','yx_device_sync.js','yx_route_warm_cache.js','yx_mutation_bus.js','yx_regression_guard.js'],
                        route_map=route_map, warm_cache=True, read_through=True, service_worker_static_only=True, ship_page_cache_excluded=True, static_version=STATIC_VERSION)
     return _yx520_route_ok('performance_status', cache_files=['yx_cache.js','yx_core.js','yx_data_store.js','yx_device_sync.js','yx_route_warm_cache.js','yx_regression_guard.js'], route_warm_cache=True, ship_page_cache_excluded=True)
 
@@ -4649,9 +3765,7 @@ def api_warehouse_readback_diagnose_v520_full():
 def api_warehouse_consistency_check_v520_full():
     try:
         cells = warehouse_get_cells()
-        seen = set(); duplicates=[]; invalid=[]; item_count=0; qty_warnings=[]
-        source_totals, _details = warehouse_source_totals()
-        placed_totals = warehouse_placed_totals(source_totals=source_totals)
+        seen = set(); duplicates=[]; invalid=[]; item_count=0
         for c in cells:
             key=(c.get('zone'), c.get('column_index') or c.get('band'), c.get('slot_type') or 'direct', c.get('slot_number') or c.get('slot'))
             if key in seen: duplicates.append(key)
@@ -4659,20 +3773,9 @@ def api_warehouse_consistency_check_v520_full():
             try:
                 items=json.loads(c.get('items_json') or '[]') if isinstance(c.get('items_json'), str) else (c.get('items_json') or [])
                 item_count += len(items if isinstance(items, list) else [])
-                for it in (items if isinstance(items, list) else []):
-                    old_q = int(it.get('qty') or it.get('quantity') or it.get('pieces') or 0) if isinstance(it, dict) else 0
-                    new_q = _yx_bb_qty(it) if isinstance(it, dict) else 0
-                    if old_q and new_q and old_q != new_q:
-                        qty_warnings.append({'cell': list(key), 'customer_name': yx_bc_clean_warehouse_customer(it.get('customer_name') or ''), 'product_text': it.get('product_text') or it.get('product') or '', 'stored_qty': old_q, 'parsed_qty': new_q})
             except Exception:
                 invalid.append(key)
-        mismatches=[]
-        all_keys=set(source_totals.keys())|set(placed_totals.keys())
-        for k in sorted(all_keys):
-            src=int(source_totals.get(k,0) or 0); placed=int(placed_totals.get(k,0) or 0)
-            if placed > src:
-                mismatches.append({'size': k[0], 'customer_name': k[1], 'material': k[2], 'source_qty': src, 'placed_qty': placed, 'excess_qty': placed-src})
-        return jsonify(success=True, ok=(not duplicates and not invalid and not mismatches and not qty_warnings), safe_read_only=True, total_cells=len(cells), item_count=item_count, duplicate_positions=[list(x) for x in duplicates[:50]], invalid_items_json=[list(x) for x in invalid[:50]], qty_warnings=qty_warnings[:80], mismatches=mismatches[:80], source_keys=len(source_totals), placed_keys=len(placed_totals))
+        return jsonify(success=True, ok=(not duplicates and not invalid), safe_read_only=True, total_cells=len(cells), item_count=item_count, duplicate_positions=[list(x) for x in duplicates[:50]], invalid_items_json=[list(x) for x in invalid[:50]])
     except Exception as e:
         try: log_error('api_warehouse_consistency_check_v520_full', str(e))
         except Exception: pass
@@ -4790,23 +3893,6 @@ def api_health_db_init_v520_full():
         except Exception: pass
         return jsonify(success=False, db_initialized=False, error=str(e), startup_db_error=str(e)), 500
 
-
-@app.route('/api/diagnostics/dom-layout-contract')
-def yx_dom_layout_contract():
-    return jsonify({
-        'success': True,
-        'app_version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'expected': {
-            'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516bs.css',
-            'warehouse_layout': 'A/B each 6 columns rendered as 3 columns x 2 rows; cells auto-height and not clipped',
-            'button_text': 'All buttons/chips/tags must keep visible text after renderer completes',
-            'page_js_policy': 'stable main files only; no 520 page JS renderer loaded',
-            'ui_file_uniqueness': 'only yx_final_mainfile_ui_20260516bs.css may exist/load',
-            'client_audit_function': 'window.YXDomAudit()'
-        }
-    })
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
@@ -4822,9 +3908,6 @@ def _yx_diag_file_contains(rel_path, needles, mode='all'):
     text = _yx_diag_read_text(rel_path, limit=1000000)
     if isinstance(needles, str):
         needles = [needles]
-    if mode == 'none':
-        bad = [n for n in needles if n in text]
-        return (not bad), bad
     ok = all(n in text for n in needles) if mode == 'all' else any(n in text for n in needles)
     return ok, [n for n in needles if n not in text]
 
@@ -4850,16 +3933,19 @@ def _yx_check_contains(rel, needles, name, severity='warn', mode='all'):
 
 def _yx_diag_ui_520_restore_checks():
     checks = []
-    # 20260516Q：520 UI 只允許拆成安全純 CSS 視覺層。
-    # 禁止重新載入 520 page JS / raw layout CSS，避免覆蓋還完整功能主線。
+    for rel in ['static/css/base.css','static/css/home.css','static/css/product.css','static/css/warehouse.css','static/css/mobile.css']:
+        checks.append(_yx_check_file(rel, '520 UI CSS 已補回：' + rel, 'critical'))
     checks += [
-        _yx_check_file('static/yx_modules/yx_safe_520_visual_only.css', '安全純 CSS 視覺層存在：yx_safe_520_visual_only.css', 'critical'),
-        _yx_check_contains('templates/base.html', ['yx_safe_520_visual_only.css', 'not _is_ship'], '非出貨頁載入安全純 CSS 視覺層', 'critical'),
-        _yx_check_contains('templates/base.html', ['yx_ship_safe_ui_520.css', '_is_ship', 'ship_single_lock.js'], '出貨頁獨立 CSS / JS 保護', 'critical'),
-        _yx_check_contains('templates/base.html', ['page_products_master.js', 'warehouse_hardlock.js', 'today_changes_hardlock.js', 'ship_single_lock.js'], '功能主線維持還完整 renderer', 'critical'),
-        _yx_diag_check('不載入 520 inventory/orders/master/warehouse 頁面 JS', all(token not in _yx_diag_read_text('templates/base.html', 200000) for token in ['inventory_page.js','orders_page.js','master_order_page.js','warehouse_page.js','shipping_page.js']), 'base.html 不可載入會覆蓋功能的 520 page JS', 'critical'),
-        _yx_check_contains('static/yx_modules/yx_safe_520_visual_only.css', ['display:none','pointer-events:none','visibility:hidden'], '安全純 CSS 不使用隱藏/阻擋點擊規則', 'critical', mode='none'),
-        _yx_check_contains('static/yx_modules/yx_safe_520_visual_only.css', ['--yx-bg-1','primary-btn','customer-chip','warehouse-cell'], '安全 CSS 含背景/按鈕/客戶標籤/倉庫視覺', 'warn', mode='all'),
+        _yx_check_contains('templates/base.html', ['css/base.css', '_is_ship'], 'base.html 非出貨頁載入 520 base.css', 'critical'),
+        _yx_check_contains('templates/base.html', ['css/home.css', "== 'home'"], '首頁載入 520 home.css', 'warn'),
+        _yx_check_contains('templates/base.html', ['css/product.css', 'inventory_page', 'orders_page', 'master_order_page'], '庫存/訂單/總單載入 520 product.css', 'critical'),
+        _yx_check_contains('templates/base.html', ['css/warehouse.css', 'warehouse_page'], '倉庫載入 520 warehouse.css', 'critical'),
+        _yx_check_contains('templates/base.html', ['css/mobile.css', 'pointer: coarse'], '手機版載入 520 mobile.css', 'warn'),
+        _yx_check_contains('templates/base.html', ['data-yx-dream-ui="520-ui-restored-formal"','yx_final_520_alignment_repairs.css'], 'body 標記 520 精緻 UI 已復原', 'warn'),
+        _yx_check_contains('static/css/base.css', ['yx_dream_starry_background', 'primary-btn', 'ghost-btn'], '520 背景與按鈕樣式存在於 base.css', 'critical', mode='all'),
+        _yx_check_contains('static/css/product.css', ['customer-chip', 'product', 'batch'], '520 商品頁/客戶/批量樣式存在', 'warn', mode='any'),
+        _yx_check_contains('static/css/warehouse.css', ['warehouse', 'slot', 'cell'], '520 倉庫格樣式存在', 'warn', mode='any'),
+        _yx_check_contains('static/yx_modules/yx_premium_ui_100.css', ['body:not([data-module="ship"])'], '額外精緻 CSS 明確排除出貨', 'warn'),
     ]
     return checks
 
@@ -4908,7 +3994,7 @@ def _yx_diag_detailed_api_checks():
         '出貨':['/api/ship-preview','/api/ship/preview','/api/ship','/api/ship/confirm','/api/shipping_records'],
         '今日異動':['/api/today-changes','/api/today-changes/read','/api/today-changes/count','/api/today-changes/badge','/api/today'],
         '診斷':['/api/diagnostics/summary','/api/diagnostics/export','/api/diagnostics/action-audit','/api/diagnostics/master-requirements','/api/diagnostics/client-log','/api/diagnostics/full-requirements','/api/db-diagnostics'],
-        '健康效能':['/api/health','/api/health/db-init','/api/health/smoke','/api/health/operation-closed-loop','/api/health/release-readiness','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/health/extended','/api/health/api-schema','/api/health/event-flow','/api/performance/status','/api/performance/readiness','/api/performance/cache-summary','/api/performance/last-api-timings'],
+        '健康效能':['/api/health','/api/health/db-init','/api/health/smoke','/api/health/operation-closed-loop','/api/health/release-readiness','/api/health/final-gap-report','/api/health/final-evidence-bundle','/api/health/local-write-loop-readiness','/api/health/write-test-safety','/api/health/postdeploy-evidence-report','/api/health/extended','/api/health/api-schema','/api/health/event-flow','/api/performance/status','/api/performance/readiness','/api/performance/cache-summary'],
     }
     checks = []
     for group, routes in route_groups.items():
@@ -4921,7 +4007,7 @@ def _yx_diag_detailed_file_checks():
         'app.py','db.py','wsgi.py','requirements.txt','Procfile','render.yaml','migrations/000_yuanxing_all_in_one.sql',
         'templates/base.html','templates/index.html','templates/module.html','templates/settings.html','templates/today_changes.html','templates/diagnostics.html',
         'static/style.css','static/service-worker.js','static/manifest.webmanifest','static/pwa.js',
-        'static/yx_diagnostics_client.js','static/yx_mobile_zoom.js','static/yx_modules/yx_safe_520_visual_only.css',
+        'static/yx_cache.js','static/yx_core.js','static/yx_data_store.js','static/yx_diagnostics_client.js','static/yx_mobile_zoom.js',
         'static/yx_modules/ship_single_lock.js','static/yx_modules/warehouse_hardlock.js','static/yx_modules/today_changes_hardlock.js','static/yx_pages/page_products_master.js','static/yx_pages/diagnostics_page.js'
     ]
     checks = [_yx_check_file(f, '必要檔案存在：' + f, 'critical') for f in required_files]
@@ -5060,103 +4146,14 @@ def _yx_diag_master_requirement_checks():
     app_src = _yx_diag_read_text('app.py')
     db_src = _yx_diag_read_text('db.py')
     base = _yx_diag_read_text('templates/base.html')
-    css100 = _yx_diag_read_text('static/yx_modules/yx_final_mainfile_ui_20260516bs.css')
+    css100 = _yx_diag_read_text('static/yx_modules/yx_premium_ui_100.css')
     v520css = _yx_diag_read_text('static/css/base.css') + _yx_diag_read_text('static/css/product.css') + _yx_diag_read_text('static/css/warehouse.css')
     checks = []
     checks.append(_yx_diag_check('母版需求檔已放入 ZIP', bool(req and '不要 overlay' in req and '倉庫資料不能清空' in req), 'diagnostics_master_requirements.txt 要保存你的完整規則。', 'critical'))
     checks.append(_yx_diag_check('直接寫入主檔，不靠外掛診斷補丁', 'YX_DIAGNOSTICS_MAINLINE' in app_src and 'diagnostics_page.js' in base, '診斷路由與載入點在 app.py/base.html。', 'warn'))
-    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'ship_single_lock.js' in base and 'yx_ship_safe_ui_520.css' in base, '保護還完整的出貨。', 'critical'))
-    
-    checks.append(_yx_diag_check('按鈕文字保護主檔已載入', ('yx_final_mainfile_ui_20260516bs.css' in base and 'YXRestoreButtonLabels' in base and 'button' in css100 and 'warehouse-zone-columns' in css100), '全頁按鈕/標籤文字與倉庫三欄規則必須由最終主檔 CSS + base label guard 同時保護。', 'critical'))
-    checks.append(_yx_diag_check('倉庫三欄兩排 CSS 寫入主檔', ('#zone-A-grid' in css100 and '#zone-B-grid' in css100 and 'repeat(3' in css100 and 'vertical-slot' in css100), 'A/B 倉庫 6 欄固定 3 欄 x 2 排，且格子不得裁切。', 'critical'))
-
-    # 20260516bs legacy final UI file audit
-    legacy_ui_files = [str(p) for p in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516bs' not in str(p)]
-    checks.append(_yx_diag_check('最終 UI 檔唯一且無舊版殘留', (len(legacy_ui_files)==0 and 'yx_final_mainfile_ui_20260516bs.css' in base), '只允許載入本版最終 UI CSS，避免舊 CSS 蓋掉按鈕文字或倉庫三欄。', 'warn'))
-    checks.append(_yx_diag_check('全頁按鈕文字 CSS 實際含必要選擇器', all(x in css100 for x in ['role=button','customer-chip','home-mini-btn','-webkit-text-fill-color','button:empty']), '最終 UI CSS 必須覆蓋動態按鈕、標籤、空文字保底與透明文字問題。', 'critical'))
-    checks.append(_yx_diag_check('全頁主要按鈕文字保護選擇器完整', all(tok in css100 for tok in ['product-toolbar','bulk-actions','customer-actions','warehouse-action-sheet','ship-actions']), '主 CSS 必須涵蓋庫存/訂單/總單/出貨/倉庫動態按鈕文字，避免空白按鈕。', 'warn'))
-    checks.append(_yx_diag_check('倉庫格子第一排與商品列排版契約存在', all(tok in css100 for tok in ['warehouse-slot-summary','warehouse-slot-row','grid-template-columns:auto minmax(0,1fr) auto']), '倉庫格子需符合第一排格號/尺寸件數/總件數，下方客戶/材質/尺寸/件數且不裁切。', 'warn'))
-    checks.append(_yx_diag_check('倉庫 3欄2排 CSS 實際含必要選擇器', all(x in css100 for x in ['#zone-A-grid','#zone-B-grid','repeat(3','vertical-slot-list','min-height:116px']), '最終 UI CSS 必須壓住 A/B 6欄=3欄x2排與格子不裁切。', 'critical'))
-
-    checks.append(_yx_diag_check('DOM 巡檢端點版本同步', ('yx_final_mainfile_ui_20260516bs.css' in _yx_diag_read_text('app.py') and 'dom-layout-contract' in _yx_diag_read_text('app.py')), 'DOM 巡檢需能回報本版 UI CSS 與三欄兩排契約。', 'warn'))
-    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_safe_520_visual_only.css' in base and 'yx_final_mainfile_ui_20260516bs.css' in base and 'primary-btn' in (v520css+css100) and ('warehouse-cell' in (v520css+css100) or 'vertical-slot' in (v520css+css100) or 'warehouse' in (v520css+css100))), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
+    checks.append(_yx_diag_check('快取不碰出貨頁', '_is_ship' in base and 'yx_cache.js' in base and 'yx_core.js' in base, '保護還完整的出貨。', 'critical'))
+    checks.append(_yx_diag_check('精緻 UI 已補入且排除出貨', ('css/base.css' in base and 'yx_final_520_alignment_repairs.css' in base and 'body:not([data-module="ship"])' in css100 and 'primary-btn' in v520css), '520 背景/按鈕/卡片 CSS 已載入非出貨頁，出貨頁排除新增精緻層。', 'warn'))
     checks.append(_yx_diag_check('倉庫只補缺格不清表', ('ensure_fixed_warehouse_grid' in db_src or 'ensure_warehouse_default_slots' in db_src) and '不清空 warehouse_cells' in db_src, '倉庫資料不能被重建洗掉。', 'critical'))
     checks.append(_yx_diag_check('診斷包含匯出報告', '/api/diagnostics/export' in app_src and '匯出診斷報告' in _yx_diag_read_text('static/yx_pages/diagnostics_page.js'), '診斷報告可匯出 JSON。', 'warn'))
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
     return checks
-
-
-@app.route('/api/performance/last-api-timings', methods=['GET'])
-@login_required_json
-def api_performance_last_api_timings():
-    return jsonify(success=True, app_version=APP_VERSION, static_version=STATIC_VERSION, timings=YX_PERF_SNAPSHOT)
-
-
-
-
-@app.route('/api/performance/slow-summary', methods=['GET'])
-@login_required_json
-def api_yx_perf_slow_summary():
-    """Return a small diagnosis of the last slow warehouse/shipping requests."""
-    timings = dict(YX_PERF_SNAPSHOT)
-    slow = []
-    for name, info in timings.items():
-        try:
-            ms = float((info or {}).get('elapsed_ms') or 0)
-        except Exception:
-            ms = 0
-        if ms >= 1200:
-            slow.append({'api': name, 'elapsed_ms': ms, 'hint': (
-                '出貨預覽來源/倉庫位置計算偏慢' if 'ship-preview' in name else
-                '倉庫格/未入倉商品計算偏慢' if 'warehouse' in name else
-                'API 回應偏慢'
-            )})
-    slow.sort(key=lambda x: x.get('elapsed_ms') or 0, reverse=True)
-    return jsonify(success=True, app_version=APP_VERSION, static_version=STATIC_VERSION, slow=slow, timings=timings)
-@app.route('/api/performance/trace-snapshot', methods=['GET'])
-@login_required_json
-def api_performance_trace_snapshot():
-    # Read-only performance snapshot for slow shipping/warehouse debugging.
-    try:
-        return jsonify(
-            success=True,
-            app_version=APP_VERSION,
-            static_version=STATIC_VERSION,
-            timings=YX_PERF_SNAPSHOT,
-            cache_state={
-                'warehouse_cells_cache_ttl': globals().get('YX_WAREHOUSE_CELLS_CACHE_TTL', None),
-                'available_items_cache_ttl': globals().get('YX_WAREHOUSE_AVAILABLE_CACHE_TTL', None),
-                'available_items_cache_keys': list((globals().get('YX_WAREHOUSE_AVAILABLE_CACHE') or {}).keys()),
-            },
-            hints=[
-                'api/ship-preview 超過 1500ms：通常是出貨預覽來源/倉庫位置計算太慢',
-                'api/warehouse 超過 1500ms：通常是倉庫 cells 讀取或前端渲染量太大',
-                'api/warehouse/available-items 超過 1500ms：通常是未入倉統計來源表與倉庫格比對太重',
-            ]
-        )
-    except Exception as e:
-        return jsonify(success=False, error=str(e), timings=YX_PERF_SNAPSHOT)
-
-
-@app.get('/api/diagnostics/ui-runtime-contract')
-def ui_runtime_contract_20260516bs():
-    return jsonify({
-        'success': True,
-        'app_version': APP_VERSION,
-        'static_version': STATIC_VERSION,
-        'final_ui_css': 'static/yx_modules/yx_final_mainfile_ui_20260516bs.css',
-        'main_renderers': {
-            'products': 'static/yx_pages/page_products_master.js',
-            'warehouse': 'static/yx_modules/warehouse_hardlock.js',
-            'shipping': 'static/yx_modules/ship_single_lock.js',
-            'today_changes': 'static/yx_modules/today_changes_hardlock.js',
-            'settings': 'static/yx_modules/settings_manual.js'
-        },
-        'rules': {
-            'no_520_page_js': True,
-            'single_final_ui_css': True,
-            'warehouse_grid': 'A/B each 6 columns, CSS forced 3 columns x 2 rows',
-            'button_text_guard': True,
-            'no_setInterval_or_MutationObserver_for_buttons': True
-        }
-    })

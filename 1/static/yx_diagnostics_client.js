@@ -7,5 +7,5 @@
   function add(type, detail){const item={type:String(type||'event'), page:location.pathname, at:new Date().toISOString(), detail:detail||{}}; const list=read(); list.push(item); write(list);}
   window.addEventListener('error', function(e){add('window.error',{message:e.message, source:e.filename, line:e.lineno, col:e.colno});});
   window.addEventListener('unhandledrejection', function(e){add('promise.unhandled',{message:String(e.reason && (e.reason.message||e.reason) || '')});});
-  window.YXDiagnostics={snapshot:()=>({success:true, page:location.pathname, app_version:window.__YX_APP_VERSION__||'', static_version:window.__YX_STATIC_VERSION__||'', events:read(), perf_snapshot:(window.YXPerfWatch&&window.YXPerfWatch.snapshot?window.YXPerfWatch.snapshot():{})}), clear:()=>{write([]); try{window.YXPerfWatch&&window.YXPerfWatch.clear&&window.YXPerfWatch.clear()}catch(_e){}}, add};
+  window.YXDiagnostics={snapshot:()=>({success:true, page:location.pathname, app_version:window.__YX_APP_VERSION__||'', static_version:window.__YX_STATIC_VERSION__||'', events:read()}), clear:()=>write([]), add};
 })();

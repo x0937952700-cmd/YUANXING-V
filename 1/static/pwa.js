@@ -1,5 +1,5 @@
 (() => {
-  const PWA_VERSION = 'final-mainfile-contract-ui-warehouse-20260516bs';
+  const PWA_VERSION = 'mainline-speed-repair-20260516k';
   let deferredInstallPrompt = null;
   function ensureInstallButton(){
     let btn=document.getElementById('pwa-install-btn');

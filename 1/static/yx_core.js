@@ -1478,7 +1478,7 @@
 
 
 
-/* V149 guarded route prewarm: do not let prewarm/cache itself slow the app. No polling, no MutationObserver. */
+/* V149 guarded route prewarm: do not let prewarm/cache itself slow the app. No polling, no DOM observer. */
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
@@ -1586,7 +1586,7 @@
 
 
 
-/* V153 adaptive degrade guard: if the phone/network is slow, keep pages usable by skipping non-essential prewarm/heavy refresh. No polling, no MutationObserver. */
+/* V153 adaptive degrade guard: if the phone/network is slow, keep pages usable by skipping non-essential prewarm/heavy refresh. No polling, no DOM observer. */
 (function(){
   'use strict';
   const root = window.YX || (window.YX = {});
