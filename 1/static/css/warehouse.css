@@ -975,21 +975,3 @@ body[data-module="warehouse"] #warehouse-root .yx-slot-product-line .yx-slot-pla
   margin:0 !important;
   transform:none !important;
 }
-
-
-/* 20260517-95a：倉庫圖首屏不卡住；格子先可點，資料背景補上 */
-#warehouse-root .vertical-slot{touch-action:manipulation;contain:layout paint style;}
-#warehouse-root .vertical-slot-list{content-visibility:auto;contain-intrinsic-size:720px;}
-#warehouse-modal.modal:not(.hidden){backdrop-filter:blur(8px);}
-#warehouse-unplaced-pill{min-width:150px;text-align:center;}
-
-
-/* 20260517-95b：倉庫頁立即可操作，不被載入狀態或比例抖動卡住 */
-html[data-yx-warehouse-interactive="1"] #warehouse-root,
-body.yx-warehouse-interactive-ready #warehouse-root{pointer-events:auto!important;opacity:1!important;}
-body.yx-warehouse-interactive-ready #warehouse-root .vertical-slot{cursor:pointer!important;user-select:none!important;-webkit-user-select:none!important;}
-body[data-module="warehouse"] .loading-mask,
-body[data-module="warehouse"] .page-loading,
-body[data-module="warehouse"] .global-loading{pointer-events:none!important;}
-body[data-module="warehouse"] #warehouse-modal.modal:not(.hidden){align-items:center!important;justify-content:center!important;}
-body[data-module="warehouse"] #warehouse-modal .modal-card{position:relative!important;top:auto!important;left:auto!important;}

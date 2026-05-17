@@ -29,7 +29,7 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'mainline-speed-repair-20260517-95a'
+STATIC_VERSION = 'mainline-speed-repair-20260516k'
 APP_VERSION = '還完整主線_速度修復_出貨倉庫加速_20260516k'
 
 app = Flask(__name__)

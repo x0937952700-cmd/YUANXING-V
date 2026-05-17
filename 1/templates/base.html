@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="mobile-web-app-capable" content="yes">
   {% set _ep = request.endpoint or '' %}
-  {% set _sv = static_version|default('mainline-speed-repair-20260517-95a') %}
+  {% set _sv = static_version|default('mainline-speed-repair-20260516k') %}
   {% set _is_ship = (_ep == 'ship_page' or _ep == 'shipping_page_alias_v520_full' or module_key|default('') == 'ship') %}
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}?v={{ _sv }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}?v={{ _sv }}">
@@ -47,7 +47,7 @@
   <script>
   window.__YX_MASTER_BRIDGE_VERSION__={{ _sv|tojson }};
   window.__YX_STATIC_VERSION__={{ _sv|tojson }};
-  window.__YX_APP_VERSION__={{ app_version|default('mainline-speed-repair-20260517-95a', true)|tojson }};
+  window.__YX_APP_VERSION__={{ app_version|default('mainline-speed-repair-20260516k', true)|tojson }};
   window.__YX124_BLOCK_LEGACY_VISUAL_BOOT__=true;
   window.__YX_DISABLE_LEGACY_LAYOUT_RENDER__=true;
   (function(){

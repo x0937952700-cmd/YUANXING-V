@@ -8,8 +8,6 @@
   const esc = v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
   const api = YX.api || (async (url,opt={})=>{ const res=await fetch(url,{credentials:'same-origin',cache:'no-store',...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}}); const data=await res.json().catch(()=>({success:false,error:'伺服器回應格式錯誤'})); if(!res.ok||data.success===false) throw new Error(data.error||data.message||'請求失敗'); return data; });
   const toast = YX.toast || ((m)=>console.log(m));
-  // 20260517-95b：倉庫初始載入不得卡住操作；API 慢時先放行畫面，資料回來再補。
-  const withTimeout = (promise, ms, fallback) => Promise.race([promise, new Promise(resolve => setTimeout(()=>resolve(fallback), ms))]);
   const isWarehouse = () => document.querySelector('.module-screen[data-module="warehouse"]') || (location.pathname||'').includes('/warehouse');
   const state = {
     data:{cells:[], zones:{A:{},B:{}}}, available:[], availableByZone:{A:[],B:[]}, activeZone:null, searchKeys:new Set(), undoStack:[],
@@ -115,7 +113,7 @@
     if(!force && state.availableLoading) return state.availableLoading;
     if(!force && state.availableLoadedAt && now-state.availableLoadedAt<30000) return {items:state.available};
     const pill=$('warehouse-unplaced-pill');
-    if(pill && !state.availableLoadedAt) pill.textContent='未錄入資料載入中…';
+    if(pill && !state.availableLoadedAt) pill.textContent='未錄入統計載入中…';
     state.availableLoading=(async()=>{
       try{
         const ts=Date.now();
@@ -133,16 +131,7 @@
   }
   async function renderWarehouse(force=false){
     if(state.loading && !force) return state.loading;
-    state.loading=(async()=>{ try{
-      const d=await withTimeout(api('/api/warehouse?ts='+Date.now()), 3800, {success:true,cells:state.data.cells||[],zones:state.data.zones||{A:{},B:{}}});
-      state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}};
-      window.state=window.state||{};
-      window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available};
-      // 95%速度修復：倉庫開頁只載入格位，不再同時跑三次未錄入統計；先讓格子可點可拖，再於需要時載入下拉。
-      updateAllSlots();
-      const pill=$('warehouse-unplaced-pill');
-      if(pill && !state.availableLoadedAt) pill.textContent='點「未錄入」或開格位時載入';
-    } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
+    state.loading=(async()=>{ try{ const d=await api('/api/warehouse?ts='+Date.now()); state.data={cells:Array.isArray(d.cells)?d.cells:[], zones:d.zones||{A:{},B:{}}}; window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available}; updateAllSlots(); loadAvailable(false).then(()=>{ try{ window.state.warehouse.availableItems=state.available; if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }catch(_e){} }); } catch(e){ toast(e.message||'倉庫圖載入失敗','error'); bindSlots(); } finally{ state.loading=null; } })();
     return state.loading;
   }
   function setWarehouseZone(zone='A', scroll=true){
@@ -197,34 +186,14 @@
   }
   function collectBatchItems(){ const added=[]; const pool=availableListForCurrent(); document.querySelectorAll('#yx121-batch-rows .yx121-batch-row').forEach(row=>{ const raw=row.querySelector('.yx121-batch-select')?.value; if(raw==='') return; const idx=Number(raw); if(!Number.isFinite(idx)) return; const it=pool[idx]; if(!it) return; let qty=Number(row.querySelector('.yx121-batch-qty')?.value||itemQty(it)||1); qty=Math.max(1,Math.min(itemQty(it)||qty,qty)); added.push(normalizedItem(it,qty,placementForBatch(Number(row.dataset.batchIndex||added.length)))); }); return added; }
   async function saveCellRaw(z,c,s,items,note){ return api('/api/warehouse/cell',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),slot_type:'direct',slot_number:Number(s),items:items||[],note:note||''})}); }
-  function upsertLocalCell(z,c,s,items,note){
-    z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
-    let cell=cellFromData(z,c,s);
-    if(!cell){ cell={zone:z,column_index:c,slot_number:s,slot_type:'direct'}; state.data.cells.push(cell); }
-    cell.items=items||[]; cell.items_json=JSON.stringify(items||[]); cell.note=note||'';
-    updateSlotUI(z,c,s);
-    window.state=window.state||{}; window.state.warehouse={...state.data, activeZone:state.activeZone, availableItems:state.available};
-  }
-  async function saveWarehouseCell(){
-    const items=[...(state.current.items||[]),...collectBatchItems()];
-    const z=state.current.zone,c=state.current.col,s=state.current.slot,note=$('warehouse-note')?.value||'';
-    const before=JSON.parse(JSON.stringify(cellItems(z,c,s)));
-    const beforeNote=cellNote(z,c,s);
-    upsertLocalCell(z,c,s,items,note); closeWarehouseModal(); highlightWarehouseCell(z,c,s); toast('格位已先更新，背景儲存中','ok'); state.availableLoadedAt=0;
-    try{ await saveCellRaw(z,c,s,items,note); toast('格位已永久儲存','ok'); }
-    catch(e){ upsertLocalCell(z,c,s,before,beforeNote); toast(e.message||'儲存格位失敗，已還原','error'); }
-  }
+  async function saveWarehouseCell(){ const items=[...(state.current.items||[]),...collectBatchItems()]; await saveCellRaw(state.current.zone,state.current.col,state.current.slot,items,$('warehouse-note')?.value||''); state.availableLoadedAt=0; toast('格位已儲存','ok'); closeWarehouseModal(); await renderWarehouse(true); highlightWarehouseCell(state.current.zone,state.current.col,state.current.slot); }
   function updateUndoButton(){ const b=$('yx121-warehouse-undo'); if(b) b.disabled=!state.undoStack.length; }
   async function moveCellContents(from,to){
     const f={zone:clean(from.zone).toUpperCase(),col:Number(from.col),slot:Number(from.slot)}, t={zone:clean(to.zone).toUpperCase(),col:Number(to.col),slot:Number(to.slot)};
     if(f.zone===t.zone&&f.col===t.col&&f.slot===t.slot) return; const moved=cellItems(f.zone,f.col,f.slot).filter(it=>itemQty(it)>0); if(!moved.length) return toast('此格沒有可拖拉的商品','warn');
     const src={...f,items:JSON.parse(JSON.stringify(cellItems(f.zone,f.col,f.slot))),note:cellNote(f.zone,f.col,f.slot)}; const dst={...t,items:JSON.parse(JSON.stringify(cellItems(t.zone,t.col,t.slot))),note:cellNote(t.zone,t.col,t.slot)};
     const dstAfter=[...moved.map(it=>normalizedItem(it,itemQty(it),'前排')),...dst.items];
-    try{
-      upsertLocalCell(f.zone,f.col,f.slot,[],src.note); upsertLocalCell(t.zone,t.col,t.slot,dstAfter,dst.note); highlightWarehouseCell(t.zone,t.col,t.slot); toast('已先移動，背景儲存中','ok');
-      await saveCellRaw(f.zone,f.col,f.slot,[],src.note); await saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note);
-      state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton(); toast('拖拉已永久儲存','ok');
-    } catch(e){ upsertLocalCell(src.zone,src.col,src.slot,src.items,src.note); upsertLocalCell(dst.zone,dst.col,dst.slot,dst.items,dst.note); toast(e.message||'拖拉移動失敗，已還原','error'); }
+    try{ await saveCellRaw(f.zone,f.col,f.slot,[],src.note); await saveCellRaw(t.zone,t.col,t.slot,dstAfter,dst.note); state.undoStack.push({source:src,target:dst}); if(state.undoStack.length>20) state.undoStack.shift(); updateUndoButton(); toast('已移動到前排','ok'); await renderWarehouse(true); highlightWarehouseCell(t.zone,t.col,t.slot); } catch(e){ toast(e.message||'拖拉移動失敗','error'); await renderWarehouse(true); }
   }
   async function undoWarehouseMove(){ const last=state.undoStack.pop(); updateUndoButton(); if(!last) return toast('目前沒有可還原的倉庫移動','warn'); try{ await saveCellRaw(last.target.zone,last.target.col,last.target.slot,last.target.items,last.target.note); await saveCellRaw(last.source.zone,last.source.col,last.source.slot,last.source.items,last.source.note); toast('已還原上一步','ok'); await renderWarehouse(true); highlightWarehouseCell(last.source.zone,last.source.col,last.source.slot); }catch(e){ state.undoStack.push(last); updateUndoButton(); toast(e.message||'還原失敗','error'); } }
   async function insertWarehouseCell(z,c,s){ const d=await api('/api/warehouse/add-slot',{method:'POST',body:JSON.stringify({zone:clean(z).toUpperCase(),column_index:Number(c),insert_after:Number(s||0),slot_type:'direct'})}); toast('已插入格子','ok'); state.data.cells=Array.isArray(d.cells)?d.cells:state.data.cells; updateAllSlots(); highlightWarehouseCell(z,c,Number(d.slot_number||s+1)); renderWarehouse(true); }
@@ -258,20 +227,7 @@
     updateUndoButton();
   }
   async function jumpProductToWarehouse(customerName, productText){ const q=clean([customerName,productText].filter(Boolean).join(' ')); if(!q) return toast('缺少商品或客戶關鍵字','warn'); try{ const d=await api('/api/warehouse/search?q='+encodeURIComponent(q)+'&ts='+Date.now()); const hit=(Array.isArray(d.items)?d.items:[])[0]; if(!hit) return toast('倉庫圖找不到這筆商品位置','warn'); const c=hit.cell||hit; highlightWarehouseCell(c.zone,c.column_index,c.slot_number); }catch(e){ toast(e.message||'跳到倉庫位置失敗','error'); } }
-  function install(){
-    if(!isWarehouse()) return;
-    document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true';
-    bindGlobal();
-    // 20260517-95b：先補齊 HTML 基礎格並綁事件，開頁當下即可點格/長按/拖拉，不等後端統計。
-    try{ ensureSlotRange(); }catch(_e){}
-    bindSlots();
-    document.documentElement.dataset.yxWarehouseInteractive='1';
-    document.body?.classList?.add('yx-warehouse-interactive-ready');
-    setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false);
-    const pill=$('warehouse-unplaced-pill'); if(pill && !state.availableLoadedAt) pill.textContent='倉庫可操作｜未錄入點開再載入';
-    const run=()=>renderWarehouse(true);
-    setTimeout(run,120);
-  }
+  function install(){ if(!isWarehouse()) return; document.documentElement.dataset.yxWarehouseSingleHtmlDataJs='true'; bindGlobal(); bindSlots(); setWarehouseZone(localStorage.getItem('warehouseActiveZone')||'A',false); renderWarehouse(true); }
   window.renderWarehouse=renderWarehouse;
   window.setWarehouseZone=setWarehouseZone;
   window.searchWarehouse=searchWarehouse;
