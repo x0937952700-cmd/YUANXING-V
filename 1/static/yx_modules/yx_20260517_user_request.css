@@ -169,12 +169,12 @@ html body[data-module="ship"] #region-picker-section .customer-region-card .yx11
 .category-box,.customer-region-list,.yx113-customer-list,.yx114-customer-list{overflow:visible!important;}
 
 /* 20260517e: 格位編輯永遠固定在目前視窗正中間，不觸發頁面上下捲動 */
-html body.yx-warehouse-modal-open{overflow:hidden!important;}
+html body.yx-warehouse-modal-open{overflow:auto!important;}
 html body #warehouse-modal:not(.hidden){position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;z-index:2147483000!important;padding:12px!important;overflow:hidden!important;}
 html body #warehouse-modal .modal-card,html body #warehouse-modal .warehouse-modal-card,html body #warehouse-modal .glass{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;margin:0!important;max-height:min(86vh,760px)!important;overflow:auto!important;overscroll-behavior:contain!important;}
 
 
-/* 20260517f：倉庫格位編輯要出現在目前格子畫面正中間（第二欄第五格位置），不是頁面上方或需要滑動尋找 */
+/* 20260517g：倉庫格位編輯固定在目前可視畫面正中間；不鎖到任何格號，也保留可關閉按鈕 */
 html body #warehouse-modal.yx-grid-centered-modal:not(.hidden){
   position:fixed!important;
   inset:0!important;
@@ -196,7 +196,7 @@ html body #warehouse-modal.yx-grid-centered-modal .glass{
   margin:0!important;
   width:min(720px,calc(100vw - 36px))!important;
   max-width:min(720px,calc(100vw - 36px))!important;
-  max-height:min(72vh,640px)!important;
+  max-height:min(82vh,720px)!important;
   overflow:auto!important;
   overscroll-behavior:contain!important;
   box-shadow:0 24px 70px rgba(15,23,42,.28)!important;
@@ -220,3 +220,7 @@ html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel.yx-batc
     max-height:78vh!important;
   }
 }
+
+/* 20260517g: 關閉按鈕永遠可點，避免格位彈窗內部捲動後關不掉 */
+html body #warehouse-modal .modal-head{position:sticky!important;top:0!important;z-index:20!important;}
+html body #warehouse-modal .icon-btn{pointer-events:auto!important;}

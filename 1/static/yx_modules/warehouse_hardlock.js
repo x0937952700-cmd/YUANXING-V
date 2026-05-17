@@ -289,26 +289,13 @@
     afterWarehouseRender();
   }
   function positionWarehouseModalAtGridCenter(z,c,s){
-    // 20260517f：格位編輯不是「頁面最上方置中」，而是固定在目前看到的倉庫格子畫面正中間。
-    // 桌機三欄視圖時，優先對齊同區「第 2 欄第 5 格」的位置；沒有該格才退回目前可視倉庫區中央。
+    // 20260517g：依使用者要求，格位編輯固定在「目前瀏覽器可視畫面」正中間。
+    // 不再追第 2 欄第 5 格，避免點任一格都跳到固定格位，也避免卡在頁面上方關不掉。
     const modal=$('warehouse-modal'); if(!modal) return;
     const card=modal.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); if(!card) return;
-    const zone=clean(z).toUpperCase();
-    let target=document.querySelector(`#zone-${zone} [data-zone="${zone}"][data-column="2"][data-slot="5"]`)
-      || document.querySelector(`#warehouse-root [data-zone="${zone}"][data-column="2"][data-slot="5"]`);
-    const visibleEnough=(el)=>{ if(!el) return false; const r=el.getBoundingClientRect(); return r.width>0 && r.height>0 && r.bottom>0 && r.top<window.innerHeight && r.right>0 && r.left<window.innerWidth; };
-    if(!visibleEnough(target)){
-      const visible=[...document.querySelectorAll(`#warehouse-root [data-zone="${zone}"][data-column][data-slot]`)].filter(visibleEnough);
-      target=visible.find(el=>Number(el.dataset.column)===2 && Number(el.dataset.slot)===5) || visible[Math.floor(visible.length/2)] || null;
-    }
-    let x=window.innerWidth/2, y=window.innerHeight/2;
-    if(target){ const r=target.getBoundingClientRect(); x=r.left+r.width/2; y=r.top+r.height/2; }
-    const pad=16;
-    x=Math.max(pad, Math.min(window.innerWidth-pad, x));
-    y=Math.max(pad, Math.min(window.innerHeight-pad, y));
     modal.classList.add('yx-grid-centered-modal');
-    modal.style.setProperty('--yx-wh-modal-left', x+'px');
-    modal.style.setProperty('--yx-wh-modal-top', y+'px');
+    modal.style.setProperty('--yx-wh-modal-left', '50vw');
+    modal.style.setProperty('--yx-wh-modal-top', '50vh');
   }
   function focusWarehouseBatchPanel(){
     try{
@@ -495,6 +482,8 @@
       if(ev.target?.id==='yx121-save-cell'){ ev.preventDefault(); try{ await saveWarehouseCell(); }catch(e){ toast(e.message||'儲存格位失敗','error'); } return; }
       const rm=ev.target?.closest?.('[data-remove-cell-item]'); if(rm){ ev.preventDefault(); state.current.items.splice(Number(rm.dataset.removeCellItem),1); renderCellItems(); return; }
     },true);
+    document.addEventListener('keydown', ev=>{ if(ev.key==='Escape' && !$('warehouse-modal')?.classList.contains('hidden')) closeWarehouseModal(); }, true);
+    document.addEventListener('click', ev=>{ const modal=$('warehouse-modal'); if(modal && !modal.classList.contains('hidden') && ev.target===modal){ closeWarehouseModal(); } }, true);
     document.addEventListener('change', ev=>{ const sel=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-select'); if(sel){ syncBatchSelectLimits(); } }, true);
     document.addEventListener('input', ev=>{ const qty=ev.target?.closest?.('#yx121-batch-rows .yx121-batch-qty'); if(qty){ const max=Number(qty.dataset.yx121Max||qty.max||0); if(max>0 && Number(qty.value)>max){ qty.value=String(max); toast('加入件數不可超過該商品可加入數量','warn'); } syncBatchSelectLimits(); } }, true);
     $('warehouse-item-search')?.addEventListener('input',renderCellItems);
