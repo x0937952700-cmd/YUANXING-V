@@ -30,8 +30,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'final-mainfile-contract-ui-warehouse-20260516bs'
-APP_VERSION = '還完整主線_主檔契約巡檢_UI倉庫圖操作與件數防回滾修復_20260516bs'
+STATIC_VERSION = 'qty65-ship-clear-modal-center-warehouse-fast-20260517e'
+APP_VERSION = '還完整主線_件數65_出貨換客戶清空_預覽快跳_格位置中_20260517e'
 
 app = Flask(__name__)
 

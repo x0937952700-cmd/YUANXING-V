@@ -29,6 +29,7 @@
     return {size:i >= 0 ? raw.slice(0,i) : raw, support:i >= 0 ? raw.slice(i+1) : ''};
   }
   function qtyFromText(text, fallback){
+    if (window.YXQty65 || window.YX126Qty) return (window.YXQty65 || window.YX126Qty)(text, fallback);
     const raw = norm(text || '');
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
@@ -36,16 +37,16 @@
     if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
     if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
-    const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
+    const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+(?:\s*[(（][^)）]*[)）])?\s*$/i.test(seg);
     const xParts = parts.filter(isSingleQtyX);
     const bareParts = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
-    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) { const m0 = xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1] || 0) + bareParts.length; }
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+(?:\s*[(（][^)）]*[)）])?\s*$/i.test(xParts[0]) && bareParts.length >= 8) { const m0 = xParts[0].match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i); return Number(m0?.[1] || 0) + bareParts.length; }
     let total = 0;
     let hit = false;
     for (const seg of parts){
       const explicit = seg.match(/(\d+)\s*[件片]/);
       if (explicit) { total += Number(explicit[1] || 0); hit = true; continue; }
-      const m = isSingleQtyX(seg) ? seg.match(/x\s*(\d+)\s*$/i) : null;
+      const m = isSingleQtyX(seg) ? seg.match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i) : null;
       if (m) { total += Number(m[1] || 0); hit = true; }
       else if (/\d/.test(seg)) { total += 1; hit = true; }
     }
@@ -730,7 +731,7 @@
     for (const seg of parts){
       const explicit = seg.match(/(\d+)\s*[件片]/);
       if (explicit) { total += Number(explicit[1] || 0); hit = true; continue; }
-      const m = seg.match(/x\s*(\d+)\s*$/i);
+      const m = seg.match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i);
       if (m) { total += Number(m[1] || 0); hit = true; }
       else if (/\d/.test(seg)) { total += 1; hit = true; }
     }

@@ -428,7 +428,7 @@ def _yx_support_sticks_sum(support):
     total = 0.0
     raw = str(support or '').replace('×','x').replace('Ｘ','x').replace('X','x').replace('✕','x').replace('＊','x').replace('*','x').replace('＋','+').replace('，','+').replace(',','+').replace('；','+').replace(';','+')
     for seg in [x.strip() for x in raw.split('+') if x.strip()]:
-        m = re.match(r'^(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?$', seg, flags=re.I)
+        m = re.match(r'^(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?)(?:\s*[(（][^)）]*[)）])?)?$', seg, flags=re.I)
         if m:
             total += float(m.group(1) or 0) * float(m.group(2) or 1)
     return total
@@ -515,14 +515,14 @@ def effective_product_qty(product_text, fallback_qty=0):
 
     def _is_single_qty_x(seg):
         clean_seg = str(seg or '').replace(' ', '').lower()
-        return clean_seg.count('x') == 1 and re.search(r'x\s*\d+\s*$', seg, flags=re.I)
+        return clean_seg.count('x') == 1 and re.search(r'x\s*\d+(?:[(（][^)）]*[)）])?\s*$', seg, flags=re.I)
 
     x_segments = [seg for seg in segments if _is_single_qty_x(seg)]
     bare_segments = [seg for seg in segments if seg not in x_segments and re.search(r'\d+', seg)]
     if (len(segments) >= 10 and len(x_segments) == 1 and segments[0] == x_segments[0]
-            and re.match(r'^\d{3,}\s*x\s*\d+\s*$', x_segments[0], flags=re.I)
+            and re.match(r'^\d{3,}\s*x\s*\d+(?:\s*[(（][^)）]*[)）])?\s*$', x_segments[0], flags=re.I)
             and len(bare_segments) >= 8):
-        m0 = re.search(r'x\s*(\d+)\s*$', x_segments[0], flags=re.I)
+        m0 = re.search(r'x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$', x_segments[0], flags=re.I)
         return int(m0.group(1) if m0 else 0) + len(bare_segments)
 
     total = 0
@@ -534,7 +534,7 @@ def effective_product_qty(product_text, fallback_qty=0):
                 total += nums[-1]
                 parsed = True
             continue
-        m = re.search(r'x\s*(\d+)\s*$', seg, flags=re.I) if _is_single_qty_x(seg) else None
+        m = re.search(r'x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$', seg, flags=re.I) if _is_single_qty_x(seg) else None
         if m:
             total += int(m.group(1))
             parsed = True

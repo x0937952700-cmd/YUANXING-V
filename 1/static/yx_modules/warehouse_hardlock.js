@@ -24,6 +24,7 @@
   function markLocal(){state.localMutationAt=Date.now(); cacheNow();}
   function canApplyServer(){return !state.saving;} // 20260516bs：只要不是正在保存，就以後端正規化結果為準，不再被本地舊快照卡 30 秒。
   function parseQtyFromText(text){
+    if(window.YXQty65||window.YX126Qty) return (window.YXQty65||window.YX126Qty)(text,0);
     const raw=clean(text||'').replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=');
     const hasExplicit = raw.includes('=') || /[+＋,，;；]/.test(raw) || /[件片]/.test(raw);
     if(!hasExplicit) return 0;
@@ -36,7 +37,7 @@
     if(/[件片]/.test(right)){ const nums=[...right.matchAll(/\d+/g)].map(m=>Number(m[0])); if(nums.length) return nums[nums.length-1]||1; }
     const parts=right.split(/[+＋,，;；]/).map(x=>x.trim()).filter(Boolean);
     if(parts.length>1){let total=0; for(const seg of parts){const m=seg.match(/x\s*(\d+)\s*$/i); total+=m?Number(m[1]||0):(/\d/.test(seg)?1:0);} if(total>0)return total;}
-    const m=raw.includes('=') ? right.match(/(?:x|×|\*)\s*(\d+)\s*(?:件)?\s*$/i) : null;
+    const m=raw.includes('=') ? right.match(/(?:x|×|\*)\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*(?:件)?\s*$/i) : null;
     if(m) return Math.max(1,Number(m[1]));
     return hasExplicit ? 1 : 0;
   }
@@ -288,8 +289,8 @@
     afterWarehouseRender();
   }
   async function openWarehouseModal(z,c,s){ z=clean(z).toUpperCase(); state.current={zone:z,col:Number(c),slot:Number(s),items:JSON.parse(JSON.stringify(cellItems(z,c,s))),note:cellNote(z,c,s)}; state.batchCount=3; const meta=$('warehouse-modal-meta'); if(meta) meta.textContent=`${z} 區第 ${Number(c)} 欄 第 ${Number(s)} 格`; const note=$('warehouse-note'); if(note) note.value=state.current.note||''; const modal=$('warehouse-modal'); modal?.classList.remove('hidden');
-    try{ document.body.classList.add('yx-warehouse-modal-open'); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); requestAnimationFrame(()=>{ try{ modal?.scrollIntoView?.({block:'center',inline:'nearest'}); }catch(_e){} }); }catch(_e){}
-    renderCellItems(); loadAvailable().then(()=>renderCellItems()).catch(()=>{}); }
+    try{ document.body.classList.add('yx-warehouse-modal-open'); modal?.scrollTo?.(0,0); const card=modal?.querySelector?.('.modal-card,.warehouse-modal-card,.glass'); card?.scrollTo?.(0,0); }catch(_e){}
+    renderCellItems(); loadAvailable().then(()=>{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }).catch(()=>{}); }
   function closeWarehouseModal(){ $('warehouse-modal')?.classList.add('hidden'); try{document.body.classList.remove('yx-warehouse-modal-open');}catch(_e){} }
   function syncBatchSelectLimits(){
     // 20260516bi：下拉件數即時扣掉同一批次已選件數；同一品項選兩列時，不會兩列都各自顯示完整可加入件數。

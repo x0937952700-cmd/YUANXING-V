@@ -37,7 +37,7 @@ try{window.pushProductUndo=window.pushProductUndo||function(source,label){try{wi
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
       if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
-      const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
+      const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i) : null;
       if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }

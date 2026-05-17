@@ -33,14 +33,14 @@
     const bare = parts.filter(p => !isSingleQtyX(p) && /\d/.test(stripParen(p)));
     if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0]
         && /^\d{3,}\s*x\s*\d+\s*$/i.test(stripParen(xParts[0]).replace(/\s+/g,''))
-        && bare.length >= 8) { const m0=xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1]||0)+bare.length; }
+        && bare.length >= 8) { const m0=xParts[0].match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i); return Number(m0?.[1]||0)+bare.length; }
     let total = 0;
     let hit = false;
     for (const seg of parts){
       const plain = stripParen(seg);
       const explicit = plain.match(/(\d+)\s*[件片]/);
       if (explicit){ total += Math.max(0, Number(explicit[1] || 0) + parenAdjust(seg)); hit = true; continue; }
-      const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)\s*$/i) : null;
+      const m = isSingleQtyX(seg) ? plain.match(/x\s*(\d+)(?:\s*[(（][^)）]*[)）])?\s*$/i) : null;
       if (m){ total += Math.max(0, Number(m[1] || 0) + parenAdjust(seg)); hit = true; }
       else if (/\d/.test(plain)){ total += 1; hit = true; }
     }
