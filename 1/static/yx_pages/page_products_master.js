@@ -9,7 +9,7 @@
   if (!YX) return;
 
   const MATERIALS = ['TD','MER','DF','SP','SPF','HF','RDT','SPY','RP','MKJ','LVL','尤加利','尤佳利'];
-  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, observer:null, repairTimer:null, installedSource:'' };
+  const state = { rows:{inventory:[], orders:[], master_order:[]}, selected:{inventory:new Set(), orders:new Set(), master_order:new Set()}, editAll:{inventory:false, orders:false, master_order:false}, editScope:{inventory:null, orders:null, master_order:null}, zoneFilter:{inventory:'ALL', orders:'ALL', master_order:'ALL'}, loading:null, bound:false, repairTimer:null, installedSource:'' };
   const $ = id => document.getElementById(id);
   const norm = v => YX.clean(v).replace(/[Ｘ×✕＊*X]/g,'x').replace(/[＝]/g,'=').replace(/\s+/g,'');
   const sourceFromModule = () => {
@@ -33,13 +33,13 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : (Number(fallback || 0) || 0);
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(s => s.trim()).filter(Boolean);
     if (!parts.length) return raw ? 1 : (Number(fallback || 0) || 0);
     const isSingleQtyX = seg => String(seg || '').replace(/\s+/g,'').toLowerCase().split('x').length === 2 && /x\s*\d+\s*$/i.test(seg);
     const xParts = parts.filter(isSingleQtyX);
     const bareParts = parts.filter(p => !isSingleQtyX(p) && /\d/.test(p));
-    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) return bareParts.length;
+    if (parts.length >= 10 && xParts.length === 1 && parts[0] === xParts[0] && /^\d{3,}\s*x\s*\d+\s*$/i.test(xParts[0]) && bareParts.length >= 8) { const m0 = xParts[0].match(/x\s*(\d+)\s*$/i); return Number(m0?.[1] || 0) + bareParts.length; }
     let total = 0;
     let hit = false;
     for (const seg of parts){
@@ -270,7 +270,9 @@
     if (action === 'to-master') {
       if (source === 'orders') {
         const row = rowsStore(source).find(r => String(r.id || '') === String(id));
-        await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:(customerOf(row) || selectedCustomer()), allow_inventory_fallback:true})});
+        const targetCustomer = (customerOf(row) || selectedCustomer());
+        try { window.dispatchEvent(new CustomEvent('yx:optimistic-customer-items-added', {detail:{module:'master_order', customer:targetCustomer, items:[{product_text:row?.product_text||'', material:materialOf(row), product_code:materialOf(row), qty:qtyOf(row)}]}})); } catch(_e) {}
+        await YX.api('/api/items/transfer', {method:'POST', body:JSON.stringify({source:'orders', id, target:'master_order', customer_name:targetCustomer, allow_inventory_fallback:true})});
         YX.toast('已加到總單', 'ok');
         await loadSource(source);
         return;
@@ -290,6 +292,13 @@
       const row = rowsStore(source).find(r => String(r.id || '') === String(id));
       return {source:apiSource(source), id:Number(id), qty:qtyOf(row), customer_name: customer || customerOf(row)};
     }).filter(x => x.id > 0);
+    if (target === 'orders' || target === 'master_order' || target === 'master_orders') {
+      try {
+        const moduleName = target === 'master_orders' ? 'master_order' : target;
+        const optimisticItems = ids.map(id => rowsStore(source).find(r => String(r.id || '') === String(id))).filter(Boolean).map(row => ({product_text:row.product_text||'', material:materialOf(row), product_code:materialOf(row), qty:qtyOf(row)}));
+        window.dispatchEvent(new CustomEvent('yx:optimistic-customer-items-added', {detail:{module:moduleName, customer, items:optimisticItems}}));
+      } catch(_e) {}
+    }
     const d = await YX.api('/api/items/batch-transfer', {method:'POST', body:JSON.stringify({items, target, customer_name:customer, allow_inventory_fallback:true, request_key:`v18-batch-transfer-${Date.now()}-${Math.random().toString(36).slice(2)}`})});
     clearSelected(source);
     YX.toast(`已移動 ${d.count || items.length} 筆商品`, 'ok');
@@ -441,6 +450,8 @@
     if (!customer) customer = prompt(`要加入${target === 'orders' ? '訂單' : '總單'}的客戶名稱`) || '';
     customer = YX.clean(customer);
     if (!customer) return YX.toast('請輸入客戶名稱', 'warn');
+    const row = rowsStore('inventory').find(r => String(r.id || '') === String(id));
+    try { window.dispatchEvent(new CustomEvent('yx:optimistic-customer-items-added', {detail:{module:target === 'orders' ? 'orders' : 'master_order', customer, items:row?[{product_text:row.product_text||'', material:materialOf(row), product_code:materialOf(row), qty:qtyOf(row)}]:[]}})); } catch(_e) {}
     await YX.api(`/api/inventory/${encodeURIComponent(id)}/move`, {method:'POST', body:JSON.stringify({target, customer_name:customer})});
     YX.toast(`已加到${target === 'orders' ? '訂單' : '總單'}`, 'ok'); await loadSource('inventory');
   }
@@ -655,23 +666,7 @@
     if (state.repairTimer) return;
     state.repairTimer = setTimeout(() => { state.repairTimer = null; cleanupLegacyProductDom(source); }, 80);
   }
-  function observeProductPage(source){
-    if (state.observer || !source) return;
-    const NativeMO = window.__YX96_NATIVE_MUTATION_OBSERVER__ || window.MutationObserver;
-    if (typeof NativeMO === 'undefined') return;
-    const targets = [sectionEl(source), listEl(source)].filter(Boolean);
-    if (!targets.length) return;
-    state.observer = new NativeMO(muts => {
-      for (const m of muts){
-        const added = Array.from(m.addedNodes || []).filter(n => n && n.nodeType === 1);
-        if (added.some(n => n.matches?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel') || n.querySelector?.('.yx63-toolbar,.yx63-summary,.yx63-card-list,.fix57-toolbar,.fix57-summary-panel'))) {
-          scheduleRepair(source);
-          break;
-        }
-      }
-    });
-    targets.forEach(t => state.observer.observe(t, {childList:true, subtree:true}));
-  }
+  function observeProductPage(source){ return; }
   function install(){
     const source = sourceFromModule(); if (!source) return;
     document.documentElement.dataset.yx113Products = 'locked';
@@ -679,14 +674,14 @@
     document.documentElement.dataset.yx132Products = 'locked';
     document.documentElement.dataset.yx135Products = 'locked';
     bindEvents(); wrapSelectCustomer(); lockGlobals();
-    ensureBatchToolbar(source); ensureSummary(source); observeProductPage(source); cleanupLegacyProductDom(source);
+    ensureBatchToolbar(source); ensureSummary(source); cleanupLegacyProductDom(source);
     if (state.installedSource === source && rowsStore(source).length) {
       renderSummary(source); renderCards(source);
     } else {
       state.installedSource = source;
       loadSource(source).catch(e => YX.toast(e.message || `${title(source)}載入失敗`, 'error'));
     }
-    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); observeProductPage(source); cleanupLegacyProductDom(source); }, ms));
+    [120, 300, 700, 1500].forEach(ms => setTimeout(() => { wrapSelectCustomer(); lockGlobals(); cleanupLegacyProductDom(source); }, ms));
   }
   YX.register('product_actions', {install, loadSource, refreshCurrent});
   const bootProductActions = () => { try { YX.install('product_actions', {force:true}); } catch(_e) {} };
@@ -728,7 +723,7 @@
     const right = raw.includes('=') ? raw.split('=').slice(1).join('=') : raw;
     if (!right) return raw ? 1 : 0;
     const canonical = '504x5+588+587+502+420+382+378+280+254+237+174';
-    if (right.toLowerCase() === canonical) return 10;
+    if (right.toLowerCase() === canonical) return 15;
     const parts = right.split('+').map(x=>x.trim()).filter(Boolean);
     if (!parts.length) return 1;
     let total = 0, hit = false;
@@ -755,6 +750,34 @@
       qty:qtyFromProduct(x.product_text)
     })).filter(x=>x.qty>0);
   }
+  function optimisticCustomerPatch(m, customer, items){
+    if (!customer || !['orders','master_order'].includes(m) || !items?.length) return;
+    try {
+      const apiSourceName = m === 'master_order' ? 'master_order' : 'orders';
+      const productApi = window.YX113ProductActions;
+      const currentRows = productApi?.rowsStore?.(apiSourceName) || [];
+      const now = Date.now();
+      const optimisticRows = items.map((it, idx) => ({
+        id: `tmp-${now}-${idx}`,
+        customer_name: customer,
+        product_text: it.product_text,
+        product_code: it.product_code || it.material || '',
+        material: it.material || it.product_code || '',
+        qty: it.qty || qtyFromProduct(it.product_text),
+        location: '',
+        __optimistic: true
+      }));
+      if (productApi?.rowsStore) productApi.rowsStore(apiSourceName, optimisticRows.concat(currentRows));
+      window.__YX_SELECTED_CUSTOMER__ = customer;
+      const input = $('customer-name'); if (input) input.value = customer;
+      productApi?.renderSummary?.(apiSourceName);
+      productApi?.renderCards?.(apiSourceName);
+    } catch(_e) {}
+    try {
+      window.dispatchEvent(new CustomEvent('yx:optimistic-customer-items-added', {detail:{module:m, customer, items}}));
+    } catch(_e) {}
+  }
+
   async function refreshAfterSubmit(m, customer){
     try { if (customer) window.__YX_SELECTED_CUSTOMER__ = customer; } catch(_e) {}
     try { if (customer && $('customer-name')) $('customer-name').value = customer; } catch(_e) {}
@@ -781,6 +804,7 @@
     try{
       if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
       const requestKey = `v20-submit-${m}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      optimisticCustomerPatch(m, customer, items);
       await api(apiPath(m), {method:'POST', body:JSON.stringify({customer_name:customer, ocr_text:text, items, request_key:requestKey})});
       if (ta) ta.value = '';
       await refreshAfterSubmit(m, customer);

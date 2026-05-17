@@ -151,3 +151,19 @@ html body[data-module="ship"] #region-picker-section .customer-region-card .yx11
   html body[data-module="orders"] .yx20260517-summary-actions,
   html body[data-module="master_order"] .yx20260517-summary-actions{flex-wrap:wrap!important;justify-content:flex-start!important;}
 }
+
+
+/* 20260517d 指定修正：北中南客戶鈕不裁切、件數/筆數靠右 */
+.customer-region-card.yx113-customer-card,
+.customer-region-card.yx114-customer-card,
+.yx113-customer-card,
+.yx114-customer-card{
+  width:100%!important; max-width:100%!important; min-width:0!important;
+  box-sizing:border-box!important; overflow:visible!important;
+  display:grid!important; grid-template-columns:minmax(0,1fr) auto minmax(92px,auto)!important;
+  align-items:center!important; column-gap:8px!important; padding-left:18px!important; padding-right:18px!important;
+}
+.yx113-customer-left,.yx116-customer-name{min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; justify-self:start!important;}
+.yx113-customer-tag,.yx116-customer-tag{justify-self:center!important; white-space:nowrap!important;}
+.yx113-customer-count,.yx116-customer-count{justify-self:end!important; text-align:right!important; white-space:nowrap!important; min-width:92px!important;}
+.category-box,.customer-region-list,.yx113-customer-list,.yx114-customer-list{overflow:visible!important;}
