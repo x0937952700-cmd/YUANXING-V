@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: yuanxing
+    env: python
+    plan: free
+    buildCommand: |
+      pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+    preDeployCommand: python -c "from db import init_db; init_db()"
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_DATABASE_URL
+        sync: false
+      - key: REQUIRE_POSTGRES
+        value: "1"
+      # One-time only when you intentionally want to wipe and rebuild Supabase:
+      # set YX_REBUILD_DATABASE=YES, run `python supabase_rebuild_db.py`, then remove it.
