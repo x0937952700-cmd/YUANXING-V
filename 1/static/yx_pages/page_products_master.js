@@ -145,7 +145,8 @@
     let rows = [...rowsStore(source)];
     const cust = selectedCustomer();
     if ((source === 'orders' || source === 'master_order') && cust) rows = rows.filter(r => sameCustomerName(r.customer_name || '', cust));
-    if (source === 'master_order' && !cust) rows = [];
+    // 20260518a：總單頁不可因尚未點客戶就整頁空白；先顯示全部總單，點客戶後再篩選。
+    // if (source === 'master_order' && !cust) rows = [];
     const q = YX.clean($(`yx113-${source}-search`)?.value || '').toLowerCase();
     if (q) rows = rows.filter(r => `${materialOf(r)} ${r.product_text || ''} ${r.customer_name || ''} ${zoneLabel(r)}`.toLowerCase().includes(q));
     const z = state.zoneFilter[source] || 'ALL';
@@ -318,10 +319,7 @@
     const box = ensureSummary(source); if (!box) return;
     const idsBefore = selectedIds(source);
     const rows = filteredRows(source);
-    if (source === 'master_order' && !selectedCustomer()) {
-      box.innerHTML = '<div class="yx113-summary-head"><strong>總單清單</strong><span>請先點選北 / 中 / 南客戶，會立刻完整顯示該客戶商品。</span></div>';
-      return;
-    }
+    // 20260518a：總單頁先直接顯示全部資料；點選客戶後再自動篩選，不再用提示文字蓋掉商品。
     const total = rows.reduce((sum,r) => sum + qtyOf(r), 0);
     const editing = !!state.editAll[source];
     const custTag = customerTagFor(source, rows);

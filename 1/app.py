@@ -29,9 +29,10 @@ from db import (
 )
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
+import db as yxdb
 
-STATIC_VERSION = 'qty65-ship-clear-modal-center-warehouse-fast-20260517e'
-APP_VERSION = '還完整主線_件數65_出貨換客戶清空_預覽快跳_格位置中_20260517e'
+STATIC_VERSION = 'read-chain-settings-data-repair-20260518a'
+APP_VERSION = '超滿意4_設定與全頁資料讀取修復_20260518a'
 
 app = Flask(__name__)
 
@@ -1743,11 +1744,15 @@ def _yx_ship_customer_union_items():
 def api_customers():
     try:
         if request.method == "GET":
-            if (request.args.get('ship_single') or '') == '1' or (request.args.get('include_sources') or '') == '1':
+            # 20260518a：客戶清單永遠以「客戶檔 + 訂單 + 總單 + 庫存」合併輸出。
+            # 舊版只讀 customer_profiles，若 Render 舊資料沒有先救援客戶檔，訂單/總單/出貨頁會整頁無客戶，
+            # 接著前端也拿不到該客戶商品；這裡改成讀取式合併，不破壞既有資料、不新增重複 renderer。
+            try:
                 items = _yx_ship_customer_union_items()
-                return jsonify(success=True, items=items, customers=items)
-            items = get_customers()
-            return jsonify(success=True, items=items, rows=items, data=items, customers=items, count=len(items))
+            except Exception as e_union:
+                log_error('api_customers_union_failed', str(e_union))
+                items = get_customers()
+            return jsonify(success=True, items=items, rows=items, data=items, customers=items, count=len(items), source='customers-union-relations-20260518a')
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         row, resolved_name, _resolved_uid = resolve_customer_identity(name, (data.get('customer_uid') or '').strip(), include_archived=True)
@@ -5107,6 +5112,45 @@ def yx_read_repair_api_products_items():
     except Exception as e:
         log_error('yx_read_repair_api_products_items', str(e))
         return error_response('商品清單載入失敗')
+
+
+@app.route('/api/bootstrap-data', methods=['GET'])
+@login_required_json
+def api_bootstrap_data_20260518a():
+    """One safe read endpoint for pages that need to recover from an empty/old cache render.
+    Does not mutate DB; returns all key lists with legacy-compatible aliases.
+    """
+    payload = {'success': True, 'source': 'bootstrap-data-20260518a'}
+    try:
+        inventory = list_inventory() or []
+    except Exception as e:
+        log_error('bootstrap_inventory', str(e)); inventory = []
+    try:
+        orders = get_orders() or []
+    except Exception as e:
+        log_error('bootstrap_orders', str(e)); orders = []
+    try:
+        master_orders = get_master_orders() or []
+    except Exception as e:
+        log_error('bootstrap_master_orders', str(e)); master_orders = []
+    try:
+        customers = _yx_ship_customer_union_items() or []
+    except Exception as e:
+        log_error('bootstrap_customers', str(e)); customers = []
+    try:
+        source_totals, _details = warehouse_source_totals()
+        wh_cells = yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals)
+        wh_zones = warehouse_summary()
+    except Exception as e:
+        log_error('bootstrap_warehouse', str(e)); wh_cells = []; wh_zones = {}
+    payload.update({
+        'inventory': inventory, 'orders': orders, 'master_orders': master_orders, 'master_order': master_orders,
+        'customers': customers, 'customer_items': _yx_read_repair_all_product_rows(),
+        'warehouse': {'success': True, 'cells': wh_cells, 'zones': wh_zones},
+        'counts': {'inventory': len(inventory), 'orders': len(orders), 'master_orders': len(master_orders), 'customers': len(customers), 'warehouse_cells': len(wh_cells)},
+        'db_runtime': {'use_postgres': bool(getattr(yxdb, 'USE_POSTGRES', False)), 'database_url_kind': ('postgres' if getattr(yxdb, 'USE_POSTGRES', False) else 'sqlite'), 'startup_db_error': STARTUP_DB_ERROR},
+    })
+    return jsonify(payload)
 
 # ==== YX520_ROUTE_ALIASES_FOR_DIAGNOSTIC_PARITY: lightweight aliases, no renderer changes ====
 @app.route('/api/order', methods=['GET', 'POST'])
