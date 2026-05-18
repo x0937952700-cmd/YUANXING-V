@@ -1,7 +1,0 @@
-請刪除以下獨立 520 頁面 JS，避免未來又被載入覆蓋穩定主檔：
-static/yx_pages/inventory_page.js
-static/yx_pages/orders_page.js
-static/yx_pages/master_order_page.js
-static/yx_pages/warehouse_page.js
-static/yx_pages/shipping_page.js
-static/yx_pages/product_page_core.js
