@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const VERSION='data-db-repair-20260518-v2';
+  const VERSION='perfect-v8-data-recover-20260518';
   const KEY='YX_FORCE_CACHE_RESET_DONE_'+VERSION;
   async function run(){
     try { localStorage.removeItem('yx_diagnostics_events_v1'); } catch(_) {}

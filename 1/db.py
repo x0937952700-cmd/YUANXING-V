@@ -3308,7 +3308,10 @@ def _normalize_warehouse_items(items):
         product_text = format_product_text_height2(str(raw.get('product_text') or raw.get('product') or '').strip())
         if not product_text:
             continue
-        qty = effective_product_qty(product_text, raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or 0)
+        _explicit_qty = raw.get('actual_in_qty') or raw.get('warehouse_qty') or raw.get('added_qty') or raw.get('selected_qty') or raw.get('input_qty')
+        if _explicit_qty in (None, '') and (raw.get('warehouse_qty_locked') or raw.get('is_warehouse_item')):
+            _explicit_qty = raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or 0
+        qty = effective_product_qty(product_text, _explicit_qty if _explicit_qty not in (None, '') else (raw.get('qty') or raw.get('quantity') or raw.get('pieces') or raw.get('count') or 0))
         try:
             qty = int(qty or 0)
         except Exception:
@@ -3330,6 +3333,10 @@ def _normalize_warehouse_items(items):
                 next_item['placement_label'] = placement_label
                 next_item['layer_label'] = placement_label
             next_item['qty'] = qty
+            next_item['actual_in_qty'] = qty
+            next_item['warehouse_qty'] = qty
+            next_item['warehouse_qty_locked'] = True
+            next_item['is_warehouse_item'] = True
             next_item.pop('quantity', None)
             next_item.pop('pieces', None)
             merged[key] = next_item

@@ -219,7 +219,7 @@
   async function loadCustomerBlocks(force=true){
     if (!isRegionPage()) return state.items;
     try {
-      const d = await YX.api('/api/customers?yx114=1&ts=' + Date.now(), {method:'GET'});
+      const d = await YX.api('/api/customers?' + (moduleKey()==='ship' ? 'include_sources=1&ship_single=1&' : '') + 'yx114=1&ts=' + Date.now(), {method:'GET'});
       state.items = Array.isArray(d.items) ? d.items : [];
       renderBoards(state.items);
       try { window.dispatchEvent(new CustomEvent('yx:customers-loaded', {detail:{items:state.items}})); } catch(_e) {}

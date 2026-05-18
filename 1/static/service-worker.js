@@ -1,4 +1,4 @@
-const CACHE_NAME = 'yx-perfect-v6-20260518';
+const CACHE_NAME = 'yx-perfect-v8-20260518';
 const SAFE_ASSETS = [
   '/static/style.css',
   '/static/css/base.css',

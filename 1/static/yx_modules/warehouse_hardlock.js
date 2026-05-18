@@ -338,7 +338,7 @@
     return hasExplicit ? 1 : 0;
   }
   function numericQtyFromItem(it){
-    const candidates=[it?.qty,it?.quantity,it?.pieces,it?.count,it?.piece_count,it?.件數,it?.total_qty,it?.totalQty];
+    const candidates=[it?.actual_in_qty,it?.warehouse_qty,it?.added_qty,it?.selected_qty,it?.input_qty,it?.qty,it?.quantity,it?.pieces,it?.count,it?.piece_count,it?.件數,it?.total_qty,it?.totalQty];
     for(const v of candidates){ const n=Number(v); if(Number.isFinite(n)&&n>0) return Math.floor(n); }
     return 0;
   }
@@ -993,7 +993,7 @@
       cacheNow();
       try{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }catch(_e){}
     }
-    if(shouldLoadAvailable) loadAvailable().then(()=>{ cacheNow(); try{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }catch(_e){} }).catch(()=>{});
+    if(shouldLoadAvailable) loadAvailable().then(()=>{ cacheNow(); try{ if($('warehouse-modal') && !$('warehouse-modal').classList.contains('hidden')) renderCellItems(); }catch(_e){} try{ loadWarehouseComparePanelV8(); }catch(_e){} }).catch(()=>{});
   }
   function setCellLocal(z,c,s,items,note){
     z=clean(z).toUpperCase(); c=Number(c); s=Number(s);
@@ -1220,6 +1220,19 @@
     await loadAvailable();
   }
 
+
+  function renderWarehouseComparePanelV8(data){
+    let panel=$('yx-warehouse-v8-compare');
+    const root=$('warehouse-section') || $('warehouse-root');
+    if(!root) return;
+    if(!panel){ panel=document.createElement('div'); panel.id='yx-warehouse-v8-compare'; panel.className='glass panel yx-warehouse-v8-compare'; root.insertAdjacentElement('afterbegin', panel); }
+    const totals=data?.totals||{}; const problems=data?.problems||[];
+    panel.innerHTML=`<div class="section-head"><div><div class="section-title">倉庫閉環比對</div><div class="muted">總單 + 訂單 + 庫存 ＝ 倉庫格子 + 下拉剩餘</div></div><button class="ghost-btn small-btn" type="button" id="yx-v8-compare-refresh">重新比對</button></div><div class="yx-v8-compare-grid"><span>來源 ${totals.source_qty||0}</span><span>格內 ${totals.warehouse_qty||0}</span><span>下拉 ${totals.dropdown_qty||0}</span><span class="${(totals.diff||0)===0?'ok':'bad'}">差異 ${totals.diff||0}</span><span>異常 ${totals.problem_count||0}</span></div>${problems.length?`<details><summary>查看差異 ${problems.length} 筆</summary><div class="diag-list">${problems.slice(0,50).map(x=>`<div class="diag-row warn"><b>${esc(x.customer_name||'庫存')}｜${esc(x.material||'')}｜${esc(x.size||'')}</b><small>來源 ${x.source_qty} / 格內 ${x.warehouse_qty} / 下拉 ${x.dropdown_qty} / 差 ${x.diff}</small></div>`).join('')}</div></details>`:'<div class="muted">目前閉環數量相符。</div>'}`;
+  }
+  async function loadWarehouseComparePanelV8(){
+    try{ const d=await api('/api/warehouse/full-compare?ts='+Date.now()); if(d&&d.success!==false) renderWarehouseComparePanelV8(d); return d; }
+    catch(e){ toast(e.message||'倉庫閉環比對失敗','warn'); }
+  }
   async function finalVerifyWarehouse(){
     const d=await api('/api/warehouse/final-verify',{method:'POST',body:JSON.stringify({auto_fix:true,ts:Date.now()})});
     applyServerCells(d,true);
@@ -1260,7 +1273,7 @@
     slot.addEventListener('contextmenu',ev=>{ ev.preventDefault(); const d=data(); showMenu(d.zone,d.col,d.slot,ev.clientX,ev.clientY); });
     slot.addEventListener('click',ev=>{ if(ev.target?.closest?.('[data-wh-cell-act]')) return; if(Date.now()<Number(slot.dataset.blockClickUntil||0)) return; const mm=$('yx-final-warehouse-menu'); if(mm && !mm.classList.contains('hidden')) return; const d=data(); openWarehouseModal(d.zone,d.col,d.slot); });
   }
-  function bindSlots(){ document.querySelectorAll('#warehouse-root [data-zone][data-column][data-slot]').forEach(bindSlot); }
+  function bindSlots(){ document.querySelectorAll('#warehouse-section [data-zone][data-column][data-slot],#warehouse-root [data-zone][data-column][data-slot]').forEach(bindSlot); }
   function bindGlobal(){
     if(state.bound) return; state.bound=true;
     document.addEventListener('click',async ev=>{
@@ -1295,6 +1308,7 @@
       if(ev.target?.id==='warehouse-reconcile-source'){ ev.preventDefault(); await reconcileWarehouseSource(); return; }
       if(ev.target?.id==='warehouse-qty-audit'){ ev.preventDefault(); await auditWarehouseQty(); return; }
       if(ev.target?.id==='warehouse-final-verify'){ ev.preventDefault(); await finalVerifyWarehouse(); return; }
+      if(ev.target?.id==='yx-v8-compare-refresh'){ ev.preventDefault(); await loadWarehouseComparePanelV8(); return; }
       if(ev.target?.id==='yx121-add-batch-row'){ ev.preventDefault(); state.batchCount=Math.max(3,Number(state.batchCount||3))+1; saveWarehouseCellDraft(); renderCellItems(); return; }
       if(ev.target?.id==='yx121-fill-max'){ ev.preventDefault(); fillSelectedBatchQtyToMax(); return; }
       if(ev.target?.id==='yx121-clear-batch-draft'){ ev.preventDefault(); clearVisibleBatchDraft(); clearBatchValidationUI(); return; }
@@ -2980,3 +2994,5 @@
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init,{once:true}); else init();
   window.yxWarehousePanelManager20260517cj={render:render,report:report,apply:applyLayout};
 })();
+
+;(function(){try{if(document.getElementById('yx-v8-warehouse-style'))return;var s=document.createElement('style');s.id='yx-v8-warehouse-style';s.textContent='.yx-final-warehouse-menu{z-index:999999!important;pointer-events:auto!important}.yx-warehouse-v8-compare{margin:10px 0 14px;padding:12px}.yx-v8-compare-grid{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.yx-v8-compare-grid span{border:1px solid rgba(0,0,0,.08);border-radius:999px;background:#fff;padding:6px 10px;font-weight:800}.yx-v8-compare-grid .bad{background:#fff2f2;border-color:#e8aaaa;color:#9a1c1c}.yx-v8-compare-grid .ok{background:#f4fff6;border-color:#9bd2aa;color:#17652a}';document.head.appendChild(s);}catch(e){}})();

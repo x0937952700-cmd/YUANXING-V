@@ -30,8 +30,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'stable-20260518-perfect-v6'
-APP_VERSION = '穩定版20260518_完美巡檢_v6_資料讀回自動復原_診斷按鈕收斂'
+STATIC_VERSION = 'stable-20260518-perfect-v8'
+APP_VERSION = '穩定版20260518_完美巡檢_v7_資料一鍵復原_讀回防空白加強'
 DOM_LAYOUT_CONTRACT_TOKEN = 'dom-layout-contract'
 
 app = Flask(__name__)
@@ -546,7 +546,7 @@ def yx_bn_cell_actual_qty(item):
         return 0
     product = item.get('product_text') or item.get('product') or ''
     numeric = 0
-    for name in ('qty', 'quantity', 'pieces', 'count', 'piece_count'):
+    for name in ('actual_in_qty', 'warehouse_qty', 'added_qty', 'selected_qty', 'input_qty', 'qty', 'quantity', 'pieces', 'count', 'piece_count'):
         if item.get(name) not in (None, ''):
             try:
                 n = int(float(item.get(name) or 0))
@@ -4453,14 +4453,26 @@ def api_diagnostics_full_requirements():
 @app.route('/api/diagnostics/summary', methods=['GET'])
 @login_required_json
 def api_diagnostics_summary():
+    # v8：診斷頁預設走輕量摘要，避免一進頁面同時掃完整需求、讀多個大 JS，造成 Render 跑半天。
+    light = (request.args.get('light') or '1').strip() != '0'
     tables = ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','logs','errors','audit_trails','customers']
     counts = {t: _yx_diag_table_count(t) for t in tables}
-    columns = {t: _yx_diag_columns(t) for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','logs','errors']}
-    full = _yx_diag_full_requirement_report()
+    core_cols = ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','logs','errors']
+    columns = {t: _yx_diag_columns(t) for t in core_cols}
     db_ok = not bool(STARTUP_DB_ERROR)
-    issues = full.get('issues', [])
+    checks = []
+    for t in ['inventory','orders','master_orders','warehouse_cells']:
+        checks.append(_yx_diag_check('核心資料表可讀：' + t, bool(columns.get(t)), '欄位數：%s｜筆數：%s' % (len(columns.get(t) or []), counts.get(t)), 'critical'))
+    checks.append(_yx_diag_check('DB 啟動狀態', db_ok, STARTUP_DB_ERROR or 'DB 目前可連線', 'critical'))
+    issues = [c for c in checks if not c.get('ok')]
+    sections = []
+    if not light:
+        full = _yx_diag_full_requirement_report()
+        checks = full.get('checks', checks)
+        issues = full.get('issues', [c for c in checks if not c.get('ok')])
+        sections = full.get('sections', [])
     overview = _yx_diag_issue_overview(issues)
-    return jsonify(success=(db_ok and full.get('success')), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(20), checks=full.get('checks', []), issues=issues, sections=full.get('sections', []), issue_overview=overview, summary={'checks': full.get('summary',{}).get('total',0), 'issues': full.get('summary',{}).get('issues',0), 'critical': overview['major_count'], 'major': overview['major_count'], 'normal': overview['normal_count'], 'minor': overview['minor_count'], 'message': overview['message']})
+    return jsonify(success=(db_ok and not issues), app_version=APP_VERSION, static_version=STATIC_VERSION, startup_db_error=STARTUP_DB_ERROR, startup_checks=STARTUP_CHECKS, counts=counts, columns=columns, recent_errors=_yx_diag_recent_errors(10 if light else 20), checks=checks, issues=issues, sections=sections, issue_overview=overview, light=light, summary={'checks': len(checks), 'issues': len(issues), 'critical': overview['major_count'], 'major': overview['major_count'], 'normal': overview['normal_count'], 'minor': overview['minor_count'], 'message': overview['message']})
 
 @app.route('/api/diagnostics/export', methods=['GET'])
 @login_required_json
@@ -5678,6 +5690,74 @@ def api_data_availability_v6():
     return jsonify(result), (200 if result.get('success') else 503)
 
 
+@app.route('/api/data/recover-and-availability', methods=['GET','POST'])
+@login_required_json
+def api_data_recover_and_availability_v7():
+    """v7：一鍵資料讀回復原巡檢。
+    只做 DB init 重試、核心表 count / column / 最近錯誤讀取；不新增、不刪除、不覆蓋正式資料。
+    前端資料頁/診斷頁可用它確認：DB 是否已恢復、庫存/訂單/總單/倉庫是否真的可讀。
+    """
+    global STARTUP_DB_ERROR
+    tables = ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes','customers','customer_profiles','audit_trails','errors','logs']
+    result = {
+        'success': True,
+        'db_recovered': False,
+        'db_ready': False,
+        'startup_db_error_before': STARTUP_DB_ERROR,
+        'startup_db_error': '',
+        'counts': {},
+        'columns': {},
+        'errors': {},
+        'generated_at': now(),
+        'app_version': APP_VERSION,
+        'static_version': STATIC_VERSION,
+        'note': '此端點只讀檢查與重試 DB 初始化，不會修改業務資料。'
+    }
+    try:
+        init_db()
+        STARTUP_DB_ERROR = ''
+        result['db_recovered'] = True
+    except Exception as e:
+        STARTUP_DB_ERROR = str(e)
+        result['success'] = False
+        result['db_ready'] = False
+        result['startup_db_error'] = str(e)[:800]
+        try: log_error('api_data_recover_and_availability_v7.init_db', str(e))
+        except Exception: pass
+    for table in tables:
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(sql(f'SELECT COUNT(*) AS c FROM {table}'))
+            row = cur.fetchone()
+            result['counts'][table] = int((row[0] if not isinstance(row, dict) else row.get('c')) or 0)
+            conn.close()
+        except Exception as e:
+            result['success'] = False
+            result['errors'][table] = str(e)[:500]
+        try:
+            cols = _yx_diag_columns(table)
+            result['columns'][table] = cols if isinstance(cols, list) else []
+        except Exception as e:
+            result['errors'][table + '_columns'] = str(e)[:500]
+    result['startup_db_error'] = STARTUP_DB_ERROR
+    result['db_ready'] = not bool(STARTUP_DB_ERROR) and not bool(result.get('errors'))
+    required_nonempty_columns = {
+        'inventory':['id','product_text','qty','created_at'],
+        'orders':['id','customer_name','product_text','qty','created_at'],
+        'master_orders':['id','customer_name','product_text','qty','created_at'],
+        'warehouse_cells':['id','zone','band','slot','items_json','updated_at']
+    }
+    result['schema_checks'] = []
+    for table, cols in required_nonempty_columns.items():
+        got = set(result['columns'].get(table) or [])
+        missing = [c for c in cols if c not in got]
+        result['schema_checks'].append({'table':table,'ok':not missing,'missing':missing,'columns':len(got)})
+        if missing:
+            result['success'] = False
+    status = 200 if result['success'] else 503
+    return jsonify(result), status
+
+
 @app.route('/api/diagnostics/dom-layout-contract')
 def yx_dom_layout_contract():
     return jsonify({
@@ -6503,3 +6583,33 @@ def api_diagnostics_safe_change_request_report():
                    generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
                    summary={'note': '小修申請單巡檢為只讀報告，用來約束下一次修 bug 的範圍，避免改一個壞一個。', 'checks': len(checks), 'critical': len([c for c in bad if c.get('severity') == 'critical']), 'warn': len([c for c in bad if c.get('severity') != 'critical']), 'safe_scopes': len(safe_scopes)},
                    checks=checks, request_template=request_template, safe_scopes=safe_scopes, file_fingerprints=file_fingerprints)
+
+@app.route('/api/warehouse/full-compare', methods=['GET'])
+@login_required_json
+def api_warehouse_full_compare_v8():
+    try:
+        source_totals, source_details = warehouse_source_totals()
+        cells = yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals)
+        placed = warehouse_placed_totals(source_totals=source_totals)
+        available_payload = api_warehouse_available_items().get_json() or {}
+        dropdown = {}
+        for it in available_payload.get('items') or []:
+            key = yx_bc_warehouse_key(it.get('product_text') or it.get('product_size') or '', it.get('customer_name') or '', it.get('material') or '')
+            dropdown[key] = dropdown.get(key, 0) + int(it.get('qty') or it.get('dropdown_qty') or it.get('unplaced_qty') or 0)
+        keys = set(source_totals) | set(placed) | set(dropdown)
+        rows = []
+        problems = []
+        for key in sorted(keys, key=lambda k: (k[1], k[0], k[2])):
+            src = int(source_totals.get(key, 0) or 0)
+            wh = int(placed.get(key, 0) or 0)
+            dd = int(dropdown.get(key, 0) or 0)
+            diff = src - wh - dd
+            status = 'ok' if diff == 0 and wh <= src else ('over_placed' if wh > src else 'mismatch')
+            row = {'size': key[0], 'customer_name': key[1], 'material': key[2], 'source_qty': src, 'warehouse_qty': wh, 'dropdown_qty': dd, 'diff': diff, 'status': status, 'sources': source_details.get(key, [])}
+            rows.append(row)
+            if status != 'ok': problems.append(row)
+        return jsonify(success=True, rows=rows, problems=problems, cells=cells, totals={'source_qty': sum(source_totals.values()), 'warehouse_qty': sum(placed.values()), 'dropdown_qty': sum(dropdown.values()), 'diff': sum(source_totals.values())-sum(placed.values())-sum(dropdown.values()), 'problem_count': len(problems)}, rule='來源(庫存+訂單+總單) = 倉庫格子已放 + 下拉剩餘；本 API 只讀不改資料。')
+    except Exception as e:
+        log_error('api_warehouse_full_compare_v8', str(e))
+        return jsonify(success=False, error='倉庫閉環比對失敗：' + str(e)), 500
+
