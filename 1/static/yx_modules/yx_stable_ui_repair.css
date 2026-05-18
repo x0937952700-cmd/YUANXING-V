@@ -1,0 +1,30 @@
+/* Stable UI repair: only visual alignment, no layout renderer logic. */
+body:not([data-module="ship"]) { background: #f5efe7; }
+body:not([data-module="ship"]) .page-shell { background: linear-gradient(180deg, rgba(255,255,255,.88), rgba(250,246,239,.92)); }
+body:not([data-module="ship"]) .primary-btn,
+body:not([data-module="ship"]) .ghost-btn,
+body:not([data-module="ship"]) .back-btn {
+  border-radius: 999px;
+  border: 1px solid rgba(181,126,43,.55);
+  box-shadow: 0 2px 8px rgba(120,80,20,.12);
+}
+body:not([data-module="ship"]) .glass,
+body:not([data-module="ship"]) .panel,
+body:not([data-module="ship"]) .table-card,
+body:not([data-module="ship"]) .subsection {
+  border-radius: 18px;
+}
+body:not([data-module="ship"]) .yx113-table,
+body:not([data-module="ship"]) .yx128-inline-table { table-layout: fixed; width:100%; }
+body:not([data-module="ship"]) .yx113-table th,
+body:not([data-module="ship"]) .yx113-table td { vertical-align: middle; white-space: normal; word-break: break-word; }
+body:not([data-module="ship"]) .yx113-table th:nth-child(1), body:not([data-module="ship"]) .yx113-table td:nth-child(1){width:90px; text-align:center;}
+body:not([data-module="ship"]) .yx113-table th:nth-child(2), body:not([data-module="ship"]) .yx113-table td:nth-child(2){width:165px; text-align:center;}
+body:not([data-module="ship"]) .yx113-table th:nth-child(3), body:not([data-module="ship"]) .yx113-table td:nth-child(3){width:45%;}
+body:not([data-module="ship"]) .yx113-table th:nth-child(4), body:not([data-module="ship"]) .yx113-table td:nth-child(4){width:72px; text-align:center;}
+body:not([data-module="ship"]) .yx113-table th:nth-child(5), body:not([data-module="ship"]) .yx113-table td:nth-child(5){width:74px; text-align:center;}
+body:not([data-module="ship"]) .yx113-table th:nth-child(6), body:not([data-module="ship"]) .yx113-table td:nth-child(6){width:120px; text-align:center;}
+@media (max-width: 760px){
+  body:not([data-module="ship"]) .yx113-table th:nth-child(3), body:not([data-module="ship"]) .yx113-table td:nth-child(3){width:36%;}
+  body:not([data-module="ship"]) .yx113-table th:nth-child(6), body:not([data-module="ship"]) .yx113-table td:nth-child(6){width:96px;}
+}
