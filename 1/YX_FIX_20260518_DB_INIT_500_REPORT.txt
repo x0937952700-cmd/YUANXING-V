@@ -1,7 +1,0 @@
-修復原因：
-1. db.py 的 ocr_usage 建表 SQL 有兩個 id 欄位，會造成 init_db() 在初始化中途失敗。
-2. app.py 啟動時雖然捕捉 init_db 失敗讓網站繼續跑，但後面的 app_settings 等表沒有建完，所以 /settings 呼叫 get_setting() 時會 500。
-3. 已移除重複 id 欄位，讓 init_db 可以繼續建立所有表。
-4. settings_page 增加 get_setting 保護，避免 DB 尚未初始化完成時設定頁直接 500。
-
-注意：如果 Render 環境變數 DATABASE_URL 沒有接回原本 PostgreSQL，資料仍會是空的，因為程式會退回 sqlite:///warehouse.db。
