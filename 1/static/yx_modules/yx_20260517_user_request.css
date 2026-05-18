@@ -1,0 +1,633 @@
+/* 20260517 user request: restore product buttons from reference, unify scale, center warehouse edit modal, auto-visible shipping preview */
+:root{--yx-page-max:1180px;--yx-ui-scale:1;--yx-radius:18px;}
+html,body{font-size:16px!important;-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body .page-shell, body main, body .module-shell, body .home-shell{max-width:var(--yx-page-max)!important;margin-left:auto!important;margin-right:auto!important;width:min(100%,var(--yx-page-max))!important;}
+.glass,.panel,.result-card,.table-card,.subsection,.inventory-inline-panel{border-radius:22px!important;}
+.yx-html-direct-toolbar .yx114-batch-actions,.yx-direct-batch-actions,.yx-html-one-row-actions{display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px!important;justify-content:flex-start!important;}
+.yx-html-direct-toolbar .text-input.small,.yx-direct-batch-actions .text-input.small{height:40px!important;font-size:14px!important;border-radius:14px!important;}
+.yx-html-direct-toolbar button,.yx-html-direct-toolbar .ghost-btn,.yx-html-direct-toolbar .primary-btn{min-height:38px!important;padding:8px 12px!important;border-radius:999px!important;font-size:14px!important;line-height:1.15!important;white-space:nowrap!important;}
+.yx113-summary,.yx-html-direct-summary{margin-top:12px!important;}
+.yx113-table-wrap{max-height:none!important;overflow:auto!important;}
+.yx113-table,.yx128-inline-table{font-size:15px!important;}
+.yx113-table th,.yx113-table td{padding:10px 8px!important;vertical-align:middle!important;}
+#warehouse-modal{position:fixed!important;inset:0!important;z-index:10050!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:18px!important;background:rgba(15,23,42,.32)!important;overscroll-behavior:contain!important;}
+#warehouse-modal.hidden{display:none!important;}
+#warehouse-modal .modal-card,#warehouse-modal .warehouse-modal-card,#warehouse-modal .glass{width:min(620px,calc(100vw - 36px))!important;max-height:min(88vh,760px)!important;overflow:auto!important;margin:0!important;transform:none!important;scroll-margin-top:0!important;}
+#warehouse-modal .modal-head{position:sticky!important;top:0!important;z-index:2!important;background:rgba(255,255,255,.92)!important;backdrop-filter:blur(8px)!important;border-radius:18px 18px 0 0!important;}
+#warehouse-modal .yx-direct-section:first-of-type,#warehouse-modal #warehouse-cell-items,#warehouse-modal #yx121-current-items{margin-top:8px!important;}
+#warehouse-modal .yx121-batch-row,#warehouse-modal .yx105-batch-row,#warehouse-modal .yx106-batch-row{grid-template-columns:64px minmax(0,1fr) 84px!important;gap:8px!important;}
+#ship-preview-section,#ship-preview-panel,#module-result{scroll-margin-top:16px!important;}
+.yx22-preview{margin-top:12px!important;}
+@media(max-width:760px){:root{--yx-page-max:100%;}body .page-shell,body main,body .module-shell{width:100%!important;padding-left:10px!important;padding-right:10px!important}.yx-html-direct-toolbar .yx114-batch-actions,.yx-direct-batch-actions{gap:7px!important}.yx-html-direct-toolbar button,.yx-html-direct-toolbar .ghost-btn,.yx-html-direct-toolbar .primary-btn{font-size:13px!important;padding:8px 10px!important}.yx-html-direct-toolbar .text-input.small{flex:1 1 100%!important;max-width:none!important}#warehouse-modal{align-items:center!important;padding:10px!important}#warehouse-modal .modal-card,#warehouse-modal .warehouse-modal-card,#warehouse-modal .glass{width:calc(100vw - 20px)!important;max-height:86vh!important}.yx113-table,.yx128-inline-table{font-size:14px!important}}
+
+
+/* 20260517 exact user request: order/master batch buttons in product table header, remove duplicate lower/top toolbar batch buttons, keep region customer buttons inside cards. */
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx113-batch-delete="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-edit-all="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-save-all="orders"],
+html body[data-module="orders"] #yx113-orders-toolbar [data-yx128-cancel-all="orders"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx113-batch-delete="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-edit-all="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-save-all="master_order"],
+html body[data-module="master_order"] #yx113-master_order-toolbar [data-yx128-cancel-all="master_order"]{
+  display:none!important;
+}
+html body[data-module="orders"] .yx128-summary-head,
+html body[data-module="master_order"] .yx128-summary-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:12px!important;
+  flex-wrap:nowrap!important;
+  padding:14px 16px!important;
+}
+html body[data-module="orders"] .yx128-summary-head .yx132-summary-title,
+html body[data-module="master_order"] .yx128-summary-head .yx132-summary-title{
+  display:flex!important;
+  align-items:center!important;
+  gap:12px!important;
+  min-width:0!important;
+  flex:1 1 auto!important;
+  white-space:nowrap!important;
+}
+html body[data-module="orders"] .yx20260517-summary-actions,
+html body[data-module="master_order"] .yx20260517-summary-actions{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  flex:0 0 auto!important;
+  gap:10px!important;
+  flex-wrap:nowrap!important;
+}
+html body[data-module="orders"] .yx20260517-summary-actions button,
+html body[data-module="master_order"] .yx20260517-summary-actions button{
+  min-height:34px!important;
+  padding:7px 14px!important;
+  border-radius:999px!important;
+  font-size:14px!important;
+  font-weight:900!important;
+  white-space:nowrap!important;
+}
+html body[data-module="orders"] #region-picker-section .category-grid,
+html body[data-module="master_order"] #region-picker-section .category-grid,
+html body[data-module="ship"] #region-picker-section .category-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:14px!important;
+  align-items:start!important;
+  overflow:visible!important;
+}
+html body[data-module="orders"] #region-picker-section .category-box,
+html body[data-module="master_order"] #region-picker-section .category-box,
+html body[data-module="ship"] #region-picker-section .category-box{
+  min-width:0!important;
+  overflow:visible!important;
+  box-sizing:border-box!important;
+  padding:12px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card,
+html body[data-module="master_order"] #region-picker-section .customer-region-card,
+html body[data-module="ship"] #region-picker-section .customer-region-card{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto minmax(96px,max-content)!important;
+  align-items:center!important;
+  gap:8px!important;
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+  padding:9px 12px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-name,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-name,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-left,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-name{
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+  font-size:clamp(20px,2.2vw,30px)!important;
+  line-height:1.12!important;
+  justify-self:start!important;
+  text-align:left!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-tag,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-tag,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-tag,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-tag{
+  justify-self:center!important;
+  white-space:nowrap!important;
+  min-width:42px!important;
+  max-width:56px!important;
+  overflow:hidden!important;
+  text-overflow:clip!important;
+  font-size:11px!important;
+  padding:3px 8px!important;
+}
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="orders"] #region-picker-section .customer-region-card .yx116-customer-count,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="master_order"] #region-picker-section .customer-region-card .yx116-customer-count,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx113-customer-count,
+html body[data-module="ship"] #region-picker-section .customer-region-card .yx116-customer-count{
+  justify-self:end!important;
+  text-align:right!important;
+  white-space:nowrap!important;
+  min-width:96px!important;
+  font-size:clamp(15px,1.45vw,18px)!important;
+  font-weight:900!important;
+  line-height:1.15!important;
+}
+@media(max-width:980px){
+  html body[data-module="orders"] #region-picker-section .category-grid,
+  html body[data-module="master_order"] #region-picker-section .category-grid,
+  html body[data-module="ship"] #region-picker-section .category-grid{grid-template-columns:repeat(3,minmax(260px,1fr))!important;overflow-x:auto!important;}
+  html body[data-module="orders"] .yx128-summary-head,
+  html body[data-module="master_order"] .yx128-summary-head{flex-wrap:wrap!important;}
+  html body[data-module="orders"] .yx20260517-summary-actions,
+  html body[data-module="master_order"] .yx20260517-summary-actions{flex-wrap:wrap!important;justify-content:flex-start!important;}
+}
+
+
+/* 20260517d 指定修正：北中南客戶鈕不裁切、件數/筆數靠右 */
+.customer-region-card.yx113-customer-card,
+.customer-region-card.yx114-customer-card,
+.yx113-customer-card,
+.yx114-customer-card{
+  width:100%!important; max-width:100%!important; min-width:0!important;
+  box-sizing:border-box!important; overflow:visible!important;
+  display:grid!important; grid-template-columns:minmax(0,1fr) auto minmax(92px,auto)!important;
+  align-items:center!important; column-gap:8px!important; padding-left:18px!important; padding-right:18px!important;
+}
+.yx113-customer-left,.yx116-customer-name{min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; justify-self:start!important;}
+.yx113-customer-tag,.yx116-customer-tag{justify-self:center!important; white-space:nowrap!important;}
+.yx113-customer-count,.yx116-customer-count{justify-self:end!important; text-align:right!important; white-space:nowrap!important; min-width:92px!important;}
+.category-box,.customer-region-list,.yx113-customer-list,.yx114-customer-list{overflow:visible!important;}
+
+/* 20260517e: 格位編輯永遠固定在目前視窗正中間，不觸發頁面上下捲動 */
+html body.yx-warehouse-modal-open{overflow:auto!important;}
+html body #warehouse-modal:not(.hidden){position:fixed!important;inset:0!important;display:flex!important;align-items:center!important;justify-content:center!important;z-index:2147483000!important;padding:12px!important;overflow:hidden!important;}
+html body #warehouse-modal .modal-card,html body #warehouse-modal .warehouse-modal-card,html body #warehouse-modal .glass{position:relative!important;top:auto!important;left:auto!important;right:auto!important;bottom:auto!important;margin:0!important;max-height:min(86vh,760px)!important;overflow:auto!important;overscroll-behavior:contain!important;}
+
+
+/* 20260517g：倉庫格位編輯固定在目前可視畫面正中間；不鎖到任何格號，也保留可關閉按鈕 */
+html body #warehouse-modal.yx-grid-centered-modal:not(.hidden){
+  position:fixed!important;
+  inset:0!important;
+  display:block!important;
+  z-index:2147483000!important;
+  padding:0!important;
+  overflow:visible!important;
+  background:rgba(15,23,42,.34)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .modal-card,
+html body #warehouse-modal.yx-grid-centered-modal .warehouse-modal-card,
+html body #warehouse-modal.yx-grid-centered-modal .glass{
+  position:fixed!important;
+  left:var(--yx-wh-modal-left,50vw)!important;
+  top:var(--yx-wh-modal-top,50vh)!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:translate(-50%,-50%)!important;
+  margin:0!important;
+  width:min(720px,calc(100vw - 36px))!important;
+  max-width:min(720px,calc(100vw - 36px))!important;
+  max-height:min(82vh,720px)!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  box-shadow:0 24px 70px rgba(15,23,42,.28)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel{
+  border-color:rgba(180,116,33,.35)!important;
+  box-shadow:0 10px 28px rgba(180,116,33,.12)!important;
+}
+html body #warehouse-modal.yx-grid-centered-modal .yx-direct-batch-panel.yx-batch-focus-flash{
+  outline:3px solid rgba(180,116,33,.28)!important;
+  outline-offset:2px!important;
+}
+@media(max-width:760px){
+  html body #warehouse-modal.yx-grid-centered-modal .modal-card,
+  html body #warehouse-modal.yx-grid-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-grid-centered-modal .glass{
+    left:50vw!important;
+    top:50vh!important;
+    width:calc(100vw - 24px)!important;
+    max-width:calc(100vw - 24px)!important;
+    max-height:78vh!important;
+  }
+}
+
+/* 20260517g: 關閉按鈕永遠可點，避免格位彈窗內部捲動後關不掉 */
+html body #warehouse-modal .modal-head{position:sticky!important;top:0!important;z-index:20!important;}
+html body #warehouse-modal .icon-btn{pointer-events:auto!important;}
+
+
+/* 20260517h: 倉庫格位彈窗＝目前可視畫面正中間。
+   不吃格子座標、不吃頁面捲動座標；彈窗搬到 body 後用 fixed flex 置中。 */
+html body.yx-warehouse-modal-open{overflow:auto!important;}
+html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100vh!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:16px!important;
+  margin:0!important;
+  overflow:hidden!important;
+  box-sizing:border-box!important;
+  z-index:2147483647!important;
+  background:rgba(15,23,42,.34)!important;
+}
+html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+html body #warehouse-modal.yx-viewport-centered-modal .glass{
+  position:relative!important;
+  left:auto!important;
+  top:auto!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:none!important;
+  width:min(720px,calc(100vw - 32px))!important;
+  max-width:calc(100vw - 32px)!important;
+  max-height:calc(100vh - 32px)!important;
+  margin:0 auto!important;
+  overflow:auto!important;
+  overscroll-behavior:contain!important;
+  box-sizing:border-box!important;
+  box-shadow:0 24px 70px rgba(15,23,42,.28)!important;
+}
+html body #warehouse-modal.yx-viewport-centered-modal .modal-head{
+  position:sticky!important;
+  top:0!important;
+  z-index:30!important;
+}
+@media(max-width:760px){
+  html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){padding:10px!important;}
+  html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .glass{
+    width:calc(100vw - 20px)!important;
+    max-width:calc(100vw - 20px)!important;
+    max-height:calc(100vh - 20px)!important;
+  }
+}
+
+/* 20260517i：長按「標記此格」只做非常淡粉紅標記，不影響格子操作 */
+html body .yx-final-slot.yx-bb-marked-cell,
+html body .vertical-slot.yx-bb-marked-cell,
+html body .yx108-slot.yx-bb-marked-cell,
+html body .yx116-slot.yx-bb-marked-cell{
+  background:rgba(255, 228, 238, .42)!important;
+  border-color:rgba(244, 114, 182, .42)!important;
+  box-shadow:0 0 0 2px rgba(244, 114, 182, .10) inset!important;
+}
+html body .yx-final-warehouse-menu button[data-wh-act]{
+  display:block!important;
+  width:100%!important;
+  text-align:left!important;
+}
+
+/* 20260517j mobile full-page proportion repair: phone pages must fit, scroll, and not clip. */
+@media (max-width: 820px), (pointer: coarse){
+  html{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:hidden!important;
+    -webkit-text-size-adjust:100%!important;
+    text-size-adjust:100%!important;
+  }
+  body{
+    width:100%!important;
+    max-width:100vw!important;
+    min-width:0!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    font-size:14px!important;
+    touch-action:pan-y!important;
+  }
+  body *, body *::before, body *::after{box-sizing:border-box!important;}
+
+  /* All page shells: keep the phone viewport usable and stop fixed desktop width from clipping. */
+  body .page-shell,
+  body .module-shell,
+  body .home-screen,
+  body main,
+  body .page-content,
+  body .content-shell,
+  body .container,
+  body .section-card,
+  body .card,
+  body .glass,
+  body .panel,
+  body .table-card{
+    width:100%!important;
+    max-width:100vw!important;
+    min-width:0!important;
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+  body .page-shell,
+  body .module-shell,
+  body main,
+  body .home-screen{
+    padding-left:10px!important;
+    padding-right:10px!important;
+    overflow-x:hidden!important;
+    overflow-y:visible!important;
+  }
+  body input,
+  body textarea,
+  body select,
+  body button,
+  body .primary-btn,
+  body .ghost-btn,
+  body .back-btn,
+  body .pill,
+  body .chip{
+    max-width:100%!important;
+  }
+  body input,
+  body textarea,
+  body select{
+    width:100%!important;
+    min-width:0!important;
+    font-size:16px!important;
+  }
+
+  /* Home: keep the premium style, but stop title/buttons from exploding past the phone width. */
+  html body[data-module="home"] .home-screen{
+    min-height:100dvh!important;
+    font-size:16px!important;
+    padding:12px 10px 28px!important;
+    overflow-x:hidden!important;
+  }
+  html body[data-module="home"] .home-screen .page-title,
+  html body[data-module="home"] .page-title{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    font-size:clamp(48px,18vw,76px)!important;
+    line-height:1.02!important;
+    letter-spacing:.01em!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    overflow:visible!important;
+    transform:none!important;
+  }
+  html body[data-module="home"] .home-top,
+  html body[data-module="home"] .home-actions,
+  html body[data-module="home"] .home-mini-row{
+    width:100%!important;
+    max-width:100%!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    gap:8px!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding:2px 2px 8px!important;
+    justify-content:flex-start!important;
+    scroll-snap-type:x proximity;
+  }
+  html body[data-module="home"] .home-screen .home-mini-btn,
+  html body[data-module="home"] .home-mini-btn{
+    flex:0 0 auto!important;
+    min-width:118px!important;
+    min-height:48px!important;
+    height:48px!important;
+    font-size:clamp(20px,6vw,28px)!important;
+    line-height:1.1!important;
+    padding:0 18px!important;
+    border-radius:999px!important;
+    scroll-snap-align:start;
+  }
+  html body[data-module="home"] .home-screen .home-menu,
+  html body[data-module="home"] .home-menu{
+    width:100%!important;
+    max-width:100%!important;
+    gap:14px!important;
+    padding:10px 0 26px!important;
+  }
+  html body[data-module="home"] .home-screen .home-menu .menu-btn,
+  html body[data-module="home"] .home-menu .menu-btn{
+    width:min(100%,560px)!important;
+    min-height:72px!important;
+    height:auto!important;
+    font-size:clamp(32px,9vw,46px)!important;
+    line-height:1.15!important;
+    padding:14px 18px!important;
+  }
+
+  /* Product/inventory/order/master tables: table itself can be wider, wrapper must be scrollable on phone. */
+  body[data-module="inventory"] .yx113-table-wrap,
+  body[data-module="orders"] .yx113-table-wrap,
+  body[data-module="master_order"] .yx113-table-wrap,
+  body[data-module="inventory"] .table-card,
+  body[data-module="orders"] .table-card,
+  body[data-module="master_order"] .table-card,
+  body[data-module="ship"] .yx22-preview-table-wrap,
+  body[data-module="ship"] .table-card,
+  body[data-module="shipping_query"] .table-card,
+  body[data-module="today_changes"] .table-card{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+    overscroll-behavior:contain!important;
+  }
+  body[data-module="inventory"] .yx113-table,
+  body[data-module="orders"] .yx113-table,
+  body[data-module="master_order"] .yx113-table,
+  body[data-module="inventory"] table,
+  body[data-module="orders"] table,
+  body[data-module="master_order"] table,
+  body[data-module="ship"] table,
+  body[data-module="shipping_query"] table{
+    width:max-content!important;
+    min-width:720px!important;
+    max-width:none!important;
+    font-size:13px!important;
+  }
+  body[data-module="inventory"] th, body[data-module="inventory"] td,
+  body[data-module="orders"] th, body[data-module="orders"] td,
+  body[data-module="master_order"] th, body[data-module="master_order"] td,
+  body[data-module="ship"] th, body[data-module="ship"] td,
+  body[data-module="shipping_query"] th, body[data-module="shipping_query"] td{
+    white-space:nowrap!important;
+    word-break:keep-all!important;
+    padding:10px 8px!important;
+  }
+  body[data-module="inventory"] .yx-html-direct-toolbar,
+  body[data-module="orders"] .yx-html-direct-toolbar,
+  body[data-module="master_order"] .yx-html-direct-toolbar,
+  body[data-module="ship"] .yx-html-direct-toolbar,
+  body[data-module="inventory"] .yx-direct-batch-actions,
+  body[data-module="orders"] .yx-direct-batch-actions,
+  body[data-module="master_order"] .yx-direct-batch-actions{
+    display:flex!important;
+    width:100%!important;
+    max-width:100%!important;
+    flex-wrap:nowrap!important;
+    gap:8px!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding-bottom:8px!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="inventory"] .yx-html-direct-toolbar button,
+  body[data-module="orders"] .yx-html-direct-toolbar button,
+  body[data-module="master_order"] .yx-html-direct-toolbar button,
+  body[data-module="ship"] .yx-html-direct-toolbar button,
+  body[data-module="inventory"] .yx-direct-batch-actions button,
+  body[data-module="orders"] .yx-direct-batch-actions button,
+  body[data-module="master_order"] .yx-direct-batch-actions button{
+    flex:0 0 auto!important;
+    min-height:42px!important;
+    font-size:15px!important;
+    padding:9px 13px!important;
+    white-space:nowrap!important;
+  }
+
+  /* Customer region pills: prevent counts being cut; allow the region list to scroll naturally. */
+  body .customer-region-list,
+  body .yx113-customer-list,
+  body .yx114-customer-list,
+  body .category-grid,
+  body .region-grid,
+  body #region-picker-section .category-grid{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body .yx113-customer-item,
+  body .yx116-customer-item,
+  body .customer-region-card,
+  body .customer-pill,
+  body .customer-tag{
+    min-width:0!important;
+    max-width:100%!important;
+    grid-template-columns:minmax(0,1fr) auto auto!important;
+    gap:6px!important;
+  }
+  body .yx113-customer-count,
+  body .yx116-customer-count,
+  body .customer-count{
+    justify-self:end!important;
+    text-align:right!important;
+    min-width:78px!important;
+    white-space:nowrap!important;
+    font-size:13px!important;
+  }
+
+  /* Warehouse: page scroll remains vertical; the wide warehouse grid gets its own horizontal scroll. */
+  body[data-module="warehouse"] #warehouse-root,
+  body[data-module="warehouse"] .warehouse-zone-wrap,
+  body[data-module="warehouse"] .warehouse-map,
+  body[data-module="warehouse"] .warehouse-zone-card,
+  body[data-module="warehouse"] .warehouse-zone-grid,
+  body[data-module="warehouse"] .warehouse-zone-columns,
+  body[data-module="warehouse"] .vertical-card-grid,
+  body[data-module="warehouse"] .six-grid{
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="warehouse"] .warehouse-zone-card,
+  body[data-module="warehouse"] .vertical-card-grid,
+  body[data-module="warehouse"] .six-grid{
+    min-width:980px!important;
+  }
+  body[data-module="warehouse"] .vertical-column-card{
+    min-width:150px!important;
+  }
+  body[data-module="warehouse"] .warehouse-toolbar,
+  body[data-module="warehouse"] .warehouse-filters,
+  body[data-module="warehouse"] .warehouse-actions{
+    width:100%!important;
+    max-width:100%!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    gap:8px!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="warehouse"] .warehouse-toolbar button,
+  body[data-module="warehouse"] .warehouse-filters button,
+  body[data-module="warehouse"] .warehouse-actions button{
+    flex:0 0 auto!important;
+    white-space:nowrap!important;
+  }
+
+  /* Forms and secondary pages: make every form scrollable and prevent oversized controls from blocking swipes. */
+  body[data-module="ship"] .form-card,
+  body[data-module="customers"] .form-card,
+  body[data-module="todos"] .form-card,
+  body[data-module="settings"] .form-card,
+  body[data-module="diagnostics"] .form-card,
+  body[data-module="shipping_query"] .form-card,
+  body[data-module="ship"] .section-card,
+  body[data-module="customers"] .section-card,
+  body[data-module="todos"] .section-card,
+  body[data-module="settings"] .section-card,
+  body[data-module="diagnostics"] .section-card,
+  body[data-module="shipping_query"] .section-card{
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+
+  /* Modal: visible on phone and scrollable internally, without locking the whole page. */
+  html body #warehouse-modal:not(.hidden),
+  html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){
+    position:fixed!important;
+    inset:0!important;
+    width:100vw!important;
+    height:100dvh!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    padding:10px!important;
+    overflow:hidden!important;
+    z-index:2147483000!important;
+  }
+  html body #warehouse-modal .modal-card,
+  html body #warehouse-modal .warehouse-modal-card,
+  html body #warehouse-modal .glass,
+  html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .glass{
+    width:min(96vw,620px)!important;
+    max-width:96vw!important;
+    max-height:88dvh!important;
+    min-width:0!important;
+    overflow:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+    border-radius:18px!important;
+  }
+  html body #warehouse-modal .modal-head{
+    position:sticky!important;
+    top:0!important;
+    z-index:2!important;
+    background:rgba(255,255,255,.92)!important;
+    backdrop-filter:blur(10px)!important;
+  }
+}

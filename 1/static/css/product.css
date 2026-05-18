@@ -1,0 +1,72 @@
+/* product.css: formal split stylesheet. Base rules preserved in base.css; new scoped rules for inventory orders master_order attach here. */
+
+/* V132: customer name no longer repeats CNF/FOB text; keep long customer names in one row. */
+.customer-region-card .yx116-customer-name,
+.customer-region-card .yx-v43-big-customer-name{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:inline-block;
+  vertical-align:middle;
+}
+.customer-region-card.yx132-name-shrink .yx116-customer-name,
+.customer-region-card.yx132-name-shrink .yx-v43-big-customer-name{
+  font-size:clamp(15px, 4.1vw, 20px);
+  letter-spacing:-0.02em;
+  max-width:10.5em;
+}
+.customer-region-card .yx116-customer-tag,
+.customer-region-card .yx113-customer-tag{
+  flex:0 0 auto;
+}
+.customer-region-card{
+  min-width:0;
+}
+
+/* V137 second speed pack: progressive product table rendering */
+.yx137-more-row{display:flex;gap:8px;align-items:center;justify-content:center;padding:10px 8px;flex-wrap:wrap;background:rgba(255,255,255,.72);border-radius:14px;margin:8px 0;}
+.yx137-more-row .small-note{font-size:12px;color:#64748b;}
+
+/* V142 speed: large tables paint first rows immediately, then append remaining rows in idle chunks. */
+.yx137-more-row,.yx141-render-note{content-visibility:auto;}
+.yx113-table-wrap{contain:layout paint style;}
+.yx113-table tbody tr{contain:layout style;}
+
+/* V216 pending-save marker: non-blocking, no overlay, no focus stealing */
+.yx-pending-save{outline:1px dashed rgba(180,83,9,.45); outline-offset:2px;}
+.yx-pending-save::after{content:'背景待同步'; display:inline-block; margin-left:6px; font-size:11px; color:#92400e; background:#fff7ed; border:1px solid #fed7aa; border-radius:999px; padding:1px 6px; vertical-align:middle;}
+
+/* V403: product pending is scoped by row/card id; never marks a whole customer list. */
+.yx-pending-save[data-yx-pending-scope]{position:relative;}
+.yx-pending-save[data-yx-pending-scope]::after{content:'該筆待同步';}
+
+/* V403: visual sync marker matches operation status for the exact product row/card only. */
+.yx113-summary-row.yx-sync-visual-pending td:last-child::after,
+.yx113-summary-row.yx-sync-visual-success td:last-child::after,
+.yx113-summary-row.yx-sync-visual-failed td:last-child::after{
+  display:inline-block;
+  margin-left:6px;
+  font-size:11px;
+  font-weight:800;
+  border-radius:999px;
+  padding:1px 6px;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+.yx113-summary-row.yx-sync-visual-pending td:last-child::after{content:'該筆待同步';color:#92400e;background:#fff7ed;border:1px solid #fed7aa;}
+.yx113-summary-row.yx-sync-visual-success td:last-child::after{content:'已同步';color:#166534;background:#ecfdf5;border:1px solid #bbf7d0;}
+.yx113-summary-row.yx-sync-visual-failed td:last-child::after{content:'同步失敗';color:#991b1b;background:#fef2f2;border:1px solid #fecaca;}
+.yx113-summary-row.yx-sync-visual-success{box-shadow:inset 3px 0 0 rgba(22,101,52,.45);}
+.yx113-summary-row.yx-sync-visual-failed{box-shadow:inset 3px 0 0 rgba(153,27,27,.5);}
+.yx113-product-card.yx-sync-visual-success::after,
+.yx113-product-card.yx-sync-visual-failed::after{display:inline-block;margin-top:6px;font-size:11px;font-weight:800;border-radius:999px;padding:1px 6px;}
+.yx113-product-card.yx-sync-visual-success::after{content:'已同步';color:#166534;background:#ecfdf5;border:1px solid #bbf7d0;}
+.yx113-product-card.yx-sync-visual-failed::after{content:'同步失敗';color:#991b1b;background:#fef2f2;border:1px solid #fecaca;}
+
+
+/* V504 row action mainline: individual edit/delete/ship/location buttons are visible in the formal table, not hidden in old cards. */
+.yx-row-actions{min-width:148px;white-space:normal;display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-start}
+.yx-row-actions .tiny-btn{padding:5px 8px;border-radius:10px;font-size:12px;line-height:1.1}
+.yx128-summary-controls [data-yx128-cancel-all]{border-color:rgba(120,90,50,.28);background:rgba(255,255,255,.78)}
+@media (max-width: 720px){.yx-row-actions{min-width:120px}.yx-row-actions .tiny-btn{font-size:11px;padding:5px 7px}.yx113-table th:last-child,.yx113-table td:last-child{position:sticky;right:0;background:rgba(255,255,255,.96);box-shadow:-8px 0 14px rgba(60,40,20,.06)}}
