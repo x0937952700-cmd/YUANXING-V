@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="auth-screen">
+  <form id="login-form" class="auth-card glass" onsubmit="return window.yxDirectLogin ? window.yxDirectLogin(event) : false;">
+    <div class="eyebrow">AI OCR 智慧辨識 + 倉庫定位 + 出貨管理</div>
+    <h1 class="page-title center">沅興木業</h1>
+    <p class="muted center">登入後自動記住你，支援手機與電腦同步</p>
+
+    <div id="login-error" class="alert hidden"></div>
+
+    <label class="field-label" for="login-username">帳號</label>
+    <input id="login-username" name="username" class="text-input" type="text" placeholder="請輸入員工姓名" autocomplete="username">
+
+    <label class="field-label" for="login-password">密碼</label>
+    <input id="login-password" name="password" class="text-input" type="password" placeholder="請輸入密碼" autocomplete="current-password">
+
+    <button id="login-submit-btn" class="primary-btn full" type="submit">登入</button>
+    <button class="ghost-btn full" type="button" onclick="toggleLoginSave()">切換永久登入：<span id="remember-label">開</span></button>
+  </form>
+</div>
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function clean(v){ return String(v || '').trim(); }
+  async function directLogin(evt){
+    if(evt){ evt.preventDefault(); evt.stopPropagation(); }
+    const user = clean($('login-username') && $('login-username').value);
+    const pass = clean($('login-password') && $('login-password').value);
+    const err = $('login-error');
+    const btn = $('login-submit-btn');
+    if(err){ err.classList.add('hidden'); err.textContent = ''; }
+    if(!user || !pass){
+      if(err){ err.textContent = '請輸入帳號與密碼'; err.classList.remove('hidden'); }
+      return false;
+    }
+    try{
+      if(btn){ btn.disabled = true; btn.textContent = '登入中…'; }
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({username:user, password:pass})
+      });
+      let data = {};
+      try{ data = await res.json(); }catch(_){ data = {}; }
+      if(!res.ok || data.success === false) throw new Error(data.error || data.message || '登入失敗');
+      if(localStorage.getItem('yxRememberLogin') !== '0') localStorage.setItem('yxLastUsername', user);
+      location.href = '/';
+    }catch(e){
+      if(err){ err.textContent = e.message || '登入失敗'; err.classList.remove('hidden'); }
+      else alert(e.message || '登入失敗');
+    }finally{
+      if(btn){ btn.disabled = false; btn.textContent = '登入'; }
+    }
+    return false;
+  }
+  window.yxDirectLogin = directLogin;
+  window.submitLogin = directLogin;
+  window.toggleLoginSave = window.toggleLoginSave || function(){
+    const next = localStorage.getItem('yxRememberLogin') === '0' ? '1' : '0';
+    localStorage.setItem('yxRememberLogin', next);
+    const lab = $('remember-label');
+    if(lab) lab.textContent = next === '1' ? '開' : '關';
+  };
+  document.addEventListener('DOMContentLoaded', function(){
+    const last = localStorage.getItem('yxLastUsername') || '';
+    if($('login-username') && !$('login-username').value) $('login-username').value = last;
+    if($('remember-label')) $('remember-label').textContent = localStorage.getItem('yxRememberLogin') === '0' ? '關' : '開';
+    const form = $('login-form');
+    if(form) form.addEventListener('submit', directLogin, true);
+  });
+})();
+</script>
+{% endblock %}

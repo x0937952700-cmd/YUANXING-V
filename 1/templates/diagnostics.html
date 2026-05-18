@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="module-screen diagnostics-shell">
+  <div class="module-topbar">
+    <a class="back-btn" href="{{ url_for('settings_page') }}">← 返回設定</a>
+    <div class="module-title">系統診斷</div>
+    <div class="spacer"></div>
+  </div>
+  <div class="glass panel">
+    <div class="section-title">完整診斷中心</div>
+    <div class="muted">讀取式檢查，不會清空資料、不會重排倉庫、不會改動出貨。可檢查 API、DB、快取、倉庫安全、母版需求與前端錯誤。</div>
+    <div id="diagnostics-root"></div>
+  </div>
+</div>
+{% endblock %}
