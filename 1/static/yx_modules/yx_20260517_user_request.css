@@ -292,3 +292,1061 @@ html body .yx-final-warehouse-menu button[data-wh-act]{
   width:100%!important;
   text-align:left!important;
 }
+
+
+
+/* 20260517al：格位彈窗開啟時，正在編輯的格子用淡藍外框提示；不改粉紅標記、不影響拖拉 */
+html body .yx-final-slot.yx-current-editing-cell,
+html body .vertical-slot.yx-current-editing-cell,
+html body .yx108-slot.yx-current-editing-cell,
+html body .yx116-slot.yx-current-editing-cell{
+  outline:3px solid rgba(59,130,246,.45)!important;
+  outline-offset:2px!important;
+  box-shadow:0 0 0 3px rgba(59,130,246,.12), 0 8px 22px rgba(15,23,42,.10)!important;
+  position:relative!important;
+  z-index:6!important;
+}
+html body .yx-final-slot.yx-current-editing-cell::after,
+html body .vertical-slot.yx-current-editing-cell::after,
+html body .yx108-slot.yx-current-editing-cell::after,
+html body .yx116-slot.yx-current-editing-cell::after{
+  content:'編輯中';
+  position:absolute!important;
+  right:4px!important;
+  top:4px!important;
+  font-size:10px!important;
+  line-height:1!important;
+  padding:2px 4px!important;
+  border-radius:999px!important;
+  color:#1d4ed8!important;
+  background:rgba(219,234,254,.92)!important;
+  pointer-events:none!important;
+}
+
+/* 20260517j mobile full-page proportion repair: phone pages must fit, scroll, and not clip. */
+@media (max-width: 820px), (pointer: coarse){
+  html{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:hidden!important;
+    -webkit-text-size-adjust:100%!important;
+    text-size-adjust:100%!important;
+  }
+  body{
+    width:100%!important;
+    max-width:100vw!important;
+    min-width:0!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    font-size:14px!important;
+    touch-action:pan-y!important;
+  }
+  body *, body *::before, body *::after{box-sizing:border-box!important;}
+
+  /* All page shells: keep the phone viewport usable and stop fixed desktop width from clipping. */
+  body .page-shell,
+  body .module-shell,
+  body .home-screen,
+  body main,
+  body .page-content,
+  body .content-shell,
+  body .container,
+  body .section-card,
+  body .card,
+  body .glass,
+  body .panel,
+  body .table-card{
+    width:100%!important;
+    max-width:100vw!important;
+    min-width:0!important;
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+  body .page-shell,
+  body .module-shell,
+  body main,
+  body .home-screen{
+    padding-left:10px!important;
+    padding-right:10px!important;
+    overflow-x:hidden!important;
+    overflow-y:visible!important;
+  }
+  body input,
+  body textarea,
+  body select,
+  body button,
+  body .primary-btn,
+  body .ghost-btn,
+  body .back-btn,
+  body .pill,
+  body .chip{
+    max-width:100%!important;
+  }
+  body input,
+  body textarea,
+  body select{
+    width:100%!important;
+    min-width:0!important;
+    font-size:16px!important;
+  }
+
+  /* Home: keep the premium style, but stop title/buttons from exploding past the phone width. */
+  html body[data-module="home"] .home-screen{
+    min-height:100dvh!important;
+    font-size:16px!important;
+    padding:12px 10px 28px!important;
+    overflow-x:hidden!important;
+  }
+  html body[data-module="home"] .home-screen .page-title,
+  html body[data-module="home"] .page-title{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    font-size:clamp(48px,18vw,76px)!important;
+    line-height:1.02!important;
+    letter-spacing:.01em!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    overflow:visible!important;
+    transform:none!important;
+  }
+  html body[data-module="home"] .home-top,
+  html body[data-module="home"] .home-actions,
+  html body[data-module="home"] .home-mini-row{
+    width:100%!important;
+    max-width:100%!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    gap:8px!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding:2px 2px 8px!important;
+    justify-content:flex-start!important;
+    scroll-snap-type:x proximity;
+  }
+  html body[data-module="home"] .home-screen .home-mini-btn,
+  html body[data-module="home"] .home-mini-btn{
+    flex:0 0 auto!important;
+    min-width:118px!important;
+    min-height:48px!important;
+    height:48px!important;
+    font-size:clamp(20px,6vw,28px)!important;
+    line-height:1.1!important;
+    padding:0 18px!important;
+    border-radius:999px!important;
+    scroll-snap-align:start;
+  }
+  html body[data-module="home"] .home-screen .home-menu,
+  html body[data-module="home"] .home-menu{
+    width:100%!important;
+    max-width:100%!important;
+    gap:14px!important;
+    padding:10px 0 26px!important;
+  }
+  html body[data-module="home"] .home-screen .home-menu .menu-btn,
+  html body[data-module="home"] .home-menu .menu-btn{
+    width:min(100%,560px)!important;
+    min-height:72px!important;
+    height:auto!important;
+    font-size:clamp(32px,9vw,46px)!important;
+    line-height:1.15!important;
+    padding:14px 18px!important;
+  }
+
+  /* Product/inventory/order/master tables: table itself can be wider, wrapper must be scrollable on phone. */
+  body[data-module="inventory"] .yx113-table-wrap,
+  body[data-module="orders"] .yx113-table-wrap,
+  body[data-module="master_order"] .yx113-table-wrap,
+  body[data-module="inventory"] .table-card,
+  body[data-module="orders"] .table-card,
+  body[data-module="master_order"] .table-card,
+  body[data-module="ship"] .yx22-preview-table-wrap,
+  body[data-module="ship"] .table-card,
+  body[data-module="shipping_query"] .table-card,
+  body[data-module="today_changes"] .table-card{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+    overscroll-behavior:contain!important;
+  }
+  body[data-module="inventory"] .yx113-table,
+  body[data-module="orders"] .yx113-table,
+  body[data-module="master_order"] .yx113-table,
+  body[data-module="inventory"] table,
+  body[data-module="orders"] table,
+  body[data-module="master_order"] table,
+  body[data-module="ship"] table,
+  body[data-module="shipping_query"] table{
+    width:max-content!important;
+    min-width:720px!important;
+    max-width:none!important;
+    font-size:13px!important;
+  }
+  body[data-module="inventory"] th, body[data-module="inventory"] td,
+  body[data-module="orders"] th, body[data-module="orders"] td,
+  body[data-module="master_order"] th, body[data-module="master_order"] td,
+  body[data-module="ship"] th, body[data-module="ship"] td,
+  body[data-module="shipping_query"] th, body[data-module="shipping_query"] td{
+    white-space:nowrap!important;
+    word-break:keep-all!important;
+    padding:10px 8px!important;
+  }
+  body[data-module="inventory"] .yx-html-direct-toolbar,
+  body[data-module="orders"] .yx-html-direct-toolbar,
+  body[data-module="master_order"] .yx-html-direct-toolbar,
+  body[data-module="ship"] .yx-html-direct-toolbar,
+  body[data-module="inventory"] .yx-direct-batch-actions,
+  body[data-module="orders"] .yx-direct-batch-actions,
+  body[data-module="master_order"] .yx-direct-batch-actions{
+    display:flex!important;
+    width:100%!important;
+    max-width:100%!important;
+    flex-wrap:nowrap!important;
+    gap:8px!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding-bottom:8px!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="inventory"] .yx-html-direct-toolbar button,
+  body[data-module="orders"] .yx-html-direct-toolbar button,
+  body[data-module="master_order"] .yx-html-direct-toolbar button,
+  body[data-module="ship"] .yx-html-direct-toolbar button,
+  body[data-module="inventory"] .yx-direct-batch-actions button,
+  body[data-module="orders"] .yx-direct-batch-actions button,
+  body[data-module="master_order"] .yx-direct-batch-actions button{
+    flex:0 0 auto!important;
+    min-height:42px!important;
+    font-size:15px!important;
+    padding:9px 13px!important;
+    white-space:nowrap!important;
+  }
+
+  /* Customer region pills: prevent counts being cut; allow the region list to scroll naturally. */
+  body .customer-region-list,
+  body .yx113-customer-list,
+  body .yx114-customer-list,
+  body .category-grid,
+  body .region-grid,
+  body #region-picker-section .category-grid{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body .yx113-customer-item,
+  body .yx116-customer-item,
+  body .customer-region-card,
+  body .customer-pill,
+  body .customer-tag{
+    min-width:0!important;
+    max-width:100%!important;
+    grid-template-columns:minmax(0,1fr) auto auto!important;
+    gap:6px!important;
+  }
+  body .yx113-customer-count,
+  body .yx116-customer-count,
+  body .customer-count{
+    justify-self:end!important;
+    text-align:right!important;
+    min-width:78px!important;
+    white-space:nowrap!important;
+    font-size:13px!important;
+  }
+
+  /* Warehouse: page scroll remains vertical; the wide warehouse grid gets its own horizontal scroll. */
+  body[data-module="warehouse"] #warehouse-root,
+  body[data-module="warehouse"] .warehouse-zone-wrap,
+  body[data-module="warehouse"] .warehouse-map,
+  body[data-module="warehouse"] .warehouse-zone-card,
+  body[data-module="warehouse"] .warehouse-zone-grid,
+  body[data-module="warehouse"] .warehouse-zone-columns,
+  body[data-module="warehouse"] .vertical-card-grid,
+  body[data-module="warehouse"] .six-grid{
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="warehouse"] .warehouse-zone-card,
+  body[data-module="warehouse"] .vertical-card-grid,
+  body[data-module="warehouse"] .six-grid{
+    min-width:980px!important;
+  }
+  body[data-module="warehouse"] .vertical-column-card{
+    min-width:150px!important;
+  }
+  body[data-module="warehouse"] .warehouse-toolbar,
+  body[data-module="warehouse"] .warehouse-filters,
+  body[data-module="warehouse"] .warehouse-actions{
+    width:100%!important;
+    max-width:100%!important;
+    display:flex!important;
+    flex-wrap:nowrap!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    gap:8px!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+  body[data-module="warehouse"] .warehouse-toolbar button,
+  body[data-module="warehouse"] .warehouse-filters button,
+  body[data-module="warehouse"] .warehouse-actions button{
+    flex:0 0 auto!important;
+    white-space:nowrap!important;
+  }
+
+  /* Forms and secondary pages: make every form scrollable and prevent oversized controls from blocking swipes. */
+  body[data-module="ship"] .form-card,
+  body[data-module="customers"] .form-card,
+  body[data-module="todos"] .form-card,
+  body[data-module="settings"] .form-card,
+  body[data-module="diagnostics"] .form-card,
+  body[data-module="shipping_query"] .form-card,
+  body[data-module="ship"] .section-card,
+  body[data-module="customers"] .section-card,
+  body[data-module="todos"] .section-card,
+  body[data-module="settings"] .section-card,
+  body[data-module="diagnostics"] .section-card,
+  body[data-module="shipping_query"] .section-card{
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+  }
+
+  /* Modal: visible on phone and scrollable internally, without locking the whole page. */
+  html body #warehouse-modal:not(.hidden),
+  html body #warehouse-modal.yx-viewport-centered-modal:not(.hidden){
+    position:fixed!important;
+    inset:0!important;
+    width:100vw!important;
+    height:100dvh!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    padding:10px!important;
+    overflow:hidden!important;
+    z-index:2147483000!important;
+  }
+  html body #warehouse-modal .modal-card,
+  html body #warehouse-modal .warehouse-modal-card,
+  html body #warehouse-modal .glass,
+  html body #warehouse-modal.yx-viewport-centered-modal .modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .warehouse-modal-card,
+  html body #warehouse-modal.yx-viewport-centered-modal .glass{
+    width:min(96vw,620px)!important;
+    max-width:96vw!important;
+    max-height:88dvh!important;
+    min-width:0!important;
+    overflow:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x pan-y!important;
+    border-radius:18px!important;
+  }
+  html body #warehouse-modal .modal-head{
+    position:sticky!important;
+    top:0!important;
+    z-index:2!important;
+    background:rgba(255,255,255,.92)!important;
+    backdrop-filter:blur(10px)!important;
+  }
+}
+
+/* 20260517ac: 倉庫長按選單穩定修復
+   - 長按選單固定在目前可視畫面內，不被邊界裁掉
+   - 選單開啟時不誤觸點格彈窗
+   - 只保留指定四個功能按鈕 */
+html body #yx-final-warehouse-menu,
+body[data-module="warehouse"] #yx-final-warehouse-menu{
+  position:fixed!important;
+  transform:translate(-50%,-50%)!important;
+  min-width:230px!important;
+  max-width:min(280px,calc(100vw - 24px))!important;
+  max-height:calc(100dvh - 24px)!important;
+  overflow:auto!important;
+  z-index:2147483647!important;
+  pointer-events:auto!important;
+  display:flex!important;
+  flex-direction:column!important;
+  gap:8px!important;
+  background:rgba(255,255,255,.98)!important;
+  border:1px solid rgba(148,163,184,.45)!important;
+  border-radius:20px!important;
+  padding:12px!important;
+  box-shadow:0 22px 64px rgba(15,23,42,.28)!important;
+  -webkit-overflow-scrolling:touch!important;
+}
+html body #yx-final-warehouse-menu.hidden,
+body[data-module="warehouse"] #yx-final-warehouse-menu.hidden{
+  display:none!important;
+}
+html body #yx-final-warehouse-menu button[data-wh-act],
+body[data-module="warehouse"] #yx-final-warehouse-menu button[data-wh-act]{
+  width:100%!important;
+  min-height:42px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:16px!important;
+  font-size:15px!important;
+  font-weight:900!important;
+  white-space:nowrap!important;
+}
+html body #yx-final-warehouse-menu button[data-wh-act]:not([data-wh-act="batchInsert"]):not([data-wh-act="batchDelete"]):not([data-wh-act="mark"]):not([data-wh-act="return"]){
+  display:none!important;
+}
+
+
+/* 20260517ae warehouse modal close + mobile scroll stability */
+#warehouse-modal:not(.hidden) .modal-card{overscroll-behavior:contain;}
+#warehouse-modal .modal-head{position:sticky;top:0;z-index:12;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);}
+#warehouse-modal .modal-head .icon-btn{position:relative;z-index:13;pointer-events:auto;touch-action:manipulation;}
+#yx-final-warehouse-menu{touch-action:manipulation;}
+#warehouse-root .vertical-slot{touch-action:pan-x pan-y;}
+#warehouse-root .vertical-slot.yx121-warehouse-dragging{touch-action:none;}
+
+
+/* 20260517ah warehouse busy state: avoid double tap while background save is running */
+html.yx-warehouse-busy #yx-final-warehouse-menu [data-wh-act],
+html.yx-warehouse-busy #yx121-save-cell{
+  opacity:.55!important;
+  pointer-events:none!important;
+}
+html.yx-warehouse-busy #warehouse-modal .modal-head::after{
+  content:'背景保存中';
+  display:inline-flex;
+  align-items:center;
+  margin-left:8px;
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:12px;
+  color:#8a5a00;
+  background:#fff7d6;
+  border:1px solid rgba(180,120,0,.18);
+}
+
+
+/* 20260517ao：粉紅標記與編輯中/搜尋高亮同時存在時，粉紅底色不要被淡藍提示或高亮完全蓋掉 */
+html body .yx-final-slot.yx-bb-marked-cell.yx-current-editing-cell,
+html body .vertical-slot.yx-bb-marked-cell.yx-current-editing-cell,
+html body .yx108-slot.yx-bb-marked-cell.yx-current-editing-cell,
+html body .yx116-slot.yx-bb-marked-cell.yx-current-editing-cell{
+  background:linear-gradient(0deg, rgba(255,228,238,.52), rgba(255,228,238,.52))!important;
+  border-color:rgba(244,114,182,.50)!important;
+}
+html body .yx-final-slot.yx-bb-marked-cell.highlight,
+html body .vertical-slot.yx-bb-marked-cell.highlight,
+html body .yx108-slot.yx-bb-marked-cell.highlight,
+html body .yx116-slot.yx-bb-marked-cell.highlight{
+  background:linear-gradient(0deg, rgba(255,228,238,.56), rgba(255,228,238,.56))!important;
+}
+html body .yx-final-warehouse-menu button[data-wh-act="mark"].is-marked{
+  color:#be185d!important;
+  background:rgba(255,228,238,.72)!important;
+  border-color:rgba(244,114,182,.28)!important;
+}
+
+/* 20260517ax warehouse search navigation polish */
+#warehouse-search-results .yx-wh-search-nav{position:sticky;top:0;z-index:3;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);padding:6px;border-radius:12px;margin-bottom:6px;}
+#warehouse-search-results .yx-search-hit.active{outline:2px solid rgba(37,99,235,.35);box-shadow:0 0 0 4px rgba(37,99,235,.08);}
+#yx-wh-search-count{display:inline-flex;align-items:center;justify-content:center;min-width:64px;font-weight:700;}
+
+
+/* 20260517az 倉庫搜尋結果清單：結果很多時只在結果框內滑動，不把整頁擠長；目前項目保留清楚定位。 */
+#warehouse-search-results{
+  max-height:min(42vh,420px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+#warehouse-search-results .yx-search-hit.active{
+  scroll-margin:56px 0 16px 0;
+}
+
+/* 20260517bb：倉庫搜尋結果可直接開啟格位，小按鈕不撐爆手機寬度 */
+#warehouse-search-results .yx-search-hit{ cursor:pointer; }
+#warehouse-search-results .yx-search-hit-actions{ margin-top:6px; justify-content:flex-end; }
+#warehouse-search-results .yx-search-hit-actions .small-btn{ min-height:30px; padding:4px 10px; font-size:12px; }
+
+/* 20260517bd 倉庫最近搜尋 chips：只影響倉庫搜尋列，不改其他頁面 */
+.yx-warehouse-recent-searches{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:nowrap;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  padding:6px 2px 2px;
+  max-width:100%;
+}
+.yx-warehouse-recent-searches.hidden{display:none!important;}
+.yx-warehouse-recent-searches .small-note{white-space:nowrap;flex:0 0 auto;}
+.yx-warehouse-recent-searches .small-btn{white-space:nowrap;flex:0 0 auto;}
+@media (max-width: 640px){
+  .yx-warehouse-recent-searches{padding-bottom:4px;}
+}
+
+/* 20260517be：倉庫搜尋結果的開啟/複製按鈕在手機上保持可點且不撐破 */
+.yx-search-hit-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.yx-search-hit-actions .small-btn{min-height:32px;line-height:1.2;}
+@media (max-width: 640px){
+  .yx-search-hit-actions{justify-content:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .yx-search-hit-actions .small-btn{white-space:nowrap;flex:0 0 auto;}
+}
+
+
+/* 20260517bf：倉庫搜尋中狀態，手機網路慢時讓使用者知道正在找。 */
+.yx-wh-search-loading{
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:10px 12px; border-radius:14px; background:rgba(255,255,255,.92);
+  border:1px solid rgba(15,23,42,.08); box-shadow:0 8px 20px rgba(15,23,42,.06);
+  font-size:13px; color:#334155;
+}
+.yx-wh-spinner{
+  width:14px; height:14px; border-radius:50%;
+  border:2px solid rgba(100,116,139,.25); border-top-color:rgba(15,23,42,.65);
+  animation:yxWhSpin .75s linear infinite; flex:0 0 auto;
+}
+@keyframes yxWhSpin{to{transform:rotate(360deg)}}
+@media (max-width: 640px){
+  .yx-wh-search-loading{position:sticky; top:4px; z-index:4;}
+}
+
+/* 20260517bg warehouse search restore hint */
+.yx-warehouse-recent-searches .yx-last-search-chip{font-weight:700;border-style:dashed;}
+
+
+/* 20260517bh 倉庫搜尋結果收合：手機搜尋結果太長時可先收合，不影響高亮與開啟格位 */
+#warehouse-search-results.yx-search-results-collapsed .yx-search-hit,
+#warehouse-search-results.yx-search-results-collapsed .yx-local-search-note{
+  display:none !important;
+}
+#warehouse-search-results.yx-search-results-collapsed{
+  max-height:none !important;
+  overflow:visible !important;
+}
+#warehouse-search-results .yx-wh-search-nav{
+  position:sticky;
+  top:0;
+  z-index:2;
+  background:rgba(255,255,255,.94);
+  backdrop-filter:blur(8px);
+  border-radius:12px;
+  padding:4px;
+}
+
+/* 20260517bi 倉庫搜尋導覽固定小修：搜尋結果清單很長時，上一個/下一個/收合導覽固定在結果框頂部，只影響搜尋結果框，不改倉庫主線。 */
+#warehouse-search-results .yx-wh-search-nav{
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: rgba(255,255,255,.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding-top: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(15,23,42,.08);
+}
+#warehouse-search-results.yx-search-results-collapsed .yx-wh-search-nav{
+  border-bottom: 0;
+}
+@media (max-width: 720px){
+  #warehouse-search-results .yx-wh-search-nav{
+    margin-left: -2px;
+    margin-right: -2px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 20260517bl 倉庫搜尋結果底部安全距離：手機瀏覽器工具列或手勢列不遮住最後一筆結果，只影響倉庫搜尋結果框。 */
+#warehouse-search-results{
+  padding-bottom:max(12px, env(safe-area-inset-bottom));
+}
+#warehouse-search-results .yx-search-hit:last-child{
+  margin-bottom:max(10px, env(safe-area-inset-bottom));
+}
+@media (max-width: 720px){
+  #warehouse-search-results{
+    max-height:min(46vh, 440px);
+  }
+  #warehouse-search-results .yx-search-hit{
+    scroll-margin-bottom:calc(72px + env(safe-area-inset-bottom));
+  }
+}
+
+/* 20260517bm 倉庫搜尋觸控間距小修：只調整手機搜尋結果導覽/操作按鈕的觸控範圍，避免按錯，不改倉庫資料與 JS 主線。 */
+#warehouse-search-results .yx-wh-search-nav,
+#warehouse-search-results .yx-search-hit-actions{
+  gap: 8px;
+  align-items: center;
+}
+#warehouse-search-results .yx-wh-search-nav .small-btn,
+#warehouse-search-results .yx-search-hit-actions .small-btn{
+  min-height: 34px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+@media (max-width: 720px){
+  #warehouse-search-results .yx-wh-search-nav,
+  #warehouse-search-results .yx-search-hit-actions{
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  #warehouse-search-results .yx-wh-search-nav .small-btn,
+  #warehouse-search-results .yx-search-hit-actions .small-btn,
+  #warehouse-search-results [data-yx-search-nav],
+  #warehouse-search-results [data-yx-open-hit],
+  #warehouse-search-results [data-yx-copy-hit],
+  #warehouse-search-results [data-yx-toggle-search-results]{
+    min-width: max-content;
+    min-height: 38px;
+    padding-left: 12px;
+    padding-right: 12px;
+    scroll-snap-align: start;
+    touch-action: manipulation;
+  }
+  #warehouse-search-results .yx-search-hit{
+    padding-bottom: 12px;
+  }
+}
+
+
+/* 20260517bn warehouse mobile touch/selection guard
+   只處理倉庫手機誤觸、長按選字與按鈕回饋，不改資料、不改 renderer。 */
+@media (max-width: 768px){
+  #warehouse-root .warehouse-grid,
+  #warehouse-root .warehouse-zone,
+  #warehouse-root .warehouse-band,
+  #warehouse-root .vertical-slot,
+  #warehouse-root .slot-card,
+  #warehouse-root .cell-card,
+  #yx-final-warehouse-menu,
+  #warehouse-search-results,
+  #warehouse-modal .modal-card,
+  #warehouse-modal .warehouse-modal-card{
+    -webkit-tap-highlight-color: rgba(15,23,42,.08)!important;
+  }
+
+  #warehouse-root .vertical-slot,
+  #warehouse-root .slot-card,
+  #warehouse-root .cell-card,
+  #yx-final-warehouse-menu button,
+  #warehouse-search-results button{
+    -webkit-user-select: none!important;
+    user-select: none!important;
+    -webkit-touch-callout: none!important;
+  }
+
+  #warehouse-root input,
+  #warehouse-root textarea,
+  #warehouse-root select,
+  #warehouse-modal input,
+  #warehouse-modal textarea,
+  #warehouse-modal select{
+    -webkit-user-select: text!important;
+    user-select: text!important;
+    -webkit-touch-callout: default!important;
+  }
+
+  #warehouse-root button:active,
+  #warehouse-modal button:active,
+  #yx-final-warehouse-menu button:active,
+  #warehouse-search-results button:active{
+    transform: scale(.985)!important;
+    filter: brightness(.98)!important;
+  }
+
+  #warehouse-root .vertical-slot:active,
+  #warehouse-root .slot-card:active,
+  #warehouse-root .cell-card:active{
+    outline: 2px solid rgba(37,99,235,.18)!important;
+    outline-offset: 1px!important;
+  }
+}
+
+
+/* 20260517bo warehouse mobile scroll boundary guard
+   只處理倉庫手機滑動邊界、橫向表格與彈窗內捲動；不改資料、不改 renderer。 */
+@media (max-width: 768px){
+  #warehouse-root,
+  #warehouse-root .warehouse-page,
+  #warehouse-root .warehouse-panel,
+  #warehouse-root .warehouse-map-wrap,
+  #warehouse-root .warehouse-scroll,
+  #warehouse-root .warehouse-grid-wrap,
+  #warehouse-root .yx-warehouse-scroll,
+  #warehouse-search-results{
+    -webkit-overflow-scrolling: touch!important;
+    overscroll-behavior: contain!important;
+  }
+
+  #warehouse-root .warehouse-map-wrap,
+  #warehouse-root .warehouse-scroll,
+  #warehouse-root .warehouse-grid-wrap,
+  #warehouse-root .yx-warehouse-scroll{
+    overflow-x: auto!important;
+    overflow-y: visible!important;
+    scroll-padding-left: 12px!important;
+    scroll-padding-right: 16px!important;
+  }
+
+  #warehouse-modal .modal-card,
+  #warehouse-modal .warehouse-modal-card,
+  #warehouse-modal .modal-body,
+  #warehouse-modal .warehouse-modal-body{
+    -webkit-overflow-scrolling: touch!important;
+    overscroll-behavior: contain!important;
+  }
+
+  #warehouse-search-results{
+    scroll-padding-top: 56px!important;
+    scroll-padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px))!important;
+  }
+
+  #warehouse-root .vertical-slot,
+  #warehouse-root .slot-card,
+  #warehouse-root .cell-card{
+    scroll-margin-top: 72px!important;
+    scroll-margin-bottom: calc(96px + env(safe-area-inset-bottom, 0px))!important;
+  }
+}
+
+
+/* 20260517bp warehouse horizontal scroll hint
+   只處理手機倉庫圖橫向滑動提示與邊緣留白；不改資料、不改 renderer。 */
+@media (max-width: 768px){
+  #warehouse-root .warehouse-map-wrap,
+  #warehouse-root .warehouse-scroll,
+  #warehouse-root .warehouse-grid-wrap,
+  #warehouse-root .yx-warehouse-scroll{
+    position: relative!important;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px))!important;
+  }
+
+  #warehouse-root .warehouse-map-wrap::after,
+  #warehouse-root .warehouse-scroll::after,
+  #warehouse-root .warehouse-grid-wrap::after,
+  #warehouse-root .yx-warehouse-scroll::after{
+    content: "左右滑動看完整倉庫圖";
+    position: sticky!important;
+    right: 8px!important;
+    bottom: 6px!important;
+    z-index: 12!important;
+    display: inline-block!important;
+    float: right!important;
+    max-width: 52vw!important;
+    padding: 4px 8px!important;
+    margin: 4px 8px 2px auto!important;
+    border-radius: 999px!important;
+    background: rgba(255,255,255,.86)!important;
+    color: rgba(51,65,85,.78)!important;
+    font-size: 11px!important;
+    line-height: 1.2!important;
+    box-shadow: 0 4px 14px rgba(15,23,42,.08)!important;
+    pointer-events: none!important;
+    white-space: nowrap!important;
+  }
+
+  #warehouse-root .warehouse-map-wrap:focus-within::after,
+  #warehouse-root .warehouse-scroll:focus-within::after,
+  #warehouse-root .warehouse-grid-wrap:focus-within::after,
+  #warehouse-root .yx-warehouse-scroll:focus-within::after{
+    opacity: .55!important;
+  }
+}
+
+/* 20260517bs 倉庫較大包穩定修復：批量草稿摘要、清空草稿、手機彈窗容錯 */
+.yx121-batch-summary{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  margin:8px 0 6px;
+  padding:6px 10px;
+  border-radius:12px;
+  background:rgba(248,250,252,.72);
+  border:1px solid rgba(148,163,184,.25);
+  color:#64748b;
+  font-weight:700;
+}
+.yx121-batch-summary.is-active{
+  background:rgba(240,253,250,.92);
+  border-color:rgba(20,184,166,.35);
+  color:#0f766e;
+}
+#yx121-clear-batch-draft{
+  border-color:rgba(244,114,182,.28)!important;
+  color:#be185d!important;
+  background:rgba(253,242,248,.88)!important;
+}
+.yx-warehouse-busy #yx121-clear-batch-draft,
+.yx-warehouse-busy #yx121-add-batch-row,
+.yx-warehouse-busy #yx121-save-cell{
+  opacity:.62;
+  pointer-events:none;
+}
+@media (max-width: 640px){
+  .yx121-batch-summary{font-size:12px; min-height:34px; padding:7px 9px;}
+  #yx121-clear-batch-draft{min-width:92px;}
+  .yx-direct-batch-panel .btn-row.compact-row{gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:4px;}
+}
+
+/* 20260517bt 倉庫批量預檢大包：只加提示/驗證視覺，不改主線功能 */
+.yx121-batch-validation{display:none;margin:8px 0;padding:8px 10px;border-radius:12px;font-size:13px;line-height:1.45;background:rgba(56,189,248,.10);border:1px solid rgba(14,165,233,.18);color:#075985;font-weight:700;}
+.yx121-batch-validation.is-active{display:block;}
+.yx121-batch-validation.is-error{background:rgba(248,113,113,.12);border-color:rgba(239,68,68,.26);color:#991b1b;}
+.yx121-batch-validation.is-warn{background:rgba(251,191,36,.16);border-color:rgba(245,158,11,.28);color:#92400e;}
+.yx121-batch-status{display:none;margin:6px 0 0;padding:6px 9px;border-radius:999px;background:rgba(15,23,42,.06);color:#475569;width:max-content;max-width:100%;}
+.yx121-batch-status.is-active{display:inline-flex;align-items:center;gap:6px;}
+.yx121-batch-status[data-level="warn"]{background:rgba(251,191,36,.18);color:#92400e;}
+.yx121-batch-status[data-level="error"]{background:rgba(248,113,113,.16);color:#991b1b;}
+.yx121-batch-row.yx121-invalid-row{outline:2px solid rgba(239,68,68,.55);outline-offset:2px;background:rgba(254,226,226,.55);border-radius:14px;}
+.yx121-batch-row.yx121-warn-row{outline:2px solid rgba(245,158,11,.35);outline-offset:2px;background:rgba(254,243,199,.45);border-radius:14px;}
+.yx121-batch-row[data-yx-error]::after{content:attr(data-yx-error);display:block;grid-column:1 / -1;margin:2px 0 0 2px;font-size:12px;font-weight:800;color:#b91c1c;}
+.yx121-batch-summary.is-invalid{background:rgba(254,226,226,.72)!important;color:#991b1b!important;border-color:rgba(239,68,68,.28)!important;}
+.yx121-batch-actions{align-items:center;gap:8px;}
+#yx121-fill-max{border-color:rgba(14,165,233,.25);background:rgba(14,165,233,.08);color:#075985;}
+@media (max-width: 760px), (pointer: coarse){
+  .yx121-batch-actions{display:flex!important;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:4px;}
+  .yx121-batch-actions::-webkit-scrollbar{display:none;}
+  .yx121-batch-actions > button{min-width:max-content;min-height:42px;}
+  .yx121-batch-validation{font-size:12.5px;padding:8px 9px;}
+  .yx121-batch-status{font-size:12px;}
+}
+
+/* 20260517bu warehouse bigger safety panel / 本機狀態面板 */
+html body .yx-warehouse-bu-panel{
+  margin: 10px 0 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(15,23,42,.10);
+  border-radius: 18px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 10px 26px rgba(15,23,42,.08);
+  max-width: 100%;
+  overflow: hidden;
+}
+html body .yx-warehouse-bu-panel.hidden{display:none!important;}
+html body .yx-bu-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+html body .yx-bu-panel-head strong{font-size:15px;letter-spacing:.02em;}
+html body .yx-bu-level{font-size:12px;font-weight:800;border-radius:999px;padding:5px 10px;background:#eef2ff;color:#3730a3;white-space:nowrap;}
+html body .yx-bu-level.ok{background:#ecfdf5;color:#047857;}
+html body .yx-bu-level.warn{background:#fff7ed;color:#c2410c;}
+html body .yx-bu-level.error{background:#fef2f2;color:#b91c1c;}
+html body .yx-bu-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+html body .yx-bu-grid>div{border:1px solid rgba(15,23,42,.08);border-radius:14px;padding:9px 8px;background:rgba(248,250,252,.9);min-width:0;}
+html body .yx-bu-grid b{display:block;font-size:17px;line-height:1.1;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+html body .yx-bu-grid span{display:block;font-size:11px;color:#64748b;margin-top:3px;white-space:nowrap;}
+html body .yx-bu-note{font-size:12px;color:#475569;background:#f8fafc;border:1px dashed rgba(100,116,139,.25);border-radius:12px;padding:8px;margin:8px 0;}
+html body .yx-bu-alert{font-size:12px;font-weight:700;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:8px;margin:8px 0;}
+html body .yx-bu-drafts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0;}
+html body .yx-bu-label{font-size:12px;color:#64748b;font-weight:700;}
+html body .yx-bu-chip{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;background:#f1f5f9;color:#334155;font-size:12px;font-weight:700;white-space:nowrap;}
+html body .yx-bu-chip.warn{background:#fff7ed;color:#c2410c;}
+html body .yx-bu-chip.muted{color:#94a3b8;font-weight:600;}
+html body .yx-bu-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;}
+html body #yx-warehouse-bu-toggle{white-space:nowrap;}
+@media (max-width: 640px){
+  html body .yx-warehouse-bu-panel{margin-left:0;margin-right:0;padding:10px;border-radius:16px;}
+  html body .yx-bu-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;}
+  html body .yx-bu-actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;}
+  html body .yx-bu-actions button{min-height:42px;flex:0 0 auto;}
+  html body .yx-bu-drafts{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:5px;}
+}
+
+/* 20260517bv 倉庫本機自檢面板：只處理倉庫狀態面板內的本機巡檢視覺，不影響主線功能 */
+.yx-bv-audit-box{margin-top:10px;padding:10px;border-radius:14px;background:rgba(255,255,255,.78);border:1px solid rgba(15,23,42,.08);box-shadow:0 6px 16px rgba(15,23,42,.06)}
+.yx-bv-audit-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:13px}
+.yx-bv-level{font-size:12px;border-radius:999px;padding:3px 8px;background:#e8f7ef;color:#166534;font-weight:800;white-space:nowrap}
+.yx-bv-level.warn{background:#fff7ed;color:#9a3412}.yx-bv-level.info{background:#eff6ff;color:#1d4ed8}
+.yx-bv-audit-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px dashed rgba(15,23,42,.08);font-size:12px}.yx-bv-audit-row:first-of-type{border-top:0}.yx-bv-audit-row.warn b{color:#b91c1c}.yx-bv-audit-detail{margin-top:8px;font-size:12px;line-height:1.5;color:#475569}.yx-bv-audit-detail.muted{color:#94a3b8}
+#yx-warehouse-bu-panel .yx-bu-actions [data-yx-bv-act]{touch-action:manipulation}
+@media (max-width: 720px){#yx-warehouse-bu-panel .yx-bu-actions{display:flex;overflow-x:auto;gap:8px;padding-bottom:6px;scrollbar-width:thin}#yx-warehouse-bu-panel .yx-bu-actions button{min-height:42px;white-space:nowrap}.yx-bv-audit-box{font-size:13px}.yx-bv-audit-row{font-size:13px}}
+
+/* 20260517bw 倉庫操作日誌較大包：只顯示本機日誌，不影響主線功能 */
+.yx-bw-journal-box{margin-top:10px;padding:10px;border-radius:14px;background:rgba(248,250,252,.9);border:1px solid rgba(15,23,42,.08)}
+.yx-bw-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:13px}.yx-bw-head strong{font-size:14px}.yx-bw-head span{font-size:12px;color:#64748b;font-weight:800;background:#fff;border:1px solid rgba(15,23,42,.08);padding:3px 8px;border-radius:999px}.yx-bw-empty{font-size:12px;color:#94a3b8;padding:8px;border-radius:12px;background:#fff}.yx-bw-list{display:grid;gap:6px;max-height:220px;overflow:auto;-webkit-overflow-scrolling:touch;padding-right:2px}.yx-bw-row{display:grid;grid-template-columns:minmax(80px,1fr) auto;gap:3px 8px;padding:8px;border-radius:12px;background:#fff;border:1px solid rgba(15,23,42,.06);font-size:12px}.yx-bw-row b{font-size:12.5px;color:#0f172a}.yx-bw-row span{font-size:11px;color:#64748b;text-align:right}.yx-bw-row em{grid-column:1/-1;font-style:normal;color:#475569;word-break:break-word}.yx-bw-row.warn{background:#fff7ed}.yx-bw-row.error{background:#fef2f2}.yx-bw-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}.yx-bw-actions .danger{color:#b91c1c;border-color:rgba(185,28,28,.25)}
+@media (max-width:720px){.yx-bw-journal-box{padding:9px}.yx-bw-list{max-height:190px}.yx-bw-actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:5px}.yx-bw-actions button{min-height:42px;white-space:nowrap}.yx-bw-row{grid-template-columns:1fr}.yx-bw-row span{text-align:left}}
+
+/* 20260517bx 倉庫一鍵回報包較大包：只顯示本機狀態/回報工具，不影響主線功能 */
+.yx-bx-report-box{margin-top:10px;padding:10px;border-radius:14px;background:linear-gradient(135deg,rgba(239,246,255,.92),rgba(255,255,255,.92));border:1px solid rgba(37,99,235,.14);box-shadow:0 8px 20px rgba(37,99,235,.07)}
+.yx-bx-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-bx-head strong{font-size:14px;color:#0f172a}.yx-bx-head span{font-size:12px;color:#1d4ed8;background:#dbeafe;border-radius:999px;padding:3px 8px;font-weight:800;white-space:nowrap}.yx-bx-note{font-size:12px;line-height:1.45;color:#475569;background:rgba(255,255,255,.72);border-radius:12px;padding:8px;margin-bottom:8px}.yx-bx-stats{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}.yx-bx-stats span{font-size:12px;color:#334155;background:#fff;border:1px solid rgba(15,23,42,.08);border-radius:999px;padding:4px 8px;font-weight:700;white-space:nowrap}.yx-bx-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.yx-bx-actions button{white-space:nowrap}
+@media (max-width:720px){.yx-bx-report-box{padding:9px}.yx-bx-actions,.yx-bx-stats{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:5px}.yx-bx-actions button{min-height:42px;flex:0 0 auto}.yx-bx-stats span{flex:0 0 auto}}
+
+
+/* 20260517by 倉庫回報分析較大包：本機分析/比對回報包，不影響主線 */
+.yx-by-analyzer{margin-top:12px;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:16px;background:rgba(255,255,255,.82);box-shadow:0 8px 22px rgba(15,23,42,.06)}
+.yx-by-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-weight:800;color:#0f172a}.yx-by-head span{font-size:12px;color:#64748b;background:#f1f5f9;border-radius:999px;padding:3px 8px}.yx-by-note{font-size:12px;color:#64748b;line-height:1.45;margin-bottom:8px}.yx-by-input{width:100%;min-height:82px;max-height:160px;resize:vertical;border:1px solid rgba(148,163,184,.55);border-radius:12px;padding:10px;font-size:13px;line-height:1.45;background:#fff;color:#0f172a;box-sizing:border-box}.yx-by-actions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:8px 0 4px}.yx-by-actions button{white-space:nowrap;min-height:38px}.yx-by-summary,.yx-by-diff{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.yx-by-summary span,.yx-by-diff span{font-size:12px;border-radius:999px;background:#f8fafc;border:1px solid rgba(148,163,184,.28);padding:4px 8px;color:#334155}.yx-by-diff span{background:#fefce8;color:#854d0e}.yx-by-risk{margin-top:8px;border-radius:12px;padding:8px 10px;font-size:12px;line-height:1.55}.yx-by-risk.ok{background:#ecfdf5;color:#047857}.yx-by-risk.warn{background:#fff7ed;color:#9a3412}
+@media (max-width: 720px){.yx-by-analyzer{margin-left:0;margin-right:0;padding:10px;border-radius:14px}.yx-by-input{min-height:76px;font-size:16px}.yx-by-summary,.yx-by-diff{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}.yx-by-summary span,.yx-by-diff span{white-space:nowrap}.yx-by-actions button{min-width:max-content;padding:9px 12px}}
+
+/* 20260517bz 倉庫異常快速修復較大包：本機 UI 修復工具，不影響資料表與主線 */
+.yx-bz-repair-box{margin-top:12px;padding:12px;border-radius:16px;background:linear-gradient(135deg,rgba(255,255,255,.94),rgba(240,253,250,.90));border:1px solid rgba(20,184,166,.20);box-shadow:0 10px 24px rgba(15,23,42,.06)}
+.yx-bz-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-bz-head strong{font-size:14px;color:#0f172a}.yx-bz-head span{font-size:12px;border-radius:999px;padding:4px 9px;font-weight:900;white-space:nowrap}.yx-bz-head span.ok{background:#dcfce7;color:#166534}.yx-bz-head span.warn{background:#fff7ed;color:#9a3412}.yx-bz-note{font-size:12px;line-height:1.5;color:#475569;background:rgba(255,255,255,.72);border:1px dashed rgba(20,184,166,.22);border-radius:12px;padding:8px;margin-bottom:8px}.yx-bz-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.yx-bz-row{border:1px solid rgba(15,23,42,.08);border-radius:12px;background:rgba(255,255,255,.86);padding:8px;min-width:0}.yx-bz-row span{display:block;font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.yx-bz-row b{display:block;margin-top:3px;font-size:15px;color:#0f172a}.yx-bz-row.warn{background:#fff7ed;border-color:#fed7aa}.yx-bz-row.warn b{color:#9a3412}.yx-bz-last{font-size:12px;color:#334155;background:#f8fafc;border-radius:12px;padding:8px;margin-top:8px}.yx-bz-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px}.yx-bz-actions button{white-space:nowrap}.yx-bz-actions [data-yx-bz-act="reset"]{color:#b45309;border-color:rgba(180,83,9,.25);background:#fffbeb}
+@media (max-width:720px){.yx-bz-repair-box{padding:10px;border-radius:14px}.yx-bz-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.yx-bz-actions{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:5px}.yx-bz-actions button{min-height:42px;flex:0 0 auto}.yx-bz-note,.yx-bz-last{font-size:12.5px}}
+
+
+/* 20260517ca 倉庫前後端讀回自檢較大包：只顯示只讀比對結果，不影響倉庫主線 */
+.yx-ca-readback-box{margin-top:12px;padding:12px;border-radius:16px;background:linear-gradient(135deg,rgba(255,255,255,.94),rgba(240,249,255,.90));border:1px solid rgba(14,165,233,.22);box-shadow:0 10px 24px rgba(14,165,233,.07)}
+.yx-ca-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-ca-head strong{font-size:14px;color:#0f172a}.yx-ca-head span{font-size:12px;border-radius:999px;padding:4px 9px;font-weight:900;white-space:nowrap}.yx-ca-head span.info{background:#e0f2fe;color:#0369a1}.yx-ca-head span.ok{background:#dcfce7;color:#166534}.yx-ca-head span.warn{background:#fff7ed;color:#9a3412}.yx-ca-head span.busy{background:#f1f5f9;color:#475569}.yx-ca-note{font-size:12px;line-height:1.5;color:#475569;background:rgba(255,255,255,.72);border:1px dashed rgba(14,165,233,.25);border-radius:12px;padding:8px;margin-bottom:8px}.yx-ca-result{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}.yx-ca-result span{font-size:12px;font-weight:800;border-radius:999px;background:#fff;border:1px solid rgba(15,23,42,.08);padding:5px 8px;color:#334155;white-space:nowrap}.yx-ca-result.ok span{background:#ecfdf5;color:#047857;border-color:#bbf7d0}.yx-ca-result.warn span{background:#fff7ed;color:#9a3412;border-color:#fed7aa}.yx-ca-detail{display:grid;gap:5px;font-size:12px;line-height:1.45;color:#475569;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:8px;margin:8px 0}.yx-ca-detail b{color:#92400e}.yx-ca-detail em{font-style:normal;word-break:break-word}.yx-ca-okline{font-size:12px;color:#047857;background:#ecfdf5;border-radius:12px;padding:8px;margin:8px 0}.yx-ca-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:9px}.yx-ca-actions button{white-space:nowrap}.yx-ca-actions [data-yx-ca-act="reload"]{color:#075985;border-color:rgba(14,165,233,.30);background:#f0f9ff}
+@media (max-width:720px){.yx-ca-readback-box{padding:10px;border-radius:14px}.yx-ca-actions,.yx-ca-result{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:5px}.yx-ca-actions button{min-height:42px;flex:0 0 auto}.yx-ca-result span{flex:0 0 auto}.yx-ca-detail{font-size:12.5px;max-height:150px;overflow:auto;-webkit-overflow-scrolling:touch}}
+
+
+/* 20260517cb 倉庫讀回差異定位：只加視覺與手機觸控，不改資料 */
+.yx-cb-diff-locator{margin:12px 0;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:16px;background:rgba(255,255,255,.78);box-shadow:0 8px 24px rgba(15,23,42,.06)}
+.yx-cb-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:14px;color:#334155}
+.yx-cb-head span{font-size:12px;color:#64748b;background:#f1f5f9;border-radius:999px;padding:4px 8px}
+.yx-cb-actions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px;margin-bottom:8px}
+.yx-cb-actions .small-btn{white-space:nowrap;min-height:38px}
+.yx-cb-list{max-height:min(42vh,360px);overflow:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:#f8fafc;border:1px solid rgba(148,163,184,.25);padding:6px;overscroll-behavior:contain}
+.yx-cb-row{display:grid;grid-template-columns:auto minmax(130px,1fr) auto;align-items:center;gap:8px;padding:8px;border-bottom:1px solid rgba(226,232,240,.9);font-size:13px}
+.yx-cb-row:last-child{border-bottom:0}
+.yx-cb-type{font-weight:800;color:#9f1239;background:#fff1f2;border-radius:999px;padding:3px 7px;white-space:nowrap}
+.yx-cb-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.yx-cb-row.server-only .yx-cb-type{color:#92400e;background:#fffbeb}
+.yx-cb-row em{font-size:12px;color:#92400e;white-space:nowrap}
+.yx-cb-note{font-size:13px;color:#64748b;line-height:1.5;padding:8px;background:#f8fafc;border-radius:12px}
+.warehouse-slot.yx-cb-readback-diff,.warehouse-cell.yx-cb-readback-diff,[data-slot].yx-cb-readback-diff{outline:3px solid rgba(244,63,94,.68)!important;outline-offset:2px!important;box-shadow:0 0 0 5px rgba(244,63,94,.12)!important}
+.warehouse-slot.yx-cb-readback-localonly,.warehouse-cell.yx-cb-readback-localonly,[data-slot].yx-cb-readback-localonly{background:linear-gradient(0deg,rgba(255,241,242,.8),rgba(255,255,255,.92))!important}
+.warehouse-slot.yx-cb-readback-changed,.warehouse-cell.yx-cb-readback-changed,[data-slot].yx-cb-readback-changed{background:linear-gradient(0deg,rgba(255,247,237,.86),rgba(255,255,255,.92))!important}
+.warehouse-slot.yx-cb-readback-active,.warehouse-cell.yx-cb-readback-active,[data-slot].yx-cb-readback-active{outline:4px solid rgba(37,99,235,.86)!important;outline-offset:3px!important;box-shadow:0 0 0 7px rgba(37,99,235,.16),0 12px 28px rgba(15,23,42,.18)!important;z-index:6;position:relative}
+@media(max-width:640px){.yx-cb-diff-locator{margin:10px 0;padding:10px;border-radius:14px}.yx-cb-row{grid-template-columns:1fr;align-items:stretch}.yx-cb-row .mini-btn{width:100%;min-height:40px}.yx-cb-key{white-space:normal;word-break:break-all}.yx-cb-list{max-height:48vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}.yx-cb-actions{gap:7px}.yx-cb-actions .small-btn{min-height:42px}}
+
+
+/* 20260517cc 倉庫讀回差異篩選：只加讀回報告篩選面板視覺，不改倉庫資料 */
+.yx-cc-filter-box{margin:12px 0;padding:12px;border-radius:16px;border:1px solid rgba(99,102,241,.22);background:linear-gradient(135deg,rgba(255,255,255,.94),rgba(238,242,255,.88));box-shadow:0 10px 24px rgba(79,70,229,.07)}
+.yx-cc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.yx-cc-head strong{font-size:14px;color:#0f172a}.yx-cc-head span{font-size:12px;font-weight:900;white-space:nowrap;border-radius:999px;background:#e0e7ff;color:#3730a3;padding:4px 9px}.yx-cc-note{font-size:12px;line-height:1.5;color:#475569;background:rgba(255,255,255,.72);border:1px dashed rgba(99,102,241,.22);border-radius:12px;padding:8px;margin-bottom:8px}.yx-cc-filterbar,.yx-cc-actions{display:flex;gap:8px;align-items:center;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}.yx-cc-filterbar button,.yx-cc-actions button{white-space:nowrap;min-height:38px;flex:0 0 auto}.yx-cc-filterbar button.active{background:#4f46e5!important;color:#fff!important;border-color:#4f46e5!important;box-shadow:0 6px 14px rgba(79,70,229,.20)}.yx-cc-search{display:flex;gap:8px;align-items:center;margin:8px 0}.yx-cc-search input{flex:1;min-width:0;border:1px solid rgba(148,163,184,.55);border-radius:12px;padding:9px 10px;background:#fff;color:#0f172a;box-sizing:border-box}.yx-cc-list{max-height:min(42vh,360px);overflow:auto;-webkit-overflow-scrolling:touch;border:1px solid rgba(148,163,184,.26);border-radius:12px;background:#f8fafc;padding:6px;overscroll-behavior:contain}.yx-cc-row{display:grid;grid-template-columns:auto minmax(120px,1fr) minmax(160px,1.3fr) auto;align-items:center;gap:8px;padding:8px;border-bottom:1px solid rgba(226,232,240,.9);font-size:13px}.yx-cc-row:last-child{border-bottom:0}.yx-cc-badge{font-weight:900;border-radius:999px;padding:3px 7px;white-space:nowrap;background:#eef2ff;color:#3730a3}.yx-cc-row.changed .yx-cc-badge{background:#fff7ed;color:#9a3412}.yx-cc-row.local .yx-cc-badge{background:#fff1f2;color:#9f1239}.yx-cc-row.server .yx-cc-badge{background:#fefce8;color:#854d0e}.yx-cc-row b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yx-cc-row small{color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yx-cc-empty,.yx-cc-more{font-size:12.5px;line-height:1.5;color:#64748b;background:#fff;border-radius:12px;padding:9px;margin-top:6px}.yx-cc-more{color:#9a3412;background:#fff7ed}
+@media(max-width:720px){.yx-cc-filter-box{padding:10px;border-radius:14px}.yx-cc-search input{font-size:16px;min-height:42px}.yx-cc-search button{min-height:42px;white-space:nowrap}.yx-cc-row{grid-template-columns:1fr;align-items:stretch}.yx-cc-row b,.yx-cc-row small{white-space:normal;word-break:break-word}.yx-cc-row .mini-btn{width:100%;min-height:42px}.yx-cc-list{max-height:48vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}.yx-cc-filterbar button,.yx-cc-actions button{min-height:42px}}
+
+/* 20260517cd 倉庫讀回差異處理建議：只讀面板樣式 */
+#yx-warehouse-cd-plan.yx-cd-plan-box{
+  margin:12px 0;
+  padding:12px;
+  border:1px solid rgba(15,23,42,.10);
+  border-radius:16px;
+  background:rgba(255,255,255,.92);
+  box-shadow:0 8px 24px rgba(15,23,42,.06);
+  max-width:100%;
+  overflow:hidden;
+}
+.yx-cd-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}
+.yx-cd-head strong{font-size:15px;color:#111827;}
+.yx-cd-head span{font-size:12px;color:#6b7280;background:#f3f4f6;border-radius:999px;padding:4px 9px;white-space:nowrap;}
+.yx-cd-note,.yx-cd-empty,.yx-cd-more{font-size:12px;color:#6b7280;line-height:1.5;margin:6px 0;}
+.yx-cd-filterbar,.yx-cd-actions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 0 8px;}
+.yx-cd-filterbar .active{background:#111827!important;color:#fff!important;border-color:#111827!important;}
+.yx-cd-search{display:flex;gap:8px;align-items:center;margin:6px 0 8px;}
+.yx-cd-search input{min-width:0;flex:1;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;font-size:14px;background:#fff;}
+.yx-cd-next{display:grid;gap:6px;margin:8px 0;padding:10px;border-radius:14px;background:#f8fafc;border:1px solid #e5e7eb;font-size:12px;color:#334155;}
+.yx-cd-list{display:grid;gap:8px;max-height:min(420px,56vh);overflow:auto;-webkit-overflow-scrolling:touch;padding-right:2px;padding-bottom:10px;}
+.yx-cd-row{border:1px solid #e5e7eb;border-radius:14px;padding:10px;background:#fff;display:grid;gap:6px;}
+.yx-cd-row.danger{background:#fff7f7;border-color:#fecaca;}
+.yx-cd-row.warn{background:#fffbeb;border-color:#fde68a;}
+.yx-cd-row.info{background:#eff6ff;border-color:#bfdbfe;}
+.yx-cd-row b{font-size:13px;color:#111827;word-break:break-word;}
+.yx-cd-row small{font-size:12px;color:#475569;line-height:1.45;}
+.yx-cd-row ol{margin:0 0 0 18px;padding:0;font-size:12px;color:#334155;line-height:1.45;}
+.yx-cd-row .mini-btn{justify-self:start;min-height:34px;padding:6px 10px;}
+.yx-cd-badge{display:inline-flex;width:max-content;max-width:100%;border-radius:999px;padding:3px 8px;font-size:12px;background:#f3f4f6;color:#374151;}
+.yx-cd-row.danger .yx-cd-badge{background:#fee2e2;color:#991b1b;}
+.yx-cd-row.warn .yx-cd-badge{background:#fef3c7;color:#92400e;}
+.yx-cd-row.info .yx-cd-badge{background:#dbeafe;color:#1e40af;}
+@media (max-width: 640px){
+  #yx-warehouse-cd-plan.yx-cd-plan-box{margin:10px 0;padding:10px;border-radius:14px;}
+  .yx-cd-head{align-items:flex-start;}
+  .yx-cd-filterbar .small-btn,.yx-cd-actions .small-btn{min-height:42px;white-space:nowrap;flex:0 0 auto;}
+  .yx-cd-search{align-items:stretch;}
+  .yx-cd-search input{font-size:16px;min-height:42px;}
+  .yx-cd-list{max-height:52vh;padding-bottom:calc(18px + env(safe-area-inset-bottom));}
+  .yx-cd-row{padding:10px;}
+}
+
+/* 20260517ce：倉庫差異工單驗收面板 */
+.yx-ce-workorders{margin:12px 0;padding:12px;border:1px solid rgba(148,163,184,.35);border-radius:16px;background:rgba(255,255,255,.92);box-shadow:0 8px 24px rgba(15,23,42,.06)}
+.yx-ce-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.yx-ce-head strong{font-size:15px}.yx-ce-head span{font-size:12px;color:#64748b}.yx-ce-note{font-size:12px;color:#64748b;margin-bottom:8px;line-height:1.45}.yx-ce-filters,.yx-ce-tools,.yx-ce-rowactions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}.yx-ce-tools input{min-width:180px;flex:1;border:1px solid rgba(148,163,184,.45);border-radius:12px;padding:8px 10px;font-size:14px}.yx-ce-progress{position:relative;height:22px;border-radius:999px;background:#f1f5f9;overflow:hidden;margin:8px 0}.yx-ce-progress span{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#bfdbfe,#bbf7d0);transition:width .2s}.yx-ce-progress b{position:relative;z-index:1;display:block;text-align:center;font-size:12px;line-height:22px;color:#334155}.yx-ce-list{display:grid;gap:8px;max-height:48vh;overflow:auto;padding-bottom:16px;overscroll-behavior:contain}.yx-ce-row{border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:10px;background:#fff}.yx-ce-row.danger{background:#fff7f7;border-color:#fecaca}.yx-ce-row.warn{background:#fffbeb;border-color:#fde68a}.yx-ce-row.info{background:#f8fafc}.yx-ce-rowtop{display:flex;gap:8px;align-items:center;justify-content:space-between}.yx-ce-rowtop b{font-size:13px}.yx-ce-rowtop span,.yx-ce-rowtop em{font-size:12px;color:#64748b;font-style:normal}.yx-ce-reason{font-size:13px;margin:6px 0;color:#334155}.yx-ce-values{display:grid;gap:3px;margin:4px 0}.yx-ce-values small{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.yx-ce-row textarea{width:100%;min-height:46px;border:1px solid rgba(148,163,184,.35);border-radius:12px;padding:8px;font-size:13px;resize:vertical;background:#fff}.yx-ce-empty,.yx-ce-more{font-size:12px;color:#64748b;padding:10px;text-align:center}.yx-ce-filters .active{background:#111827;color:#fff}.yx-ce-tools .danger{color:#b91c1c}
+@media(max-width:640px){.yx-ce-workorders{margin:10px 0;padding:10px;border-radius:14px}.yx-ce-tools{align-items:center}.yx-ce-tools input{min-width:220px}.yx-ce-list{max-height:42vh}.yx-ce-rowactions .mini-btn,.yx-ce-filters .small-btn,.yx-ce-tools .small-btn{min-height:40px;white-space:nowrap}.yx-ce-values small{white-space:normal}}
+
+/* 20260517cf 倉庫工單批量驗收面板：只影響倉庫面板 UI，不改主線 */
+.yx-cf-batch{margin:14px 0;padding:14px;border:1px solid rgba(148,163,184,.36);border-radius:16px;background:rgba(255,255,255,.92);box-shadow:0 8px 24px rgba(15,23,42,.06)}
+.yx-cf-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.yx-cf-head strong{font-size:16px;color:#111827}.yx-cf-head span{font-size:12px;color:#64748b}.yx-cf-note{font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.5}
+.yx-cf-summary{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px}.yx-cf-summary span{white-space:nowrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 9px;font-size:12px;color:#334155}
+.yx-cf-tools{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch}.yx-cf-tools .ghost-btn{white-space:nowrap;min-height:36px}
+.yx-cf-list{max-height:280px;overflow:auto;border:1px solid #e5e7eb;border-radius:14px;background:#fff}.yx-cf-row{display:grid;grid-template-columns:28px minmax(90px,.7fr) 70px minmax(150px,2fr);gap:8px;align-items:center;padding:9px 10px;border-bottom:1px solid #f1f5f9;font-size:12px}.yx-cf-row:last-child{border-bottom:0}.yx-cf-row input{width:18px;height:18px}.yx-cf-id{font-weight:700;color:#0f172a}.yx-cf-status{border-radius:999px;background:#eef2ff;color:#3730a3;text-align:center;padding:3px 6px}.yx-cf-text{color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.yx-cf-row.danger{background:#fff7ed}.yx-cf-row.warn{background:#fffbeb}.yx-cf-row.info{background:#f8fafc}.yx-cf-empty,.yx-cf-more{padding:12px;color:#64748b;font-size:12px;text-align:center}
+@media (max-width: 768px){.yx-cf-batch{margin:10px 0;padding:12px;border-radius:14px}.yx-cf-tools .ghost-btn,.yx-cf-summary span{min-height:38px}.yx-cf-list{max-height:42vh}.yx-cf-row{grid-template-columns:28px 96px 72px minmax(180px,1fr);min-width:410px;padding:10px 9px}.yx-cf-list{overflow:auto;-webkit-overflow-scrolling:touch}.yx-cf-head strong{font-size:15px}}
+
+/* 20260517cg 倉庫工單風險看板：本機只讀，不改倉庫主線 */
+.yx-cg-risk-board{margin:14px 0;padding:14px;border:1px solid rgba(59,130,246,.22);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(239,246,255,.88));box-shadow:0 10px 26px rgba(37,99,235,.07);max-width:100%;overflow:hidden}
+.yx-cg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}.yx-cg-head strong{font-size:16px;color:#0f172a}.yx-cg-head span{font-size:12px;color:#1d4ed8;background:#dbeafe;border-radius:999px;padding:5px 9px;font-weight:900}.yx-cg-note{font-size:12px;color:#64748b;line-height:1.5;margin-bottom:8px}.yx-cg-progress{height:24px;border-radius:999px;background:#e2e8f0;overflow:hidden;position:relative;margin:8px 0}.yx-cg-progress span{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#93c5fd,#86efac);transition:width .18s}.yx-cg-progress b{position:relative;z-index:1;display:block;text-align:center;font-size:12px;line-height:24px;color:#0f172a}.yx-cg-summary,.yx-cg-tabs{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 0 8px}.yx-cg-summary span{white-space:nowrap;border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;border-radius:999px;padding:6px 9px;font-size:12px;font-weight:800}.yx-cg-tabs .ghost-btn{white-space:nowrap;min-height:38px}.yx-cg-tabs .active{background:#1d4ed8!important;color:#fff!important;border-color:#1d4ed8!important}.yx-cg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:6px 0}.yx-cg-card{border:1px solid rgba(148,163,184,.34);border-radius:14px;background:#fff;padding:10px;display:grid;gap:6px}.yx-cg-card div:first-child{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.yx-cg-card b{font-size:13px;color:#0f172a}.yx-cg-card em{font-size:11px;color:#64748b;font-style:normal;white-space:nowrap}.yx-cg-card small{font-size:12px;color:#475569}.yx-cg-mini{height:8px;background:#f1f5f9;border-radius:999px;overflow:hidden}.yx-cg-mini span{display:block;height:100%;background:#60a5fa;border-radius:999px}.yx-cg-next{margin-top:10px;border:1px solid rgba(148,163,184,.3);border-radius:14px;background:rgba(255,255,255,.88);padding:8px;max-height:320px;overflow:auto;-webkit-overflow-scrolling:touch}.yx-cg-next-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px}.yx-cg-next-head strong{font-size:14px}.yx-cg-next-head span{font-size:12px;color:#64748b}.yx-cg-next-row{display:grid;grid-template-columns:minmax(110px,1fr) auto minmax(120px,1.4fr);gap:8px;align-items:center;padding:7px 4px;border-bottom:1px solid #f1f5f9;font-size:12px}.yx-cg-next-row:last-child{border-bottom:0}.yx-cg-next-row b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yx-cg-next-row span{border-radius:999px;background:#fef3c7;color:#92400e;padding:3px 7px;white-space:nowrap;font-weight:800}.yx-cg-next-row small{color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.yx-cg-empty{font-size:12px;color:#64748b;background:#fff;border-radius:12px;padding:10px;text-align:center}
+@media(max-width:720px){.yx-cg-risk-board{margin:10px 0;padding:12px;border-radius:16px}.yx-cg-tabs .ghost-btn{min-height:42px}.yx-cg-grid{grid-template-columns:1fr}.yx-cg-next{max-height:42vh;padding-bottom:calc(16px + env(safe-area-inset-bottom))}.yx-cg-next-row{grid-template-columns:1fr;align-items:stretch}.yx-cg-next-row b,.yx-cg-next-row small{white-space:normal;word-break:break-word}.yx-cg-card div:first-child{align-items:flex-start}.yx-cg-summary span{min-height:34px;display:inline-flex;align-items:center}}
+
+
+/* 20260517ch 倉庫工單執行看板：本機驗收與下一包指令工具 */
+.yx-ch-exec{margin:14px 0;padding:12px;border:1px solid rgba(15,23,42,.10);border-radius:18px;background:rgba(255,255,255,.92);box-shadow:0 10px 28px rgba(15,23,42,.08)}
+.yx-ch-head{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:15px;margin-bottom:8px}.yx-ch-head span{font-size:12px;color:#64748b}.yx-ch-stats,.yx-ch-toolbar,.yx-ch-actions,.yx-ch-row-actions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 0}.yx-ch-stats span{white-space:nowrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 10px;font-size:12px;color:#334155}.yx-ch-toolbar input{min-width:220px;border:1px solid #e2e8f0;border-radius:12px;padding:9px 10px;background:#fff}.yx-ch-list{max-height:360px;overflow:auto;padding-right:4px}.yx-ch-row{border:1px solid #e2e8f0;border-radius:14px;margin:8px 0;padding:9px;background:#fff}.yx-ch-row.testing{background:#eff6ff}.yx-ch-row.pass{background:#f0fdf4}.yx-ch-row.hold{background:#fff7ed}.yx-ch-row label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.yx-ch-row code{font-size:12px;background:#f1f5f9;border-radius:8px;padding:2px 6px}.yx-ch-row small{display:block;color:#64748b;margin:5px 0}.yx-ch-empty{padding:12px;border-radius:12px;background:#f8fafc;color:#64748b}.yx-ch-exec .active{box-shadow:inset 0 0 0 2px rgba(59,130,246,.35)}
+@media(max-width:640px){.yx-ch-exec{margin:10px 0;padding:10px;border-radius:16px}.yx-ch-head{align-items:flex-start;flex-direction:column}.yx-ch-toolbar input{min-width:72vw}.yx-ch-list{max-height:52vh}.yx-ch-row{padding:10px}.yx-ch-row-actions .small-btn,.yx-ch-actions .small-btn,.yx-ch-toolbar .small-btn{min-height:40px;white-space:nowrap}.yx-ch-stats,.yx-ch-toolbar,.yx-ch-actions{padding-bottom:8px}}
+
+
+/* 20260517ci 倉庫總驗收中心：只讀本機/DOM，不改資料 */
+.yx-ci-acceptance{margin:14px 0;padding:14px;border:1px solid rgba(22,163,74,.22);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(240,253,244,.9));box-shadow:0 12px 30px rgba(22,101,52,.08);max-width:100%;overflow:hidden}
+.yx-ci-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}.yx-ci-head strong{font-size:17px;color:#0f172a}.yx-ci-head span{font-size:13px;font-weight:900;color:#166534;background:#dcfce7;border-radius:999px;padding:6px 10px}.yx-ci-note{font-size:12px;color:#64748b;line-height:1.55;margin-bottom:10px}.yx-ci-score{height:26px;border-radius:999px;background:#e2e8f0;position:relative;overflow:hidden;margin:8px 0}.yx-ci-score span{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#86efac,#67e8f9);transition:width .2s}.yx-ci-score b{position:relative;z-index:1;display:block;text-align:center;line-height:26px;font-size:12px;color:#0f172a}.yx-ci-summary,.yx-ci-actions{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:5px 0 9px}.yx-ci-summary span{white-space:nowrap;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800}.yx-ci-actions .ghost-btn{white-space:nowrap;min-height:38px}.yx-ci-checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}.yx-ci-check{border:1px solid #e2e8f0;border-radius:14px;background:#fff;padding:9px;display:grid;gap:5px}.yx-ci-check b{font-size:13px;color:#0f172a}.yx-ci-check small{font-size:12px;color:#64748b;line-height:1.45}.yx-ci-check.ok{border-color:#bbf7d0;background:#fbfefc}.yx-ci-check.bad{border-color:#fed7aa;background:#fff7ed}.yx-ci-panels{margin-top:10px;border:1px solid rgba(148,163,184,.28);border-radius:14px;background:rgba(255,255,255,.84);padding:10px}.yx-ci-panels strong{display:block;font-size:13px;margin-bottom:6px}.yx-ci-panels div{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch}.yx-ci-panels span{white-space:nowrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:5px 8px;font-size:11px;color:#475569}.yx-ci-warn,.yx-ci-ok{margin-top:10px;border-radius:12px;padding:10px;font-size:12px;line-height:1.5}.yx-ci-warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.yx-ci-ok{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+@media(max-width:720px){.yx-ci-acceptance{margin:10px 0;padding:12px;border-radius:16px}.yx-ci-head{align-items:flex-start}.yx-ci-head strong{font-size:16px}.yx-ci-actions .ghost-btn{min-height:42px}.yx-ci-summary span{min-height:34px;display:inline-flex;align-items:center}.yx-ci-checks{grid-template-columns:1fr}.yx-ci-check{padding:10px}.yx-ci-panels{padding-bottom:calc(10px + env(safe-area-inset-bottom))}}
+
+
+/* 20260517cj 倉庫輔助面板管理：只控制本機輔助面板顯示，不動倉庫主線 */
+.yx-cj-manager{margin:12px 0;padding:12px;border:1px solid rgba(15,23,42,.10);border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.94));box-shadow:0 10px 28px rgba(15,23,42,.08)}
+.yx-cj-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}.yx-cj-head strong{font-size:15px}.yx-cj-head span{font-size:12px;color:#64748b;background:#f1f5f9;border-radius:999px;padding:4px 8px}.yx-cj-note,.yx-cj-foot{font-size:12px;color:#64748b;line-height:1.45;margin:6px 0}.yx-cj-actions{display:flex;gap:8px;overflow-x:auto;padding:6px 0 8px;-webkit-overflow-scrolling:touch}.yx-cj-actions .ghost-btn,.yx-cj-row .ghost-btn{white-space:nowrap;min-height:34px}.yx-cj-list{display:grid;gap:8px;max-height:260px;overflow:auto;padding-right:3px}.yx-cj-row{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,2fr) auto auto;gap:6px;align-items:center;padding:8px;border-radius:12px;background:#f8fafc;border:1px solid rgba(148,163,184,.22)}.yx-cj-row b{font-size:13px}.yx-cj-row small{font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.yx-cj-panel-collapsed{max-height:58px!important;overflow:hidden!important;position:relative}.yx-cj-panel-collapsed:after{content:'已收合';position:absolute;right:10px;top:10px;font-size:11px;color:#64748b;background:rgba(241,245,249,.96);border:1px solid rgba(148,163,184,.25);border-radius:999px;padding:2px 7px}.yx-cj-panel-hidden{display:none!important}.danger-light{color:#b91c1c!important;background:#fff1f2!important;border-color:#fecdd3!important}
+@media (max-width:640px){.yx-cj-manager{margin:10px 0;padding:10px;border-radius:14px}.yx-cj-list{max-height:220px}.yx-cj-row{grid-template-columns:1fr auto auto}.yx-cj-row small{grid-column:1/-1;order:4}.yx-cj-actions{padding-bottom:10px}.yx-cj-actions .ghost-btn{min-width:max-content;padding:8px 10px}.yx-cj-row .mini-btn{min-width:52px;padding:7px 8px}.yx-cj-panel-collapsed{max-height:52px!important}}
+
+/* 20260517ck 出貨同步扣倉庫圖：出貨完成後顯示倉庫同步結果 */
+.yx22-warehouse-sync{
+  margin:12px 0 0;
+  padding:12px 14px;
+  border-radius:14px;
+  font-size:14px;
+  line-height:1.55;
+  border:1px solid rgba(15,23,42,.08);
+  background:rgba(240,253,244,.92);
+  color:#14532d;
+}
+.yx22-warehouse-sync.warn{
+  background:rgba(255,247,237,.95);
+  color:#9a3412;
+  border-color:rgba(251,146,60,.35);
+}
+.yx22-warehouse-sync.ok{
+  background:rgba(240,253,244,.95);
+  color:#166534;
+  border-color:rgba(34,197,94,.25);
+}
+
+
+/* 20260517cl 出貨預覽：倉庫圖同步扣除預檢 */
+.yx22-wh-preview{margin:14px 0;padding:12px;border-radius:16px;border:1px solid rgba(15,23,42,.10);background:rgba(248,250,252,.96);box-shadow:0 8px 22px rgba(15,23,42,.06);overflow:auto;-webkit-overflow-scrolling:touch;}
+.yx22-wh-preview.ok{background:rgba(236,253,245,.92);border-color:rgba(16,185,129,.25);}
+.yx22-wh-preview.warn{background:rgba(255,247,237,.95);border-color:rgba(251,146,60,.32);}
+.yx22-wh-preview.loading{font-weight:800;color:#475569;}
+.yx22-wh-summary{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:8px 0 10px;}
+.yx22-wh-summary b{font-size:15px;color:#0f172a;}
+.yx22-wh-summary span{font-size:13px;color:#475569;font-weight:700;}
+@media (max-width:640px){.yx22-wh-preview{max-width:100%;overflow-x:auto;padding:10px}.yx22-wh-preview .yx22-preview-table{min-width:760px}.yx22-wh-summary{align-items:flex-start}.yx22-wh-summary b,.yx22-wh-summary span{width:100%;}}
+
+/* YX 20260517cm - 出貨扣倉庫圖扣後讀回確認 */
+.yx22-wh-readback{margin-top:10px;padding:10px;border-radius:14px;background:rgba(255,255,255,.72);border:1px solid rgba(15,23,42,.08);display:grid;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.yx22-wh-readback>b{font-size:13px;color:#111827;}
+.yx22-wh-readback>span{font-size:12px;color:#475569;}
+.yx22-preview-table.mini{min-width:360px;font-size:12px;}
+@media (max-width: 640px){.yx22-wh-readback{max-width:100%;}.yx22-preview-table.mini th,.yx22-preview-table.mini td{padding:8px 10px;white-space:nowrap;}}

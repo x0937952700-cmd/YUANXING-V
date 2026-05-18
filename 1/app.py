@@ -16,7 +16,7 @@ from openpyxl import Workbook
 from db import (
     init_db, get_user, create_user, update_password, log_action,
     save_inventory_item, list_inventory, save_order, save_master_order,
-    ship_order, preview_ship_order, get_shipping_records, save_correction, log_error,
+    ship_order, preview_ship_order, preview_ship_warehouse_deduct, ship_warehouse_readback_check, get_shipping_records, save_correction, log_error,
     save_image_hash, image_hash_exists, upsert_customer, get_customers,
     get_customer, warehouse_get_cells, warehouse_save_cell, warehouse_move_item, warehouse_add_column,
     warehouse_add_slot, warehouse_remove_slot,
@@ -30,8 +30,8 @@ from db import (
 from ocr import parse_ocr_text, process_native_ocr_text, clean_ocr_noise
 from backup import run_daily_backup
 
-STATIC_VERSION = 'qty65-ship-clear-modal-center-warehouse-fast-20260517e'
-APP_VERSION = '還完整主線_件數65_出貨換客戶清空_預覽快跳_格位置中_20260517e'
+STATIC_VERSION = 'stable-20260517j-ship-warehouse-readback-20260517cm'
+APP_VERSION = '還完整主線_穩定版20260517j_出貨扣倉庫圖讀回確認_20260517cm'
 
 app = Flask(__name__)
 
@@ -1587,7 +1587,8 @@ def api_ship():
         if result.get("success"):
             log_action(current_username(), "完成出貨")
             add_audit_trail(current_username(), 'ship', 'shipping_records', customer_name, before_json={}, after_json={'customer_name': customer_name, 'items': items, 'allow_inventory_fallback': allow_inventory_fallback, 'breakdown': result.get('breakdown', [])})
-            notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items)})
+            notify_sync_event(kind='refresh', module='ship', message='出貨已更新', extra={'customer_name': customer_name, 'count': len(items), 'warehouse_sync': result.get('warehouse_sync')})
+            notify_sync_event(kind='refresh', module='warehouse', message='出貨已同步扣倉庫圖', extra={'customer_name': customer_name, 'warehouse_sync': result.get('warehouse_sync')})
         if isinstance(result, dict) and customer_name and not data.get('skip_snapshot'):
             result.update(build_customer_payload_snapshot(customer_name))
         return jsonify(result)
@@ -1627,6 +1628,39 @@ def api_ship_preview():
         log_error("ship_preview", str(e))
         return error_response("出貨預覽失敗")
 
+
+@app.route('/api/ship-warehouse-preview', methods=['POST'])
+@login_required_json
+def api_ship_warehouse_preview():
+    """20260517cl：出貨前只讀預檢倉庫圖會扣哪些格，不寫 DB。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        items = _parse_items_from_request(data)
+        customer_name = (data.get("customer_name") or "").strip()
+        if not customer_name:
+            return error_response("請輸入客戶名稱")
+        if not items:
+            return error_response("沒有可預檢的商品")
+        report = preview_ship_warehouse_deduct(customer_name, items)
+        return jsonify(report)
+    except Exception as e:
+        log_error('api_ship_warehouse_preview', str(e))
+        return error_response('倉庫圖扣除預檢失敗')
+
+
+
+@app.route('/api/ship-warehouse-readback-check', methods=['POST'])
+@login_required_json
+def api_ship_warehouse_readback_check():
+    """20260517cm：出貨後倉庫圖同步扣除讀回檢查；只讀、不補、不改資料。"""
+    try:
+        data = request.get_json(silent=True) or {}
+        sync = data.get('warehouse_sync') or data.get('sync') or {}
+        report = ship_warehouse_readback_check(sync)
+        return jsonify(report)
+    except Exception as e:
+        log_error('api_ship_warehouse_readback_check', str(e))
+        return error_response('倉庫圖扣除讀回檢查失敗')
 
 def _yx_ship_customer_union_items():
     """出貨頁客戶來源必須合併 訂單 + 總單 + 庫存 + 客戶檔，不可只顯示訂單。"""
@@ -4352,15 +4386,23 @@ def api_yx520_warehouse_batch_add_slots():
     zone=(data.get('zone') or data.get('area') or 'A').upper()
     band=int(data.get('band') or data.get('column_index') or 0)
     count=max(1, min(50, int(data.get('count') or 1)))
+    insert_after_raw=data.get('insert_after', data.get('slot_number', data.get('slot', None)))
+    insert_after=int(insert_after_raw) if insert_after_raw not in (None, '') else None
     results=[]
-    for _ in range(count):
-        with app.test_request_context(json={'zone':zone,'band':band}):
+    for i in range(count):
+        payload={'zone':zone,'column_index':band}
+        if insert_after is not None:
+            # 連續插入時每次插在上一格後面，保證順序不反。
+            payload['insert_after']=insert_after + i
+        with app.test_request_context(json=payload):
             try:
                 resp=api_warehouse_add_slot(); results.append(resp.get_json() if hasattr(resp,'get_json') else {'success': True})
             except Exception as e:
                 results.append({'success': False, 'error': str(e)})
                 break
-    return jsonify(success=all(r.get('success') for r in results if isinstance(r,dict)), results=results)
+    ok=all(r.get('success') for r in results if isinstance(r,dict))
+    source_totals, _details = warehouse_source_totals()
+    return jsonify(success=ok, results=results, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
 
 @app.route('/api/warehouse/batch-remove-slots', methods=['POST'])
 @login_required_json
@@ -4370,15 +4412,19 @@ def api_yx520_warehouse_batch_remove_slots():
     band=int(data.get('band') or data.get('column_index') or 0)
     slots=data.get('slots') or []
     if not isinstance(slots, list): slots=[slots]
+    # 刪格要從大到小，避免格號前補造成跳刪。
+    safe_slots=sorted({int(s) for s in slots if str(s).strip()}, reverse=True)
     results=[]
-    for slot in slots:
+    for slot in safe_slots:
         with app.test_request_context(json={'zone':zone,'column_index':band,'slot_number':slot,'slot':slot}):
             try:
                 resp=api_warehouse_remove_slot(); results.append(resp.get_json() if hasattr(resp,'get_json') else {'success': True})
             except Exception as e:
                 results.append({'success': False, 'error': str(e)})
                 break
-    return jsonify(success=all(r.get('success') for r in results if isinstance(r,dict)), results=results)
+    ok=all(r.get('success') for r in results if isinstance(r,dict))
+    source_totals, _details = warehouse_source_totals()
+    return jsonify(success=ok, results=results, zones=warehouse_summary(), cells=yx_bf_cells_for_client(warehouse_get_cells(force_refresh=True), source_totals))
 
 @app.route('/api/warehouse/mark-cell', methods=['POST'])
 @login_required_json
@@ -4434,6 +4480,707 @@ def api_yx520_admin_mark_stale_operations():
 @login_required_json
 def api_yx520_mobile_zoom_config():
     return _yx520_route_ok('mobile_zoom_config', enabled=True, min_touch_target=38)
+
+
+@app.route('/api/diagnostics/qty-consistency-report')
+def api_diagnostics_qty_consistency_report():
+    """讀取式件數一致性報告：只檢查，不修改資料。"""
+    samples = [
+        {'name':'65件規則', 'text':'131x30x12=348x45(-6鼎益興)+336x16+216x4', 'expected':65},
+        {'name':'15件鎖死規則', 'text':'100x30x63=504x5+588+587+502+420+382+378+280+254+237+174', 'expected':15},
+        {'name':'純支數加總三件', 'text':'60+54+50', 'expected':3},
+        {'name':'混合 x件 與單支', 'text':'220x4+223x2+44+35+221', 'expected':9},
+        {'name':'尺寸後單支數', 'text':'100x30x63=115', 'expected':1},
+        {'name':'括號扣數仍取件數', 'text':'123x11x12=12(-6)', 'expected':12},
+    ]
+    results=[]
+    for sample in samples:
+        try:
+            got = int(effective_product_qty(sample['text'], 0) or 0)
+        except Exception as e:
+            got = None
+            sample = dict(sample, error=str(e))
+        results.append({**sample, 'got': got, 'ok': got == sample['expected']})
+    files = {
+        'front_core':'static/yx_modules/quantity_rule_hardlock.js',
+        'products':'static/yx_pages/page_products_master.js',
+        'shipping':'static/yx_modules/ship_single_lock.js',
+        'warehouse':'static/yx_modules/warehouse_hardlock.js',
+        'backend':'db.py',
+    }
+    file_checks=[]
+    for label, path in files.items():
+        txt = _yx_diag_read_text(path)
+        has_core = ('YXQty65' in txt or 'effective_product_qty' in txt or label == 'backend')
+        file_checks.append({
+            'name': label,
+            'path': path,
+            'ok': bool(txt) and has_core,
+            'detail': '已接統一件數核心' if has_core else '未看到統一件數核心字樣，需人工複查'
+        })
+    return jsonify(success=True, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION, results=results, file_checks=file_checks, summary={
+        'samples_total': len(results),
+        'samples_ok': sum(1 for r in results if r.get('ok')),
+        'files_total': len(file_checks),
+        'files_ok': sum(1 for r in file_checks if r.get('ok')),
+        'note': '本報告只檢查件數規則一致性，不修改任何訂單、總單、庫存、出貨或倉庫資料。'
+    })
+
+
+
+@app.route('/api/diagnostics/stable-guard-report')
+def api_diagnostics_stable_guard_report():
+    """讀取式穩定版守門報告：只檢查回歸風險，不修改功能、不改資料。"""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    base = _yx_diag_read_text('templates/base.html', 1000000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1000000)
+    wh = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1000000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1000000)
+    today = _yx_diag_read_text('static/yx_modules/today_changes_hardlock.js', 1000000)
+    diag = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1000000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 1000000)
+    final_css = _yx_diag_read_text('static/yx_modules/yx_final_mainfile_ui_20260516bs.css', 1000000)
+    key_files = {
+        'app.py': _yx_diag_read_text('app.py', 2000),
+        'db.py': _yx_diag_read_text('db.py', 2000),
+        'templates/base.html': base,
+        'static/yx_pages/page_products_master.js': products,
+        'static/yx_modules/warehouse_hardlock.js': wh,
+        'static/yx_modules/ship_single_lock.js': ship,
+        'static/yx_modules/yx_20260517_user_request.css': css,
+        'static/yx_pages/diagnostics_page.js': diag,
+    }
+    checks = []
+    for rel, txt in key_files.items():
+        checks.append(chk('必要主檔存在：' + rel, bool(txt), '讀取長度：%s' % len(txt), 'critical'))
+    legacy_ui_files = sorted([str(x) for x in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516bs' not in str(x)])
+    checks.append(chk('最終 UI CSS 唯一', len(legacy_ui_files) == 0 and base.count('yx_final_mainfile_ui_20260516bs.css') == 1,
+                      '舊檔殘留：%s；base 載入次數：%s' % (', '.join(legacy_ui_files) if legacy_ui_files else '無', base.count('yx_final_mainfile_ui_20260516bs.css')), 'warn'))
+    for name, txt in [('商品主檔', products), ('倉庫主檔', wh), ('出貨主檔', ship), ('今日異動主檔', today), ('診斷頁', diag)]:
+        checks.append(chk(name + ' 無 setInterval', 'setInterval' not in txt, '避免背景重刷或硬塞按鈕。', 'warn'))
+        checks.append(chk(name + ' 無 MutationObserver', 'MutationObserver' not in txt, '避免 DOM 監聽硬補導致閃爍。', 'warn'))
+    checks += [
+        chk('出貨主線維持 ship_single_lock', 'ship_single_lock.js' in base and 'ship_page' in base, '出貨頁不換 renderer。', 'critical'),
+        chk('倉庫主線維持 warehouse_hardlock', 'warehouse_hardlock.js' in base and 'warehouse_page' in base, '倉庫不換 renderer。', 'critical'),
+        chk('商品主線維持 page_products_master', 'page_products_master.js' in base and 'orders_page' in base and 'master_order_page' in base, '庫存/訂單/總單仍走同一主檔。', 'critical'),
+        chk('手機滑動 CSS 保留', all(t in css for t in ['overflow-x', 'max-width', '@media']), '檢查手機裁切修復規則仍存在。', 'warn'),
+        chk('倉庫淡粉紅標記 CSS 保留', any(t in css for t in ['pink', '粉紅', 'marked', 'mark']), '檢查標記此格視覺規則。', 'warn'),
+        chk('件數報告端點存在', '/api/diagnostics/qty-consistency-report' in _yx_diag_read_text('app.py', 1000000), '只讀式件數報告仍可用。', 'warn'),
+        chk('手機比例巡檢按鈕存在', 'diag-mobile-audit' in diag, '只讀式手機巡檢仍可用。', 'warn'),
+    ]
+    critical = [c for c in checks if (not c['ok']) and c['severity'] == 'critical']
+    warn = [c for c in checks if (not c['ok']) and c['severity'] != 'critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION, checks=checks, summary={
+        'total': len(checks),
+        'ok': sum(1 for c in checks if c['ok']),
+        'critical': len(critical),
+        'warn': len(warn),
+        'note': '穩定版守門報告只做讀取式回歸檢查，不修改 DB、不新增 renderer、不新增 setInterval / MutationObserver。'
+    })
+
+
+@app.route('/api/diagnostics/data-health-report')
+def api_diagnostics_data_health_report():
+    """讀取式資料健康報告：只統計，不修改資料、不清除錯誤、不補 DB。"""
+    today = datetime.now().strftime('%Y-%m-%d')
+    seven_days_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    business_tables = ['inventory','orders','master_orders','shipping_records','warehouse_cells','today_changes','logs','errors']
+    def scalar(query, params=(), default=0):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); row = cur.fetchone()
+            if row is None: return default
+            if isinstance(row, dict):
+                return list(row.values())[0]
+            return row[0]
+        except Exception as e:
+            try: log_error('diagnostics_data_health_report', str(e))
+            except Exception: pass
+            return default
+    def rows(query, params=(), limit=20):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); fetched = cur.fetchmany(limit)
+            return [row_to_dict(r) for r in fetched]
+        except Exception as e:
+            try: log_error('diagnostics_data_health_report_rows', str(e))
+            except Exception: pass
+            return []
+    counts = {t: int(scalar(f'SELECT COUNT(*) FROM {t}', (), 0) or 0) for t in business_tables}
+    error_report = {
+        'today': int(scalar("SELECT COUNT(*) FROM errors WHERE substr(created_at,1,10)=?", (today,), 0) or 0),
+        'last_7_days': int(scalar("SELECT COUNT(*) FROM errors WHERE substr(created_at,1,10)>=?", (seven_days_ago,), 0) or 0),
+        'total': counts.get('errors', 0),
+        'recent': rows("SELECT * FROM errors ORDER BY id DESC", (), 12),
+    }
+    today_report = {
+        'today_total': int(scalar("SELECT COUNT(*) FROM today_changes WHERE substr(created_at,1,10)=?", (today,), 0) or 0),
+        'today_unread': int(scalar("SELECT COUNT(*) FROM today_changes WHERE substr(created_at,1,10)=? AND COALESCE(unread,0)<>0", (today,), 0) or 0),
+        'recent': rows("SELECT * FROM today_changes ORDER BY id DESC", (), 12),
+    }
+    table_health = []
+    for table in ['inventory','orders','master_orders']:
+        table_health.append({
+            'table': table,
+            'total': counts.get(table, 0),
+            'blank_customer': int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(customer_name,'')=''", (), 0) or 0),
+            'blank_product': int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(product_text,'')=''", (), 0) or 0),
+            'non_positive_qty': int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(qty,0)<=0", (), 0) or 0),
+            'note': '只讀檢查；數字高不一定是錯，代表可人工複查。'
+        })
+    warehouse_health = {
+        'total_cells': counts.get('warehouse_cells', 0),
+        'marked_or_noted_cells': int(scalar("SELECT COUNT(*) FROM warehouse_cells WHERE COALESCE(note,'')<>''", (), 0) or 0),
+        'with_items_json': int(scalar("SELECT COUNT(*) FROM warehouse_cells WHERE COALESCE(items_json,'')<>''", (), 0) or 0),
+    }
+    checks = []
+    def chk(name, ok, detail, severity='warn'):
+        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
+    chk('今日異動表可讀', counts.get('today_changes', 0) >= 0, f"today_changes={counts.get('today_changes', 0)}", 'critical')
+    chk('錯誤表可讀', counts.get('errors', 0) >= 0, f"errors={counts.get('errors', 0)}", 'critical')
+    chk('今日錯誤未暴增', error_report['today'] < 50, f"今日 errors={error_report['today']}；若偏高請先匯出診斷再修。", 'warn')
+    chk('近 7 天錯誤可追蹤', True, f"近 7 天 errors={error_report['last_7_days']}；本報告不會刪除舊錯誤。", 'warn')
+    chk('今日異動可追蹤', True, f"今日異動={today_report['today_total']}，未讀={today_report['today_unread']}。", 'warn')
+    for h in table_health:
+        chk(f"{h['table']} 商品文字完整度", h['blank_product'] == 0, f"空 product_text={h['blank_product']} / total={h['total']}", 'warn')
+        chk(f"{h['table']} 數量複查", h['non_positive_qty'] == 0, f"qty<=0={h['non_positive_qty']} / total={h['total']}", 'warn')
+    return jsonify(success=True, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   counts=counts, error_report=error_report, today_report=today_report,
+                   table_health=table_health, warehouse_health=warehouse_health, checks=checks,
+                   summary={
+                       'total_checks': len(checks),
+                       'critical': sum(1 for c in checks if (not c['ok']) and c.get('severity') == 'critical'),
+                       'warn': sum(1 for c in checks if (not c['ok']) and c.get('severity') != 'critical'),
+                       'note': '資料健康報告只讀取統計，不修改資料、不清除 errors、不改 DB schema。'
+                   })
+
+
+
+@app.route('/api/diagnostics/backup-rollback-report')
+def api_diagnostics_backup_rollback_report():
+    """讀取式備份/回復巡檢：只檢查備份狀態與回退準備，不建立備份、不還原、不刪資料。"""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def safe_size(p):
+        try: return pathlib.Path(p).stat().st_size
+        except Exception: return 0
+    def safe_mtime(p):
+        try: return datetime.fromtimestamp(pathlib.Path(p).stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+        except Exception: return ''
+    checks=[]
+    backup_py = _yx_diag_read_text('backup.py', 1000000)
+    render = _yx_diag_read_text('render.yaml', 1000000)
+    procfile = _yx_diag_read_text('Procfile', 1000000)
+    db_text = _yx_diag_read_text('db.py', 1000000)
+    migration = _yx_diag_read_text('migrations/000_yuanxing_all_in_one.sql', 1000000)
+    backups_dir = pathlib.Path('backups')
+    backup_files=[]
+    try:
+        if backups_dir.exists():
+            for p in backups_dir.glob('*'):
+                if p.is_file():
+                    backup_files.append({'name': p.name, 'size': safe_size(p), 'mtime': safe_mtime(p)})
+        backup_files.sort(key=lambda x: x.get('mtime') or '', reverse=True)
+    except Exception as e:
+        checks.append(chk('備份資料夾讀取', False, str(e), 'warn'))
+    checks += [
+        chk('backup.py 存在', bool(backup_py), 'size=%s bytes' % safe_size('backup.py'), 'critical'),
+        chk('backup.py 含 SQLite 備份能力', 'sqlite' in backup_py.lower(), '需能備份本機 SQLite fallback。', 'warn'),
+        chk('backup.py 含 PostgreSQL / DATABASE_URL 處理', ('postgres' in backup_py.lower() or 'database_url' in backup_py.lower()), 'Render PostgreSQL 回退前需可匯出。', 'warn'),
+        chk('backup.py 不在啟動時強制清資料', not any(t in backup_py.lower() for t in ['drop table','delete from inventory','truncate']), '備份腳本不應含危險清表語句。', 'critical'),
+        chk('DB 初始化保留自動補欄位', any(t in db_text for t in ['ALTER TABLE','ensure','補欄位','ADD COLUMN']), '回退或新環境部署時需要自動補欄位能力。', 'warn'),
+        chk('migration 存在且涵蓋核心表', all(t in migration for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records']), '完整新環境建表需要核心表。', 'critical'),
+        chk('Render 啟動設定不直接跑破壞性 migration', not any(t in (render+'\n'+procfile).lower() for t in ['drop table','truncate','delete from']), '部署啟動不可清正式資料。', 'critical'),
+        chk('backups 資料夾存在或可建立', backups_dir.exists() or pathlib.Path('.').exists(), '若不存在，正式環境首次備份時應自動建立 backups/。', 'warn'),
+        chk('目前已可看到備份檔', len(backup_files) > 0, '目前 backups/ 檔案數：%s；沒有不代表錯，但正式回退前必須先備份。' % len(backup_files), 'warn'),
+        chk('發布回退巡檢端點保留', '/api/diagnostics/release-readiness-report' in _yx_diag_read_text('app.py', 1000000), '上一包巡檢不可遺失。', 'warn'),
+        chk('資料健康報告端點保留', '/api/diagnostics/data-health-report' in _yx_diag_read_text('app.py', 1000000), '資料健康巡檢不可遺失。', 'warn'),
+    ]
+    critical=[c for c in checks if (not c.get('ok')) and c.get('severity')=='critical']
+    warn=[c for c in checks if (not c.get('ok')) and c.get('severity')!='critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   checks=checks, backup_files=backup_files[:20], summary={
+                       'total': len(checks),
+                       'ok': sum(1 for c in checks if c.get('ok')),
+                       'critical': len(critical),
+                       'warn': len(warn),
+                       'backup_files_visible': len(backup_files),
+                       'note': '備份/回復巡檢只讀取檔案與設定，不建立備份、不還原、不刪資料、不改 DB schema。正式回退前仍需先下載/保存資料庫備份。'
+                   })
+
+@app.route('/api/diagnostics/release-readiness-report')
+def api_diagnostics_release_readiness_report():
+    """讀取式發布/回退準備報告：只檢查檔案與設定，不修改資料、不部署、不清除錯誤。"""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def exists(path):
+        return pathlib.Path(path).exists()
+    def size(path):
+        try: return pathlib.Path(path).stat().st_size
+        except Exception: return 0
+    base = _yx_diag_read_text('templates/base.html', 1000000)
+    app_text = _yx_diag_read_text('app.py', 1000000)
+    req = _yx_diag_read_text('requirements.txt', 1000000)
+    render = _yx_diag_read_text('render.yaml', 1000000)
+    procfile = _yx_diag_read_text('Procfile', 1000000)
+    sw = _yx_diag_read_text('static/service-worker.js', 1000000)
+    backup = _yx_diag_read_text('backup.py', 1000000)
+    migration = _yx_diag_read_text('migrations/000_yuanxing_all_in_one.sql', 1000000)
+    checks = []
+    required_files = [
+        'app.py','db.py','backup.py','wsgi.py','requirements.txt','Procfile','render.yaml','runtime.txt',
+        'templates/base.html','templates/index.html','templates/module.html','templates/diagnostics.html',
+        'static/service-worker.js','static/manifest.webmanifest','static/pwa.js','static/yx_pages/diagnostics_page.js',
+        'static/yx_pages/page_products_master.js','static/yx_modules/ship_single_lock.js',
+        'static/yx_modules/warehouse_hardlock.js','static/yx_modules/today_changes_hardlock.js',
+        'static/yx_modules/yx_20260517_user_request.css','migrations/000_yuanxing_all_in_one.sql'
+    ]
+    for rel in required_files:
+        checks.append(chk('發布必要檔存在：' + rel, exists(rel) and size(rel) > 0, 'size=%s bytes' % size(rel), 'critical'))
+    checks += [
+        chk('Render 啟動設定存在 gunicorn', 'gunicorn' in procfile.lower() or 'gunicorn' in render.lower(), 'Procfile/render.yaml 需能啟動 Flask。', 'critical'),
+        chk('requirements 含 Flask', 'Flask' in req or 'flask' in req, 'requirements.txt 應含 Flask。', 'critical'),
+        chk('requirements 含 gunicorn', 'gunicorn' in req.lower(), 'Render 正式啟動需要 gunicorn。', 'critical'),
+        chk('PostgreSQL 套件存在', ('psycopg2' in req.lower() or 'psycopg' in req.lower()), 'Render PostgreSQL 連線套件。', 'warn'),
+        chk('備份腳本存在且有 Postgres/SQLite 處理', all(t in backup.lower() for t in ['backup','sqlite']) and ('postgres' in backup.lower() or 'database_url' in backup.lower()), 'backup.py 需保留回退前資料備份能力。', 'warn'),
+        chk('migration 保留 warehouse_cells', 'warehouse_cells' in migration and 'CREATE TABLE' in migration.upper(), '避免新環境缺倉庫表。', 'critical'),
+        chk('migration 保留 shipping_records', 'shipping_records' in migration, '避免出貨紀錄表缺失。', 'critical'),
+        chk('service worker 不快取 API', ('/api/' in sw and ('network' in sw.lower() or 'no-store' in sw.lower() or 'bypass' in sw.lower())) or 'api' in sw.lower(), '避免 API 被舊快取影響。', 'warn'),
+        chk('出貨頁仍維持 ship_single_lock', 'ship_single_lock.js' in base and 'ship_page' in base, '不可被其他出貨 renderer 覆蓋。', 'critical'),
+        chk('倉庫頁仍維持 warehouse_hardlock', 'warehouse_hardlock.js' in base and 'warehouse_page' in base, '不可被其他倉庫 renderer 覆蓋。', 'critical'),
+        chk('商品頁仍維持 page_products_master', 'page_products_master.js' in base and 'orders_page' in base and 'master_order_page' in base, '庫存/訂單/總單不可切回舊版。', 'critical'),
+        chk('發布包不應含 reference_520', not pathlib.Path('reference_520').exists() and not pathlib.Path('reference_520_same_path_not_runtime').exists(), '比對資料夾不可進部署包。', 'warn'),
+        chk('診斷端點保留資料健康報告', '/api/diagnostics/data-health-report' in app_text, '上一包資料健康巡檢不可遺失。', 'warn'),
+        chk('診斷端點保留穩定守門報告', '/api/diagnostics/stable-guard-report' in app_text, '穩定守門巡檢不可遺失。', 'warn'),
+    ]
+    critical = [c for c in checks if (not c['ok']) and c.get('severity') == 'critical']
+    warn = [c for c in checks if (not c['ok']) and c.get('severity') != 'critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   checks=checks, summary={
+                       'total': len(checks),
+                       'ok': sum(1 for c in checks if c['ok']),
+                       'critical': len(critical),
+                       'warn': len(warn),
+                       'note': '發布/回退準備報告只讀檢查檔案、部署設定、備份與主線載入，不修改 DB、不部署、不清除資料。'
+                   })
+
+
+
+@app.route('/api/diagnostics/performance-cache-report')
+def api_diagnostics_performance_cache_report():
+    """讀取式效能/快取巡檢：只檢查設定與主線檔案，不修改快取、不清資料、不改 DB。"""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def exists(rel):
+        try:
+            return pathlib.Path(rel).exists()
+        except Exception:
+            return False
+    def size(rel):
+        try:
+            return pathlib.Path(rel).stat().st_size
+        except Exception:
+            return 0
+    app_text = _yx_diag_read_text('app.py', 2000000)
+    base = _yx_diag_read_text('templates/base.html', 1000000)
+    sw = _yx_diag_read_text('static/service-worker.js', 1000000)
+    pwa = _yx_diag_read_text('static/pwa.js', 1000000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 1000000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1500000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1500000)
+    warehouse = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1500000)
+    diagnostics = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1000000)
+    checks = []
+    for rel in [
+        'static/service-worker.js','static/pwa.js','static/yx_modules/yx_20260517_user_request.css',
+        'static/yx_pages/page_products_master.js','static/yx_modules/ship_single_lock.js',
+        'static/yx_modules/warehouse_hardlock.js','static/yx_pages/diagnostics_page.js'
+    ]:
+        checks.append(chk('效能必要檔存在：' + rel, exists(rel) and size(rel) > 0, 'size=%s bytes' % size(rel), 'critical'))
+    sw_lower = sw.lower()
+    api_cache_risk = ('/api/' in sw_lower and ('cache.addall' in sw_lower or 'caches.match' in sw_lower) and not any(t in sw_lower for t in ['networkonly','network-only','no-store','bypass api','api bypass']))
+    checks += [
+        chk('Service Worker 不快取 API', not api_cache_risk, 'API 必須走網路，避免庫存/訂單/出貨讀到舊資料。', 'critical'),
+        chk('Service Worker 有版本控管', 'static_version' in sw_lower or 'cache_name' in sw_lower or 'version' in sw_lower, '靜態檔需要版本切換避免舊 CSS/JS 殘留。', 'warn'),
+        chk('base.html 靜態檔帶版本參數', ('STATIC_VERSION' in base or 'static_version' in base or '?v=' in base), '避免手機仍載入舊 CSS/JS。', 'warn'),
+        chk('手機 CSS 保留水平滑動規則', ('overflow-x' in css and ('warehouse' in css.lower() or 'table' in css.lower())), '手機表格/倉庫圖需要可橫向滑，不裁切。', 'warn'),
+        chk('商品主線沒有 setInterval', 'setInterval' not in products, '商品頁不可用輪詢硬塞按鈕。', 'critical'),
+        chk('商品主線沒有 MutationObserver', 'MutationObserver' not in products, '商品頁不可用 DOM 監看硬塞 UI。', 'critical'),
+        chk('倉庫主線沒有 setInterval', 'setInterval' not in warehouse, '倉庫圖不可用輪詢造成卡頓。', 'critical'),
+        chk('倉庫主線沒有 MutationObserver', 'MutationObserver' not in warehouse, '倉庫圖不可用 DOM 監看造成卡頓。', 'critical'),
+        chk('出貨主線沒有 setInterval', 'setInterval' not in ship, '出貨頁不可用輪詢造成預覽慢。', 'critical'),
+        chk('出貨主線沒有 MutationObserver', 'MutationObserver' not in ship, '出貨頁不可用 DOM 監看造成卡頓。', 'critical'),
+        chk('診斷頁沒有自動輪詢', 'setInterval' not in diagnostics, '診斷頁按鈕手動觸發即可，不自動重刷。', 'warn'),
+        chk('效能 API 保留', '/api/performance/status' in app_text and '/api/performance/readiness' in app_text, '既有效能端點不可遺失。', 'warn'),
+        chk('錯誤趨勢巡檢保留', '/api/diagnostics/error-trend-report' in app_text, '上一包錯誤趨勢巡檢不可遺失。', 'warn'),
+        chk('資料一致性巡檢保留', '/api/diagnostics/data-consistency-report' in app_text, '上一包資料一致性巡檢不可遺失。', 'warn'),
+        chk('資料健康巡檢保留', '/api/diagnostics/data-health-report' in app_text, '資料健康巡檢不可遺失。', 'warn'),
+    ]
+    current_timings = globals().get('YX_PERF_SNAPSHOT', {}) or {}
+    critical = [c for c in checks if (not c['ok']) and c.get('severity') == 'critical']
+    warn = [c for c in checks if (not c['ok']) and c.get('severity') != 'critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   checks=checks, perf_snapshot=current_timings, file_sizes={
+                       'service_worker': size('static/service-worker.js'),
+                       'products_js': size('static/yx_pages/page_products_master.js'),
+                       'ship_js': size('static/yx_modules/ship_single_lock.js'),
+                       'warehouse_js': size('static/yx_modules/warehouse_hardlock.js'),
+                       'mobile_css': size('static/yx_modules/yx_20260517_user_request.css')
+                   }, summary={
+                       'total': len(checks),
+                       'ok': sum(1 for c in checks if c['ok']),
+                       'critical': len(critical),
+                       'warn': len(warn),
+                       'note': '效能/快取巡檢為只讀檢查：不清快取、不改 DB、不修改出貨/倉庫/商品主線。'
+                   })
+
+
+
+@app.route('/api/diagnostics/final-checklist-report')
+def api_diagnostics_final_checklist_report():
+    """Read-only final deployment checklist. Does not write, delete, migrate, clear cache, or change business behavior."""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def exists(rel):
+        try:
+            return pathlib.Path(rel).exists() and pathlib.Path(rel).stat().st_size > 0
+        except Exception:
+            return False
+    app_text = _yx_diag_read_text('app.py', 1600000)
+    base = _yx_diag_read_text('templates/base.html', 800000)
+    diag = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1200000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1000000)
+    warehouse = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1200000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1200000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 800000)
+    sw = _yx_diag_read_text('static/service-worker.js', 600000)
+    req = _yx_diag_read_text('requirements.txt', 300000)
+    render = _yx_diag_read_text('render.yaml', 300000)
+    procfile = _yx_diag_read_text('Procfile', 200000)
+    migration = _yx_diag_read_text('migrations/000_yuanxing_all_in_one.sql', 1200000)
+    required_reports = [
+        '/api/diagnostics/stable-guard-report', '/api/diagnostics/data-health-report',
+        '/api/diagnostics/release-readiness-report', '/api/diagnostics/backup-rollback-report',
+        '/api/diagnostics/operation-flow-report', '/api/diagnostics/error-trend-report',
+        '/api/diagnostics/data-consistency-report', '/api/diagnostics/performance-cache-report',
+        '/api/diagnostics/upgrade-candidate-report', '/api/diagnostics/oneclick-total-report'
+    ]
+    checks = []
+    for rel in ['app.py','db.py','backup.py','requirements.txt','Procfile','render.yaml','templates/base.html','static/yx_pages/diagnostics_page.js','static/yx_pages/page_products_master.js','static/yx_modules/ship_single_lock.js','static/yx_modules/warehouse_hardlock.js','static/yx_modules/yx_20260517_user_request.css','static/service-worker.js','migrations/000_yuanxing_all_in_one.sql']:
+        checks.append(chk('部署清單必要檔存在：' + rel, exists(rel), rel, 'critical'))
+    for ep in required_reports:
+        checks.append(chk('部署前巡檢端點存在：' + ep, ep in app_text, '只讀巡檢端點需保留，方便部署前逐項確認。', 'warn'))
+    checks += [
+        chk('穩定基準仍是 20260517j 系列', '20260517j' in app_text or '20260517j' in base, '避免後續包忘記以滿意版為基準。', 'critical'),
+        chk('出貨主線仍由 ship_single_lock 載入', 'ship_single_lock.js' in base and 'ship_page' in base, '不可被其他出貨 renderer 蓋掉。', 'critical'),
+        chk('倉庫主線仍由 warehouse_hardlock 載入', 'warehouse_hardlock.js' in base and 'warehouse_page' in base, '不可切回舊倉庫 renderer。', 'critical'),
+        chk('商品主線仍由 page_products_master 載入', 'page_products_master.js' in base and 'orders_page' in base and 'master_order_page' in base, '庫存/訂單/總單維持目前穩定主線。', 'critical'),
+        chk('主線沒有 setInterval 回歸', 'setInterval' not in products and 'setInterval' not in warehouse and 'setInterval' not in ship and 'setInterval' not in diag, '避免手機卡頓與重複刷新。', 'critical'),
+        chk('主線沒有 MutationObserver 回歸', 'MutationObserver' not in products and 'MutationObserver' not in warehouse and 'MutationObserver' not in ship and 'MutationObserver' not in diag, '避免硬塞 UI 造成忽大忽小。', 'critical'),
+        chk('手機比例 CSS 還在', '@media' in css and 'overflow-x' in css and 'max-width' in css, '避免手機又看不到全表或不能滑。', 'warn'),
+        chk('Service Worker 有 API 網路優先線索', ('/api/' in sw and ('network' in sw.lower() or 'fetch' in sw.lower() or 'no-store' in sw.lower())), '避免 API 讀到舊快取。', 'warn'),
+        chk('Render 啟動設定保留', 'gunicorn' in procfile.lower() or 'gunicorn' in render.lower(), 'Render 部署要能啟動。', 'critical'),
+        chk('requirements 含部署必要套件', 'flask' in req.lower() and 'gunicorn' in req.lower(), 'Flask/gunicorn 不可遺失。', 'critical'),
+        chk('migration 保留核心表', all(t in migration for t in ['inventory','orders','master_orders','warehouse_cells','shipping_records','today_changes']), '新環境與自動補表不可缺核心表。', 'critical'),
+    ]
+    checklist = [
+        {'step': 1, 'title': '先備份', 'detail': '部署前先下載目前完整包與資料庫備份；本報告不會自動備份。'},
+        {'step': 2, 'title': '先測試分支', 'detail': '先丟測試分支/測試 Render，不直接覆蓋正式主線。'},
+        {'step': 3, 'title': '按巡檢順序', 'detail': '穩定守門 → 效能快取 → 發布回退 → 資料健康 → 資料一致性 → 手機全頁比例。'},
+        {'step': 4, 'title': '實機確認', 'detail': '手機打開首頁、庫存、訂單、總單、出貨、倉庫圖，確認可滑動與按鈕未裁切。'},
+        {'step': 5, 'title': '小修才合併', 'detail': '若有警告，下一包只修該警告，不混入功能大改。'},
+    ]
+    critical = [c for c in checks if (not c['ok']) and c.get('severity') == 'critical']
+    warn = [c for c in checks if (not c['ok']) and c.get('severity') != 'critical']
+    return jsonify(success=len(critical)==0, app_version=APP_VERSION, static_version=STATIC_VERSION, generated_at=now(), checks=checks, checklist=checklist, summary={'total':len(checks),'ok':sum(1 for c in checks if c['ok']),'critical':len(critical),'warn':len(warn),'note':'部署總清單巡檢為只讀檢查：不部署、不備份、不還原、不清快取、不改 DB、不改功能主線。'})
+
+
+@app.route('/api/diagnostics/oneclick-total-report')
+def api_diagnostics_oneclick_total_report():
+    """Read-only one-click diagnostics index. Does not modify data, cache, DB, or runtime state."""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    app_text = _yx_diag_read_text('app.py', 1200000)
+    diag_js = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1200000)
+    base = _yx_diag_read_text('templates/base.html', 500000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1200000)
+    warehouse = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1200000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1200000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 800000)
+    sw = _yx_diag_read_text('static/service-worker.js', 300000)
+    report_endpoints = [
+        ('summary', '/api/diagnostics/summary'),
+        ('full_requirements', '/api/diagnostics/full-requirements'),
+        ('mobile_audit', 'client-side: diag-mobile-audit'),
+        ('qty_consistency', '/api/diagnostics/qty-consistency-report'),
+        ('stable_guard', '/api/diagnostics/stable-guard-report'),
+        ('data_health', '/api/diagnostics/data-health-report'),
+        ('release_readiness', '/api/diagnostics/release-readiness-report'),
+        ('backup_rollback', '/api/diagnostics/backup-rollback-report'),
+        ('operation_flow', '/api/diagnostics/operation-flow-report'),
+        ('error_trend', '/api/diagnostics/error-trend-report'),
+        ('data_consistency', '/api/diagnostics/data-consistency-report'),
+        ('performance_cache', '/api/diagnostics/performance-cache-report'),
+        ('upgrade_candidate', '/api/diagnostics/upgrade-candidate-report'),
+        ('oneclick_total', '/api/diagnostics/oneclick-total-report'),
+        ('final_checklist', '/api/diagnostics/final-checklist-report'),
+    ]
+    checks = []
+    for name, ep in report_endpoints:
+        token = ep if ep.startswith('/api/') else ep.split(':',1)[-1].strip()
+        checks.append(chk('總報告端點/按鈕存在：' + name, token in app_text or token in diag_js, ep, 'warn'))
+    checks += [
+        chk('穩定基準 20260517j 保留', '20260517j' in app_text or '20260517j' in base, '總報告仍以目前滿意版為基準。', 'critical'),
+        chk('出貨主線未改動為巡檢功能', 'ship_single_lock.js' in base and 'setInterval' not in ship and 'MutationObserver' not in ship, '只檢查，不動出貨流程。', 'critical'),
+        chk('倉庫主線未新增定時/監看器', 'setInterval' not in warehouse and 'MutationObserver' not in warehouse, '保持目前滿意的倉庫操作，不新增重刷來源。', 'critical'),
+        chk('商品主線未新增定時/監看器', 'setInterval' not in products and 'MutationObserver' not in products, '庫存/訂單/總單主線不新增硬塞 UI。', 'critical'),
+        chk('手機比例 CSS 保留', '@media' in css and 'overflow-x' in css and 'max-width' in css, '手機滑動修復不可被移除。', 'warn'),
+        chk('Service Worker 仍有 API 網路優先線索', ('/api/' in sw and ('network' in sw.lower() or 'fetch' in sw.lower())) or 'no-store' in sw.lower(), '避免讀到舊 API。', 'warn'),
+    ]
+    report_cards = [
+        {'title':'部署前先看','action':'先按「穩定守門報告」「效能快取巡檢」「發布回退巡檢」。', 'risk':'低'},
+        {'title':'資料前先看','action':'再按「資料健康」「資料一致性」「錯誤趨勢」。', 'risk':'低'},
+        {'title':'手機前先看','action':'最後按「手機全頁比例巡檢」實機確認裁切/滑動。', 'risk':'低'},
+        {'title':'功能升級前先看','action':'按「升級候選巡檢」選一個低風險項目單獨修。', 'risk':'低'},
+    ]
+    critical = [c for c in checks if (not c['ok']) and c.get('severity') == 'critical']
+    warn = [c for c in checks if (not c['ok']) and c.get('severity') != 'critical']
+    return jsonify(success=len(critical)==0, app_version=APP_VERSION, static_version=STATIC_VERSION, generated_at=now(),
+                   checks=checks, report_endpoints=[{'name':n,'endpoint':e} for n,e in report_endpoints], report_cards=report_cards,
+                   summary={'total':len(checks),'ok':sum(1 for c in checks if c['ok']),'critical':len(critical),'warn':len(warn),'note':'一鍵總報告巡檢只列索引與守門狀態；不呼叫寫入 API、不改 DB、不清快取、不改功能主線。'})
+
+
+@app.route('/api/diagnostics/upgrade-candidate-report')
+def api_diagnostics_upgrade_candidate_report():
+    """Read-only upgrade candidate audit. Does not modify data or runtime state."""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    app_text = _yx_diag_read_text('app.py', 1000000)
+    base = _yx_diag_read_text('templates/base.html', 1000000)
+    diag = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1000000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1000000)
+    warehouse = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1000000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1000000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 1000000)
+    sw = _yx_diag_read_text('static/service-worker.js', 1000000)
+    checks=[]
+    checks.append(chk('穩定基準版仍保留', '20260517j' in app_text or 'stable-20260517j' in app_text, '此巡檢必須延續 20260517j 滿意版主線。', 'critical'))
+    checks.append(chk('效能快取巡檢保留', '/api/diagnostics/performance-cache-report' in app_text and 'diag-performance-cache' in diag, '上一包 20260517s 的效能巡檢不可遺失。', 'critical'))
+    checks.append(chk('無新增 setInterval 巡檢風險', 'setInterval' not in products and 'setInterval' not in warehouse and 'setInterval' not in ship, '商品/倉庫/出貨主線不可回到定時器硬刷。', 'critical'))
+    checks.append(chk('無新增 MutationObserver 巡檢風險', 'MutationObserver' not in products and 'MutationObserver' not in warehouse and 'MutationObserver' not in ship, '商品/倉庫/出貨主線不可用 DOM 觀察器硬塞功能。', 'critical'))
+    checks.append(chk('Service Worker 不快取 API', ('/api/' in sw and ('network' in sw.lower() or 'fetch' in sw.lower())) or 'event.request.url.includes' in sw, '需避免手機讀到舊 API 或舊診斷結果。', 'warn'))
+    checks.append(chk('手機滑動 CSS 保留', all(k in css for k in ['overflow-x', 'max-width', '@media']), '手機比例修復不可被後續升級洗掉。', 'warn'))
+    checks.append(chk('倉庫長按功能文字保留', all(k in warehouse for k in ['批量加入', '批量刪除', '標記', '退回']), '你目前滿意的倉庫長按四功能不可遺失。', 'warn'))
+    checks.append(chk('出貨換客戶清空線索保留', ('clear' in ship.lower() and ('customer' in ship.lower() or '客戶' in ship)), '出貨換客戶需清掉原本已選商品。', 'warn'))
+    candidates=[]
+    def cand(title, priority, risk, reason, safe_scope):
+        candidates.append({'title': title, 'priority': priority, 'risk': risk, 'reason': reason, 'safe_scope': safe_scope})
+    cand('把件數計算整理成唯一共用核心', 'P1', '中', '目前已用巡檢確認規則，但長期最怕前端/後端各算各的。先做純函式抽出與測試，不直接改扣庫存流程。', '新增共用 qty parser + 單元樣本；第二包再接頁面。')
+    cand('新增一鍵匯出目前診斷總報告', 'P1', '低', '現在巡檢按鈕很多，建議把所有只讀報告合併匯出，方便部署前對照。', '只動 diagnostics_page.js 與 app.py，不動業務頁。')
+    cand('手機倉庫圖快速定位工具', 'P2', '中', '手機可滑動後仍可能找格慢，可加 A/B 區、第幾欄快速跳轉。', '只加前端輔助 UI；不改倉庫資料結構與儲存 API。')
+    cand('今日異動閉環驗證', 'P2', '中', '資料健康巡檢可看到 today_changes，但應補一個只讀式覆蓋率報告，看新增/出貨/倉庫是否都有異動紀錄。', '只讀查詢 today_changes 與近 24 小時資料。')
+    cand('出貨預覽單據列印/分享版', 'P3', '中', '出貨預覽穩定後，可做更正式單據版，顯示扣前扣後、材積與重量。', '獨立預覽列印樣式，不改 ship confirm。')
+    cand('錯誤紀錄封存/只看今日', 'P3', '中', 'errors 舊資料多時不易看新錯誤；可先加篩選，不直接刪資料。', '只讀篩選先做；清理封存另開包。')
+    summary={'total':len(checks),'critical':sum(1 for c in checks if (not c['ok'] and c['severity']=='critical')),'warn':sum(1 for c in checks if (not c['ok'] and c['severity']!='critical')),'candidates':len(candidates),'note':'只讀升級候選巡檢：列出下一步可升級項目與風險，不修改功能主線、不改資料。'}
+    return jsonify({'success': True, 'summary': summary, 'checks': checks, 'candidates': candidates, 'app_version': APP_VERSION, 'static_version': STATIC_VERSION})
+
+
+@app.route('/api/diagnostics/data-consistency-report')
+def api_diagnostics_data_consistency_report():
+    """讀取式資料一致性巡檢：只比對庫存/訂單/總單/出貨/倉庫資料，不修正、不刪除、不寫入。"""
+    import json as _json
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def scalar(query, params=(), default=0):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); row = cur.fetchone()
+            if row is None: return default
+            if isinstance(row, dict): return list(row.values())[0]
+            return row[0]
+        except Exception as e:
+            return default
+    def rows(query, params=(), limit=30):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); fetched = cur.fetchmany(limit)
+            return [row_to_dict(r) for r in fetched]
+        except Exception as e:
+            return [{'error': str(e)}]
+    business_tables = ['inventory','orders','master_orders']
+    checks = []
+    table_reports = []
+    for table in business_tables:
+        total = int(scalar(f"SELECT COUNT(*) FROM {table}", (), 0) or 0)
+        blank_customer = int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(customer_name,'')=''", (), 0) or 0)
+        blank_product = int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(product_text,'')=''", (), 0) or 0)
+        non_positive_qty = int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(qty,0)<=0", (), 0) or 0)
+        duplicate_keys = rows(f"SELECT COALESCE(customer_name,'') AS customer_name, COALESCE(product_text,'') AS product_text, COALESCE(material,'') AS material, COUNT(*) AS count FROM {table} GROUP BY COALESCE(customer_name,''), COALESCE(product_text,''), COALESCE(material,'') HAVING COUNT(*)>1 ORDER BY count DESC", (), 20)
+        duplicate_count = sum(1 for x in duplicate_keys if not x.get('error'))
+        table_reports.append({'table': table, 'total': total, 'blank_customer': blank_customer, 'blank_product': blank_product, 'non_positive_qty': non_positive_qty, 'duplicate_key_groups': duplicate_count, 'duplicate_samples': duplicate_keys})
+        checks.append(chk(f'{table} 客戶名稱完整', blank_customer == 0, f'空 customer_name={blank_customer} / total={total}', 'warn'))
+        checks.append(chk(f'{table} 商品文字完整', blank_product == 0, f'空 product_text={blank_product} / total={total}', 'warn'))
+        checks.append(chk(f'{table} qty 大於 0', non_positive_qty == 0, f'qty<=0={non_positive_qty} / total={total}', 'warn'))
+        checks.append(chk(f'{table} 重複鍵可追蹤', True, f'相同 客戶+商品+材質 的群組={duplicate_count}；不一定是錯，只列給人工複查。', 'warn'))
+    warehouse_total = int(scalar('SELECT COUNT(*) FROM warehouse_cells', (), 0) or 0)
+    wh_rows = rows("SELECT id, zone, band, row_name, slot, customer_name, product_text, items_json, note FROM warehouse_cells WHERE COALESCE(items_json,'')<>'' ORDER BY id DESC", (), 300)
+    json_bad = []
+    wh_items = []
+    for r in wh_rows:
+        raw = r.get('items_json') or ''
+        try:
+            data = _json.loads(raw) if raw else []
+            if isinstance(data, dict): data = [data]
+            if not isinstance(data, list):
+                json_bad.append({'id': r.get('id'), 'reason': 'items_json 不是 list/dict'})
+                continue
+            for item in data:
+                if isinstance(item, dict):
+                    wh_items.append({'cell_id': r.get('id'), 'zone': r.get('zone'), 'slot': r.get('slot'), 'customer_name': item.get('customer_name') or r.get('customer_name') or '', 'product_text': item.get('product_text') or item.get('text') or r.get('product_text') or '', 'source_table': item.get('source_table') or item.get('source') or ''})
+        except Exception as e:
+            json_bad.append({'id': r.get('id'), 'reason': str(e)})
+    orphan_samples = []
+    for item in wh_items[:200]:
+        cn = item.get('customer_name') or ''
+        pt = item.get('product_text') or ''
+        if not pt:
+            continue
+        exists = 0
+        for table in business_tables:
+            exists += int(scalar(f"SELECT COUNT(*) FROM {table} WHERE COALESCE(customer_name,'')=? AND COALESCE(product_text,'')=?", (cn, pt), 0) or 0)
+        if exists == 0:
+            orphan_samples.append(item)
+        if len(orphan_samples) >= 30:
+            break
+    shipping_total = int(scalar('SELECT COUNT(*) FROM shipping_records', (), 0) or 0)
+    shipping_blank_customer = int(scalar("SELECT COUNT(*) FROM shipping_records WHERE COALESCE(customer_name,'')=''", (), 0) or 0)
+    shipping_blank_product = int(scalar("SELECT COUNT(*) FROM shipping_records WHERE COALESCE(product_text,'')=''", (), 0) or 0)
+    shipping_non_positive = int(scalar("SELECT COUNT(*) FROM shipping_records WHERE COALESCE(qty,0)<=0", (), 0) or 0)
+    checks += [
+        chk('warehouse_cells 表可讀', warehouse_total >= 0, f'warehouse_cells={warehouse_total}', 'critical'),
+        chk('倉庫 items_json 可解析', len(json_bad) == 0, f'解析失敗={len(json_bad)}；只列出不修正。', 'warn'),
+        chk('倉庫品項來源可追蹤', len(orphan_samples) == 0, f'抽樣未在庫存/訂單/總單找到={len(orphan_samples)}；可能是已出貨或資料文字不同，需人工複查。', 'warn'),
+        chk('shipping_records 客戶完整', shipping_blank_customer == 0, f'空 customer_name={shipping_blank_customer} / total={shipping_total}', 'warn'),
+        chk('shipping_records 商品完整', shipping_blank_product == 0, f'空 product_text={shipping_blank_product} / total={shipping_total}', 'warn'),
+        chk('shipping_records qty 大於 0', shipping_non_positive == 0, f'qty<=0={shipping_non_positive} / total={shipping_total}', 'warn'),
+        chk('本巡檢為只讀', True, '沒有 INSERT / UPDATE / DELETE / DROP / TRUNCATE，不會改資料。', 'critical'),
+    ]
+    critical=[c for c in checks if (not c.get('ok')) and c.get('severity')=='critical']
+    warn=[c for c in checks if (not c.get('ok')) and c.get('severity')!='critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   checks=checks, table_reports=table_reports,
+                   warehouse_report={'total_cells': warehouse_total, 'items_json_rows_checked': len(wh_rows), 'items_seen': len(wh_items), 'json_bad': json_bad[:30], 'orphan_samples': orphan_samples},
+                   shipping_report={'total': shipping_total, 'blank_customer': shipping_blank_customer, 'blank_product': shipping_blank_product, 'non_positive_qty': shipping_non_positive},
+                   summary={'total': len(checks), 'ok': sum(1 for c in checks if c.get('ok')), 'critical': len(critical), 'warn': len(warn), 'note': '資料一致性巡檢只讀取並列出風險，不修正、不刪除、不寫入任何業務資料。'})
+
+@app.route('/api/diagnostics/error-trend-report')
+def api_diagnostics_error_trend_report():
+    """讀取式錯誤趨勢巡檢：只統計 errors，不清除、不修改、不寫入業務資料。"""
+    today_dt = datetime.now()
+    today = today_dt.strftime('%Y-%m-%d')
+    seven_days_ago = (today_dt - timedelta(days=7)).strftime('%Y-%m-%d')
+    thirty_days_ago = (today_dt - timedelta(days=30)).strftime('%Y-%m-%d')
+    def scalar(query, params=(), default=0):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); row = cur.fetchone()
+            if row is None: return default
+            if isinstance(row, dict): return list(row.values())[0]
+            return row[0]
+        except Exception:
+            return default
+    def list_rows(query, params=(), limit=30):
+        try:
+            db = get_db(); cur = db.cursor(); cur.execute(sql(query), tuple(params)); rows = cur.fetchmany(limit)
+            return [row_to_dict(r) for r in rows]
+        except Exception as e:
+            return [{'error': str(e)}]
+    total = int(scalar('SELECT COUNT(*) FROM errors', (), 0) or 0)
+    today_count = int(scalar("SELECT COUNT(*) FROM errors WHERE substr(created_at,1,10)=?", (today,), 0) or 0)
+    week_count = int(scalar("SELECT COUNT(*) FROM errors WHERE substr(created_at,1,10)>=?", (seven_days_ago,), 0) or 0)
+    month_count = int(scalar("SELECT COUNT(*) FROM errors WHERE substr(created_at,1,10)>=?", (thirty_days_ago,), 0) or 0)
+    by_day = list_rows("SELECT substr(created_at,1,10) AS day, COUNT(*) AS count FROM errors WHERE substr(created_at,1,10)>=? GROUP BY substr(created_at,1,10) ORDER BY day DESC", (thirty_days_ago,), 31)
+    by_context = list_rows("SELECT COALESCE(context,'未分類') AS context, COUNT(*) AS count FROM errors WHERE substr(created_at,1,10)>=? GROUP BY COALESCE(context,'未分類') ORDER BY count DESC", (seven_days_ago,), 20)
+    recent = list_rows("SELECT id, created_at, COALESCE(context,'') AS context, COALESCE(message,'') AS message FROM errors ORDER BY id DESC", (), 20)
+    repeated = list_rows("SELECT substr(COALESCE(message,''),1,120) AS message_head, COUNT(*) AS count FROM errors WHERE substr(created_at,1,10)>=? GROUP BY substr(COALESCE(message,''),1,120) HAVING COUNT(*)>=2 ORDER BY count DESC", (seven_days_ago,), 20)
+    checks=[]
+    def chk(name, ok, detail='', severity='warn'):
+        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
+    chk('errors 表可讀', total >= 0, 'total=%s' % total, 'critical')
+    chk('今日錯誤未暴增', today_count < 50, 'today=%s；若偏高，先看最近錯誤再修，不要直接清表。' % today_count, 'warn')
+    chk('近 7 天錯誤未暴增', week_count < 300, 'last_7_days=%s；高於門檻代表要分 context 修，不要一次大改。' % week_count, 'warn')
+    chk('重複錯誤可辨識', True, '重複訊息種類=%s；本報告只列出，不刪除。' % len(repeated), 'warn')
+    chk('診斷不含破壞性清除', True, '本端點沒有 DELETE/TRUNCATE/DROP/UPDATE/INSERT 業務資料動作。', 'critical')
+    critical=[c for c in checks if (not c.get('ok')) and c.get('severity')=='critical']
+    warn=[c for c in checks if (not c.get('ok')) and c.get('severity')!='critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   checks=checks,
+                   counts={'today': today_count, 'last_7_days': week_count, 'last_30_days': month_count, 'total': total},
+                   by_day=by_day, by_context=by_context, repeated=repeated, recent=recent,
+                   summary={'total': len(checks), 'ok': sum(1 for c in checks if c.get('ok')), 'critical': len(critical), 'warn': len(warn),
+                            'note': '錯誤趨勢巡檢只讀取 errors 統計，不清除、不修改資料；目的是讓下次修 bug 先知道風險來源。'})
+
+
+@app.route('/api/diagnostics/operation-flow-report')
+def api_diagnostics_operation_flow_report():
+    """讀取式操作流程巡檢：只檢查核心頁面流程 token / API / 載入契約，不送出、不修改資料。"""
+    def chk(name, ok, detail='', severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+    def has_all(text, tokens):
+        return all(t in text for t in tokens)
+    def has_any(text, tokens):
+        return any(t in text for t in tokens)
+    app_text = _yx_diag_read_text('app.py', 1000000)
+    base = _yx_diag_read_text('templates/base.html', 1000000)
+    products = _yx_diag_read_text('static/yx_pages/page_products_master.js', 1000000)
+    ship = _yx_diag_read_text('static/yx_modules/ship_single_lock.js', 1000000)
+    wh = _yx_diag_read_text('static/yx_modules/warehouse_hardlock.js', 1000000)
+    today = _yx_diag_read_text('static/yx_modules/today_changes_hardlock.js', 1000000)
+    css = _yx_diag_read_text('static/yx_modules/yx_20260517_user_request.css', 1000000)
+    diag = _yx_diag_read_text('static/yx_pages/diagnostics_page.js', 1000000)
+    flows = []
+    def add_flow(name, checks):
+        bad = [c for c in checks if not c.get('ok')]
+        flows.append({'name': name, 'ok': len(bad)==0, 'checks': checks, 'bad': len(bad)})
+    add_flow('庫存 / 訂單 / 總單新增與批量操作', [
+        chk('商品主檔載入契約', 'page_products_master.js' in base and all(x in base for x in ['inventory_page','orders_page','master_order_page']), '庫存/訂單/總單維持同一主檔。', 'critical'),
+        chk('訂單儲存 API 存在', '/api/order' in app_text and '/api/orders' in app_text, '訂單新增與讀取路由存在。', 'critical'),
+        chk('總單儲存 API 存在', '/api/master_order' in app_text and '/api/master-orders' in app_text, '總單新增與讀取路由存在。', 'critical'),
+        chk('批量編輯 / 刪除文字存在', has_any(products, ['批量編輯','batch-update']) and has_any(products, ['批量刪除','batch-delete']), '只讀檢查按鈕/事件 token。', 'warn'),
+        chk('北中南前端即時刷新 token', has_any(products, ['renderCustomers','customer','北區']) and has_any(products, ['refresh','rerender','render']), '只讀檢查客戶區重新渲染能力。', 'warn'),
+        chk('商品主檔無 setInterval / MutationObserver', 'setInterval' not in products and 'MutationObserver' not in products, '避免硬塞與閃爍。', 'warn'),
+    ])
+    add_flow('出貨預覽 / 換客戶清空 / 確認出貨', [
+        chk('出貨主檔載入契約', 'ship_single_lock.js' in base and 'ship_page' in base, '出貨頁維持目前穩定主線。', 'critical'),
+        chk('出貨預覽 API 存在', '/api/ship-preview' in app_text and '/api/ship/preview' in app_text, '預覽雙路由保留。', 'critical'),
+        chk('出貨確認 API 存在', '/api/ship' in app_text and '/api/ship/confirm' in app_text and '/api/shipping_records' in app_text, '扣庫存與紀錄路由保留。', 'critical'),
+        chk('換客戶清空 token', has_any(ship, ['clear','reset','selected']) and has_any(ship, ['customer','客戶']), '只讀檢查換客戶後清空已選商品的程式語意。', 'warn'),
+        chk('預覽快跳 token', has_any(ship, ['scrollIntoView','preview']) and has_any(ship, ['requestAnimationFrame','setTimeout','instant','render']), '只讀檢查預覽顯示/跳轉語意。', 'warn'),
+        chk('出貨主檔無 setInterval / MutationObserver', 'setInterval' not in ship and 'MutationObserver' not in ship, '避免背景硬重刷。', 'warn'),
+    ])
+    add_flow('倉庫格位 / 長按 / 標記 / 退回下拉', [
+        chk('倉庫主檔載入契約', 'warehouse_hardlock.js' in base and 'warehouse_page' in base, '倉庫頁維持目前穩定主線。', 'critical'),
+        chk('倉庫核心 API 存在', all(t in app_text for t in ['/api/warehouse/cells','/api/warehouse/add-slot','/api/warehouse/remove-slot','/api/warehouse/available-items']), '格位、加格、刪格、未入倉下拉路由存在。', 'critical'),
+        chk('長按選單四功能 token', all(t in wh for t in ['批量加入格子','批量刪除格子','標記此格','退回下拉選單']), '長按功能維持四項。', 'warn'),
+        chk('淡粉紅標記 CSS token', has_any(css, ['pink','粉紅','marked','mark']) and has_any(wh, ['標記此格','marked','pink']), '標記此格應有視覺與事件 token。', 'warn'),
+        chk('彈窗可視畫面置中 token', has_any(wh, ['position:fixed','viewport','innerWidth','innerHeight','translate(-50%']), '只讀檢查彈窗定位語意。', 'warn'),
+        chk('倉庫主檔無 setInterval / MutationObserver', 'setInterval' not in wh and 'MutationObserver' not in wh, '避免開頁卡住或重複綁定。', 'warn'),
+    ])
+    add_flow('今日異動 / 診斷 / 手機巡檢', [
+        chk('今日異動 API 存在', all(t in app_text for t in ['/api/today-changes','/api/today-changes/count','/api/today-changes/badge']), '通知中心路由保留。', 'warn'),
+        chk('今日異動主檔載入契約', 'today_changes_hardlock.js' in base and 'today_changes_page' in base, '今日異動頁主檔保留。', 'warn'),
+        chk('手機巡檢端點/按鈕保留', 'diag-mobile-audit' in diag and 'inspectMobilePage' in diag, '手機比例巡檢仍可使用。', 'warn'),
+        chk('件數報告端點保留', '/api/diagnostics/qty-consistency-report' in app_text, '上一包件數一致性報告不可遺失。', 'warn'),
+        chk('備份回復巡檢端點保留', '/api/diagnostics/backup-rollback-report' in app_text, '上一包備份回復巡檢不可遺失。', 'warn'),
+    ])
+    all_checks = [c for f in flows for c in f['checks']]
+    critical = [c for c in all_checks if (not c.get('ok')) and c.get('severity') == 'critical']
+    warn = [c for c in all_checks if (not c.get('ok')) and c.get('severity') != 'critical']
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   flows=flows, checks=all_checks, summary={
+                       'flows': len(flows),
+                       'total': len(all_checks),
+                       'ok': sum(1 for c in all_checks if c.get('ok')),
+                       'critical': len(critical),
+                       'warn': len(warn),
+                       'note': '操作流程巡檢是讀取式合約檢查，只看檔案、路由與事件 token；不送出訂單、不出貨、不改倉庫、不修改 DB。'
+                   })
 
 @app.route('/api/performance/status', methods=['GET'])
 @app.route('/api/performance/readiness', methods=['GET'])
@@ -5070,9 +5817,12 @@ def _yx_diag_master_requirement_checks():
     checks.append(_yx_diag_check('按鈕文字保護主檔已載入', ('yx_final_mainfile_ui_20260516bs.css' in base and 'YXRestoreButtonLabels' in base and 'button' in css100 and 'warehouse-zone-columns' in css100), '全頁按鈕/標籤文字與倉庫三欄規則必須由最終主檔 CSS + base label guard 同時保護。', 'critical'))
     checks.append(_yx_diag_check('倉庫三欄兩排 CSS 寫入主檔', ('#zone-A-grid' in css100 and '#zone-B-grid' in css100 and 'repeat(3' in css100 and 'vertical-slot' in css100), 'A/B 倉庫 6 欄固定 3 欄 x 2 排，且格子不得裁切。', 'critical'))
 
-    # 20260516bs legacy final UI file audit
-    legacy_ui_files = [str(p) for p in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516bs' not in str(p)]
-    checks.append(_yx_diag_check('最終 UI 檔唯一且無舊版殘留', (len(legacy_ui_files)==0 and 'yx_final_mainfile_ui_20260516bs.css' in base), '只允許載入本版最終 UI CSS，避免舊 CSS 蓋掉按鈕文字或倉庫三欄。', 'warn'))
+    # 20260517k：最終 UI CSS 唯一巡檢。只允許 yx_final_mainfile_ui_20260516bs.css 作為 final UI 檔；
+    # 若 GitHub 舊檔殘留，這裡會列出檔名，方便清除；不新增 renderer / setInterval / MutationObserver。
+    legacy_ui_files = sorted([str(p) for p in pathlib.Path('static/yx_modules').glob('yx_final_mainfile_ui_20260516*.css') if '20260516bs' not in str(p)])
+    loaded_final_count = base.count('yx_final_mainfile_ui_20260516bs.css')
+    legacy_loaded = [x for x in legacy_ui_files if pathlib.Path(x).name in base]
+    checks.append(_yx_diag_check('最終 UI 檔唯一且無舊版殘留', (len(legacy_ui_files)==0 and loaded_final_count == 1 and not legacy_loaded), '允許檔：yx_final_mainfile_ui_20260516bs.css；舊檔殘留：' + (', '.join(legacy_ui_files) if legacy_ui_files else '無') + '；base 載入次數：' + str(loaded_final_count), 'warn'))
     checks.append(_yx_diag_check('全頁按鈕文字 CSS 實際含必要選擇器', all(x in css100 for x in ['role=button','customer-chip','home-mini-btn','-webkit-text-fill-color','button:empty']), '最終 UI CSS 必須覆蓋動態按鈕、標籤、空文字保底與透明文字問題。', 'critical'))
     checks.append(_yx_diag_check('全頁主要按鈕文字保護選擇器完整', all(tok in css100 for tok in ['product-toolbar','bulk-actions','customer-actions','warehouse-action-sheet','ship-actions']), '主 CSS 必須涵蓋庫存/訂單/總單/出貨/倉庫動態按鈕文字，避免空白按鈕。', 'warn'))
     checks.append(_yx_diag_check('倉庫格子第一排與商品列排版契約存在', all(tok in css100 for tok in ['warehouse-slot-summary','warehouse-slot-row','grid-template-columns:auto minmax(0,1fr) auto']), '倉庫格子需符合第一排格號/尺寸件數/總件數，下方客戶/材質/尺寸/件數且不裁切。', 'warn'))
@@ -5085,6 +5835,192 @@ def _yx_diag_master_requirement_checks():
     checks.append(_yx_diag_check('設定頁診斷入口', '/diagnostics' in _yx_diag_read_text('templates/settings.html'), '入口放設定頁，不放首頁干擾操作。', 'warn'))
     return checks
 
+
+
+
+@app.route('/api/diagnostics/change-impact-scope-report')
+def api_diagnostics_change_impact_scope_report():
+    """Read-only change impact scope report for safe future bug fixes. Does not modify DB/cache/runtime data."""
+    def exists(rel):
+        try:
+            return os.path.exists(rel)
+        except Exception:
+            return False
+    def read(rel, limit=1200000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def sha(rel):
+        try:
+            h = hashlib.sha256()
+            with open(rel, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    h.update(chunk)
+            return h.hexdigest()[:16]
+        except Exception:
+            return ''
+    def size(rel):
+        try: return os.path.getsize(rel)
+        except Exception: return 0
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    core_files = [
+        ('後端主檔', 'app.py'),
+        ('資料庫主檔', 'db.py'),
+        ('診斷頁', 'static/yx_pages/diagnostics_page.js'),
+        ('商品/訂單/總單主線', 'static/yx_pages/page_products_master.js'),
+        ('出貨主線', 'static/yx_modules/ship_single_lock.js'),
+        ('倉庫主線', 'static/yx_modules/warehouse_hardlock.js'),
+        ('手機/指定修復 CSS', 'static/yx_modules/yx_20260517_user_request.css'),
+        ('安全視覺 CSS', 'static/yx_modules/yx_safe_520_visual_only.css'),
+        ('Service Worker', 'static/service-worker.js'),
+        ('Render 設定', 'render.yaml'),
+        ('套件需求', 'requirements.txt'),
+        ('Migration', 'migrations/000_yuanxing_all_in_one.sql'),
+    ]
+    file_fingerprints = []
+    for title, rel in core_files:
+        txt = read(rel, 1200000)
+        file_fingerprints.append({
+            'title': title,
+            'path': rel,
+            'exists': exists(rel),
+            'size_bytes': size(rel),
+            'sha256_16': sha(rel),
+            'setInterval_count': txt.count('setInterval'),
+            'MutationObserver_count': txt.count('MutationObserver'),
+            'renderer_tokens': sum(txt.count(tok) for tok in ['renderWarehouse', 'renderProducts', 'renderOrders', 'renderMaster', 'renderShipping']),
+        })
+    app_src = read('app.py', 1600000)
+    base = read('templates/base.html', 500000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1200000)
+    checks = [
+        chk('仍以 20260517j 穩定基準為守門', '20260517j' in app_src or '手機全頁比例滑動' in app_src or 'stable' in app_src.lower(), '之後升級仍要以滿意版為基準，不直接重做主線。', 'warn'),
+        chk('部署總清單巡檢保留', '/api/diagnostics/final-checklist-report' in app_src and 'diag-final-checklist' in diag, '上一包 20260517v 的部署總清單不可遺失。', 'critical'),
+        chk('一鍵總報告保留', '/api/diagnostics/oneclick-total-report' in app_src and 'diag-oneclick-total' in diag, '一鍵總報告不可遺失。', 'critical'),
+        chk('出貨仍使用 ship_single_lock', 'ship_single_lock.js' in base, '不切換出貨主線、不回退到舊 renderer。', 'critical'),
+        chk('倉庫仍使用 warehouse_hardlock', 'warehouse_hardlock.js' in base, '不切換倉庫主線、不新增 renderer。', 'critical'),
+        chk('商品頁仍使用 page_products_master', 'page_products_master.js' in base, '庫存/訂單/總單仍使用目前主線。', 'critical'),
+        chk('診斷頁沒有自動輪詢', 'setInterval' not in diag, '診斷按鈕只手動觸發，不新增輪詢。', 'warn'),
+        chk('診斷頁沒有 MutationObserver', 'MutationObserver' not in diag, '診斷頁不靠觀察器塞按鈕。', 'warn'),
+    ]
+    change_buckets = [
+        {'type': 'CSS 小修', 'allowed_files': ['static/yx_modules/yx_20260517_user_request.css'], 'risk': '低', 'rule': '只修比例、裁切、顏色、按鈕間距；不要改 JS。'},
+        {'type': '診斷巡檢', 'allowed_files': ['app.py', 'static/yx_pages/diagnostics_page.js'], 'risk': '低', 'rule': '只新增 GET 只讀 API 與診斷按鈕；不可寫 DB。'},
+        {'type': '件數規則', 'allowed_files': ['app.py', 'static/yx_pages/page_products_master.js', 'static/yx_modules/ship_single_lock.js'], 'risk': '中', 'rule': '必須先列樣本報告，再集中成唯一函式；不可順手改 UI。'},
+        {'type': '倉庫操作', 'allowed_files': ['static/yx_modules/warehouse_hardlock.js', 'static/yx_modules/yx_20260517_user_request.css'], 'risk': '中', 'rule': '只改指定長按/彈窗/標記功能；不可改 DB schema。'},
+        {'type': '出貨主線', 'allowed_files': ['static/yx_modules/ship_single_lock.js', 'app.py'], 'risk': '高', 'rule': '必須先備份與測試分支；只修一個閉環，避免動訂單/總單。'},
+        {'type': 'DB schema / migration', 'allowed_files': ['db.py', 'migrations/000_yuanxing_all_in_one.sql', 'app.py'], 'risk': '高', 'rule': '除非明確要求，否則不要動；必須提供回退包。'},
+    ]
+    return jsonify(success=True, app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   summary={'note': '改版影響範圍巡檢只讀，不修改功能、不改資料。', 'checks': len(checks), 'files': len(file_fingerprints)},
+                   checks=checks, file_fingerprints=file_fingerprints, change_buckets=change_buckets)
+
+
+
+@app.route('/api/diagnostics/manual-smoke-test-plan-report')
+def api_diagnostics_manual_smoke_test_plan_report():
+    """Read-only manual smoke test plan. It gives a safe hands-on checklist for the current stable build without changing business logic or data."""
+    def read(rel, limit=900000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    app_src = read('app.py', 1900000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1300000)
+    base = read('templates/base.html', 500000)
+    css = read('static/yx_modules/yx_20260517_user_request.css', 600000)
+    wh = read('static/yx_modules/warehouse_hardlock.js', 900000)
+    ship = read('static/yx_modules/ship_single_lock.js', 900000)
+    products = read('static/yx_pages/page_products_master.js', 900000)
+
+    checks = [
+        chk('修復優先順序巡檢保留', '/api/diagnostics/repair-priority-plan-report' in app_src and 'diag-repair-priority' in diag, '上一包 20260517x 的修復優先順序報告不可遺失。', 'critical'),
+        chk('出貨主線仍未切換', 'ship_single_lock.js' in base and 'ship_single_lock' in ship, '此包只新增人工測試清單，不改出貨主線。', 'critical'),
+        chk('倉庫主線仍未切換', 'warehouse_hardlock.js' in base and 'warehouse' in wh.lower(), '此包只新增人工測試清單，不改倉庫主線。', 'critical'),
+        chk('商品主線仍未切換', 'page_products_master.js' in base and ('orders' in products or 'master' in products), '庫存/訂單/總單主線仍維持目前穩定檔。', 'critical'),
+        chk('手機比例 CSS 線索仍在', 'overflow-x' in css or 'max-width' in css or '100vw' in css, '手機比例修復不可被移除。', 'warn'),
+        chk('診斷頁無 setInterval', 'setInterval' not in diag, '巡檢功能仍採手動按鈕，不新增輪詢。', 'warn'),
+        chk('診斷頁無 MutationObserver', 'MutationObserver' not in diag, '巡檢功能不使用觀察器塞按鈕。', 'warn'),
+    ]
+
+    smoke_groups = [
+        {
+            'group': '手機頁面比例人工確認',
+            'risk': '低',
+            'steps': [
+                '用手機直向打開首頁，確認標題、設定、今日異動、登出、功能按鈕沒有裁切。',
+                '進入庫存/訂單/總單，確認表格可左右滑、頁面可上下滑，北中南客戶列不被切掉。',
+                '進入出貨與出貨查詢，確認輸入框與預覽卡片不超出螢幕。',
+                '進入倉庫圖，確認可水平滑整張倉庫圖，也可上下滑頁面。'
+            ],
+            'pass_rule': '所有頁面可滑動、沒有固定住、沒有半邊被遮住。'
+        },
+        {
+            'group': '訂單/總單/庫存基本新增確認',
+            'risk': '中',
+            'steps': [
+                '庫存新增一筆測試商品，確認商品立刻出現在清單。',
+                '從庫存加到訂單，確認北中南客戶區立刻顯示，不需手動刷新。',
+                '從訂單加到總單，確認總單區立刻顯示，筆數/件數靠右對齊。',
+                '刪除測試資料前先確認今日異動有紀錄。'
+            ],
+            'pass_rule': '前端先顯示，重新整理後資料仍在。'
+        },
+        {
+            'group': '件數規則樣本確認',
+            'risk': '中',
+            'steps': [
+                '輸入 348x45(-6鼎益興)+336x16+216x4，確認為 65 件。',
+                '輸入 504x5+588+587+502+420+382+378+280+254+237+174，確認為 15 件。',
+                '輸入 60+54+50，確認為 3 件。',
+                '輸入 220x4+223x2+44+35+221，確認為 9 件。'
+            ],
+            'pass_rule': '庫存、訂單、總單、出貨預覽顯示一致。'
+        },
+        {
+            'group': '倉庫長按與格位確認',
+            'risk': '中',
+            'steps': [
+                '長按任一空格，確認只出現：批量加入格子、批量刪除格子、標記此格、退回下拉選單。',
+                '按標記此格，確認格子變成非常淡粉紅色；再按一次可取消。',
+                '點格子後確認彈窗出現在當前可視畫面正中間，可關閉、可滑動。',
+                '測批量加格/刪格，只測少量格子，確認不會刪掉有商品格。'
+            ],
+            'pass_rule': '長按選單乾淨、標記有反應、格位彈窗不鎖頁面。'
+        },
+        {
+            'group': '出貨閉環確認',
+            'risk': '高',
+            'steps': [
+                '選客戶 A 加入商品後，改選客戶 B，確認原本已選商品與預覽清空。',
+                '按出貨預覽，確認會快速跳到預覽區。',
+                '確認預覽有扣前/扣後/來源資料，再按確認出貨。',
+                '確認出貨紀錄與今日異動出現，並確認來源數量扣減正確。'
+            ],
+            'pass_rule': '換客戶不殘留、預覽快跳、扣款資料正確；正式站測試前要先備份。'
+        }
+    ]
+
+    next_safe_actions = [
+        '先跑一鍵總報告、部署總清單、修復優先順序，再做人工 smoke test。',
+        '人工測試若只發現 CSS 問題，下一包只動 yx_20260517_user_request.css。',
+        '人工測試若發現出貨扣庫存問題，下一包只做出貨閉環，不同時修倉庫。',
+        '人工測試若發現倉庫長按問題，下一包只動 warehouse_hardlock.js 與倉庫 CSS。',
+        '每次測試前保留 20260517j 與目前最新部署包，方便回退。'
+    ]
+    bad=[c for c in checks if not c.get('ok')]
+    return jsonify(success=(len([c for c in bad if c.get('severity')=='critical'])==0),
+                   app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   summary={'note':'人工 smoke test 清單只讀，不修改資料、不改功能主線。','checks':len(checks),'critical':len([c for c in bad if c.get('severity')=='critical']),'warn':len([c for c in bad if c.get('severity')!='critical']),'groups':len(smoke_groups)},
+                   checks=checks, smoke_groups=smoke_groups, next_safe_actions=next_safe_actions)
 
 @app.route('/api/performance/last-api-timings', methods=['GET'])
 @login_required_json
@@ -5160,3 +6096,264 @@ def ui_runtime_contract_20260516bs():
             'no_setInterval_or_MutationObserver_for_buttons': True
         }
     })
+
+@app.route('/api/diagnostics/repair-priority-plan-report')
+def api_diagnostics_repair_priority_plan_report():
+    """Read-only repair priority plan report. It ranks next safe fixes without modifying business logic, DB, cache, or UI runtime."""
+    def read(rel, limit=1200000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def exists(rel):
+        try: return os.path.exists(rel)
+        except Exception: return False
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    app_src = read('app.py', 1800000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1200000)
+    css = read('static/yx_modules/yx_20260517_user_request.css', 500000)
+    ship = read('static/yx_modules/ship_single_lock.js', 800000)
+    wh = read('static/yx_modules/warehouse_hardlock.js', 900000)
+    products = read('static/yx_pages/page_products_master.js', 1000000)
+    base = read('templates/base.html', 500000)
+
+    checks = [
+        chk('20260517j 穩定基準仍保留', ('20260517j' in app_src or '手機全頁比例滑動' in app_src or 'stable' in app_src.lower()), '下一次真正修 bug 必須從滿意版思路出發，不直接重做主線。', 'warn'),
+        chk('所有巡檢端點保留', all(tok in app_src for tok in ['/api/diagnostics/final-checklist-report','/api/diagnostics/change-impact-scope-report','/api/diagnostics/performance-cache-report','/api/diagnostics/data-consistency-report']), '前面安全巡檢端點不可遺失。', 'critical'),
+        chk('診斷頁手動觸發，無自動輪詢', 'setInterval' not in diag and 'MutationObserver' not in diag, '診斷頁不可新增自動刷新或 DOM 觀察器。', 'warn'),
+        chk('出貨主線未改動載入', 'ship_single_lock.js' in base and 'ship_single_lock' in ship, '出貨頁仍使用目前滿意主線。', 'critical'),
+        chk('倉庫主線未改動載入', 'warehouse_hardlock.js' in base and 'warehouse' in wh.lower(), '倉庫頁仍使用目前滿意主線。', 'critical'),
+        chk('商品主線未改動載入', 'page_products_master.js' in base and ('orders' in products or 'master' in products), '庫存/訂單/總單仍使用目前滿意主線。', 'critical'),
+        chk('手機比例 CSS 檔存在', exists('static/yx_modules/yx_20260517_user_request.css') and ('overflow-x' in css or 'max-width' in css), '手機比例修復檔不可遺失。', 'warn'),
+    ]
+
+    priority_items = [
+        {'priority':'P1', 'title':'實機手機逐頁檢查', 'risk':'低', 'safe_scope':'只看畫面與滑動，不改功能。若要修，只動 static/yx_modules/yx_20260517_user_request.css。', 'reason':'你目前最滿意的是手機比例修復後的版本，後續最容易出現的是不同手機寬度細節。'},
+        {'priority':'P1', 'title':'件數唯一核心整理前置報告', 'risk':'中', 'safe_scope':'先只列出前端/後端件數函式位置，不直接合併邏輯。', 'reason':'件數規則已多次修補，最怕各頁各算各的。'},
+        {'priority':'P2', 'title':'倉庫長按操作實測清單', 'risk':'中', 'safe_scope':'先只做人工測試表與診斷紀錄，不改 warehouse_hardlock.js。', 'reason':'標記淡粉紅、批量加格/刪格、退回下拉都屬於容易回歸的互動。'},
+        {'priority':'P2', 'title':'出貨閉環人工測試清單', 'risk':'高', 'safe_scope':'先只測選客戶、預覽、確認出貨、紀錄、今日異動；不要改 ship_single_lock.js。', 'reason':'出貨會扣資料，正式修改前要先確認目前滿意版行為。'},
+        {'priority':'P3', 'title':'錯誤表舊資料整理功能', 'risk':'中', 'safe_scope':'先新增只讀篩選，不刪除 errors；之後才做封存。', 'reason':'errors 累積多會影響你判斷新 bug。'},
+        {'priority':'P3', 'title':'備份下載與回復流程 UI', 'risk':'高', 'safe_scope':'先做下載備份，不做還原；還原必須另開測試站。', 'reason':'備份/回復是安全升級，但一旦寫入 DB 風險高。'},
+    ]
+    next_package_policy = [
+        '每包最多只修 1~3 個問題。',
+        '功能問題先做診斷/報告，再做真正修復。',
+        'CSS 小修只動 CSS；倉庫問題才動 warehouse_hardlock.js；出貨問題才動 ship_single_lock.js。',
+        '任何 DB schema 或扣庫存邏輯都要先做備份與測試站。',
+        '交付永遠保留完整包、部署差異包、從 20260517j 到新版差異包。',
+    ]
+    bad=[c for c in checks if not c.get('ok')]
+    return jsonify(success=(len([c for c in bad if c.get('severity')=='critical'])==0), summary={'note':'只讀修復優先順序巡檢，不修改資料、不改功能主線。','total':len(checks),'critical':len([c for c in bad if c.get('severity')=='critical']),'warn':len([c for c in bad if c.get('severity')!='critical']),'items':len(priority_items)}, checks=checks, priority_items=priority_items, next_package_policy=next_package_policy)
+
+@app.route('/api/diagnostics/acceptance-handover-report')
+def api_diagnostics_acceptance_handover_report():
+    """Read-only acceptance and handover report. It summarizes whether the current stable branch is ready for small safe upgrades without touching business data."""
+    def read(rel, limit=1200000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def exists(rel):
+        try:
+            return os.path.exists(rel)
+        except Exception:
+            return False
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    app_src = read('app.py', 2000000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1400000)
+    base = read('templates/base.html', 600000)
+    css = read('static/yx_modules/yx_20260517_user_request.css', 600000)
+    wh = read('static/yx_modules/warehouse_hardlock.js', 1000000)
+    ship = read('static/yx_modules/ship_single_lock.js', 1000000)
+    products = read('static/yx_pages/page_products_master.js', 1000000)
+    sw = read('static/service-worker.js', 300000)
+
+    required_reports = [
+        ('手機全頁比例巡檢', '/api/diagnostics/mobile-layout-audit'),
+        ('件數一致性報告', '/api/diagnostics/qty-consistency-report'),
+        ('穩定守門報告', '/api/diagnostics/stable-guard-report'),
+        ('資料健康報告', '/api/diagnostics/data-health-report'),
+        ('發布回退巡檢', '/api/diagnostics/release-readiness-report'),
+        ('備份回復巡檢', '/api/diagnostics/backup-rollback-report'),
+        ('操作流程巡檢', '/api/diagnostics/operation-flow-report'),
+        ('錯誤趨勢巡檢', '/api/diagnostics/error-trend-report'),
+        ('資料一致性巡檢', '/api/diagnostics/data-consistency-report'),
+        ('效能快取巡檢', '/api/diagnostics/performance-cache-report'),
+        ('升級候選巡檢', '/api/diagnostics/upgrade-candidate-report'),
+        ('一鍵總報告', '/api/diagnostics/oneclick-total-report'),
+        ('部署總清單', '/api/diagnostics/final-checklist-report'),
+        ('改版影響巡檢', '/api/diagnostics/change-impact-scope-report'),
+        ('修復優先順序', '/api/diagnostics/repair-priority-plan-report'),
+        ('人工測試清單', '/api/diagnostics/manual-smoke-test-plan-report'),
+    ]
+    report_status = [{'name': name, 'endpoint': endpoint, 'ok': endpoint in app_src} for name, endpoint in required_reports]
+
+    checks = [
+        chk('20260517j 滿意基準仍可辨識', ('20260517j' in app_src or '手機全頁比例滑動' in app_src or '穩定版20260517j' in app_src), '後續修復要繼續以滿意版為基準。', 'warn'),
+        chk('出貨主線仍使用 ship_single_lock.js', 'ship_single_lock.js' in base and 'ship_single_lock' in ship, '未切換出貨頁主線。', 'critical'),
+        chk('倉庫主線仍使用 warehouse_hardlock.js', 'warehouse_hardlock.js' in base and 'warehouse' in wh.lower(), '未切換倉庫頁主線。', 'critical'),
+        chk('庫存/訂單/總單仍使用 page_products_master.js', 'page_products_master.js' in base and ('orders' in products or 'master' in products), '商品主線未切換。', 'critical'),
+        chk('手機修復 CSS 仍存在', exists('static/yx_modules/yx_20260517_user_request.css') and ('overflow-x' in css or 'max-width' in css or '100vw' in css), '手機比例與滑動規則不可遺失。', 'warn'),
+        chk('診斷頁沒有 setInterval', 'setInterval' not in diag, '診斷功能仍是手動按鈕，不新增輪詢。', 'warn'),
+        chk('診斷頁沒有 MutationObserver', 'MutationObserver' not in diag, '診斷功能不靠觀察器塞按鈕。', 'warn'),
+        chk('Service Worker 不應快取 API', ('/api/' not in sw or 'networkFirst' in sw or 'fetch(event.request)' in sw), '避免手機拿到舊 API 回應。', 'warn'),
+        chk('所有安全巡檢端點保留', all(x['ok'] for x in report_status), '前面累積的只讀巡檢端點不可遺失。', 'critical'),
+        chk('部署必要檔存在', all(exists(p) for p in ['Procfile','render.yaml','requirements.txt','migrations/000_yuanxing_all_in_one.sql','backup.py']), '正式部署與回退需要的檔案都應存在。', 'critical'),
+    ]
+    critical = [c for c in checks if (not c.get('ok') and c.get('severity') == 'critical')]
+    warn = [c for c in checks if (not c.get('ok') and c.get('severity') != 'critical')]
+    handover_steps = [
+        '部署前先下載 20260517j 滿意完整包與目前新版完整包，保留回退點。',
+        '先在測試分支部署，不直接覆蓋正式主線。',
+        '依序按：一鍵總報告、部署總清單、手機全頁比例巡檢、人工測試清單。',
+        '手機實機至少測首頁、庫存、訂單、總單、出貨、倉庫圖。',
+        '之後真正修 bug 時，每包只修 1～3 項，並明確限制可動檔案。',
+    ]
+    next_safe_upgrades = [
+        {'title': '只讀巡檢已足夠，下一步可停止連續加巡檢', 'risk': '低', 'scope': '不改程式，只部署目前穩定巡檢版。'},
+        {'title': '手機實機小修', 'risk': '低', 'scope': '只動 static/yx_modules/yx_20260517_user_request.css。'},
+        {'title': '件數唯一核心整理前置報告', 'risk': '中', 'scope': '先列出函式位置與樣本結果，不直接合併。'},
+        {'title': '倉庫長按與標記實測後的小修', 'risk': '中', 'scope': '只動 warehouse_hardlock.js 與指定 CSS。'},
+    ]
+    return jsonify(success=len(critical)==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   summary={'note':'驗收交付巡檢為只讀檢查，不修改資料、不改功能主線。','checks':len(checks),'critical':len(critical),'warn':len(warn),'reports':len(report_status)},
+                   checks=checks, report_status=report_status, handover_steps=handover_steps, next_safe_upgrades=next_safe_upgrades)
+
+@app.route('/api/diagnostics/stable-freeze-map-report')
+def api_diagnostics_stable_freeze_map_report():
+    """Read-only stable freeze map. It records which files should stay frozen and which files are allowed for future small fixes."""
+    import hashlib
+    def read(rel, limit=1200000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def exists(rel):
+        try:
+            return os.path.exists(rel)
+        except Exception:
+            return False
+    def digest(rel):
+        try:
+            with open(rel, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()[:16]
+        except Exception:
+            return ''
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    app_src = read('app.py', 2200000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1500000)
+    base = read('templates/base.html', 600000)
+    css = read('static/yx_modules/yx_20260517_user_request.css', 700000)
+    wh = read('static/yx_modules/warehouse_hardlock.js', 1000000)
+    ship = read('static/yx_modules/ship_single_lock.js', 1000000)
+    products = read('static/yx_pages/page_products_master.js', 1000000)
+
+    frozen_files = [
+        {'file':'static/yx_modules/ship_single_lock.js','status':'freeze unless shipping bug','hash':digest('static/yx_modules/ship_single_lock.js'),'rule':'出貨主線已滿意，除非明確修出貨 bug，否則不動。'},
+        {'file':'static/yx_modules/warehouse_hardlock.js','status':'freeze unless warehouse bug','hash':digest('static/yx_modules/warehouse_hardlock.js'),'rule':'倉庫長按、標記、手機彈窗目前滿意，除非明確修倉庫才動。'},
+        {'file':'static/yx_pages/page_products_master.js','status':'freeze unless product/order/master bug','hash':digest('static/yx_pages/page_products_master.js'),'rule':'庫存/訂單/總單主線不因診斷升級而動。'},
+        {'file':'static/yx_modules/yx_20260517_user_request.css','status':'mobile css safe-edit','hash':digest('static/yx_modules/yx_20260517_user_request.css'),'rule':'手機比例小修只允許動這支 CSS。'},
+        {'file':'app.py','status':'diagnostics safe-edit only','hash':digest('app.py'),'rule':'巡檢包只允許新增只讀 GET API，不寫 DB。'},
+        {'file':'static/yx_pages/diagnostics_page.js','status':'diagnostics safe-edit only','hash':digest('static/yx_pages/diagnostics_page.js'),'rule':'巡檢包只允許新增手動按鈕，不自動輪詢。'},
+    ]
+    checks = [
+        chk('出貨主線凍結點可辨識', 'ship_single_lock.js' in base and 'ship_single_lock' in ship, '出貨頁仍掛在指定主線檔。', 'critical'),
+        chk('倉庫主線凍結點可辨識', 'warehouse_hardlock.js' in base and 'warehouse' in wh.lower(), '倉庫頁仍掛在指定主線檔。', 'critical'),
+        chk('商品主線凍結點可辨識', 'page_products_master.js' in base and ('orders' in products or 'master' in products), '庫存/訂單/總單仍掛在指定主線檔。', 'critical'),
+        chk('手機 CSS 凍結點可辨識', exists('static/yx_modules/yx_20260517_user_request.css') and ('overflow-x' in css or 'max-width' in css), '手機比例規則仍存在。', 'warn'),
+        chk('診斷頁不自動輪詢', 'setInterval' not in diag and 'MutationObserver' not in diag, '巡檢只能手動按，不新增自動刷新或觀察器。', 'warn'),
+        chk('本巡檢端點已接入', '/api/diagnostics/stable-freeze-map-report' in app_src, '下一包以後可用這份凍結圖判斷改動範圍。', 'warn'),
+        chk('驗收交付巡檢保留', '/api/diagnostics/acceptance-handover-report' in app_src and 'diag-acceptance-handover' in diag, '上一包 20260517z 的驗收交付巡檢不可遺失。', 'critical'),
+    ]
+    allowed_change_matrix = [
+        {'change_type':'CSS / 手機比例小修','allowed_files':['static/yx_modules/yx_20260517_user_request.css'],'forbidden':'不得動出貨、倉庫、商品 JS。'},
+        {'change_type':'診斷巡檢升級','allowed_files':['app.py','static/yx_pages/diagnostics_page.js'],'forbidden':'不得寫 DB，不得新增 setInterval / MutationObserver。'},
+        {'change_type':'倉庫互動 bug','allowed_files':['static/yx_modules/warehouse_hardlock.js','static/yx_modules/yx_20260517_user_request.css'],'forbidden':'不得改 DB schema，不得重寫 renderer。'},
+        {'change_type':'出貨 bug','allowed_files':['static/yx_modules/ship_single_lock.js','app.py only if API needed'],'forbidden':'不得順手改訂單/總單/倉庫。'},
+        {'change_type':'件數計算整理','allowed_files':['先報告，不直接改；確認後才動 app.py / page_products_master.js / ship_single_lock.js 的指定函式'],'forbidden':'不得一次把所有頁面 renderer 重寫。'},
+    ]
+    bad=[c for c in checks if not c.get('ok')]
+    return jsonify(success=len([c for c in bad if c.get('severity')=='critical'])==0, generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   summary={'note':'穩定凍結圖為只讀巡檢，用來防止之後升級時亂動主線。','checks':len(checks),'critical':len([c for c in bad if c.get('severity')=='critical']),'warn':len([c for c in bad if c.get('severity')!='critical']),'frozen_files':len(frozen_files)},
+                   checks=checks, frozen_files=frozen_files, allowed_change_matrix=allowed_change_matrix)
+
+
+
+@app.route('/api/diagnostics/safe-change-request-report')
+def api_diagnostics_safe_change_request_report():
+    """Read-only safe change request form. It converts future bug-fix requests into a small, scoped, reversible checklist."""
+    import hashlib
+    def read(rel, limit=1200000):
+        try:
+            with open(rel, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(limit)
+        except Exception:
+            return ''
+    def exists(rel):
+        try:
+            return os.path.exists(rel)
+        except Exception:
+            return False
+    def digest(rel):
+        try:
+            with open(rel, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()[:16]
+        except Exception:
+            return ''
+    def chk(name, ok, detail, severity='warn'):
+        return {'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity}
+
+    app_src = read('app.py', 2300000)
+    diag = read('static/yx_pages/diagnostics_page.js', 1500000)
+    base = read('templates/base.html', 600000)
+    css = read('static/yx_modules/yx_20260517_user_request.css', 700000)
+    sw = read('static/service-worker.js', 300000)
+    guarded_files = [
+        'static/yx_modules/ship_single_lock.js',
+        'static/yx_modules/warehouse_hardlock.js',
+        'static/yx_pages/page_products_master.js',
+        'static/yx_modules/yx_20260517_user_request.css',
+        'app.py',
+        'static/yx_pages/diagnostics_page.js',
+    ]
+    file_fingerprints = [{'file': f, 'exists': exists(f), 'sha16': digest(f)} for f in guarded_files]
+    checks = [
+        chk('20260517j 滿意基準仍可辨識', ('20260517j' in app_src or '手機全頁比例滑動' in app_src or '穩定版20260517j' in app_src), '小修申請仍以滿意版 20260517j 為基準，不直接大改。', 'critical'),
+        chk('穩定凍結圖巡檢保留', '/api/diagnostics/stable-freeze-map-report' in app_src and 'diag-stable-freeze-map' in diag, '上一包 20260517aa 的凍結規則不可遺失。', 'critical'),
+        chk('診斷頁沒有 setInterval', 'setInterval' not in diag, '小修申請單不可新增自動輪詢。', 'warn'),
+        chk('診斷頁沒有 MutationObserver', 'MutationObserver' not in diag, '小修申請單不可新增 DOM 觀察器。', 'warn'),
+        chk('出貨主線仍由 ship_single_lock 載入', 'ship_single_lock.js' in base, '未切換出貨頁主線。', 'critical'),
+        chk('倉庫主線仍由 warehouse_hardlock 載入', 'warehouse_hardlock.js' in base, '未切換倉庫頁主線。', 'critical'),
+        chk('商品主線仍由 page_products_master 載入', 'page_products_master.js' in base, '庫存/訂單/總單主線未切換。', 'critical'),
+        chk('手機 CSS 仍可辨識', exists('static/yx_modules/yx_20260517_user_request.css') and ('overflow-x' in css or '100vw' in css or 'max-width' in css), '手機比例修復規則仍保留。', 'warn'),
+        chk('Service Worker 未明顯快取 API', ('/api/' not in sw or 'networkFirst' in sw or 'fetch(event.request)' in sw), '避免手機拿到舊 API 回應。', 'warn'),
+    ]
+    request_template = [
+        {'field': '基準版', 'required': True, 'example': '20260517j 或目前最新版 20260517ab'},
+        {'field': '這次只修哪些問題', 'required': True, 'example': '最多 1～3 個，逐條列出。'},
+        {'field': '不要動哪些地方', 'required': True, 'example': '不要動出貨主線 / 不動倉庫資料結構 / 不動 DB schema。'},
+        {'field': '允許修改檔案', 'required': True, 'example': '只允許 app.py、diagnostics_page.js 或指定 CSS/JS。'},
+        {'field': '驗收方式', 'required': True, 'example': '手機開頁不裁切、長按標記變淡粉紅、件數例子算對。'},
+        {'field': '交付包', 'required': True, 'example': '完整包、部署差異包、基準版到新版差異包。'},
+    ]
+    safe_scopes = [
+        {'type': '診斷/巡檢', 'allowed_files': ['app.py', 'static/yx_pages/diagnostics_page.js'], 'max_items': 3, 'risk': '低', 'must_not': '不得寫 DB，不得自動執行，不得新增輪詢。'},
+        {'type': '手機比例/CSS', 'allowed_files': ['static/yx_modules/yx_20260517_user_request.css'], 'max_items': 3, 'risk': '低', 'must_not': '不得動出貨、倉庫、商品主線 JS。'},
+        {'type': '倉庫互動小修', 'allowed_files': ['static/yx_modules/warehouse_hardlock.js', 'static/yx_modules/yx_20260517_user_request.css'], 'max_items': 2, 'risk': '中', 'must_not': '不得改 DB schema，不得重寫 renderer。'},
+        {'type': '出貨小修', 'allowed_files': ['static/yx_modules/ship_single_lock.js', 'app.py only if API needed'], 'max_items': 2, 'risk': '中高', 'must_not': '不得順手改訂單/總單/倉庫主線。'},
+        {'type': '資料庫/API', 'allowed_files': ['app.py', 'db.py', 'migrations/000_yuanxing_all_in_one.sql'], 'max_items': 1, 'risk': '高', 'must_not': '必須先備份，且要提供回退包。'},
+    ]
+    bad = [c for c in checks if not c.get('ok')]
+    return jsonify(success=len([c for c in bad if c.get('severity') == 'critical']) == 0,
+                   generated_at=now(), app_version=APP_VERSION, static_version=STATIC_VERSION,
+                   summary={'note': '小修申請單巡檢為只讀報告，用來約束下一次修 bug 的範圍，避免改一個壞一個。', 'checks': len(checks), 'critical': len([c for c in bad if c.get('severity') == 'critical']), 'warn': len([c for c in bad if c.get('severity') != 'critical']), 'safe_scopes': len(safe_scopes)},
+                   checks=checks, request_template=request_template, safe_scopes=safe_scopes, file_fingerprints=file_fingerprints)

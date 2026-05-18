@@ -2259,6 +2259,348 @@ def _deduct_from_inventory_size_material(cur, product_text, material='', qty_nee
     return True, used
 
 
+
+# YX 20260517ck：出貨同步扣倉庫圖（穩定保守版）
+# 原則：出貨主線仍以 訂單/總單/庫存 扣除成功為準；倉庫圖只做同步扣減。
+# 若倉庫格位找不到足量商品，不 rollback 出貨，避免因倉庫圖未完全錄入導致現場不能出貨；
+# 但會回傳 warehouse_sync.warning，讓前端/診斷可看到還有多少未同步扣到倉庫圖。
+def _yx_ship_wh_clean_customer(v):
+    name = str(v or '').strip()
+    name = re.sub(r'FOB代付|FOB代|FOB|CNF', '', name, flags=re.I)
+    name = re.sub(r'[()（）]', '', name)
+    name = re.sub(r'\s*[代]\s*$', '', name)
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
+
+
+def _yx_ship_wh_item_qty(item):
+    if not isinstance(item, dict):
+        return 0
+    for key in ('qty', 'actual_in_qty', 'warehouse_qty', 'count', 'pieces'):
+        try:
+            q = int(item.get(key) or 0)
+        except Exception:
+            q = 0
+        if q > 0:
+            return q
+    try:
+        return int(effective_product_qty(item.get('product_text') or item.get('product') or '', 0) or 0)
+    except Exception:
+        return 0
+
+
+def _yx_ship_wh_match_item(item, product_text, material, source_customer, source_kind, inventory_mode=False):
+    """出貨扣倉庫圖比對規則：尺寸 + 材質 + 安全客戶來源。
+
+    - 總單/訂單：必須同客戶，避免扣到別人的格位。
+    - 庫存：優先允許同出貨客戶、空客戶、庫存格、或 source_table=inventory。
+      不做任意客戶 fallback，因為「扣錯客戶格」比「少扣倉庫圖並提示」更危險。
+    """
+    if not isinstance(item, dict):
+        return False
+    it_product = item.get('product_text') or item.get('product') or ''
+    if _merge_size_key(it_product) != _merge_size_key(product_text):
+        return False
+    target_mat = _merge_material_key(material, product_text)
+    item_mat = _merge_material_key(item.get('material') or item.get('product_code') or '', it_product)
+    if target_mat and item_mat and item_mat != target_mat:
+        return False
+    item_customer = _yx_ship_wh_clean_customer(item.get('customer_name') or item.get('customer') or '')
+    src_customer = _yx_ship_wh_clean_customer(source_customer or '')
+    source_table = str(item.get('source_table') or item.get('source') or '').lower()
+    if not inventory_mode:
+        return bool(src_customer) and item_customer == src_customer
+    if src_customer and item_customer == src_customer:
+        return True
+    if item_customer in ('', '庫存', 'inventory', 'INVENTORY'):
+        return True
+    if 'inventory' in source_table or '庫存' in source_table:
+        return True
+    return False
+
+
+def _yx_ship_wh_preview_for_item(cur, product_text, material, qty_needed, source_customer, source_kind):
+    """20260517cl：只讀模擬倉庫圖扣除，不更新 warehouse_cells。"""
+    try:
+        qty_needed = int(qty_needed or 0)
+    except Exception:
+        qty_needed = 0
+    if qty_needed <= 0:
+        return {'success': True, 'deducted_qty': 0, 'shortage_qty': 0, 'cells': [], 'details': [], 'warning': ''}
+    inventory_mode = str(source_kind or '') == 'inventory'
+    remain = qty_needed
+    cells_out = []
+    details = []
+    cur.execute(sql("""
+        SELECT id, zone, column_index, slot_number, items_json, note
+        FROM warehouse_cells
+        WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ?
+          AND COALESCE(items_json, '') <> ''
+        ORDER BY zone, column_index, slot_number, id
+    """), ('direct',))
+    cells = rows_to_dict(cur)
+    for cell in cells:
+        if remain <= 0:
+            break
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+        except Exception:
+            continue
+        if not isinstance(items, list) or not items:
+            continue
+        cell_deduct = 0
+        matched_details = []
+        for it in items:
+            if remain <= 0:
+                break
+            if not _yx_ship_wh_match_item(it, product_text, material, source_customer, source_kind, inventory_mode=inventory_mode):
+                continue
+            have = _yx_ship_wh_item_qty(it)
+            use = min(have, remain)
+            if use <= 0:
+                continue
+            left = have - use
+            cell_deduct += use
+            remain -= use
+            matched_details.append({
+                'product_text': it.get('product_text') or it.get('product') or product_text,
+                'material': it.get('material') or it.get('product_code') or material,
+                'customer_name': it.get('customer_name') or it.get('customer') or '',
+                'before_qty': have,
+                'deduct_qty': use,
+                'after_qty': left,
+                'placement_label': it.get('placement_label') or it.get('layer_label') or '',
+            })
+        if cell_deduct > 0:
+            loc = f"{cell.get('zone') or ''}-{cell.get('column_index') or ''}-{cell.get('slot_number') or ''}"
+            cells_out.append({'id': cell.get('id'), 'location': loc, 'deduct_qty': cell_deduct})
+            details.append({'cell_id': cell.get('id'), 'location': loc, 'deduct_qty': cell_deduct, 'items': matched_details})
+    deducted = qty_needed - remain
+    warning = ''
+    if remain > 0:
+        warning = f'倉庫圖目前只預計扣到 {deducted}/{qty_needed} 件，剩 {remain} 件未找到對應格位；正式出貨仍會扣主資料並提示。'
+    return {'success': remain == 0, 'deducted_qty': deducted, 'shortage_qty': remain, 'cells': cells_out, 'details': details, 'warning': warning, 'rule': '只讀預檢；正式扣除以 /api/ship 同 transaction 執行'}
+
+
+def preview_ship_warehouse_deduct(customer_name, items):
+    """20260517cl：出貨前倉庫圖同步扣除預檢；只讀不寫資料。"""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        preview = preview_ship_order(customer_name, items)
+        rows = preview.get('items') if isinstance(preview, dict) else []
+        results = []
+        total_needed = 0
+        total_deducted = 0
+        total_shortage = 0
+        for row in rows or []:
+            product_text = format_product_text_height2(row.get('product_text') or '')
+            material = clean_material_value(row.get('material') or row.get('product_code') or '', product_text)
+            try:
+                qty_needed = int(row.get('qty') or 0)
+            except Exception:
+                qty_needed = 0
+            source_kind = _normalize_ship_source_preference(row.get('source_preference') or row.get('deduct_source') or row.get('source'))
+            source_customer = (row.get('source_customer_name') or customer_name or '').strip()
+            if not source_kind:
+                item_report = {'success': False, 'deducted_qty': 0, 'shortage_qty': qty_needed, 'cells': [], 'details': [], 'warning': '此筆尚未選到可扣來源，無法預檢倉庫圖。'}
+            else:
+                wh_customer = source_customer if source_kind != 'inventory' else customer_name
+                item_report = _yx_ship_wh_preview_for_item(cur, product_text, material, qty_needed, wh_customer, source_kind)
+            total_needed += qty_needed
+            total_deducted += int(item_report.get('deducted_qty') or 0)
+            total_shortage += int(item_report.get('shortage_qty') or 0)
+            results.append({'product_text': product_text, 'material': material, 'qty': qty_needed, 'source_preference': source_kind, 'source_label': _ship_source_label(source_kind), 'source_customer_name': source_customer, 'warehouse': item_report})
+        return {'success': True, 'enabled': True, 'items': results, 'total_qty': total_needed, 'deducted_qty': total_deducted, 'shortage_qty': total_shortage, 'warnings': [x['warehouse'].get('warning') for x in results if x.get('warehouse', {}).get('warning')], 'rule': '出貨前只讀預檢：顯示確認扣除後倉庫圖預計扣哪些格；不足只提示不阻擋預覽。'}
+    finally:
+        conn.close()
+
+
+def _yx_ship_wh_deduct(cur, product_text, material, qty_needed, source_customer, source_kind, operator='', ship_customer=''):
+    """在同一個 DB transaction 中同步扣 warehouse_cells.items_json。
+
+    回傳格式會放進出貨 breakdown：
+    {success, deducted_qty, shortage_qty, cells, warning}
+    """
+    try:
+        qty_needed = int(qty_needed or 0)
+    except Exception:
+        qty_needed = 0
+    if qty_needed <= 0:
+        return {'success': True, 'deducted_qty': 0, 'shortage_qty': 0, 'cells': [], 'warning': ''}
+    inventory_mode = str(source_kind or '') == 'inventory'
+    remain = qty_needed
+    touched = []
+    before_after = []
+    cur.execute(sql("""
+        SELECT id, zone, column_index, slot_number, items_json, note
+        FROM warehouse_cells
+        WHERE COALESCE(NULLIF(slot_type,''), 'direct') = ?
+          AND COALESCE(items_json, '') <> ''
+        ORDER BY zone, column_index, slot_number, id
+    """), ('direct',))
+    cells = rows_to_dict(cur)
+    for cell in cells:
+        if remain <= 0:
+            break
+        try:
+            items = json.loads(cell.get('items_json') or '[]')
+        except Exception:
+            continue
+        if not isinstance(items, list) or not items:
+            continue
+        changed = False
+        new_items = []
+        cell_deduct = 0
+        matched_details = []
+        for it in items:
+            if remain > 0 and _yx_ship_wh_match_item(it, product_text, material, source_customer, source_kind, inventory_mode=inventory_mode):
+                have = _yx_ship_wh_item_qty(it)
+                use = min(have, remain)
+                if use > 0:
+                    next_it = dict(it)
+                    left = have - use
+                    cell_deduct += use
+                    remain -= use
+                    changed = True
+                    matched_details.append({
+                        'product_text': next_it.get('product_text') or next_it.get('product') or product_text,
+                        'material': next_it.get('material') or next_it.get('product_code') or material,
+                        'customer_name': next_it.get('customer_name') or next_it.get('customer') or '',
+                        'before_qty': have,
+                        'deduct_qty': use,
+                        'after_qty': left,
+                    })
+                    if left > 0:
+                        next_it['qty'] = int(left)
+                        next_it['actual_in_qty'] = int(left)
+                        next_it['warehouse_qty'] = int(left)
+                        next_it['warehouse_qty_locked'] = True
+                        new_items.append(next_it)
+                    continue
+            new_items.append(it)
+        if changed:
+            # 再跑一次倉庫保存正規化，合併同格同品項，並清掉 0 件。
+            try:
+                new_items = _normalize_warehouse_items(new_items)
+            except Exception:
+                new_items = [x for x in new_items if _yx_ship_wh_item_qty(x) > 0]
+            cur.execute(sql("""
+                UPDATE warehouse_cells
+                SET items_json = ?, updated_at = ?
+                WHERE id = ?
+            """), (json.dumps(new_items, ensure_ascii=False), now(), cell.get('id')))
+            loc = f"{cell.get('zone') or ''}-{cell.get('column_index') or ''}-{cell.get('slot_number') or ''}"
+            touched.append({'id': cell.get('id'), 'location': loc, 'deduct_qty': cell_deduct})
+            before_after.append({'cell_id': cell.get('id'), 'location': loc, 'deduct_qty': cell_deduct, 'items': matched_details})
+    deducted = qty_needed - remain
+    warning = ''
+    if remain > 0:
+        warning = f'倉庫圖只同步扣到 {deducted}/{qty_needed} 件，剩 {remain} 件未找到對應格位；出貨主資料已扣除，請用倉庫讀回自檢確認。'
+    if deducted > 0:
+        try:
+            _warehouse_invalidate_cache()
+        except Exception:
+            pass
+        try:
+            cur.execute(sql("""
+                INSERT INTO today_changes(action, table_name, customer_name, product_text, detail_json, operator, created_at, unread)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), ('出貨同步扣倉庫圖', 'warehouse_cells', ship_customer or source_customer or '', product_text,
+                  json.dumps({'qty_needed': qty_needed, 'deducted_qty': deducted, 'shortage_qty': remain, 'source_kind': source_kind, 'source_customer': source_customer, 'cells': before_after}, ensure_ascii=False),
+                  operator or '', now(), 1))
+        except Exception:
+            # today_changes 是輔助紀錄；失敗不能影響正式出貨。
+            pass
+    readback_cells = []
+    try:
+        readback_cells = _yx_ship_wh_touched_readback(cur, [x.get('id') for x in touched if isinstance(x, dict)])
+    except Exception:
+        readback_cells = []
+    return {
+        'success': remain == 0,
+        'deducted_qty': deducted,
+        'shortage_qty': remain,
+        'cells': touched,
+        'details': before_after,
+        'readback_cells': readback_cells,
+        'readback_ok': all(c.get('exists') for c in readback_cells) if readback_cells else True,
+        'warning': warning,
+        'rule': '尺寸+材質+客戶/庫存安全比對；不足只警告不 rollback 出貨；20260517cm 增加扣後格位讀回',
+    }
+
+
+def _yx_ship_wh_touched_readback(cur, cell_ids):
+    """20260517cm：同步扣倉庫圖後，讀回被碰到的格位狀態；只讀取不再修改。"""
+    out = []
+    seen = []
+    for cid in cell_ids or []:
+        try:
+            cid_int = int(cid)
+        except Exception:
+            continue
+        if cid_int in seen:
+            continue
+        seen.append(cid_int)
+    for cid in seen:
+        try:
+            cur.execute(sql("SELECT id, zone, column_index, slot_number, items_json, updated_at FROM warehouse_cells WHERE id = ?"), (cid,))
+            row = cur.fetchone()
+            if not row:
+                out.append({'id': cid, 'exists': False, 'qty_total': 0, 'items_count': 0, 'location': '', 'warning': '格位已不存在'})
+                continue
+            d = dict(row)
+            try:
+                items = json.loads(d.get('items_json') or '[]')
+            except Exception:
+                items = []
+            if not isinstance(items, list):
+                items = []
+            qty_total = 0
+            for it in items:
+                qty_total += int(_yx_ship_wh_item_qty(it) or 0)
+            out.append({
+                'id': d.get('id'),
+                'exists': True,
+                'location': f"{d.get('zone') or ''}-{d.get('column_index') or ''}-{d.get('slot_number') or ''}",
+                'qty_total': qty_total,
+                'items_count': len(items),
+                'updated_at': d.get('updated_at') or '',
+            })
+        except Exception as e:
+            out.append({'id': cid, 'exists': False, 'qty_total': 0, 'items_count': 0, 'location': '', 'warning': str(e)})
+    return out
+
+
+def ship_warehouse_readback_check(sync):
+    """20260517cm：前端或診斷可呼叫的出貨後倉庫扣除讀回檢查。只讀、不改倉庫。"""
+    sync = sync or {}
+    cell_ids = []
+    for c in sync.get('cells') or []:
+        if isinstance(c, dict) and c.get('id') is not None:
+            cell_ids.append(c.get('id'))
+    for b in sync.get('breakdown') or []:
+        wh = b.get('warehouse_sync') or {}
+        for c in wh.get('cells') or []:
+            if isinstance(c, dict) and c.get('id') is not None:
+                cell_ids.append(c.get('id'))
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cells = _yx_ship_wh_touched_readback(cur, cell_ids)
+        missing = [c for c in cells if not c.get('exists')]
+        return {
+            'success': True,
+            'safe_read_only': True,
+            'checked_cells': len(cells),
+            'missing_cells': len(missing),
+            'cells': cells,
+            'summary': '讀回正常' if not missing else f'{len(missing)} 個格位讀回異常',
+            'rule': '只讀檢查；不補、不重排、不寫 warehouse_cells',
+        }
+    finally:
+        conn.close()
+
 def save_inventory_item(product_text, product_code, qty, location="", customer_name="", operator="", source_text="", material=""):
     conn = get_db()
     cur = conn.cursor()
@@ -2739,6 +3081,16 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 conn.rollback()
                 return {"success": False, "error": f"{product_text} 出貨來源錯誤"}
 
+            warehouse_sync = _yx_ship_wh_deduct(
+                cur, product_text, material, qty_needed,
+                source_customer=source_customer if auto_source != 'inventory' else customer_name,
+                source_kind=auto_source, operator=operator, ship_customer=customer_name
+            )
+            if warehouse_sync.get('deducted_qty'):
+                note = note + f"；倉庫圖同步扣 {warehouse_sync.get('deducted_qty')}/{qty_needed} 件"
+            if warehouse_sync.get('warning'):
+                note = note + f"；{warehouse_sync.get('warning')}"
+
             cur.execute(sql("""
                 INSERT INTO shipping_records(customer_name, customer_uid, product_text, product_code, material, qty, operator, shipped_at, note)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2761,6 +3113,10 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
                 "master_details": used_master,
                 "order_details": used_order,
                 "inventory_details": used_inv,
+                "warehouse_sync": warehouse_sync,
+                "warehouse_deduct": warehouse_sync.get('deducted_qty', 0),
+                "warehouse_shortage": warehouse_sync.get('shortage_qty', 0),
+                "warehouse_cells": warehouse_sync.get('cells', []),
                 "note": note,
                 "borrow_from_customer_name": borrow_from,
                 "source_customer_name": source_customer,
@@ -2777,7 +3133,31 @@ def ship_order(customer_name, items, operator, allow_inventory_fallback=False):
             })
         conn.commit()
         volume_calc = calculate_shipment_volume(breakdown)
-        return {"success": True, "breakdown": breakdown, "volume_calc": volume_calc, "calc": volume_calc}
+        warehouse_warnings = [b.get('warehouse_sync', {}).get('warning') for b in breakdown if b.get('warehouse_sync', {}).get('warning')]
+        warehouse_total_deduct = sum(int(b.get('warehouse_deduct') or 0) for b in breakdown)
+        warehouse_total_shortage = sum(int(b.get('warehouse_shortage') or 0) for b in breakdown)
+        warehouse_cells_touched = []
+        warehouse_readback_cells = []
+        for b in breakdown:
+            wh = b.get('warehouse_sync') or {}
+            warehouse_cells_touched.extend(wh.get('cells') or [])
+            warehouse_readback_cells.extend(wh.get('readback_cells') or [])
+        return {
+            "success": True,
+            "breakdown": breakdown,
+            "volume_calc": volume_calc,
+            "calc": volume_calc,
+            "warehouse_sync": {
+                "enabled": True,
+                "deducted_qty": warehouse_total_deduct,
+                "shortage_qty": warehouse_total_shortage,
+                "warnings": warehouse_warnings,
+                "cells": warehouse_cells_touched,
+                "readback_cells": warehouse_readback_cells,
+                "readback_ok": all(c.get('exists') for c in warehouse_readback_cells) if warehouse_readback_cells else True,
+                "rule": "出貨扣主資料後，同 transaction 保守同步扣 warehouse_cells.items_json；不足只警告不 rollback；扣後讀回確認格位仍存在"
+            }
+        }
     except Exception as e:
         conn.rollback()
         log_error("ship_order", e)
