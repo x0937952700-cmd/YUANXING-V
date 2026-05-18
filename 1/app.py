@@ -910,7 +910,16 @@ def login_page():
 @app.route("/settings")
 def settings_page():
     is_admin = current_username() == '陳韋廷'
-    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=(str(get_setting('native_ocr_mode', '1')) == '1'))
+    try:
+        native_ocr_mode = (str(get_setting('native_ocr_mode', '1')) == '1')
+    except Exception as e:
+        # 防止 DB 初始化尚未完成或 app_settings 缺表時，設定頁直接 500。
+        try:
+            log_error('settings_page_get_setting', str(e))
+        except Exception:
+            pass
+        native_ocr_mode = True
+    return render_template("settings.html", username=current_username(), title="設定", is_admin=is_admin, native_ocr_mode=native_ocr_mode)
 
 @app.route("/diagnostics")
 def diagnostics_page():
