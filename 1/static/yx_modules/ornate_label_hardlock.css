@@ -1,0 +1,482 @@
+/* FIX124 獨立圓型標籤母版硬鎖
+   目的：主頁黑色標籤與全站按鈕全部由這支獨立母版 CSS 接管。
+   只改外觀，不改 onclick / href / API 行為。 */
+:root{
+  --yx124-label-bg-top:#ffffff;
+  --yx124-label-bg-mid:#f2f3f5;
+  --yx124-label-bg-bottom:#dfe2e6;
+  --yx124-label-text:#111827;
+  --yx124-label-muted:#4b5563;
+  --yx124-gold:#d1d5db;
+  --yx124-gold-2:#9ca3af;
+  --yx124-gold-3:#f8fafc;
+  --yx124-gold-soft:rgba(209,213,219,.52);
+  --yx124-shadow:0 10px 24px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.94);
+}
+html[data-yx124-ornate-label="locked"]{
+  --accent:#d1d5db;
+  --wood:#d1d5db;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .menu-btn,
+html[data-yx124-ornate-label="locked"] a.menu-btn,
+html[data-yx124-ornate-label="locked"] .home-mini-btn,
+html[data-yx124-ornate-label="locked"] a.home-mini-btn,
+html[data-yx124-ornate-label="locked"] .user-cell,
+html[data-yx124-ornate-label="locked"] .primary-btn,
+html[data-yx124-ornate-label="locked"] button.primary-btn,
+html[data-yx124-ornate-label="locked"] .ghost-btn,
+html[data-yx124-ornate-label="locked"] button.ghost-btn,
+html[data-yx124-ornate-label="locked"] .back-btn,
+html[data-yx124-ornate-label="locked"] a.back-btn,
+html[data-yx124-ornate-label="locked"] .danger-btn,
+html[data-yx124-ornate-label="locked"] button.danger-btn,
+html[data-yx124-ornate-label="locked"] .btn-danger,
+html[data-yx124-ornate-label="locked"] .chip,
+html[data-yx124-ornate-label="locked"] button.chip,
+html[data-yx124-ornate-label="locked"] .pill,
+html[data-yx124-ornate-label="locked"] .tiny-btn,
+html[data-yx124-ornate-label="locked"] .small-btn,
+html[data-yx124-ornate-label="locked"] .icon-btn,
+html[data-yx124-ornate-label="locked"] .interactive-pill,
+html[data-yx124-ornate-label="locked"] .category-title,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag,
+html[data-yx124-ornate-label="locked"] .customer-chip,
+html[data-yx124-ornate-label="locked"] .customer-region-card,
+html[data-yx124-ornate-label="locked"] .zone-switch,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn{
+  position:relative!important;
+  isolation:isolate!important;
+  overflow:hidden!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:.35em!important;
+  min-height:42px!important;
+  padding:.62em 1.35em!important;
+  border-radius:999px!important;
+  border:2px solid var(--yx124-gold)!important;
+  outline:1px solid rgba(255,255,255,.72)!important;
+  outline-offset:-6px!important;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.96) 0 17%, transparent 44%),
+    linear-gradient(180deg,var(--yx124-label-bg-top) 0%,var(--yx124-label-bg-mid) 50%,var(--yx124-label-bg-bottom) 100%)!important;
+  color:var(--yx124-label-text)!important;
+  text-shadow:0 1px 0 rgba(255,255,255,.78)!important;
+  box-shadow:var(--yx124-shadow), inset 0 0 0 5px var(--yx124-gold-soft), inset 0 0 18px rgba(185,130,46,.10)!important;
+  font-weight:900!important;
+  letter-spacing:.04em!important;
+  text-decoration:none!important;
+  -webkit-tap-highlight-color:transparent!important;
+  touch-action:manipulation!important;
+  cursor:pointer!important;
+  transition:transform .14s ease, box-shadow .14s ease, background .14s ease, border-color .14s ease!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before,
+html[data-yx124-ornate-label="locked"] .menu-btn::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::before,
+html[data-yx124-ornate-label="locked"] .user-cell::before,
+html[data-yx124-ornate-label="locked"] .primary-btn::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn::before,
+html[data-yx124-ornate-label="locked"] .back-btn::before,
+html[data-yx124-ornate-label="locked"] .danger-btn::before,
+html[data-yx124-ornate-label="locked"] .btn-danger::before,
+html[data-yx124-ornate-label="locked"] .chip::before,
+html[data-yx124-ornate-label="locked"] .pill::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn::before,
+html[data-yx124-ornate-label="locked"] .small-btn::before,
+html[data-yx124-ornate-label="locked"] .icon-btn::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill::before,
+html[data-yx124-ornate-label="locked"] .category-title::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::before,
+html[data-yx124-ornate-label="locked"] .customer-chip::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card::before,
+html[data-yx124-ornate-label="locked"] .zone-switch::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::before{
+  content:""!important;
+  position:absolute!important;
+  inset:5px!important;
+  border-radius:inherit!important;
+  border:1px solid rgba(185,130,46,.62)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.76), inset 0 0 10px rgba(217,173,86,.16)!important;
+  pointer-events:none!important;
+  z-index:0!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::after,
+html[data-yx124-ornate-label="locked"] .menu-btn::after,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::after,
+html[data-yx124-ornate-label="locked"] .user-cell::after,
+html[data-yx124-ornate-label="locked"] .primary-btn::after,
+html[data-yx124-ornate-label="locked"] .ghost-btn::after,
+html[data-yx124-ornate-label="locked"] .back-btn::after,
+html[data-yx124-ornate-label="locked"] .danger-btn::after,
+html[data-yx124-ornate-label="locked"] .btn-danger::after,
+html[data-yx124-ornate-label="locked"] .chip::after,
+html[data-yx124-ornate-label="locked"] .pill::after,
+html[data-yx124-ornate-label="locked"] .tiny-btn::after,
+html[data-yx124-ornate-label="locked"] .small-btn::after,
+html[data-yx124-ornate-label="locked"] .icon-btn::after,
+html[data-yx124-ornate-label="locked"] .interactive-pill::after,
+html[data-yx124-ornate-label="locked"] .category-title::after,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::after,
+html[data-yx124-ornate-label="locked"] .customer-chip::after,
+html[data-yx124-ornate-label="locked"] .customer-region-card::after,
+html[data-yx124-ornate-label="locked"] .zone-switch::after,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::after{
+  content:""!important;
+  position:absolute!important;
+  left:16%!important;
+  right:16%!important;
+  top:7px!important;
+  height:1px!important;
+  border-radius:999px!important;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.96),transparent)!important;
+  pointer-events:none!important;
+  z-index:0!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover,
+html[data-yx124-ornate-label="locked"] .back-btn:hover,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover,
+html[data-yx124-ornate-label="locked"] .chip:hover,
+html[data-yx124-ornate-label="locked"] .pill:hover,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover,
+html[data-yx124-ornate-label="locked"] .small-btn:hover,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover{
+  transform:translateY(-1px)!important;
+  border-color:var(--yx124-gold-2)!important;
+  box-shadow:0 14px 30px rgba(15,23,42,.14), inset 0 0 0 5px rgba(217,173,86,.38), inset 0 0 18px rgba(185,130,46,.12)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:active,
+html[data-yx124-ornate-label="locked"] .menu-btn:active,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:active,
+html[data-yx124-ornate-label="locked"] .primary-btn:active,
+html[data-yx124-ornate-label="locked"] .ghost-btn:active,
+html[data-yx124-ornate-label="locked"] .back-btn:active,
+html[data-yx124-ornate-label="locked"] .danger-btn:active,
+html[data-yx124-ornate-label="locked"] .chip:active,
+html[data-yx124-ornate-label="locked"] .pill:active,
+html[data-yx124-ornate-label="locked"] .tiny-btn:active,
+html[data-yx124-ornate-label="locked"] .small-btn:active,
+html[data-yx124-ornate-label="locked"] .icon-btn:active,
+html[data-yx124-ornate-label="locked"] .interactive-pill:active,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:active,
+html[data-yx124-ornate-label="locked"] .customer-chip:active,
+html[data-yx124-ornate-label="locked"] .customer-region-card:active,
+html[data-yx124-ornate-label="locked"] .zone-switch:active,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:active{
+  transform:scale(.982)!important;
+  box-shadow:0 5px 15px rgba(15,23,42,.11), inset 0 0 0 5px rgba(217,173,86,.34)!important;
+}
+/* 主頁按鈕不要再被舊黑色長條拉滿；維持原 href 功能。 */
+html[data-yx124-ornate-label="locked"] .home-menu.vertical{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:13px!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn{
+  width:auto!important;
+  min-width:0!important;
+  max-width:min(92vw,420px)!important;
+  min-height:66px!important;
+  padding:14px 48px!important;
+  font-size:clamp(1.35rem,4.8vw,1.9rem)!important;
+  line-height:1.08!important;
+  white-space:nowrap!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:10px!important;
+  width:min(520px,96vw)!important;
+  margin-inline:auto!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+  width:auto!important;
+  min-width:0!important;
+  min-height:46px!important;
+  padding:8px 12px!important;
+  font-size:.95rem!important;
+  text-align:center!important;
+}
+/* 舊版黑色/深色按鈕或被隱藏的舊畫面不可再接收事件。 */
+html[data-yx124-ornate-label="locked"] .yx115-hidden-legacy,
+html[data-yx124-ornate-label="locked"] .yx115-hidden-legacy-product,
+html[data-yx124-ornate-label="locked"] .yx88-hidden-legacy,
+html[data-yx124-ornate-label="locked"] [data-yx-legacy-hidden="1"]{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-old-visual-disabled{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+html[data-yx124-ornate-label="locked"] button:disabled,
+html[data-yx124-ornate-label="locked"] .primary-btn:disabled,
+html[data-yx124-ornate-label="locked"] .ghost-btn:disabled,
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:disabled{
+  opacity:.48!important;
+  cursor:not-allowed!important;
+  transform:none!important;
+}
+@media(max-width:640px){
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical{gap:12px!important;}
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn{min-height:60px!important;padding:12px 36px!important;}
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{gap:8px!important;}
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{font-size:.88rem!important;padding:8px 8px!important;}
+}
+
+
+/* FIX127 淺灰外圈 + 主頁等寬母版硬鎖
+   只覆蓋視覺尺寸與外圈顏色，不改 href / onclick / API。 */
+html[data-yx124-ornate-label="locked"]{
+  --yx124-label-bg-top:#ffffff;
+  --yx124-label-bg-mid:#f6f7f9;
+  --yx124-label-bg-bottom:#eceff3;
+  --yx124-label-text:#111827;
+  --yx124-ring:#d1d5db;
+  --yx124-ring-strong:#b8bec6;
+  --yx124-ring-inner:#e5e7eb;
+  --yx124-ring-soft:rgba(209,213,219,.56);
+  --accent:#d1d5db;
+  --wood:#d1d5db;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label{
+  border-color:var(--yx124-ring)!important;
+  outline-color:rgba(255,255,255,.80)!important;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.98) 0 17%, transparent 44%),
+    linear-gradient(180deg,var(--yx124-label-bg-top) 0%,var(--yx124-label-bg-mid) 50%,var(--yx124-label-bg-bottom) 100%)!important;
+  color:var(--yx124-label-text)!important;
+  box-shadow:
+    0 10px 24px rgba(15,23,42,.10),
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 0 0 5px var(--yx124-ring-soft),
+    inset 0 0 18px rgba(156,163,175,.12)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before{
+  border-color:var(--yx124-ring-strong)!important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.86),
+    inset 0 0 10px rgba(156,163,175,.18)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::after{
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.98),transparent)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover{
+  border-color:var(--yx124-ring-strong)!important;
+  box-shadow:
+    0 14px 30px rgba(15,23,42,.12),
+    inset 0 1px 0 rgba(255,255,255,.96),
+    inset 0 0 0 5px rgba(209,213,219,.66),
+    inset 0 0 18px rgba(156,163,175,.16)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:active{
+  box-shadow:
+    0 5px 15px rgba(15,23,42,.10),
+    inset 0 0 0 5px rgba(209,213,219,.62)!important;
+}
+
+/* 主頁上方姓名 / 設定 / 今日異動：保留小標籤，三顆同寬。 */
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+  display:grid!important;
+  grid-template-columns:repeat(3, minmax(0, 1fr))!important;
+  gap:12px!important;
+  width:min(560px,96vw)!important;
+  margin:10px auto 30px!important;
+  align-items:center!important;
+  justify-items:stretch!important;
+}
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+  width:100%!important;
+  min-width:0!important;
+  max-width:none!important;
+  min-height:44px!important;
+  height:44px!important;
+  padding:6px 12px!important;
+  font-size:clamp(.86rem,2.6vw,1rem)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+}
+
+/* 主頁功能標籤：庫存/訂單/總單/出貨/出貨查詢/倉庫圖/客戶資料/代辦事項 全部同寬同高。 */
+html[data-yx124-ornate-label="locked"] .home-menu.vertical{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:16px!important;
+  width:100%!important;
+  margin:0 auto!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn,
+html[data-yx124-ornate-label="locked"] .home-menu.vertical a.menu-btn{
+  width:min(260px,82vw)!important;
+  min-width:min(260px,82vw)!important;
+  max-width:min(260px,82vw)!important;
+  min-height:72px!important;
+  height:72px!important;
+  padding:0 20px!important;
+  box-sizing:border-box!important;
+  font-size:clamp(1.7rem,5.2vw,2.08rem)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+}
+html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn *{
+  pointer-events:none!important;
+}
+
+/* 功能頁列表客戶卡只改淺灰外圈，不強制主頁等寬規則，避免影響件數/筆數排版。 */
+html[data-yx124-ornate-label="locked"] .customer-region-card.yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .customer-chip.yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .interactive-pill.yx124-ornate-label{
+  border-color:var(--yx124-ring)!important;
+}
+
+@media(max-width:640px){
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions{
+    gap:8px!important;
+    width:min(520px,96vw)!important;
+    margin-bottom:26px!important;
+  }
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .home-mini-btn,
+  html[data-yx124-ornate-label="locked"] .home-top-actions.centered-actions .user-cell{
+    min-height:42px!important;
+    height:42px!important;
+    padding:6px 8px!important;
+    font-size:.88rem!important;
+  }
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical{gap:14px!important;}
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical .menu-btn,
+  html[data-yx124-ornate-label="locked"] .home-menu.vertical a.menu-btn{
+    width:min(238px,78vw)!important;
+    min-width:min(238px,78vw)!important;
+    max-width:min(238px,78vw)!important;
+    min-height:66px!important;
+    height:66px!important;
+    padding:0 16px!important;
+    font-size:clamp(1.5rem,7vw,1.9rem)!important;
+  }
+}
+
+/* FIX131：外框改成更深淺灰，hover 內圈改銀色，不再用黃色光暈。 */
+html[data-yx124-ornate-label="locked"]{
+  --yx124-gold:#9aa3af!important;
+  --yx124-gold-2:#687384!important;
+  --yx124-gold-3:#f8fafc!important;
+  --yx124-gold-soft:rgba(148,163,184,.58)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label,
+html[data-yx124-ornate-label="locked"] .menu-btn,
+html[data-yx124-ornate-label="locked"] a.menu-btn,
+html[data-yx124-ornate-label="locked"] .home-mini-btn,
+html[data-yx124-ornate-label="locked"] a.home-mini-btn,
+html[data-yx124-ornate-label="locked"] .user-cell,
+html[data-yx124-ornate-label="locked"] .primary-btn,
+html[data-yx124-ornate-label="locked"] button.primary-btn,
+html[data-yx124-ornate-label="locked"] .ghost-btn,
+html[data-yx124-ornate-label="locked"] button.ghost-btn,
+html[data-yx124-ornate-label="locked"] .back-btn,
+html[data-yx124-ornate-label="locked"] a.back-btn,
+html[data-yx124-ornate-label="locked"] .danger-btn,
+html[data-yx124-ornate-label="locked"] button.danger-btn,
+html[data-yx124-ornate-label="locked"] .btn-danger,
+html[data-yx124-ornate-label="locked"] .chip,
+html[data-yx124-ornate-label="locked"] button.chip,
+html[data-yx124-ornate-label="locked"] .pill,
+html[data-yx124-ornate-label="locked"] .tiny-btn,
+html[data-yx124-ornate-label="locked"] .small-btn,
+html[data-yx124-ornate-label="locked"] .icon-btn,
+html[data-yx124-ornate-label="locked"] .interactive-pill,
+html[data-yx124-ornate-label="locked"] .category-title,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag,
+html[data-yx124-ornate-label="locked"] .customer-chip,
+html[data-yx124-ornate-label="locked"] .customer-region-card,
+html[data-yx124-ornate-label="locked"] .zone-switch,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn{
+  border-color:#8d98a6!important;
+  box-shadow:0 10px 24px rgba(15,23,42,.13), inset 0 1px 0 rgba(255,255,255,.94), inset 0 0 0 5px rgba(148,163,184,.50), inset 0 0 18px rgba(100,116,139,.10)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label::before,
+html[data-yx124-ornate-label="locked"] .menu-btn::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn::before,
+html[data-yx124-ornate-label="locked"] .user-cell::before,
+html[data-yx124-ornate-label="locked"] .primary-btn::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn::before,
+html[data-yx124-ornate-label="locked"] .back-btn::before,
+html[data-yx124-ornate-label="locked"] .danger-btn::before,
+html[data-yx124-ornate-label="locked"] .btn-danger::before,
+html[data-yx124-ornate-label="locked"] .chip::before,
+html[data-yx124-ornate-label="locked"] .pill::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn::before,
+html[data-yx124-ornate-label="locked"] .small-btn::before,
+html[data-yx124-ornate-label="locked"] .icon-btn::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill::before,
+html[data-yx124-ornate-label="locked"] .category-title::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag::before,
+html[data-yx124-ornate-label="locked"] .customer-chip::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card::before,
+html[data-yx124-ornate-label="locked"] .zone-switch::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn::before{
+  border-color:rgba(117,128,143,.72)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.84), inset 0 0 10px rgba(148,163,184,.24)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover,
+html[data-yx124-ornate-label="locked"] .back-btn:hover,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover,
+html[data-yx124-ornate-label="locked"] .chip:hover,
+html[data-yx124-ornate-label="locked"] .pill:hover,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover,
+html[data-yx124-ornate-label="locked"] .small-btn:hover,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover{
+  border-color:#5f6978!important;
+  box-shadow:0 14px 30px rgba(15,23,42,.15), inset 0 0 0 5px rgba(192,197,204,.70), inset 0 0 18px rgba(148,163,184,.20)!important;
+}
+html[data-yx124-ornate-label="locked"] .yx124-ornate-label:hover::before,
+html[data-yx124-ornate-label="locked"] .menu-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .home-mini-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .primary-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .ghost-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .back-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .danger-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .chip:hover::before,
+html[data-yx124-ornate-label="locked"] .pill:hover::before,
+html[data-yx124-ornate-label="locked"] .tiny-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .small-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .icon-btn:hover::before,
+html[data-yx124-ornate-label="locked"] .interactive-pill:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-mini-tag:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-chip:hover::before,
+html[data-yx124-ornate-label="locked"] .customer-region-card:hover::before,
+html[data-yx124-ornate-label="locked"] .zone-switch:hover::before,
+html[data-yx124-ornate-label="locked"] .pwa-install-btn:hover::before{
+  border-color:rgba(160,166,176,.96)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.92), inset 0 0 13px rgba(203,213,225,.42)!important;
+}
